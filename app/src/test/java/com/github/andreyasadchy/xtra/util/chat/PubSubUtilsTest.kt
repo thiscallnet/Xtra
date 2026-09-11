@@ -8,6 +8,31 @@ import org.junit.Test
 
 class PubSubUtilsTest {
     @Test
+    fun parsesBonusClaimIdFromHermesEvent() {
+        val claim = PubSubUtils.parseClaimAvailable(
+            JSONObject(
+                """
+                {
+                  "type": "claim-available",
+                  "data": {
+                    "claim": {
+                      "id": "claim-123",
+                      "channel_id": "channel-456",
+                      "user_id": "user-789",
+                      "point_gain": {"total_points": 50}
+                    }
+                  }
+                }
+                """.trimIndent(),
+            ),
+        )
+
+        assertEquals("claim-123", claim?.id)
+        assertEquals("channel-456", claim?.channelId)
+        assertEquals("user-789", claim?.userId)
+    }
+
+    @Test
     fun parsesWatchStreakReasonCode() {
         val (points, channelId) = PubSubUtils.parsePointsEarned(
             JSONObject(

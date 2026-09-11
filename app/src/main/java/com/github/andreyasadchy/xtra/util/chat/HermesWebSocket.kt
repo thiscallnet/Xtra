@@ -11,6 +11,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.util.Locale
 import java.util.Timer
 import javax.net.ssl.X509TrustManager
 import kotlin.concurrent.schedule
@@ -19,6 +20,13 @@ import kotlin.time.Clock
 import kotlin.uuid.Uuid
 
 private const val MINUTE_WATCHED_INTERVAL_MILLIS = 59_000L
+
+internal fun shouldStartMinuteWatchedTimer(
+    listenForDrops: Boolean,
+    userIdPresent: Boolean,
+    gqlTokenPresent: Boolean,
+    authenticationAccepted: Boolean,
+): Boolean = listenForDrops && userIdPresent && gqlTokenPresent && authenticationAccepted
 
 class HermesWebSocket(
     private val channelId: String,
@@ -40,12 +48,23 @@ class HermesWebSocket(
     private var timeout = 15000L
     private var minuteWatchedTimer: Timer? = null
     private var topics = emptyMap<String, String>()
+    private val subscriptionResponseTopics = mutableMapOf<String, String>()
+    private val acknowledgedPrivateTopics = mutableSetOf<String>()
     private val handledMessageIds = mutableListOf<String>()
     private var hasSubscribed = false
+    private var authenticationAccepted = false
+    private var privateSubscriptionsSent = false
+    private var subscriptionsSentNotified = false
+    private var subscriptionsReconnected = false
 
     fun connect(coroutineScope: CoroutineScope): Job {
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes connect requested channelIdPresent=${channelId.isNotBlank()} userIdPresent=${!userId.isNullOrBlank()} collectPoints=$collectPoints listenForPoints=$listenForPoints listenForDrops=$listenForDrops")
         hasSubscribed = false
+        authenticationAccepted = false
+        subscriptionResponseTopics.clear()
+        acknowledgedPrivateTopics.clear()
+        privateSubscriptionsSent = false
+        subscriptionsSentNotified = false
         webSocket = WebSocket("wss://hermes.twitch.tv/v1?clientId=${gqlClientId}", trustManager, WebSocketListener())
         webSocket?.coroutineScope = coroutineScope
         return coroutineScope.launch(Dispatchers.IO) {
@@ -63,6 +82,16 @@ class HermesWebSocket(
     }
 
     private suspend fun subscribe() = withContext(Dispatchers.IO) {
+        authenticationAccepted = false
+        subscriptionResponseTopics.clear()
+        acknowledgedPrivateTopics.clear()
+        privateSubscriptionsSent = false
+        subscriptionsSentNotified = false
+        subscriptionsReconnected = hasSubscribed
+        if (listenForDrops) {
+            minuteWatchedTimer?.cancel()
+            minuteWatchedTimer = null
+        }
         if (!userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && (listenForPoints || listenForDrops)) {
             val authenticate = JSONObject().apply {
                 put("id", Uuid.random().toHexString().substring(0, 21))
@@ -97,10 +126,32 @@ class HermesWebSocket(
                 }
             }
         }
-        topics.forEach {
+        val needsAuthentication = !userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && (listenForPoints || listenForDrops)
+        sendTopicSubscriptions(
+            if (needsAuthentication) {
+                topics.filterValues { !isPrivateTopic(it) }
+            } else {
+                topics
+            },
+        )
+        if (!needsAuthentication) {
+            notifySubscriptionsSent()
+        }
+        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes subscriptions sent count=${if (needsAuthentication) topics.count { !isPrivateTopic(it.value) } else topics.size}")
+        hasSubscribed = true
+    }
+
+    private fun isPrivateTopic(topic: String): Boolean =
+        topic.startsWith("community-points-user") || topic.startsWith("user-drop-events")
+
+    private suspend fun sendTopicSubscriptions(topicEntries: Map<String, String>) {
+        topicEntries.forEach {
+            val requestId = Uuid.random().toHexString().substring(0, 21)
+            subscriptionResponseTopics[requestId] = it.value
+            subscriptionResponseTopics[it.key] = it.value
             val subscribe = JSONObject().apply {
                 put("type", "subscribe")
-                put("id", Uuid.random().toHexString().substring(0, 21))
+                put("id", requestId)
                 put("subscribe", JSONObject().apply {
                     put("id", it.key)
                     put("type", "pubsub")
@@ -118,10 +169,90 @@ class HermesWebSocket(
                 Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes user-drop-events subscription sent")
             }
         }
-        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes subscriptions sent count=${topics.size}")
-        val reconnected = hasSubscribed
-        hasSubscribed = true
-        listener.onSubscriptionsSent(reconnected)
+    }
+
+    private suspend fun sendPrivateSubscriptions() {
+        if (privateSubscriptionsSent) return
+        privateSubscriptionsSent = true
+        sendTopicSubscriptions(topics.filterValues(::isPrivateTopic))
+        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes private subscriptions sent count=${topics.count { isPrivateTopic(it.value) }}")
+        notifySubscriptionsSent()
+    }
+
+    private suspend fun notifySubscriptionsSent() {
+        if (subscriptionsSentNotified) return
+        subscriptionsSentNotified = true
+        listener.onSubscriptionsSent(subscriptionsReconnected)
+    }
+
+    private suspend fun maybeStartMinuteWatchedTimer() {
+        if (!shouldStartMinuteWatchedTimer(
+                listenForDrops = listenForDrops,
+                userIdPresent = !userId.isNullOrBlank(),
+                gqlTokenPresent = !gqlToken.isNullOrBlank(),
+                authenticationAccepted = authenticationAccepted,
+            )
+        ) {
+            if (!listenForDrops || userId.isNullOrBlank() || gqlToken.isNullOrBlank()) {
+                Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer not started: missing userId or GQL token")
+            } else {
+                Log.w(
+                    WatchCreditTelemetry.LOG_TAG,
+                    "Hermes minute-watched timer waiting for authentication acknowledgement",
+                )
+            }
+            return
+        }
+        if (minuteWatchedTimer == null) {
+            Log.d(
+                WatchCreditTelemetry.LOG_TAG,
+                "Hermes minute-watched timer starting privateSubscriptionAcks=${acknowledgedPrivateTopics.size}",
+            )
+            startMinuteWatchedTimer()
+        }
+    }
+
+    private suspend fun handleAuthenticationResponse(json: JSONObject) {
+        val response = json.optJSONObject("authenticateResponse")
+        val result = response?.optString("result").orEmpty()
+        authenticationAccepted = result.equals("ok", ignoreCase = true)
+        if (authenticationAccepted) {
+            Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes authentication accepted")
+            sendPrivateSubscriptions()
+        } else {
+            Log.w(
+                WatchCreditTelemetry.LOG_TAG,
+                "Hermes authentication rejected result=${result.ifBlank { "unknown" }} error=${response?.optString("error").orEmpty().ifBlank { "none" }} errorCode=${response?.optString("errorCode").orEmpty().ifBlank { "none" }}",
+            )
+            notifySubscriptionsSent()
+        }
+        maybeStartMinuteWatchedTimer()
+    }
+
+    private suspend fun handleSubscriptionResponse(json: JSONObject) {
+        val response = json.optJSONObject("subscribeResponse")
+        val result = response?.optString("result").orEmpty()
+        val subscriptionId = response?.optJSONObject("subscription")?.optString("id")
+            ?.takeIf { it.isNotBlank() }
+            ?: response?.optString("id")?.takeIf { it.isNotBlank() }
+            ?: json.optString("parentId").takeIf { it.isNotBlank() }
+            ?: json.optString("id").takeIf { it.isNotBlank() }
+        val topic = subscriptionId?.let(subscriptionResponseTopics::get)
+        if (result.equals("ok", ignoreCase = true)) {
+            topic?.takeIf {
+                it.startsWith("community-points-user") || it.startsWith("user-drop-events")
+            }?.let(acknowledgedPrivateTopics::add)
+            Log.d(
+                WatchCreditTelemetry.LOG_TAG,
+                "Hermes subscription accepted topic=${topic ?: "unknown"}",
+            )
+        } else {
+            Log.w(
+                WatchCreditTelemetry.LOG_TAG,
+                "Hermes subscription rejected topic=${topic ?: "unknown"} result=${result.ifBlank { "unknown" }} error=${response?.optString("error").orEmpty().ifBlank { "none" }} errorCode=${response?.optString("errorCode").orEmpty().ifBlank { "none" }}",
+            )
+        }
+        maybeStartMinuteWatchedTimer()
     }
 
     private suspend fun startPongTimer() = withContext(Dispatchers.IO) {
@@ -159,7 +290,7 @@ class HermesWebSocket(
         suspend fun onRewardMessage(message: JSONObject) {}
         suspend fun onPointsEarned(message: JSONObject) {}
         suspend fun onPointsSpent(message: JSONObject) {}
-        suspend fun onClaimAvailable() {}
+        suspend fun onClaimAvailable(message: JSONObject? = null) {}
         suspend fun onDropMessage(message: JSONObject) {}
         suspend fun onMinuteWatched() {}
         suspend fun onRaidUpdate(message: JSONObject, openStream: Boolean) {}
@@ -197,7 +328,7 @@ class HermesWebSocket(
                         val subscriptionId = subscription?.optString("id")
                         val topic = topics[subscriptionId]
                         val message = notification?.optString("pubsub")?.let { if (it.isNotBlank()) JSONObject(it) else null }
-                        val messageType = message?.optString("type")
+                        val messageType = message?.optString("type")?.lowercase(Locale.US)
                         if (topic != null && messageType != null) {
                             when {
                                 topic.startsWith("video-playback-by-id") -> listener.onPlaybackMessage(message)
@@ -223,7 +354,7 @@ class HermesWebSocket(
                                         }
                                         messageType.startsWith("claim-available") -> {
                                             Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes claim-available received")
-                                            listener.onClaimAvailable()
+                                            listener.onClaimAvailable(message)
                                         }
                                         else -> {
                                             if (BuildConfig.DEBUG) {
@@ -249,7 +380,10 @@ class HermesWebSocket(
                         startPongTimer()
                     }
                     "authenticated" -> {
+                        authenticationAccepted = true
                         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes authentication accepted")
+                        sendPrivateSubscriptions()
+                        maybeStartMinuteWatchedTimer()
                     }
                     "reconnect" -> {
                         //val reconnect = json.optJSONObject("reconnect")
@@ -268,13 +402,10 @@ class HermesWebSocket(
                         startPongTimer()
                         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes welcome received collectPoints=$collectPoints listenForDrops=$listenForDrops userIdPresent=${!userId.isNullOrBlank()} gqlTokenPresent=${!gqlToken.isNullOrBlank()}")
                         subscribe()
-                        if (listenForDrops && !userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && minuteWatchedTimer == null) {
-                            startMinuteWatchedTimer()
-                        } else if (listenForDrops && minuteWatchedTimer == null) {
-                            Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer not started: missing userId or GQL token")
-                        }
                     }
-                }
+                    "authenticateResponse" -> handleAuthenticationResponse(json)
+                    "subscribeResponse" -> handleSubscriptionResponse(json)
+                    }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

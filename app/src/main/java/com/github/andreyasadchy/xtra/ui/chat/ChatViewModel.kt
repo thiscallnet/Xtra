@@ -79,6 +79,7 @@ import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.chat.ChatWriteIRCSocket
 import com.github.andreyasadchy.xtra.util.chat.ChatWriteWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ChannelPointsBalanceEvent
+import com.github.andreyasadchy.xtra.util.chat.ChannelPointsBonusClaim
 import com.github.andreyasadchy.xtra.util.chat.EventSubConnectionAnnouncementState
 import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionState
 import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionStatus
@@ -161,6 +162,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.zip.DeflaterOutputStream
 import java.util.zip.InflaterOutputStream
 import javax.net.ssl.X509TrustManager
+import kotlin.coroutines.coroutineContext
 import kotlin.time.Instant
 
 internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
@@ -303,6 +305,10 @@ class ChatViewModel(
     private val trustManager: Lazy<X509TrustManager>,
     private val json: Json,
 ) : ViewModel() {
+
+    private data class PendingChannelPointsClaim(
+        val claim: ChannelPointsBonusClaim?,
+    )
 
     private val emoteRecommendationEngine = EmoteRecommendationEngine()
     private val emoteUsageViewerId = MutableStateFlow(currentEmoteUsageViewerId())
@@ -568,9 +574,15 @@ class ChatViewModel(
     private var hermesWebSocket: HermesWebSocket? = null
     private var pubSubJob: Job? = null
     private var channelPointsJob: Job? = null
+    private var channelPointsRefreshJob: Job? = null
     private var channelPointsReconciliationJob: Job? = null
     private var pinnedChatRefreshJob: Job? = null
     private var claimJob: Job? = null
+    private val claimQueueLock = Any()
+    private val pendingClaims = ArrayDeque<PendingChannelPointsClaim>()
+    private val pendingClaimIds = mutableSetOf<String>()
+    private val recentlyClaimedIds = LinkedHashSet<String>()
+    private var claimWorkerActive = false
     private var watchStreakWorkerJob: Job? = null
     private var watchStreakRefreshJob: Job? = null
     private var watchStreakSession = 0L
@@ -2623,6 +2635,47 @@ class ChatViewModel(
         }
     }
 
+    private fun startChannelPointsRefresh(
+        channelId: String?,
+        channelLogin: String,
+        listener: PubSubListener,
+        enabled: Boolean,
+    ) {
+        channelPointsRefreshJob?.cancel()
+        channelPointsRefreshJob = null
+        if (!enabled || channelId.isNullOrBlank()) return
+
+        val expectedSession = predictionSessionToken
+        val expectedChannelId = channelId
+        val expectedChannelLogin = channelLogin
+        lateinit var refreshJob: Job
+        refreshJob = viewModelScope.launch {
+            while (
+                isActive &&
+                predictionSessionToken == expectedSession &&
+                activeChannelId == expectedChannelId &&
+                activeChannelLogin.equals(expectedChannelLogin, ignoreCase = true)
+            ) {
+                delay(CHANNEL_POINTS_REFRESH_INTERVAL_MILLIS)
+                if (
+                    predictionSessionToken != expectedSession ||
+                    activeChannelId != expectedChannelId ||
+                    !activeChannelLogin.equals(expectedChannelLogin, ignoreCase = true)
+                ) {
+                    break
+                }
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Channel Points fallback poll started")
+                listener.onClaimAvailable()
+            }
+        }
+        channelPointsRefreshJob = refreshJob
+        refreshJob.invokeOnCompletion {
+            if (channelPointsRefreshJob === refreshJob) {
+                channelPointsRefreshJob = null
+            }
+        }
+    }
+
     private fun startPinnedChatRefresh(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
@@ -3243,6 +3296,7 @@ class ChatViewModel(
             val gqlWebClientId = applicationContext.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
             val notifyPoints = applicationContext.prefs().getBoolean(C.CHAT_POINTS_NOTIFY, false)
             val showRaids = applicationContext.prefs().getBoolean(C.CHAT_RAIDS_SHOW, true)
+            val pubSubListener = PubSubListener(channelLogin, collectPoints, notifyPoints, showRaids, showPolls, showPredictions, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId, showWebSocketDebugInfo, sessionToken)
             hermesWebSocket = HermesWebSocket(
                 channelId = channelId,
                 userId = accountId,
@@ -3255,8 +3309,9 @@ class ChatViewModel(
                 showPredictions = showPredictions,
                 listenForDrops = hasHermesUserAuth,
                 trustManager = trustManager,
-                listener = PubSubListener(channelLogin, collectPoints, notifyPoints, showRaids, showPolls, showPredictions, networkLibrary, gqlHeaders, isLoggedIn, accountId, channelId, showWebSocketDebugInfo, sessionToken),
+                listener = pubSubListener,
             )
+            startChannelPointsRefresh(channelId, channelLogin, pubSubListener, collectPoints && hasHermesUserAuth)
             if (isLoggedIn && !hasHermesUserAuth) {
                 Log.w(
                     WatchCreditTelemetry.LOG_TAG,
@@ -3513,11 +3568,19 @@ class ChatViewModel(
         }
         channelPointsJob?.cancel()
         channelPointsJob = null
+        channelPointsRefreshJob?.cancel()
+        channelPointsRefreshJob = null
         channelPointsReconciliationJob?.cancel()
         channelPointsReconciliationJob = null
         highlightedMessageReward = null
-        claimJob?.cancel()
-        claimJob = null
+        synchronized(claimQueueLock) {
+            pendingClaims.clear()
+            pendingClaimIds.clear()
+            recentlyClaimedIds.clear()
+            claimWorkerActive = false
+            claimJob?.cancel()
+            claimJob = null
+        }
         watchStreakRefreshJob?.cancel()
         watchStreakRefreshJob = null
         watchStreakWorkerJob?.cancel()
@@ -4629,51 +4692,146 @@ class ChatViewModel(
             }
         }
 
-        override suspend fun onClaimAvailable() {
+        override suspend fun onClaimAvailable(message: JSONObject?) {
+            val eventClaim = message?.let(PubSubUtils::parseClaimAvailable)
+            val eventClaimId = eventClaim?.id
             Log.d(
                 WatchCreditTelemetry.LOG_TAG,
-                "claim-available handler invoked collectPoints=$collectPoints gqlTokenPresent=${!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()}",
+                "claim-available handler invoked source=${if (eventClaimId.isNullOrBlank()) "gql-poll" else "Hermes"} eventClaimPresent=${!eventClaimId.isNullOrBlank()} collectPoints=$collectPoints gqlTokenPresent=${!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()}",
             )
             if (!collectPoints || gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                 return
             }
-            if (claimJob?.isActive == true) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "claim-available ignored while another claim is in flight")
+            if (eventClaim?.channelId != null && eventClaim.channelId != channelId) {
+                Log.w(
+                    WatchCreditTelemetry.LOG_TAG,
+                    "claim-available ignored for another channel eventChannelId=${eventClaim.channelId} sessionChannelId=$channelId",
+                )
                 return
             }
-            val job = viewModelScope.launch {
-                try {
-                    val contextResponse = graphQLRepository.loadChannelPointsContext(networkLibrary, gqlHeaders, channelLogin)
-                    val contextError = contextResponse.errors?.firstOrNull()?.message
-                    val claimId = contextResponse.data?.community?.channel?.self?.communityPoints?.availableClaim?.id
-                    Log.d(
-                        WatchCreditTelemetry.LOG_TAG,
-                        "ChannelPointsContext result dataPresent=${contextResponse.data != null} claimPresent=${!claimId.isNullOrBlank()} error=${contextError ?: "none"}",
-                    )
-                    updateChannelPoints(contextResponse)
-                    if (claimId.isNullOrBlank()) {
-                        return@launch
-                    }
+            if (eventClaim?.userId != null && eventClaim.userId != accountId) {
+                Log.w(
+                    WatchCreditTelemetry.LOG_TAG,
+                    "claim-available ignored for another user eventUserIdPresent=true sessionUserIdPresent=${!accountId.isNullOrBlank()}",
+                )
+                return
+            }
+            enqueueChannelPointsClaim(eventClaim)
+        }
 
-                    val claimResponse = graphQLRepository.loadClaimPoints(networkLibrary, gqlHeaders, channelId, claimId)
-                    val claimError = claimResponse.errors?.firstOrNull()?.message
-                    Log.d(
-                        WatchCreditTelemetry.LOG_TAG,
-                        "ClaimCommunityPoints result success=${claimError == null} error=${claimError ?: "none"}",
-                    )
-                    if (claimError == null) {
-                        loadChannelPoints(networkLibrary, gqlHeaders, channelLogin)
-                    }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    Log.e(WatchCreditTelemetry.LOG_TAG, "Channel Points claim handling failed", e)
+        private fun enqueueChannelPointsClaim(claim: ChannelPointsBonusClaim?) {
+            val claimId = claim?.id
+            synchronized(claimQueueLock) {
+                if (claimId != null &&
+                    (pendingClaimIds.contains(claimId) || recentlyClaimedIds.contains(claimId))
+                ) {
+                    Log.d(WatchCreditTelemetry.LOG_TAG, "claim-available ignored duplicate claimIdPresent=true")
+                    return
+                }
+                pendingClaims.addLast(PendingChannelPointsClaim(claim))
+                if (claimId != null) {
+                    pendingClaimIds.add(claimId)
+                }
+                if (claimWorkerActive) return
+                claimWorkerActive = true
+                claimJob = viewModelScope.launch {
+                    processPendingChannelPointsClaims()
                 }
             }
-            claimJob = job
-            job.invokeOnCompletion {
-                if (claimJob === job) {
-                    claimJob = null
+        }
+
+        private suspend fun processPendingChannelPointsClaims() {
+            val currentJob = coroutineContext[Job]
+            try {
+                while (true) {
+                    val nextClaim = synchronized(claimQueueLock) {
+                        if (pendingClaims.isEmpty()) {
+                            if (claimJob === currentJob) {
+                                claimJob = null
+                                claimWorkerActive = false
+                            }
+                            null
+                        } else {
+                            pendingClaims.removeFirst()
+                        }
+                    } ?: break
+                    processChannelPointsClaim(nextClaim.claim)
+                }
+            } finally {
+                synchronized(claimQueueLock) {
+                    if (claimJob === currentJob) {
+                        claimJob = null
+                        claimWorkerActive = false
+                    }
+                }
+            }
+        }
+
+        private suspend fun processChannelPointsClaim(eventClaim: ChannelPointsBonusClaim?) {
+            val eventClaimId = eventClaim?.id
+            var resolvedClaimId: String? = null
+            val alreadyClaimed = eventClaimId != null && synchronized(claimQueueLock) {
+                recentlyClaimedIds.contains(eventClaimId)
+            }
+            val succeeded = if (alreadyClaimed) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "Channel Points claim skipped recently claimed chest")
+                true
+            } else try {
+                val contextResponse = if (eventClaimId.isNullOrBlank()) {
+                    graphQLRepository.loadChannelPointsContext(networkLibrary, gqlHeaders, channelLogin)
+                } else {
+                    null
+                }
+                val contextError = contextResponse?.errors?.firstOrNull()?.message
+                val contextClaimId = contextResponse?.data?.community?.channel?.self?.communityPoints?.availableClaim?.id
+                val claimId = eventClaimId ?: contextClaimId
+                resolvedClaimId = claimId
+                Log.d(
+                    WatchCreditTelemetry.LOG_TAG,
+                    "ChannelPointsContext result queried=${contextResponse != null} dataPresent=${contextResponse?.data != null} claimPresent=${!claimId.isNullOrBlank()} source=${if (eventClaimId.isNullOrBlank()) "gql-poll" else "Hermes"} error=${contextError ?: "none"}",
+                )
+                contextResponse?.let(::updateChannelPoints)
+                if (claimId.isNullOrBlank()) {
+                    false
+                } else if (eventClaimId.isNullOrBlank() && synchronized(claimQueueLock) { recentlyClaimedIds.contains(claimId) }) {
+                    Log.d(WatchCreditTelemetry.LOG_TAG, "Channel Points fallback skipped recently claimed chest")
+                    true
+                } else {
+                    val claimResponse = graphQLRepository.loadClaimPoints(
+                        networkLibrary,
+                        gqlHeaders,
+                        eventClaim?.channelId ?: channelId,
+                        claimId,
+                    )
+                    val claimError = claimResponse.errors?.firstOrNull()?.message
+                    val claimSucceeded = claimResponse.isSuccessful
+                    Log.d(
+                        WatchCreditTelemetry.LOG_TAG,
+                        "ClaimCommunityPoints result success=$claimSucceeded dataPresent=${claimResponse.data?.claimCommunityPoints != null} error=${claimError ?: "none"}",
+                    )
+                    if (claimSucceeded) {
+                        loadChannelPoints(networkLibrary, gqlHeaders, channelLogin)
+                    }
+                    claimSucceeded
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(WatchCreditTelemetry.LOG_TAG, "Channel Points claim handling failed", e)
+                false
+            }
+
+            val completedClaimId = resolvedClaimId ?: eventClaimId
+            if (completedClaimId != null) {
+                synchronized(claimQueueLock) {
+                    pendingClaimIds.remove(completedClaimId)
+                    if (succeeded) {
+                        recentlyClaimedIds.remove(completedClaimId)
+                        recentlyClaimedIds.add(completedClaimId)
+                        while (recentlyClaimedIds.size > MAX_RECENT_CLAIM_IDS) {
+                            recentlyClaimedIds.remove(recentlyClaimedIds.first())
+                        }
+                    }
                 }
             }
         }
@@ -7114,6 +7272,8 @@ class ChatViewModel(
         private const val WATCH_STREAK_RECONCILIATION_DELAY_MILLIS = 750L
         private val CHANNEL_POINTS_RECONCILIATION_DELAYS_MILLIS = listOf(750L, 3_000L, 10_000L, 20_000L)
         private const val PINNED_CHAT_REFRESH_INTERVAL_MILLIS = 30_000L
+        private const val CHANNEL_POINTS_REFRESH_INTERVAL_MILLIS = 60_000L
+        private const val MAX_RECENT_CLAIM_IDS = 64
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val DEFAULT_REWARD_COLOR = "#9146FF"

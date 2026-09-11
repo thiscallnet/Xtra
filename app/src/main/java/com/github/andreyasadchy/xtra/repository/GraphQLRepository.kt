@@ -65,6 +65,7 @@ import com.github.andreyasadchy.xtra.graphql.type.ClipsPeriod
 import com.github.andreyasadchy.xtra.graphql.type.Language
 import com.github.andreyasadchy.xtra.graphql.type.StreamSort
 import com.github.andreyasadchy.xtra.graphql.type.VideoSort
+import com.github.andreyasadchy.xtra.model.gql.ClaimCommunityPointsResponse
 import com.github.andreyasadchy.xtra.model.gql.ErrorResponse
 import com.github.andreyasadchy.xtra.model.gql.channel.ChannelClipsResponse
 import com.github.andreyasadchy.xtra.model.gql.channel.ChannelSuggestionsResponse
@@ -1982,7 +1983,7 @@ class GraphQLRepository(
         java.security.SecureRandom().nextBytes(it)
     }.joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
 
-    suspend fun loadClaimPoints(networkLibrary: String?, headers: Map<String, String>, channelId: String?, claimId: String?): ErrorResponse = withContext(Dispatchers.IO) {
+    suspend fun loadClaimPoints(networkLibrary: String?, headers: Map<String, String>, channelId: String?, claimId: String?): ClaimCommunityPointsResponse = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             putJsonObject("extensions") {
                 putJsonObject("persistedQuery") {
@@ -1998,7 +1999,7 @@ class GraphQLRepository(
                 }
             }
         }.toString()
-        json.decodeFromString<ErrorResponse>(sendPersistedQuery(networkLibrary, headers, body))
+        json.decodeFromString<ClaimCommunityPointsResponse>(sendPersistedQuery(networkLibrary, headers, body))
     }
 
     private companion object {
