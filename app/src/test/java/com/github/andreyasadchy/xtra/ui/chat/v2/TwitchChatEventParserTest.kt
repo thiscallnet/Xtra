@@ -15,6 +15,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
+import com.github.andreyasadchy.xtra.model.chat.ChatMessage as LegacyChatMessage
 import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
 import org.json.JSONObject
@@ -318,6 +319,24 @@ class TwitchChatEventParserTest {
         assertEquals("reward-1", message.rewardId)
         assertEquals("Sound Alert", message.rewardTitle)
         assertTrue(message.segments.isEmpty())
+    }
+
+    @Test
+    fun legacySystemNoticeIsNormalizedForTheV2Timeline() {
+        val event = TwitchChatEventParser.fromLegacyNotice(
+            LegacyChatMessage(
+                type = LegacyChatMessage.NOTICE_MESSAGE,
+                id = "points-earned-1",
+                systemMsg = "Received 50 channel points",
+                timestamp = 1234L,
+            ),
+            "broadcaster",
+        )
+
+        assertEquals(ChatMessageKind.NOTICE, event.message.kind)
+        assertEquals("Received 50 channel points", event.message.systemText)
+        assertEquals("points-earned-1", event.eventId)
+        assertEquals("broadcaster", event.message.channelId)
     }
 
     @Test

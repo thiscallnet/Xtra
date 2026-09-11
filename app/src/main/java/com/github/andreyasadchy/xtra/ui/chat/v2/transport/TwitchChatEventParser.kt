@@ -158,6 +158,16 @@ object TwitchChatEventParser {
         )
     }
 
+    /** Normalizes a legacy system notice emitted by a supplemental Hermes listener. */
+    fun fromLegacyNotice(message: LegacyChatMessage, channelId: String): ChatEvent.Notice {
+        val normalized = fromLegacy(message, channelId, forceNotice = true)
+        return ChatEvent.Notice(
+            message = normalized,
+            eventId = normalized.id.value,
+            receivedAtMs = normalized.timestampMs,
+        )
+    }
+
     fun fromEventSubClear(event: JSONObject, timestamp: String?, notificationId: String? = null): ChatEvent {
         val receivedAt = parseTimestamp(timestamp)
         val eventId = notificationId?.takeIf { it.isNotBlank() }
