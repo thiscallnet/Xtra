@@ -56,7 +56,11 @@ class MessageClickedViewModel(
                                     imageUrl = badge.imageURL,
                                 )
                             }
-                            mapUser(user = clickedUser, earnedBadges = earnedBadges, isSubscribedHint = isSubscribedHint)
+                            mapUser(
+                                user = clickedUser,
+                                earnedBadges = earnedBadges,
+                                isSubscribedHint = isSubscribedHint,
+                            )
                         }
                     } catch (e: Exception) {
                         null
@@ -74,7 +78,10 @@ class MessageClickedViewModel(
                             targetLogin,
                         ).data
                         data?.user?.userMessageClickedUser?.let { clickedUser ->
-                            mapUser(clickedUser, isSubscribedHint = isSubscribedHint)
+                            mapUser(
+                                user = clickedUser,
+                                isSubscribedHint = isSubscribedHint,
+                            )
                         }
                     } catch (e: Exception) {
                         null
@@ -120,7 +127,7 @@ class MessageClickedViewModel(
             profileImageURL = user.profileImageURL,
             bannerImageURL = user.bannerImageURL,
             createdAt = user.createdAt,
-            followedAt = user.follow?.followedAt,
+            followedAt = messageClickedFollowedAt(user),
             displayBadges = earnedBadges.ifEmpty {
                 mapBadges(user.displayBadges) { badge ->
                     BadgeFields(badge?.id, badge?.setID, badge?.version, badge?.title, badge?.description, badge?.imageURL)
@@ -236,3 +243,7 @@ class MessageClickedViewModel(
         }
     }
 }
+
+internal fun messageClickedFollowedAt(
+    user: com.github.andreyasadchy.xtra.graphql.fragment.UserMessageClickedUser,
+): Any? = user.follow?.followedAt
