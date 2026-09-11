@@ -671,7 +671,6 @@
     <string name="view_profile">View profile</string>
     <string name="chat">Chat</string>
     <string name="favorite_emotes">★ Favorites</string>
-    <string name="favorite_emojis">★ Favorites</string>
     <string name="recent_emotes">Recent</string>
     <string name="emoji">Emoji</string>
     <string name="emoji_category_all">All</string>
@@ -1465,13 +1464,12 @@
     <string name="remove_emoji_from_favorites">Remove from favorites</string>
     <string name="added_emoji_to_favorites">Added %1$s to favorites</string>
     <string name="removed_emoji_from_favorites">Removed %1$s from favorites</string>
-    <string name="favorite_emojis_empty">No favorite emojis yet\nLong-press an emoji to add it to Favorites.</string>
     <string name="add_emote_to_favorites">Add to favorites</string>
     <string name="remove_emote_from_favorites">Remove from favorites</string>
     <string name="added_emote_to_favorites">Added %1$s to favorites</string>
     <string name="removed_emote_from_favorites">Removed %1$s from favorites</string>
-    <string name="favorite_emotes_empty">No favorite emotes here yet\nLong-press an emote to add it to Favorites.</string>
-    <string name="favorite_emotes_unavailable">None of your favorite emotes are available in this channel.</string>
+    <string name="favorite_emotes_empty">No favorites here yet\nLong-press an emote or emoji to add it to Favorites.</string>
+    <string name="favorite_emotes_unavailable">None of your favorites are available in this channel.</string>
     <string name="third_party_emotes_loading">Loading 7TV, BTTV and FFZ emotes…</string>
     <string name="third_party_emotes_empty">No 7TV, BTTV or FFZ emotes available.</string>
     <string name="third_party_emotes_error">Couldn’t load 7TV, BTTV or FFZ emotes. Tap Retry to try again.</string>
@@ -1480,6 +1478,9 @@
     <string name="reorder_favorite_emote">Reorder %1$s emote</string>
     <string name="move_favorite_emote_before">Move favorite emote before</string>
     <string name="move_favorite_emote_after">Move favorite emote after</string>
+    <string name="reorder_favorite_item">Reorder %1$s</string>
+    <string name="move_favorite_item_before">Move favorite item before</string>
+    <string name="move_favorite_item_after">Move favorite item after</string>
     <string name="watch_stream">Watch stream</string>
     <string name="select_stream">Select stream</string>
     <string name="channel_stv_emote">Channel 7TV emote</string>

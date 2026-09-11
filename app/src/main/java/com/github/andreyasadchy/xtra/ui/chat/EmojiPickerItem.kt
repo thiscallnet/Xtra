@@ -5,7 +5,6 @@ import java.util.Locale
 
 /** The groups shown inside the emoji picker. */
 enum class EmojiPickerCategory(val titleRes: Int) {
-    FAVORITES(R.string.favorite_emojis),
     ALL(R.string.emoji_category_all),
     SMILEYS(R.string.emoji_category_smileys),
     PEOPLE(R.string.emoji_category_people),

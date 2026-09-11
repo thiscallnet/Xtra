@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="48dp"
     android:layout_height="48dp"
     android:layout_marginTop="5dp"
@@ -28,10 +29,22 @@
         android:id="@+id/emojiFavorite"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
+        android:layout_gravity="bottom|end"
         android:importantForAccessibility="no"
         android:text="★"
         android:textColor="@color/channel_points_default"
         android:textSize="11sp"
         android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/dragHandle"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="top|end"
+        android:alpha="0.8"
+        android:importantForAccessibility="no"
+        android:padding="2dp"
+        android:src="@drawable/outline_drag_handle_black_24"
+        android:visibility="gone"
+        app:tint="?attr/colorControlNormal" />
 </FrameLayout>

@@ -67,6 +67,9 @@ class EmotesAdapter(
     private val favoriteToggleListener: ((Emote) -> Unit)? = null,
     private val consumeLongPress: Boolean = false,
     private val reorderable: Boolean = false,
+    private val reorderContentDescriptionRes: Int = R.string.reorder_favorite_emote,
+    private val moveBeforeDescriptionRes: Int = R.string.move_favorite_emote_before,
+    private val moveAfterDescriptionRes: Int = R.string.move_favorite_emote_after,
 ) : RecyclerView.Adapter<EmotesAdapter.ViewHolder>() {
 
     private val differ = AsyncListDiffer(this, EMOTE_DIFF_CALLBACK)
@@ -171,9 +174,11 @@ class EmotesAdapter(
         private val reorderAccessibilityActionIds = mutableListOf<Int>()
         private var reorderAnimator: ObjectAnimator? = null
         private var isDragging = false
+        private var boundItem: Emote? = null
 
         @SuppressLint("ClickableViewAccessibility")
         fun bind(item: Emote?) {
+            boundItem = item
             resetReorderVisuals()
             setReorderMode(
                 enabled = reorderable && reorderMode && item != null,
@@ -203,7 +208,7 @@ class EmotesAdapter(
                 } else null)
                 if (item != null) {
                     emote.contentDescription = fragment.getString(
-                        if (canReorder) R.string.reorder_favorite_emote else R.string.use_emote,
+                        if (canReorder) reorderContentDescriptionRes else R.string.use_emote,
                         item.name,
                     )
                     emote.isFocusable = true
@@ -274,7 +279,7 @@ class EmotesAdapter(
                     if (canReorder) {
                         reorderAccessibilityActionIds += ViewCompat.addAccessibilityAction(
                             emote,
-                            fragment.getString(R.string.move_favorite_emote_before),
+                            fragment.getString(moveBeforeDescriptionRes),
                             AccessibilityViewCommand { _, _ ->
                                 val position = bindingAdapterPosition
                                 accessibilityMoveListener?.invoke(position, position - 1) == true
@@ -282,7 +287,7 @@ class EmotesAdapter(
                         )
                         reorderAccessibilityActionIds += ViewCompat.addAccessibilityAction(
                             emote,
-                            fragment.getString(R.string.move_favorite_emote_after),
+                            fragment.getString(moveAfterDescriptionRes),
                             AccessibilityViewCommand { _, _ ->
                                 val position = bindingAdapterPosition
                                 accessibilityMoveListener?.invoke(position, position + 1) == true
@@ -364,13 +369,7 @@ class EmotesAdapter(
         }
 
         private fun reorderSeedForBoundItem(): Int {
-            val position = bindingAdapterPosition
-            val item = if (position != RecyclerView.NO_POSITION) {
-                (if (reorderable) items else differ.currentList).getOrNull(position)
-            } else {
-                null
-            }
-            return item?.let(::reorderSeed) ?: 0
+            return boundItem?.let(::reorderSeed) ?: 0
         }
     }
 

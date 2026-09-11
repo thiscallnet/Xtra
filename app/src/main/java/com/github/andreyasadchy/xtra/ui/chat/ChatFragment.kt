@@ -1473,7 +1473,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             //TODO add animation
                             if (emoteMenu.isGone) {
                                 val defaultSection = when {
-                                    viewModel.hasAvailableFavoriteEmotes.value -> EmotePickerSection.FAVORITES
+                                    viewModel.hasAvailableFavoriteItems.value -> EmotePickerSection.FAVORITES
                                     viewModel.hasRecentEmotes.value -> EmotePickerSection.RECENTS
                                     else -> EmotePickerSection.TWITCH
                                 }

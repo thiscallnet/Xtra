@@ -112,8 +112,8 @@
     <string name="remove_emote_from_favorites">Quitar de favoritos</string>
     <string name="added_emote_to_favorites">Se añadió %1$s a favoritos</string>
     <string name="removed_emote_from_favorites">Se quitó %1$s de favoritos</string>
-    <string name="favorite_emotes_empty">Aún no hay emotes favoritos\nMantén pulsado un emote para añadirlo a Favoritos.</string>
-    <string name="favorite_emotes_unavailable">Ninguno de tus emotes favoritos está disponible en este canal.</string>
+    <string name="favorite_emotes_empty">Aún no hay favoritos\nMantén pulsado un emote o emoji para añadirlo a Favoritos.</string>
+    <string name="favorite_emotes_unavailable">Ninguno de tus favoritos está disponible en este canal.</string>
     <string name="notification_playback_channel_title">Reproducción</string>
     <string name="channels">Canales</string>
     <string name="watch_video">Ver video completo</string>
