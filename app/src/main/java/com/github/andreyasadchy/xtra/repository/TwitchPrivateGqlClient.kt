@@ -11,6 +11,7 @@ import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxException
 import com.github.andreyasadchy.xtra.repository.auth.TwitchWebSessionManager
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.NetworkInterferenceReporter
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +109,7 @@ class TwitchPrivateGqlClient(
             logger?.failRequest(token, "cancelled")
             throw error
         } catch (error: Throwable) {
+            NetworkInterferenceReporter.report("gql.twitch.tv", error)
             logger?.failRequest(token, diagnosticsErrorCode(error))
             throw TwitchInboxException(TwitchInboxError.Network, error)
         }
@@ -131,8 +133,9 @@ class TwitchPrivateGqlClient(
         body
     }
 
-    private fun diagnosticsErrorCode(error: Throwable): String = when (error) {
-        is java.io.IOException -> "io_error"
+    private fun diagnosticsErrorCode(error: Throwable): String = when {
+        NetworkInterferenceReporter.isDnsResolutionFailure(error) -> "dns_resolution_failed"
+        error is java.io.IOException -> "io_error"
         else -> "request_failed"
     }
 

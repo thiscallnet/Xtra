@@ -102,6 +102,7 @@ import com.github.andreyasadchy.xtra.ui.tv.disableTvClippingUpTree
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.NetworkInterferenceReporter
 import com.github.andreyasadchy.xtra.util.PlaybackBackend
 import com.github.andreyasadchy.xtra.util.resolvePlaybackBackend
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
@@ -163,6 +164,7 @@ class MainActivity : AppCompatActivity() {
     private val updateRepository by lazy { (application as XtraApp).xtraModule.updateRepository }
     private val authSessionMaintainer by lazy { (application as XtraApp).xtraModule.authSessionMaintainer }
     private var networkSnackbar: Snackbar? = null
+    private var networkFilterSnackbar: Snackbar? = null
     private var updateNotificationSnackbar: Snackbar? = null
     private var updateNotificationPermissionLauncher: ActivityResultLauncher<String>? = null
     private var fragmentLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
@@ -361,6 +363,25 @@ class MainActivity : AppCompatActivity() {
                             }
                         }
                         viewModel.checkCellularStatus.value = false
+                    }
+                }
+            }
+        }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                NetworkInterferenceReporter.events.collectLatest {
+                    val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                    val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                    val isNetworkAvailable = networkCapabilities != null
+                            && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                            && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    if (isNetworkAvailable && !isFinishing && !isDestroyed && NetworkInterferenceReporter.tryAcquireWarningPermit()) {
+                        networkFilterSnackbar?.dismiss()
+                        networkFilterSnackbar = Snackbar.make(
+                            binding.root,
+                            R.string.network_filter_warning,
+                            Snackbar.LENGTH_LONG,
+                        ).also { it.show() }
                     }
                 }
             }
@@ -905,6 +926,8 @@ class MainActivity : AppCompatActivity() {
         keepStateNavigator = null
         networkSnackbar?.dismiss()
         networkSnackbar = null
+        networkFilterSnackbar?.dismiss()
+        networkFilterSnackbar = null
         updateNotificationSnackbar?.dismiss()
         updateNotificationSnackbar = null
         networkCallback?.let {

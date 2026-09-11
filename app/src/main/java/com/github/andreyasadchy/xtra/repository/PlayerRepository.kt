@@ -48,6 +48,7 @@ import com.github.andreyasadchy.xtra.model.misc.STVChannelResponse
 import com.github.andreyasadchy.xtra.model.misc.STVEmoteSetResponse
 import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.NetworkInterferenceReporter
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.prefs
@@ -1067,7 +1068,12 @@ class PlayerRepository(
             logger?.finishRequest(token, successful = false, code = "cancelled")
             throw e
         } catch (e: Exception) {
-            logger?.finishRequest(token, successful = false, code = "request_failed")
+            NetworkInterferenceReporter.report(urlHost(url), e)
+            logger?.finishRequest(
+                token,
+                successful = false,
+                code = if (NetworkInterferenceReporter.isDnsResolutionFailure(e)) "dns_resolution_failed" else "request_failed",
+            )
             Log.e(WatchCreditTelemetry.LOG_TAG, "$label GET failed", e)
             null
         }
@@ -1156,7 +1162,12 @@ class PlayerRepository(
             logger?.finishRequest(token, successful = false, code = "cancelled")
             throw e
         } catch (e: Exception) {
-            logger?.finishRequest(token, successful = false, code = "request_failed")
+            NetworkInterferenceReporter.report(urlHost(spadeUrl), e)
+            logger?.finishRequest(
+                token,
+                successful = false,
+                code = if (NetworkInterferenceReporter.isDnsResolutionFailure(e)) "dns_resolution_failed" else "request_failed",
+            )
             Log.e(WatchCreditTelemetry.LOG_TAG, "Spade POST failed host=${urlHost(spadeUrl)}", e)
             false
         }
