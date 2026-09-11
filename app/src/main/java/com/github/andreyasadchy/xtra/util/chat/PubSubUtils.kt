@@ -28,7 +28,25 @@ data class ChannelPointsBalanceEvent(
 
 typealias ChannelPointsBalanceEventType = ChannelPointsBalanceEvent.Type
 
+data class ChannelPointsBonusClaim(
+    val id: String,
+    val channelId: String? = null,
+    val userId: String? = null,
+)
+
 object PubSubUtils {
+    /** Returns the claim carried by a community-points bonus notification. */
+    fun parseClaimAvailable(message: JSONObject): ChannelPointsBonusClaim? {
+        val claim = message.optJSONObject("data")?.optJSONObject("claim")
+            ?: message.optJSONObject("claim")
+        val id = claim?.optString("id")?.takeIf { it.isNotBlank() } ?: return null
+        return ChannelPointsBonusClaim(
+            id = id,
+            channelId = claim.optString("channel_id").takeIf { it.isNotBlank() },
+            userId = claim.optString("user_id").takeIf { it.isNotBlank() },
+        )
+    }
+
     fun parsePlaybackMessage(message: JSONObject): PlaybackMessage? {
         val messageType = message.optString("type")
         return when {
