@@ -4769,12 +4769,15 @@ class ChatViewModel(
             }
             if (notifyPoints) {
                 if (channelMatches) {
-                    onMessage(ChatMessage(
+                    val notice = ChatMessage(
+                        id = points.messageId,
                         type = ChatMessage.NOTICE_MESSAGE,
                         systemMsg = ContextCompat.getString(applicationContext, R.string.points_earned).format(points.pointsGained),
                         timestamp = points.timestamp,
                         fullMsg = points.fullMsg
-                    ))
+                    )
+                    forwardLegacyNoticeToV2(notice, channelId)
+                    onMessage(notice)
                 }
             }
         }
@@ -5557,6 +5560,24 @@ class ChatViewModel(
             active.session.submit(
                 active.key,
                 TwitchChatEventParser.fromPubSubReward(message, targetChannelId),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            // The legacy chat path remains authoritative if v2 is stopping concurrently.
+        }
+    }
+
+    /** Supplemental Hermes notices must enter the V2 timeline because live chat no longer reads
+     * the ViewModel's legacy mutation stream. */
+    private suspend fun forwardLegacyNoticeToV2(message: ChatMessage, channelId: String?) {
+        val targetChannelId = channelId ?: return
+        val active = v2ActiveSession.value ?: return
+        if (!active.spec.legacySupplementalSockets || active.spec.channelId != targetChannelId) return
+        try {
+            active.session.submit(
+                active.key,
+                TwitchChatEventParser.fromLegacyNotice(message, targetChannelId),
             )
         } catch (error: CancellationException) {
             throw error
