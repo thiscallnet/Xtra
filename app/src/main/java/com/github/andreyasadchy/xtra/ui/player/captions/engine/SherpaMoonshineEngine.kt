@@ -130,16 +130,26 @@ class SherpaMoonshineEngine(
             ) {
                 val decodeStartedAt = SystemClock.elapsedRealtime()
                 val partial = decode(utterance.toArray())
-                previousPartialDecodeDurationMs =
+                val partialDecodeDurationMs =
                     (SystemClock.elapsedRealtime() - decodeStartedAt).coerceAtLeast(0L)
+                previousPartialDecodeDurationMs = partialDecodeDurationMs
                 partial.takeIf(String::isNotEmpty)?.let {
                     events += CaptionRecognitionEvent.Partial(it)
                 }
-                nextPartialDecodeMs = audioPositionMs() + nextMoonshinePartialIntervalMs(
+                val nextPartialIntervalMs = nextMoonshinePartialIntervalMs(
                     configuredIntervalMs = partialDecodeIntervalMs,
-                    previousPartialDecodeDurationMs = previousPartialDecodeDurationMs,
+                    previousPartialDecodeDurationMs = partialDecodeDurationMs,
                     firstPartial = false,
                 )
+                nextPartialDecodeMs = audioPositionMs() + nextPartialIntervalMs
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "partial_decode durationMs=$partialDecodeDurationMs " +
+                            "nextIntervalMs=$nextPartialIntervalMs " +
+                            "utteranceMs=${utterance.size * 1_000L / TARGET_SAMPLE_RATE}",
+                    )
+                }
             }
         }
     }
@@ -259,7 +269,12 @@ internal fun nextMoonshinePartialIntervalMs(
 ): Long {
     val configured = configuredIntervalMs.coerceAtLeast(0L)
     if (firstPartial) return configured
-    return maxOf(configured, (previousPartialDecodeDurationMs ?: 0L) * 2L)
+    val measuredDecodeDuration = (previousPartialDecodeDurationMs ?: 0L)
+        .coerceAtMost(MAX_ADAPTIVE_PARTIAL_INTERVAL_MS)
+    // Leave proportional idle time for audio/VAD work instead of repeatedly
+    // re-decoding the growing utterance as soon as the previous decode ends.
+    val measuredIntervalWithHeadroom = (measuredDecodeDuration * 5L + 3L) / 4L
+    return maxOf(configured, measuredIntervalWithHeadroom)
         .coerceAtMost(MAX_ADAPTIVE_PARTIAL_INTERVAL_MS)
 }
 
