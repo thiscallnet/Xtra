@@ -2,7 +2,10 @@ fragment UserMessageClickedUser on User {
     bannerImageURL
     createdAt
     displayName
-    follow(targetID: $targetId, targetLogin: $targetLogin) {
+    followByLogin: follow(targetLogin: $targetLogin) @include(if: $useFollowLogin) {
+        followedAt
+    }
+    followById: follow(targetID: $targetId) @skip(if: $useFollowLogin) {
         followedAt
     }
     lastBroadcast {
@@ -40,7 +43,7 @@ fragment UserMessageClickedUser on User {
     profileImageURL(width: 300)
 }
 
-query UserMessageClicked($id: ID, $login: String, $targetId: ID, $userLogin: String!, $targetLogin: String!) {
+query UserMessageClicked($id: ID, $login: String, $targetId: ID, $userLogin: String!, $targetLogin: String!, $useFollowLogin: Boolean!) {
     user(id: $id, login: $login, lookupType: ALL) {
         ...UserMessageClickedUser
     }
@@ -57,7 +60,7 @@ query UserMessageClicked($id: ID, $login: String, $targetId: ID, $userLogin: Str
     }
 }
 
-query UserMessageClickedBasic($id: ID, $login: String, $targetId: ID, $targetLogin: String) {
+query UserMessageClickedBasic($id: ID, $login: String, $targetId: ID, $targetLogin: String, $useFollowLogin: Boolean!) {
     user(id: $id, login: $login, lookupType: ALL) {
         ...UserMessageClickedUser
     }

@@ -141,6 +141,13 @@ import org.chromium.net.apihelpers.UploadDataProviders
 import java.util.concurrent.ExecutorService
 import kotlin.uuid.Uuid
 
+internal fun optionalQueryString(value: String?): Optional<String?> =
+    value
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.let { Optional.Present(it) }
+        ?: Optional.Absent
+
 class GraphQLRepository(
     private val httpEngine: Lazy<HttpEngine?>,
     private val cronetEngine: Lazy<CronetEngine?>,
@@ -954,21 +961,24 @@ class GraphQLRepository(
 
     suspend fun loadQueryUserMessageClicked(networkLibrary: String?, headers: Map<String, String>, id: String? = null, login: String, targetId: String?, targetLogin: String): ApolloResponse<UserMessageClickedQuery.Data> = withContext(Dispatchers.IO) {
         val query = UserMessageClickedQuery(
-            id = if (!id.isNullOrBlank()) Optional.Present(id) else Optional.Absent,
-            login = Optional.Present(login),
-            targetId = Optional.Present(targetId),
-            userLogin = login,
-            targetLogin = targetLogin,
+            id = optionalQueryString(id),
+            login = optionalQueryString(login),
+            targetId = optionalQueryString(targetId),
+            userLogin = login.trim(),
+            targetLogin = targetLogin.trim(),
+            useFollowLogin = true,
         )
         sendQuery(networkLibrary, headers, query)
     }
 
     suspend fun loadBasicQueryUserMessageClicked(networkLibrary: String?, headers: Map<String, String>, id: String? = null, login: String? = null, targetId: String?, targetLogin: String? = null): ApolloResponse<UserMessageClickedBasicQuery.Data> = withContext(Dispatchers.IO) {
+        val normalizedTargetLogin = targetLogin?.trim()?.takeIf { it.isNotEmpty() }
         val query = UserMessageClickedBasicQuery(
-            id = if (!id.isNullOrBlank()) Optional.Present(id) else Optional.Absent,
-            login = if (!login.isNullOrBlank()) Optional.Present(login) else Optional.Absent,
-            targetId = Optional.Present(targetId),
-            targetLogin = if (!targetLogin.isNullOrBlank()) Optional.Present(targetLogin) else Optional.Absent,
+            id = optionalQueryString(id),
+            login = optionalQueryString(login),
+            targetId = optionalQueryString(targetId),
+            targetLogin = normalizedTargetLogin?.let { Optional.Present(it) } ?: Optional.Absent,
+            useFollowLogin = normalizedTargetLogin != null,
         )
         sendQuery(networkLibrary, headers, query)
     }
