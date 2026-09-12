@@ -197,4 +197,32 @@ class ThumbnailImageRequestTest {
     fun missingThumbnailHasNoTwoStageRequest() {
         assertNull(streamThumbnailRequestPlan(Stream(channelId = "channel-42"), bucket = 10L))
     }
+
+    @Test
+    fun thumbnailRefreshCancelsOnlyThumbnailWork() {
+        val requests = FeedImageRequestBag()
+        var avatarCancellations = 0
+        var thumbnailCancellations = 0
+        val avatarSlot = Any()
+        val thumbnailSlot = Any()
+
+        requests.replace(
+            avatarSlot,
+            StreamThumbnailRequestHandle { avatarCancellations++ },
+        )
+        requests.replace(
+            thumbnailSlot,
+            StreamThumbnailRequestHandle { thumbnailCancellations++ },
+        )
+
+        requests.cancel(thumbnailSlot)
+
+        assertEquals(0, avatarCancellations)
+        assertEquals(1, thumbnailCancellations)
+
+        requests.cancel()
+
+        assertEquals(1, avatarCancellations)
+        assertEquals(1, thumbnailCancellations)
+    }
 }

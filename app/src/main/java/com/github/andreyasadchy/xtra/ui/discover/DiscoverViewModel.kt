@@ -98,6 +98,7 @@ class DiscoverViewModel(
     private val recommendationsMutex = Mutex()
     private var currentTrendingSpec: StreamFeedSpec? = null
     private var lastVisibleRefreshAt = 0L
+    private var recommendationsRefreshGeneration = 0L
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<DiscoverState> = combine(
@@ -234,7 +235,26 @@ class DiscoverViewModel(
                         if (result.source == RecommendationSource.UNAVAILABLE && current.data.isNotEmpty()) {
                             current.copy(refreshing = false, hasLoadedOnce = true, error = null)
                         } else {
-                            current.copy(data = result.streams, refreshing = false, hasLoadedOnce = true, error = null)
+                            val recommendationsChanged = !result.isCacheHit ||
+                                !recommendationStreamsSame(current.data, result.streams)
+                            val generation = if (recommendationsChanged) {
+                                ++recommendationsRefreshGeneration
+                            } else {
+                                current.data.firstOrNull()?.thumbnailGeneration
+                                    ?: recommendationsRefreshGeneration
+                            }
+                            current.copy(
+                                data = if (recommendationsChanged) {
+                                    result.streams.map { stream ->
+                                        stream.withThumbnailGeneration(generation)
+                                    }
+                                } else {
+                                    current.data
+                                },
+                                refreshing = false,
+                                hasLoadedOnce = true,
+                                error = null,
+                            )
                         }
                     }
                 } catch (error: CancellationException) {
@@ -370,4 +390,24 @@ class DiscoverViewModel(
             }
         }
     }
+}
+
+private fun recommendationStreamsSame(
+    first: List<Stream>,
+    second: List<Stream>,
+): Boolean = first.size == second.size && first.zip(second).all { (old, new) ->
+    old.id == new.id &&
+        old.channelId == new.channelId &&
+        old.channelLogin == new.channelLogin &&
+        old.channelName == new.channelName &&
+        old.channelImageURL == new.channelImageURL &&
+        old.gameId == new.gameId &&
+        old.gameSlug == new.gameSlug &&
+        old.gameName == new.gameName &&
+        old.title == new.title &&
+        old.thumbnailURL == new.thumbnailURL &&
+        old.createdAt == new.createdAt &&
+        old.viewerCount == new.viewerCount &&
+        old.tags == new.tags &&
+        old.dropsAvailable == new.dropsAvailable
 }

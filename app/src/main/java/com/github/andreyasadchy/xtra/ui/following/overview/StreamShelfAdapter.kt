@@ -65,8 +65,9 @@ class StreamShelfAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.isNotEmpty() && payloads.all { it === StreamThumbnailChangedPayload }) {
-            holder.beginImageBind(getItem(position))
-            holder.bindThumbnail(getItem(position))
+            val stream = getItem(position)
+            holder.beginThumbnailRefresh(stream)
+            holder.bindThumbnail(stream)
         } else {
             super.onBindViewHolder(holder, position, payloads)
         }
@@ -146,6 +147,13 @@ class StreamShelfAdapter(
             imageRequests.cancel()
             boundImageStream = stream
             boundImageIdentity = stream?.streamIdentity()
+            boundThumbnailKey = null
+        }
+
+        fun beginThumbnailRefresh(stream: Stream?) {
+            boundImageStream = stream
+            boundImageIdentity = stream?.streamIdentity()
+            imageRequests.cancel(binding.thumbnail)
             boundThumbnailKey = null
         }
 

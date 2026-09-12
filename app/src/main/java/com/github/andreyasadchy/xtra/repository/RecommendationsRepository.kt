@@ -51,19 +51,49 @@ class RecommendationsRepository(
             ?.xtraModule?.twitchWebSessionManager
         val requestContext = recommendationRequestContext(now)
         val accountKey = requestContext.accountKey
-        cacheMutex.withLock {
+        val cachedResult = cacheMutex.withLock {
             cache
                 ?.takeIf { it.accountKey == accountKey && recommendationCacheIsFresh(now, it.expiresAt) }
                 ?.let { entry ->
-                    lastSource = entry.source
-                    return RecommendationResult(
+                    RecommendationResult(
                         streams = entry.recommendations
-                        .filterNot { it.channelId in excludedChannelIds }
-                        .take(limit),
+                            .filterNot { it.channelId in excludedChannelIds }
+                            .take(limit),
                         source = entry.source,
                         authMode = entry.authMode,
-                    ).also { debug("source=${it.source} auth=${it.authMode} cache-hit count=${it.streams.size}") }
+                        isCacheHit = true,
+                    )
                 }
+        }
+        if (cachedResult != null && cachedResult.streams.size >= limit) {
+            lastSource = cachedResult.source
+            return cachedResult.also {
+                debug("source=${it.source} auth=${it.authMode} cache-hit count=${it.streams.size}")
+            }
+        }
+        if (cachedResult != null) {
+            val fallbackStreams = loadFallbackRecommendations(
+                requestContext = requestContext,
+                limit = limit,
+                excludedChannelIds = excludedChannelIds,
+            )
+            val streams = (cachedResult.streams + fallbackStreams)
+                .filterNot { it.channelId in excludedChannelIds }
+                .distinctBy { it.channelId ?: it.id }
+                .take(limit)
+            val result = cachedResult.copy(
+                streams = streams,
+                source = recommendationSourceFor(
+                    personalized = cachedResult.streams.takeIf {
+                        cachedResult.source == RecommendationSource.PERSONALIZED
+                    },
+                    result = streams,
+                ),
+                isCacheHit = false,
+            )
+            lastSource = result.source
+            debug("source=${result.source} auth=${result.authMode} cache-supplement count=${result.streams.size}")
+            return result
         }
         val auth = requestContext.auth
         debug("auth=${auth.mode} userBound=${auth.userId != null}")
@@ -92,6 +122,7 @@ class RecommendationsRepository(
                 }
                 debug("PersonalSections sections=${sections?.size ?: 0} items=$itemCount")
                 parsePersonalSections(response)
+                    .filter(::hasRenderableFeedImages)
                     .filterNot { it.channelId in excludedChannelIds }
                     .also { debug("PersonalSections parsed count=${it.size}") }
             } catch (error: CancellationException) {
@@ -101,33 +132,23 @@ class RecommendationsRepository(
                 null
             }
         }
-        val source = if (!personalized.isNullOrEmpty()) {
-            RecommendationSource.PERSONALIZED
+        val fallbackStreams = if (personalized == null || personalized.size < limit) {
+            debug(
+                if (personalized.isNullOrEmpty()) {
+                    "source=FALLBACK reason=${if (personalized == null) "personalized-error" else "personalized-empty"}"
+                } else {
+                    "source=FALLBACK reason=supplement-personalized count=${personalized.size}"
+                },
+            )
+            loadFallbackRecommendations(
+                requestContext = requestContext,
+                limit = limit,
+                excludedChannelIds = excludedChannelIds,
+            )
         } else {
-            RecommendationSource.FALLBACK
+            emptyList()
         }
-        lastSource = source
-        val streams = if (!personalized.isNullOrEmpty()) {
-            personalized
-        } else {
-            debug("source=FALLBACK reason=${if (personalized == null) "personalized-error" else "personalized-empty"}")
-            try {
-                fallback(
-                    networkLibrary = requestContext.networkLibrary,
-                    headers = TwitchApiHelper.getPublicRecommendationGQLHeaders(
-                        context = context,
-                        clientSessionId = recommendationClientSessionId,
-                    ),
-                    limit = limit,
-                    excludedChannelIds = excludedChannelIds,
-                )
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Exception) {
-                debugFailure("Fallback recommendations failed", error)
-                emptyList()
-            }
-        }
+        val streams = (personalized.orEmpty() + fallbackStreams)
             .filterNot { it.channelId in excludedChannelIds }
             .distinctBy { it.channelId ?: it.id }
             .take(limit)
@@ -146,6 +167,27 @@ class RecommendationsRepository(
             )
         }
         return result
+    }
+
+    private suspend fun loadFallbackRecommendations(
+        requestContext: RecommendationRequestContext,
+        limit: Int,
+        excludedChannelIds: Set<String>,
+    ): List<Stream> = try {
+        fallback(
+            networkLibrary = requestContext.networkLibrary,
+            headers = TwitchApiHelper.getPublicRecommendationGQLHeaders(
+                context = context,
+                clientSessionId = recommendationClientSessionId,
+            ),
+            limit = limit,
+            excludedChannelIds = excludedChannelIds,
+        )
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        debugFailure("Fallback recommendations failed", error)
+        emptyList()
     }
 
     private suspend fun publishCacheIfCurrent(
@@ -229,6 +271,7 @@ class RecommendationsRepository(
         )
         return response.data?.streams?.edges.orEmpty().mapNotNull { it.node.toStream() }
             .filterNot { it.channelId in followedIds }
+            .filter(::hasRenderableFeedImages)
             .take(limit)
     }
 
@@ -288,6 +331,7 @@ data class RecommendationResult(
     val streams: List<Stream>,
     val source: RecommendationSource,
     val authMode: RecommendationAuthMode,
+    val isCacheHit: Boolean = false,
 )
 
 enum class RecommendationAuthMode {
@@ -346,6 +390,9 @@ enum class RecommendationSource {
     FALLBACK,
     UNAVAILABLE,
 }
+
+private fun hasRenderableFeedImages(stream: Stream): Boolean =
+    !stream.channelImageURL.isNullOrBlank() && !stream.thumbnailURL.isNullOrBlank()
 
 internal fun recommendationSourceFor(
     personalized: List<Stream>?,

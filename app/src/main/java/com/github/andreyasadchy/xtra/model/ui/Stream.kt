@@ -31,4 +31,23 @@ class Stream(
         get() = TwitchApiHelper.getProfileImage(channelImageURL)
     val thumbnail: String?
         get() = TwitchApiHelper.getStreamThumbnail(thumbnailURL)
+
+    /** Creates the same stream snapshot with a new live-preview refresh generation. */
+    fun withThumbnailGeneration(generation: Long): Stream = Stream(
+        id = id,
+        channelId = channelId,
+        channelLogin = channelLogin,
+        channelName = channelName,
+        channelImageURL = channelImageURL,
+        gameId = gameId,
+        gameSlug = gameSlug,
+        gameName = gameName,
+        title = title,
+        thumbnailURL = thumbnailURL,
+        createdAt = createdAt,
+        viewerCount = viewerCount,
+        tags = tags,
+        dropsAvailable = dropsAvailable,
+        thumbnailGeneration = generation,
+    )
 }
