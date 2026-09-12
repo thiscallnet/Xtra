@@ -87,7 +87,7 @@ class StreamsAdapter(
 
     override fun onBindViewHolder(holder: PagingViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.isNotEmpty() && payloads.all { it === StreamThumbnailChangedPayload }) {
-            holder.beginImageBind(getItem(position))
+            holder.beginThumbnailRefresh()
             holder.bindThumbnail(getItem(position))
         } else {
             super.onBindViewHolder(holder, position, payloads)
@@ -146,6 +146,11 @@ class StreamsAdapter(
             thumbnailLoadScheduler.clear(this)
             imageRequests.cancel()
             boundImageIdentity = item?.streamIdentity()
+            boundThumbnailKey = null
+        }
+
+        fun beginThumbnailRefresh() {
+            imageRequests.cancel(binding.thumbnail)
             boundThumbnailKey = null
         }
 

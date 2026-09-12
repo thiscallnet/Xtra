@@ -235,10 +235,20 @@ class DiscoverViewModel(
                         if (result.source == RecommendationSource.UNAVAILABLE && current.data.isNotEmpty()) {
                             current.copy(refreshing = false, hasLoadedOnce = true, error = null)
                         } else {
-                            val generation = ++recommendationsRefreshGeneration
+                            val recommendationsChanged = !recommendationStreamsSame(current.data, result.streams)
+                            val generation = if (recommendationsChanged) {
+                                ++recommendationsRefreshGeneration
+                            } else {
+                                current.data.firstOrNull()?.thumbnailGeneration
+                                    ?: recommendationsRefreshGeneration
+                            }
                             current.copy(
-                                data = result.streams.map { stream ->
-                                    stream.withThumbnailGeneration(generation)
+                                data = if (recommendationsChanged) {
+                                    result.streams.map { stream ->
+                                        stream.withThumbnailGeneration(generation)
+                                    }
+                                } else {
+                                    current.data
                                 },
                                 refreshing = false,
                                 hasLoadedOnce = true,
@@ -379,4 +389,24 @@ class DiscoverViewModel(
             }
         }
     }
+}
+
+private fun recommendationStreamsSame(
+    first: List<Stream>,
+    second: List<Stream>,
+): Boolean = first.size == second.size && first.zip(second).all { (old, new) ->
+    old.id == new.id &&
+        old.channelId == new.channelId &&
+        old.channelLogin == new.channelLogin &&
+        old.channelName == new.channelName &&
+        old.channelImageURL == new.channelImageURL &&
+        old.gameId == new.gameId &&
+        old.gameSlug == new.gameSlug &&
+        old.gameName == new.gameName &&
+        old.title == new.title &&
+        old.thumbnailURL == new.thumbnailURL &&
+        old.createdAt == new.createdAt &&
+        old.viewerCount == new.viewerCount &&
+        old.tags == new.tags &&
+        old.dropsAvailable == new.dropsAvailable
 }

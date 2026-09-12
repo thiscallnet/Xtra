@@ -72,11 +72,11 @@ class FollowingStreamsListAdapter(
         if (payloads.isNotEmpty() && payloads.all { it === StreamThumbnailChangedPayload }) {
             when (holder) {
                 is StreamsCompactAdapter.PagingViewHolder -> {
-                    holder.beginImageBind(item)
+                    holder.beginThumbnailRefresh()
                     holder.bindThumbnail(item)
                 }
                 is StreamsShelfPagingAdapter.ViewHolder -> {
-                    holder.beginImageBind(item)
+                    holder.beginThumbnailRefresh()
                     holder.bindThumbnail(item)
                 }
                 else -> bindItem(holder, item)

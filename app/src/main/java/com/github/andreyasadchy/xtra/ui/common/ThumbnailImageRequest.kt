@@ -244,6 +244,11 @@ internal class FeedImageRequestBag {
         cancellations.put(slot, handle::cancel)?.invoke()
     }
 
+    /** Cancel one image slot without disturbing the other image requests. */
+    fun cancel(slot: Any) {
+        cancellations.remove(slot)?.invoke()
+    }
+
     fun cancel(preserveRegistrations: Boolean = false) {
         cancellations.values.forEach { it() }
         if (!preserveRegistrations) cancellations.clear()
@@ -281,9 +286,8 @@ internal class StreamThumbnailRequestHandle(
     }
 
     @Synchronized
-    fun rearm() {
-        cancelled = false
-    }
+    fun isCancelled(): Boolean = cancelled
+
 }
 
 internal fun ImageRequest.Builder.thumbnailState(): ImageRequest.Builder = apply {
@@ -844,10 +848,14 @@ internal fun loadStreamThumbnail(
     }
 
     fun enqueueFreshRequest() {
+        if (requestHandle.isCancelled()) return
         val nowMs = System.currentTimeMillis()
         if (!streamThumbnailFetchGate.shouldFetch(identity, bucket, forceEpoch, nowMs)) return
         streamThumbnailFetchGate.markAttempt(identity, bucket, forceEpoch, nowMs)
-        requestHandle.rearm()
+        if (requestHandle.isCancelled()) {
+            streamThumbnailFetchGate.clearAttempt(identity, bucket, forceEpoch)
+            return
+        }
         val preserveCurrentImage = imageView.tag == identity &&
                 imageView.getTag(R.id.stream_thumbnail_display_state) == StreamThumbnailDisplayState.IMAGE
         val policies = thumbnailCachePolicies(fresh = true)
@@ -897,7 +905,9 @@ internal fun loadStreamThumbnail(
     // only revalidate when the fetch gate says the current bucket is due.
     if (warmImageRestored || restoreWarmStreamThumbnail(plan.memoryCacheKey, imageView)) {
         if (streamThumbnailFetchGate.shouldFetch(identity, bucket, forceEpoch, System.currentTimeMillis())) {
-            scheduleFreshRequest(::enqueueFreshRequest)
+            if (!requestHandle.isCancelled()) {
+                scheduleFreshRequest(::enqueueFreshRequest)
+            }
         }
         return requestHandle
     }
@@ -937,10 +947,16 @@ internal fun loadStreamThumbnail(
                         forceRefresh = forceRefresh || retryFreshRequest,
                     )
                 ) {
+                    if (!requestHandle.isCancelled()) {
+                        scheduleFreshRequest(::enqueueFreshRequest)
+                    }
+                }
+            },
+            onError = {
+                if (!requestHandle.isCancelled()) {
                     scheduleFreshRequest(::enqueueFreshRequest)
                 }
             },
-            onError = { scheduleFreshRequest(::enqueueFreshRequest) },
         )
         target(StreamThumbnailCacheTarget(imageView, identity, bindToken, plan.memoryCacheKey))
     }.build()))

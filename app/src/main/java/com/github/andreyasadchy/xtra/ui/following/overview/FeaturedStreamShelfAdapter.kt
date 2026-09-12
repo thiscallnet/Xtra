@@ -76,7 +76,7 @@ class FeaturedStreamShelfAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
         if (payloads.isNotEmpty() && payloads.all { it === StreamThumbnailChangedPayload }) {
-            holder.beginImageBind(getItem(position))
+            holder.beginThumbnailRefresh()
             holder.bindThumbnail(getItem(position))
         } else {
             super.onBindViewHolder(holder, position, payloads)
@@ -249,6 +249,11 @@ class FeaturedStreamShelfAdapter(
             imageRequests.cancel()
             boundImageStream = stream
             boundImageIdentity = stream?.streamIdentity()
+            boundThumbnailKey = null
+        }
+
+        fun beginThumbnailRefresh() {
+            imageRequests.cancel(binding.thumbnail)
             boundThumbnailKey = null
         }
 
