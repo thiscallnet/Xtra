@@ -182,8 +182,14 @@ class UpdateRepository(
                         val release = (parsed as? ReleaseParseResult.Success)?.release
                             ?: throw UpdateException((parsed as ReleaseParseResult.Failure).error, stage = UpdateStage.PARSE)
                         when (val history = fetchReleaseHistory(url, networkLibrary, generation)) {
-                            is ReleaseHistoryResult.Complete -> updateReleaseHistory(listOf(release) + history.releases)
-                            is ReleaseHistoryResult.Partial,
+                            is ReleaseHistoryResult.Complete -> updateReleaseHistory(
+                                releases = listOf(release) + history.releases,
+                                complete = true,
+                            )
+                            is ReleaseHistoryResult.Partial -> updateReleaseHistory(
+                                releases = listOf(release) + history.releases,
+                                complete = false,
+                            )
                             ReleaseHistoryResult.Unavailable -> markReleaseHistoryIncomplete()
                         }
                         ensureCurrentCheck(generation)
@@ -864,7 +870,12 @@ class UpdateRepository(
         }
 
     fun recentReleases(fallbackRelease: UpdateRelease? = null): List<UpdateRelease> =
-        UpdateReleaseHistory.recent(_releaseHistory.value, fallbackRelease)
+        UpdateReleaseHistory.recent(
+            releases = _releaseHistory.value,
+            installedVersionName = BuildConfig.VERSION_NAME,
+            installedBuildNumber = installedBuildNumber,
+            fallbackRelease = fallbackRelease,
+        )
 
     private val installedBuildNumber: Long?
         get() = UpdateVersionDisplay.installedBuildNumber(
@@ -955,13 +966,13 @@ class UpdateRepository(
                 ?.let(ReleaseHistoryResult::Partial)
                 ?: ReleaseHistoryResult.Unavailable
             val pageReleases = ReleaseParser.parseHistory(response, url)
-            releases += pageReleases.filter { release ->
-                UpdatePolicy.isNewer(BuildConfig.VERSION_NAME, installedBuildNumber, release)
-            }
-            val reachedInstalledBuild = pageReleases.any { release ->
+            releases += pageReleases
+            val installedOrOlderCount = UpdateReleaseHistory.merge(releases).count { release ->
                 !UpdatePolicy.isNewer(BuildConfig.VERSION_NAME, installedBuildNumber, release)
             }
-            if (response.size < RELEASE_HISTORY_PAGE_SIZE || reachedInstalledBuild) {
+            if (response.size < RELEASE_HISTORY_PAGE_SIZE ||
+                installedOrOlderCount >= UpdateReleaseHistory.RECENT_RELEASE_COUNT
+            ) {
                 return ReleaseHistoryResult.Complete(releases)
             }
             page += 1
@@ -971,7 +982,7 @@ class UpdateRepository(
             ?: ReleaseHistoryResult.Unavailable
     }
 
-    private fun updateReleaseHistory(releases: List<UpdateRelease>) {
+    private fun updateReleaseHistory(releases: List<UpdateRelease>, complete: Boolean) {
         val merged = UpdateReleaseHistory.retainForInstalled(
             releases = releases + _releaseHistory.value,
             installedVersionName = BuildConfig.VERSION_NAME,
@@ -981,13 +992,13 @@ class UpdateRepository(
             .map(UpdateRelease::toCachedHistory)
             .map(CachedUpdateRelease::toUpdateRelease)
         _releaseHistory.value = compacted
-        _releaseHistoryComplete.value = true
+        _releaseHistoryComplete.value = complete
         preferences.edit {
             putString(
                 C.UPDATE_RELEASE_HISTORY,
                 historyJson.encodeToString(compacted.map(UpdateRelease::toCachedHistory)),
             )
-            putBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, true)
+            putBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, complete)
         }
     }
 

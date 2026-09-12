@@ -657,14 +657,36 @@ class UpdateDomainTest {
     }
 
     @Test
-    fun releaseHistoryRetentionKeepsRecentAndPendingEntriesOnly() {
+    fun releaseHistoryRetentionKeepsTwentyRecentEntries() {
         val retained = UpdateReleaseHistory.retainForInstalled(
             releases = (20 downTo 1).map { build -> parse("v2.58.5-build.$build") },
             installedVersionName = "2.58.5",
             installedBuildNumber = 10,
         )
 
-        assertEquals((20 downTo 11).map(Int::toLong), retained.mapNotNull(UpdateRelease::buildNumber))
+        assertEquals((20 downTo 1).map(Int::toLong), retained.mapNotNull(UpdateRelease::buildNumber))
+    }
+
+    @Test
+    fun releaseHistoryRetentionKeepsOlderEntriesWhenPendingBacklogIsLarge() {
+        val retained = UpdateReleaseHistory.retainForInstalled(
+            releases = (40 downTo 1).map { build -> parse("v2.58.5-build.$build") },
+            installedVersionName = "2.58.5",
+            installedBuildNumber = 10,
+        )
+
+        assertEquals((40 downTo 1).map(Int::toLong), retained.mapNotNull(UpdateRelease::buildNumber))
+    }
+
+    @Test
+    fun recentHistoryKeepsHistoricalEntriesAlongsidePendingBacklog() {
+        val recent = UpdateReleaseHistory.recent(
+            releases = (40 downTo 1).map { build -> parse("v2.58.5-build.$build") },
+            installedVersionName = "2.58.5",
+            installedBuildNumber = 10,
+        )
+
+        assertEquals((40 downTo 1).map(Int::toLong), recent.mapNotNull(UpdateRelease::buildNumber))
     }
 
     @Test

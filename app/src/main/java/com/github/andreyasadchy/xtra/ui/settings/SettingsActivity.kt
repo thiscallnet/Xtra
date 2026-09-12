@@ -113,7 +113,6 @@ import com.github.andreyasadchy.xtra.ui.update.UpdateUiModel
 import com.github.andreyasadchy.xtra.ui.update.UpdateUiStatus
 import com.github.andreyasadchy.xtra.ui.update.toUiModel
 import com.github.andreyasadchy.xtra.util.updater.UpdateDiagnostics
-import com.github.andreyasadchy.xtra.util.updater.ChangeKind
 import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
@@ -1727,12 +1726,15 @@ class SettingsActivity : AppCompatActivity() {
         private var _binding: FragmentUpdateSettingsBinding? = null
         private val binding get() = _binding!!
         private var technicalDetailsExpanded = false
+        private var visibleHistoryCount = INITIAL_HISTORY_COUNT
         private lateinit var updateNotificationPermissionLauncher: ActivityResultLauncher<String>
         private val repository
             get() = (requireContext().applicationContext as XtraApp).xtraModule.updateRepository
 
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
+            visibleHistoryCount = savedInstanceState?.getInt(KEY_VISIBLE_HISTORY_COUNT, INITIAL_HISTORY_COUNT)
+                ?: INITIAL_HISTORY_COUNT
             updateNotificationPermissionLauncher = registerForActivityResult(
                 ActivityResultContracts.RequestPermission(),
             ) {
@@ -1793,6 +1795,10 @@ class SettingsActivity : AppCompatActivity() {
                 performUpdateAction(UpdateUiMapper.map(repository.state.value, repository.selectedAssetInfo()).secondaryAction)
             }
             binding.updateOverflowButton.setOnClickListener { showUpdateOverflowMenu() }
+            binding.earlierChangesButton.setOnClickListener {
+                visibleHistoryCount += HISTORY_PAGE_SIZE
+                render(repository.state.value)
+            }
             binding.technicalDetailsToggle.setOnClickListener {
                 technicalDetailsExpanded = !technicalDetailsExpanded
                 render(repository.state.value)
@@ -1959,19 +1965,20 @@ class SettingsActivity : AppCompatActivity() {
             val showNotes = model.showReleaseNotes && release != null
             binding.whatsNewTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
             binding.notesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
-            if (showNotes) {
-                val notes = UpdateReleaseHistory.notesForUpdate(
+            val currentNotes = if (showNotes) {
+                UpdateReleaseHistory.notesForUpdate(
                     historyComplete = repository.releaseHistoryComplete.value,
                     cumulativeReleases = repository.releasesSinceInstalled(release),
                     latestRelease = release,
                 )
-                UpdateNotesBinder.bindHistory(binding.notesContainer, notes)
+            } else {
+                emptyList()
+            }
+            if (showNotes) {
+                UpdateNotesBinder.bindHistory(binding.notesContainer, currentNotes)
             } else {
                 binding.notesContainer.removeAllViews()
             }
-            binding.earlierChangesButton.visibility = View.GONE
-            binding.earlierChangesContainer.visibility = View.GONE
-            binding.earlierChangesContainer.removeAllViews()
             binding.lastCheckedText.text = getString(
                 R.string.last_successful_update_check,
                 UpdateTimeFormatter.format(requireContext(), repository.lastSuccessfulCheck),
@@ -1984,27 +1991,19 @@ class SettingsActivity : AppCompatActivity() {
             binding.technicalDetailsToggle.text = getString(
                 if (technicalDetailsExpanded) R.string.hide_technical_details else R.string.update_diagnostics,
             )
-            val recent = repository.recentReleases(release)
+            val currentNoteIds = currentNotes.mapTo(hashSetOf()) { it.id }
+            val recent = repository.recentReleases(release).filterNot { it.id in currentNoteIds }
             binding.recentUpdatesCard.visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
-            binding.recentUpdatesContainer.removeAllViews()
-            recent.forEach { recentRelease ->
-                val row = TextView(requireContext()).apply {
-                    val date = recentRelease.publishedAt?.substringBefore('T')
-                    val counts = recentRelease.structuredReleaseNotes.items.groupingBy { it.kind }.eachCount()
-                    text = buildString {
-                        append(recentRelease.displayVersion)
-                        date?.let { append(getString(R.string.update_meta_separator)).append(it) }
-                        if (counts.isNotEmpty()) append("\n").append(
-                            counts.entries.joinToString(getString(R.string.update_meta_separator)) {
-                                getString(changeKindLabel(it.key), it.value)
-                            },
-                        )
-                    }
-                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-                    setPadding(0, dp(8), 0, dp(8))
-                }
-                binding.recentUpdatesContainer.addView(row)
-            }
+            UpdateNotesBinder.bindHistory(
+                binding.recentUpdatesContainer,
+                recent.take(visibleHistoryCount),
+            )
+            val hasMoreHistory = recent.size > visibleHistoryCount
+            binding.earlierChangesButton.visibility = if (hasMoreHistory) View.VISIBLE else View.GONE
+            binding.earlierChangesButton.text = getString(
+                if (hasMoreHistory) R.string.update_release_notes_earlier
+                else R.string.update_release_notes_earlier_expanded,
+            )
         }
 
         private fun showUpdateOverflowMenu() {
@@ -2016,15 +2015,6 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
             menu.show()
-        }
-
-        @StringRes
-        private fun changeKindLabel(kind: ChangeKind): Int = when (kind) {
-            ChangeKind.NEW -> R.string.update_count_new
-            ChangeKind.IMPROVED -> R.string.update_count_improved
-            ChangeKind.FIXED -> R.string.update_count_fixed
-            ChangeKind.SECURITY -> R.string.update_count_security
-            ChangeKind.OTHER -> R.string.update_count_other
         }
 
         private fun actionText(action: UpdateUiAction?): String = getString(
@@ -2049,6 +2039,17 @@ class SettingsActivity : AppCompatActivity() {
         override fun onDestroyView() {
             _binding = null
             super.onDestroyView()
+        }
+
+        override fun onSaveInstanceState(outState: Bundle) {
+            outState.putInt(KEY_VISIBLE_HISTORY_COUNT, visibleHistoryCount)
+            super.onSaveInstanceState(outState)
+        }
+
+        private companion object {
+            const val INITIAL_HISTORY_COUNT = 5
+            const val HISTORY_PAGE_SIZE = 5
+            const val KEY_VISIBLE_HISTORY_COUNT = "visible_update_history_count"
         }
     }
 

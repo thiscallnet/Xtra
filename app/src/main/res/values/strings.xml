@@ -1285,8 +1285,8 @@
     <string name="update_install_permission_title">Installation permission required</string>
     <string name="update_install_cancelled_message">The installation was cancelled. You can try again.</string>
     <string name="update_install_failed_message">Xtra could not install this update. Try again.</string>
-    <string name="update_release_notes_earlier">Earlier changes included</string>
-    <string name="update_release_notes_earlier_expanded">Earlier changes included</string>
+    <string name="update_release_notes_earlier">Show older updates</string>
+    <string name="update_release_notes_earlier_expanded">Show fewer updates</string>
     <string name="update_full_release_notes">Full release notes</string>
     <string name="update_checked_recently">Checked %s</string>
     <string name="update_error_message">Something went wrong. See diagnostics for details.</string>
