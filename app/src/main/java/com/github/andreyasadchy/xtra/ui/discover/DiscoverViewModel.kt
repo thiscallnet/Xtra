@@ -235,7 +235,8 @@ class DiscoverViewModel(
                         if (result.source == RecommendationSource.UNAVAILABLE && current.data.isNotEmpty()) {
                             current.copy(refreshing = false, hasLoadedOnce = true, error = null)
                         } else {
-                            val recommendationsChanged = !recommendationStreamsSame(current.data, result.streams)
+                            val recommendationsChanged = !result.isCacheHit ||
+                                !recommendationStreamsSame(current.data, result.streams)
                             val generation = if (recommendationsChanged) {
                                 ++recommendationsRefreshGeneration
                             } else {

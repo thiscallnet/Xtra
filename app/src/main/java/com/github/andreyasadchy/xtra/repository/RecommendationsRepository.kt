@@ -61,6 +61,7 @@ class RecommendationsRepository(
                             .take(limit),
                         source = entry.source,
                         authMode = entry.authMode,
+                        isCacheHit = true,
                     )
                 }
         }
@@ -88,6 +89,7 @@ class RecommendationsRepository(
                     },
                     result = streams,
                 ),
+                isCacheHit = false,
             )
             lastSource = result.source
             debug("source=${result.source} auth=${result.authMode} cache-supplement count=${result.streams.size}")
@@ -329,6 +331,7 @@ data class RecommendationResult(
     val streams: List<Stream>,
     val source: RecommendationSource,
     val authMode: RecommendationAuthMode,
+    val isCacheHit: Boolean = false,
 )
 
 enum class RecommendationAuthMode {
