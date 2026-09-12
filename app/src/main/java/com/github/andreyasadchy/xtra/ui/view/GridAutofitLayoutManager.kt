@@ -10,7 +10,7 @@ import kotlin.math.max
 class GridAutofitLayoutManager : GridLayoutManager {
 
     private var columnWidth = 0
-    private var widthChanged = true
+    private var lastTotalSpace = Int.MIN_VALUE
 
     constructor(context: Context, columnWidth: Int) : super(context, 1) {
         setColumnWidth(columnWidth)
@@ -21,15 +21,20 @@ class GridAutofitLayoutManager : GridLayoutManager {
     }
 
     override fun onLayoutChildren(recycler: RecyclerView.Recycler?, state: RecyclerView.State) {
-        if (widthChanged && width > 0 && height > 0) {
-            val totalSpace: Int = if (orientation == VERTICAL) {
+        if (width > 0 && height > 0) {
+            val totalSpace = if (orientation == VERTICAL) {
                 width - paddingRight - paddingLeft
             } else {
                 height - paddingTop - paddingBottom
             }
-            val spanCount = max(1, totalSpace / columnWidth)
-            setSpanCount(spanCount)
-            widthChanged = false
+
+            if (totalSpace != lastTotalSpace) {
+                val newSpanCount = max(1, totalSpace / columnWidth)
+                if (newSpanCount != spanCount) {
+                    setSpanCount(newSpanCount)
+                }
+                lastTotalSpace = totalSpace
+            }
         }
         super.onLayoutChildren(recycler, state)
     }
@@ -40,11 +45,12 @@ class GridAutofitLayoutManager : GridLayoutManager {
         }
         if (columnWidth != width) {
             columnWidth = width
-            widthChanged = true
+            lastTotalSpace = Int.MIN_VALUE
         }
     }
 
     fun updateWidth() {
-        widthChanged = true
+        lastTotalSpace = Int.MIN_VALUE
+        requestLayout()
     }
 }
