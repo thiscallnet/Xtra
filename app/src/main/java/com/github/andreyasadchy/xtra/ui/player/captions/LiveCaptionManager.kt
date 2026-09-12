@@ -333,6 +333,8 @@ class LiveCaptionManager(
         var lastInferenceMs = 0L
         var maxInferenceMs = 0L
         var inferenceCalls = 0L
+        var partialResults = 0L
+        var finalResults = 0L
         var totalInferenceMs = 0L
         var acceptedAudioMs = 0L
         var nextMetricsLogMs = SystemClock.elapsedRealtime() + METRICS_LOG_INTERVAL_MS
@@ -398,6 +400,8 @@ class LiveCaptionManager(
             lastInferenceMs = 0L
             maxInferenceMs = 0L
             inferenceCalls = 0L
+            partialResults = 0L
+            finalResults = 0L
             totalInferenceMs = 0L
             acceptedAudioMs = 0L
             droppedBuffersBaseline.reset(droppedAudioBuffers.get())
@@ -563,6 +567,10 @@ class LiveCaptionManager(
                         if (event.generation != audioGeneration.get() || !enabled.get()) continue
                         invalidatePendingCaptionEventsIfNeeded()
                         events.forEach { recognition ->
+                            when (recognition) {
+                                is CaptionRecognitionEvent.Partial -> partialResults++
+                                is CaptionRecognitionEvent.Final -> finalResults++
+                            }
                             enqueueCaptionEvent(recognition)
                         }
 
@@ -575,6 +583,8 @@ class LiveCaptionManager(
                                 lastInferenceMs = lastInferenceMs,
                                 maxInferenceMs = maxInferenceMs,
                                 inferenceCalls = inferenceCalls,
+                                partialResults = partialResults,
+                                finalResults = finalResults,
                                 droppedAudioBuffers = droppedBuffersBaseline.delta(droppedAudioBuffers.get()),
                                 realTimeFactor = if (acceptedAudioMs == 0L) {
                                     0.0
@@ -592,6 +602,8 @@ class LiveCaptionManager(
                                     "firstOutput=${firstOutputAfterStartMs ?: "none"}ms " +
                                     "lastInfer=${lastInferenceMs}ms " +
                                     "maxInfer=${maxInferenceMs}ms " +
+                                    "partials=$partialResults " +
+                                    "finals=$finalResults " +
                                     "rtf=${"%.2f".format(java.util.Locale.US, totalInferenceMs.toDouble() / acceptedAudioMs.coerceAtLeast(1L))} " +
                                     "drops=${droppedBuffersBaseline.delta(droppedAudioBuffers.get())}",
                             )

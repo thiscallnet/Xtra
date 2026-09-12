@@ -29,13 +29,18 @@ class MoonshineCaptionPolicyTest {
     }
 
     @Test
-    fun `slow partial inference backs off`() {
-        assertEquals(1_800L, nextMoonshinePartialIntervalMs(1_000L, 900L, false))
+    fun `slow partial inference keeps the configured latency target`() {
+        assertEquals(1_125L, nextMoonshinePartialIntervalMs(1_000L, 900L, false))
+    }
+
+    @Test
+    fun `slow partial inference keeps proportional headroom`() {
+        assertEquals(1_125L, nextMoonshinePartialIntervalMs(200L, 900L, false))
     }
 
     @Test
     fun `adaptive interval is capped`() {
-        assertEquals(2_500L, nextMoonshinePartialIntervalMs(1_000L, 2_000L, false))
+        assertEquals(2_500L, nextMoonshinePartialIntervalMs(1_000L, 3_000L, false))
     }
 
     @Test
