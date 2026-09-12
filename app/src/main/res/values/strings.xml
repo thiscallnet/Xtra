@@ -490,7 +490,7 @@
     <string name="settings_user_card_account_created">Account creation date</string>
     <string name="settings_user_card_account_created_summary">Show when a chatter created their Twitch account.</string>
     <string name="settings_user_card_followed_since">Followed since</string>
-    <string name="settings_user_card_followed_since_summary">Show when a chatter followed the current channel.</string>
+    <string name="settings_user_card_followed_since_summary">Show when Twitch provides a chatter\'s follow date. Regular viewers may not receive it.</string>
     <string name="settings_user_card_subscription">Subscription status</string>
     <string name="settings_user_card_subscription_summary">Show subscription status and tenure.</string>
     <string name="settings_user_card_roles">Twitch roles</string>
@@ -817,6 +817,7 @@
     <string name="created_at">Created at %s</string>
     <string name="user_card_created">Account created %1$s</string>
     <string name="user_card_following_since">Following since %1$s</string>
+    <string name="user_card_following_since_unavailable">Follow date unavailable. This user may not follow the channel, or Twitch may not provide the date to your account.</string>
     <string name="user_card_subscribed">Subscribed</string>
     <string name="user_card_badges">Badges</string>
     <string name="user_card_view_all">View all (%1$d)</string>

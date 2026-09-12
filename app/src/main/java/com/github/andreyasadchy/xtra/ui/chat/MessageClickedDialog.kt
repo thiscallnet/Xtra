@@ -174,7 +174,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                         }
                         if (item != null) {
                             userCardUser = item.user
-                            updateUserLayout(item.user)
+                            updateUserLayout(item.user, followDataLoaded = true)
                             item.user.name?.let { channelName ->
                                 if (requireArguments().getBoolean(KEY_MESSAGING) &&
                                     !selectedMessage.id.isNullOrBlank() &&
@@ -219,7 +219,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                                             if (user != null) {
                                                 userCardUser = user
                                                 replaceSavedUser(user, targetId, targetLogin, currentViewerId())
-                                                updateUserLayout(user)
+                                                updateUserLayout(user, followDataLoaded = true)
                                                 adapter.selectedMessage?.let { selectedMessage ->
                                                     if (requireArguments().getBoolean(KEY_MESSAGING) &&
                                                         !selectedMessage.id.isNullOrBlank() &&
@@ -344,7 +344,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         }
     }
 
-    private fun updateUserLayout(user: User) {
+    private fun updateUserLayout(user: User, followDataLoaded: Boolean = false) {
         with(binding) {
             userLayout.isVisible = true
             viewProfile.isVisible = false
@@ -413,14 +413,11 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             userRole.isVisible = preferences.getBoolean(C.UI_USER_CARD_SHOW_ROLES, false) && roleLabels.isNotEmpty()
             userRole.text = roleLabels.joinToString(" · ")
 
-            formatTwitchDate(user.followedAt)
-                ?.takeIf { preferences.getBoolean(C.UI_USER_CARD_SHOW_FOLLOWED_SINCE, true) }
-                ?.let { date ->
-                    userFollowed.isVisible = true
-                    userFollowed.text = getString(R.string.user_card_following_since, date)
-                } ?: run {
-                    userFollowed.isVisible = false
-                }
+            val showFollowedSince = preferences.getBoolean(C.UI_USER_CARD_SHOW_FOLLOWED_SINCE, true)
+            val followedDate = formatTwitchDate(user.followedAt)
+            userFollowed.isVisible = showFollowedSince && followedDate != null
+            userFollowed.text = followedDate?.let { getString(R.string.user_card_following_since, it) }
+            userFollowedUnavailable.isVisible = showFollowedSince && followDataLoaded && followedDate == null
 
             val months = user.subscriptionMonths ?: 0
             userSubscription.isVisible = preferences.getBoolean(C.UI_USER_CARD_SHOW_SUBSCRIPTION, true) && (months > 0 || user.isSubscribed)

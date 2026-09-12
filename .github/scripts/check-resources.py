@@ -68,6 +68,7 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_user_card_account_created_summary",
     "settings_user_card_followed_since",
     "settings_user_card_followed_since_summary",
+    "user_card_following_since_unavailable",
     "settings_user_card_subscription",
     "settings_user_card_subscription_summary",
     "settings_user_card_roles",
