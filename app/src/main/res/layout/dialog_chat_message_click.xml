@@ -102,6 +102,17 @@
                     tools:visibility="visible" />
 
                 <TextView
+                    android:id="@+id/userFollowedUnavailable"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/user_card_following_since_unavailable"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:visibility="gone"
+                    tools:text="Follow date unavailable. This user may not follow the channel, or Twitch may not provide the date to your account."
+                    tools:visibility="visible" />
+
+                <TextView
                     android:id="@+id/userSubscription"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
