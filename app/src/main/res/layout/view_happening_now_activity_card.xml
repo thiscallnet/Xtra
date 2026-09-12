@@ -6,10 +6,10 @@
     android:layout_height="wrap_content"
     android:layout_marginTop="4dp"
     android:minHeight="72dp"
-    app:cardBackgroundColor="@color/happeningNowCard"
+    app:cardBackgroundColor="?attr/colorSurfaceContainer"
     app:cardCornerRadius="5dp"
     app:cardElevation="0dp"
-    app:strokeColor="@color/happeningNowBorder"
+    app:strokeColor="?attr/colorOutline"
     app:strokeWidth="1dp">
 
     <LinearLayout
@@ -41,7 +41,7 @@
                     android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:maxLines="1"
-                    android:textColor="@color/happeningNowTextSecondary"
+                    android:textColor="?attr/colorOnSurfaceVariant"
                     android:textSize="11sp" />
 
                 <TextView
@@ -50,7 +50,7 @@
                     android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:maxLines="1"
-                    android:textColor="@color/happeningNowTextPrimary"
+                    android:textColor="?attr/colorOnSurface"
                     android:textSize="15sp" />
 
                 <LinearLayout
@@ -67,7 +67,7 @@
                     android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:maxLines="1"
-                    android:textColor="@color/happeningNowTextPrimary"
+                    android:textColor="?attr/colorOnSurface"
                     android:textSize="13sp"
                     android:visibility="gone" />
 
@@ -75,7 +75,7 @@
                     android:id="@+id/happeningTimer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:textColor="@color/happeningNowTextSecondary"
+                    android:textColor="?attr/colorOnSurfaceVariant"
                     android:textSize="12sp"
                     android:visibility="gone" />
             </LinearLayout>
@@ -91,10 +91,10 @@
                 android:minHeight="48dp"
                 android:paddingStart="14dp"
                 android:paddingEnd="14dp"
-                android:textColor="@android:color/white"
+                android:textColor="?attr/colorOnPrimary"
                 android:textSize="14sp"
                 android:textStyle="bold"
-                app:backgroundTint="@color/happeningNowPurple"
+                app:backgroundTint="?attr/colorPrimary"
                 app:cornerRadius="18dp" />
 
             <ImageButton
@@ -104,7 +104,8 @@
                 android:background="?android:selectableItemBackgroundBorderless"
                 android:contentDescription="@string/happening_now_more"
                 android:padding="12dp"
-                android:src="@drawable/ic_happening_now_more" />
+                android:src="@drawable/ic_happening_now_more"
+                app:tint="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
 
         <LinearLayout

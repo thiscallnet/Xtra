@@ -16,13 +16,13 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupMenu
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.chat.Poll
 import com.github.andreyasadchy.xtra.model.chat.Prediction
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.color.MaterialColors
 
 internal class HappeningNowView @JvmOverloads constructor(
     context: Context,
@@ -55,6 +55,8 @@ internal class HappeningNowView @JvmOverloads constructor(
     private var activePredictionStableKey: String? = null
     private var activePollTimer: TextView? = null
     private var activePollStableKey: String? = null
+    private var compactMode = false
+    private var expansionChangedByUser = false
 
     init {
         orientation = VERTICAL
@@ -66,11 +68,21 @@ internal class HappeningNowView @JvmOverloads constructor(
         cards = findViewById(R.id.happeningCards)
 
         findViewById<View>(R.id.happeningHeader).setOnClickListener {
+            expansionChangedByUser = true
             expanded = !expanded
             updateExpandedState()
         }
 
         visibility = GONE
+    }
+
+    internal fun setCompactMode(compact: Boolean) {
+        if (compactMode == compact) return
+        compactMode = compact
+        if (!expansionChangedByUser) {
+            expanded = !compact
+            updateExpandedState()
+        }
     }
 
     fun render(
@@ -433,14 +445,14 @@ internal class HappeningNowView @JvmOverloads constructor(
             if (index > 0) {
                 totals.addView(TextView(context).apply {
                     text = " vs "
-                    setTextColor(ContextCompat.getColor(context, R.color.happeningNowTextSecondary))
+                    setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
                     textSize = 13f
                 })
             }
 
             totals.addView(TextView(context).apply {
                 text = TwitchApiHelper.formatCount(outcome.totalPoints ?: 0, compact = true)
-                setTextColor(ContextCompat.getColor(context, R.color.happeningNowTextPrimary))
+                setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurface))
                 textSize = 13f
                 val dot = predictionColorDot(outcome, index, outcomes.size)
                 dot.setBounds(0, 0, dp(8), dp(8))
@@ -538,12 +550,11 @@ internal class HappeningNowView @JvmOverloads constructor(
         values.forEachIndexed { index, value ->
             val segment = View(context).apply {
                 setBackgroundColor(
-                    ContextCompat.getColor(
-                        context,
+                    themeColor(
                         if (index % 2 == 0) {
-                            R.color.happeningNowProgressLight
+                            androidx.appcompat.R.attr.colorPrimary
                         } else {
-                            R.color.happeningNowProgressDark
+                            androidx.appcompat.R.attr.colorAccent
                         },
                     ),
                 )
@@ -558,6 +569,9 @@ internal class HappeningNowView @JvmOverloads constructor(
             )
         }
     }
+
+    private fun themeColor(attribute: Int): Int =
+        MaterialColors.getColor(this, attribute)
 
     private fun bindDismissMenu(
         anchor: ImageButton,

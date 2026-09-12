@@ -5,11 +5,11 @@
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/happeningHeader"
         android:layout_width="match_parent"
-        android:layout_height="36dp"
-        app:cardBackgroundColor="@color/happeningNowHeader"
+        android:layout_height="48dp"
+        app:cardBackgroundColor="?attr/colorSurfaceContainerHigh"
         app:cardCornerRadius="4dp"
         app:cardElevation="0dp"
-        app:strokeColor="@color/happeningNowBorder"
+        app:strokeColor="?attr/colorOutline"
         app:strokeWidth="1dp">
 
         <LinearLayout
@@ -26,7 +26,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:maxLines="1"
-                android:textColor="@color/happeningNowTextPrimary"
+                android:textColor="?attr/colorOnSurface"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -34,7 +34,8 @@
                 android:id="@+id/happeningChevron"
                 android:layout_width="24dp"
                 android:layout_height="24dp"
-                android:src="@drawable/ic_happening_now_chevron_up" />
+                android:src="@drawable/ic_happening_now_chevron_up"
+                app:tint="?attr/colorOnSurfaceVariant" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
@@ -47,7 +48,7 @@
         android:gravity="center"
         android:paddingStart="7dp"
         android:paddingEnd="7dp"
-        android:textColor="@color/happeningNowNewText"
+        android:textColor="?attr/colorOnPrimaryContainer"
         android:textSize="10sp"
         android:textStyle="bold"
         android:visibility="gone" />

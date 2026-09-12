@@ -63,24 +63,24 @@
 
         <ImageButton
             android:id="@+id/pinnedMessageSeen"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?android:selectableItemBackgroundBorderless"
             android:contentDescription="@string/pinned_message_mark_seen"
-            android:minWidth="40dp"
-            android:minHeight="40dp"
-            android:padding="8dp"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:padding="12dp"
             android:scaleType="centerInside" />
 
         <ImageButton
             android:id="@+id/pinnedMessageMinimize"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?android:selectableItemBackgroundBorderless"
             android:contentDescription="@string/pinned_message_minimize"
-            android:minWidth="40dp"
-            android:minHeight="40dp"
-            android:padding="11dp"
+            android:minWidth="48dp"
+            android:minHeight="48dp"
+            android:padding="12dp"
             android:src="@drawable/ic_expand_less"
             app:tint="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
@@ -90,8 +90,10 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="5dp"
+        android:ellipsize="end"
         android:linksClickable="true"
-        android:textAppearance="?attr/textAppearanceTitleLarge"
+        android:maxLines="4"
+        android:textAppearance="?attr/textAppearanceBodyLarge"
         android:textColor="?attr/colorOnSurface"
         android:textStyle="bold"
         tools:text="Asmon is aware of the JD Vance briefing" />

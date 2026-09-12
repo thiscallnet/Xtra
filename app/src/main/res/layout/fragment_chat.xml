@@ -25,16 +25,24 @@
                 android:padding="0dp"
                 tools:listitem="@layout/chat_list_item" />
 
-            <LinearLayout
+            <com.github.andreyasadchy.xtra.ui.chat.ChatTopOverlayScrollView
                 android:id="@+id/chatTopOverlays"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_gravity="top"
-                android:gravity="end"
-                android:orientation="vertical"
+                android:clipToPadding="false"
+                android:fillViewport="false"
+                android:overScrollMode="never"
                 android:paddingStart="6dp"
                 android:paddingTop="6dp"
-                android:paddingEnd="6dp">
+                android:paddingEnd="6dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="end"
+                    android:orientation="vertical">
 
                 <include layout="@layout/view_pinned_chat_message" />
 
@@ -71,7 +79,8 @@
                     app:chipStrokeWidth="1dp"
                     tools:text="Send again · 4s"
                     tools:visibility="visible" />
-            </LinearLayout>
+                </LinearLayout>
+            </com.github.andreyasadchy.xtra.ui.chat.ChatTopOverlayScrollView>
 
             <Button
                 android:id="@+id/btnDown"

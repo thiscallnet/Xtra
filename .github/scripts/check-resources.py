@@ -229,6 +229,16 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_tv_chat_anchor_bottom_left",
     "settings_tv_chat_anchor_bottom_center",
     "settings_tv_chat_anchor_bottom_right",
+    # Phone fullscreen chat controls currently use the default English
+    # wording until their translations are reviewed by native speakers.
+    "settings_phone_chat",
+    "settings_phone_chat_overlay",
+    "settings_phone_chat_overlay_summary",
+    "settings_phone_chat_width",
+    "settings_phone_chat_height",
+    "settings_phone_chat_opacity",
+    "settings_phone_chat_reset",
+    "player_move_chat",
     "third_party_emotes_loading",
     "third_party_emotes_empty",
     "third_party_emotes_error",
