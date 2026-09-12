@@ -687,17 +687,19 @@
     </string-array>
 
     <string-array name="liveCaptionIntervalEntries" translatable="false">
-        <item>0.3 seconds</item>
-        <item>0.5 seconds</item>
-        <item>1.0 second</item>
-        <item>2.0 seconds</item>
+        <item>Battery saver · lowest CPU · about 2.0 seconds</item>
+        <item>Balanced · low CPU · about 1.0 second</item>
+        <item>Responsive · medium CPU · about 0.5 seconds</item>
+        <item>Fast · high CPU · about 0.3 seconds</item>
+        <item>Fastest · highest CPU · about 0.2 seconds</item>
     </string-array>
 
     <string-array name="liveCaptionIntervalValues" translatable="false">
-        <item>300</item>
-        <item>500</item>
-        <item>1000</item>
         <item>2000</item>
+        <item>1000</item>
+        <item>500</item>
+        <item>300</item>
+        <item>200</item>
     </string-array>
 
     <string-array name="liveCaptionWidthEntries" translatable="false">

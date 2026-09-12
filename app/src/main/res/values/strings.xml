@@ -1080,9 +1080,10 @@
     <string name="show_subtitles">Show subtitles</string>
     <string name="hide_subtitles">Hide subtitles</string>
     <string name="live_caption_processing_interval">Live caption processing interval</string>
+    <string name="live_caption_update_frequency" translatable="false">Caption update frequency</string>
     <string name="live_caption_processing_interval_value">Moonshine partials every %1$.1f seconds</string>
     <string name="live_caption_settings" translatable="false">Live captions (experimental)</string>
-    <string name="live_caption_settings_summary" translatable="false">On-device English captions powered by Moonshine v2 Tiny</string>
+    <string name="live_caption_settings_summary" translatable="false">On-device English captions powered by Moonshine v2 Tiny. Faster updates use more CPU and battery; actual use varies by device.</string>
     <string name="live_caption_model" translatable="false">Moonshine v2 Tiny model</string>
     <string name="live_caption_model_summary" translatable="false">Downloaded separately for live captions</string>
     <string name="live_caption_model_checking" translatable="false">Checking downloaded model...</string>
