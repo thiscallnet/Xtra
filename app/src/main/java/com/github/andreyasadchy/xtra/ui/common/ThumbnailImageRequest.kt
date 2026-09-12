@@ -31,6 +31,7 @@ import com.github.andreyasadchy.xtra.util.UiInteractionGovernor
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 import java.util.IdentityHashMap
+import java.util.concurrent.atomic.AtomicLong
 
 internal interface FeedImageRequestOwner {
     /** Cancel optional work without invalidating an image that is already on screen. */
@@ -352,11 +353,13 @@ internal fun streamThumbnailOnlyChanged(oldItem: Stream, newItem: Stream): Boole
 /**
  * Coil normally sends a null onStart value to an ImageViewTarget when a new
  * request has no placeholder. Keep the existing successful image in that
- * case, and guard every callback against a recycled ViewHolder identity.
+ * case, and guard every callback against both a recycled ViewHolder identity
+ * and an older bind of the same identity.
  */
 private class StreamImageTarget(
     imageView: ImageView,
     private val identity: String,
+    private val bindToken: Long?,
     private val preserveCurrentImage: Boolean,
     private val requestKey: Any? = null,
     private val thumbnailRequestKey: Any? = null,
@@ -366,6 +369,7 @@ private class StreamImageTarget(
 
     private fun isCurrent(): Boolean =
         view.tag == identity &&
+            (bindToken == null || view.getTag(R.id.stream_image_bind_token) == bindToken) &&
             when {
                 requestKey != null -> view.getTag(R.id.stream_profile_request_key) == requestKey
                 thumbnailRequestKey != null -> view.getTag(R.id.stream_thumbnail_request_key) == thumbnailRequestKey
@@ -408,6 +412,7 @@ private class StreamImageTarget(
 private class StreamThumbnailCacheTarget(
     imageView: ImageView,
     private val identity: String,
+    private val bindToken: Long?,
     private val cacheKey: String,
 ) : ImageViewTarget(imageView) {
 
@@ -417,7 +422,9 @@ private class StreamThumbnailCacheTarget(
     }
 
     override fun onSuccess(result: Image) {
-        if (view.tag == identity) {
+        if (view.tag == identity &&
+            (bindToken == null || view.getTag(R.id.stream_image_bind_token) == bindToken)
+        ) {
             super.onSuccess(result)
             view.setTag(R.id.stream_thumbnail_display_state, StreamThumbnailDisplayState.IMAGE)
             rememberWarmStreamThumbnail(cacheKey, view)
@@ -425,7 +432,9 @@ private class StreamThumbnailCacheTarget(
     }
 
     override fun onError(error: Image?) {
-        if (view.tag == identity) {
+        if (view.tag == identity &&
+            (bindToken == null || view.getTag(R.id.stream_image_bind_token) == bindToken)
+        ) {
             // Preserve whatever was already displayed, including a previous
             // cached image. The request listener starts the fresh stage after
             // this target callback has completed.
@@ -449,6 +458,10 @@ private data class StreamThumbnailViewRequestKey(
 )
 
 private val warmStreamThumbnailCache = object : LruCache<String, Drawable.ConstantState>(16) {}
+
+private val streamImageBindTokens = AtomicLong()
+
+private fun nextStreamImageBindToken(): Long = streamImageBindTokens.incrementAndGet()
 
 private data class WarmThumbnailRequestKey(val memoryCacheKey: String)
 
@@ -668,6 +681,7 @@ internal fun streamThumbnailRequestPlan(stream: Stream, bucket: Long): StreamThu
 
 internal fun prepareStreamProfileImage(imageView: ImageView, stream: Stream) {
     val identity = stream.streamIdentity()
+    imageView.setTag(R.id.stream_image_bind_token, nextStreamImageBindToken())
     if (imageView.tag != identity) {
         imageView.setImageDrawable(null)
         imageView.setTag(R.id.stream_profile_request_key, null)
@@ -677,6 +691,7 @@ internal fun prepareStreamProfileImage(imageView: ImageView, stream: Stream) {
 
 internal fun prepareStreamThumbnailImage(imageView: ImageView, stream: Stream) {
     val identity = stream.thumbnailIdentity()
+    imageView.setTag(R.id.stream_image_bind_token, nextStreamImageBindToken())
     if (imageView.tag != identity) {
         imageView.setImageDrawable(null)
         imageView.setTag(R.id.stream_thumbnail_request_key, null)
@@ -706,6 +721,7 @@ internal fun loadStreamProfileImage(
     }
     val roundUserImage = FeedUiPreferencesStore.current(context).roundUserImage
     val requestKey = "$identity|$url|round=$roundUserImage"
+    val bindToken = imageView.getTag(R.id.stream_image_bind_token) as? Long
     if (sameIdentity &&
         imageView.drawable != null &&
         imageView.getTag(R.id.stream_profile_request_key) == requestKey
@@ -725,7 +741,15 @@ internal fun loadStreamProfileImage(
         }
         // Keep an already displayed image in place while a changed profile URL loads.
         crossfade(false)
-        target(StreamImageTarget(imageView, identity, preserveCurrentImage = sameIdentity, requestKey = requestKey))
+        target(
+            StreamImageTarget(
+                imageView = imageView,
+                identity = identity,
+                bindToken = bindToken,
+                preserveCurrentImage = sameIdentity,
+                requestKey = requestKey,
+            ),
+        )
     }.build())
 }
 
@@ -783,6 +807,7 @@ internal fun loadStreamThumbnail(
         imageView.setTag(R.id.stream_thumbnail_successful_fresh_key, null)
     }
     imageView.tag = identity
+    val bindToken = imageView.getTag(R.id.stream_image_bind_token) as? Long
     val bucket = StreamThumbnailPolicy.bucket(System.currentTimeMillis())
     val forceEpoch = StreamThumbnailRefreshSignal.currentForceEpoch()
     val plan = streamThumbnailRequestPlan(stream, bucket)
@@ -855,6 +880,7 @@ internal fun loadStreamThumbnail(
                 StreamImageTarget(
                     imageView = imageView,
                     identity = identity,
+                    bindToken = bindToken,
                     preserveCurrentImage = preserveCurrentImage,
                     thumbnailRequestKey = requestKey,
                     thumbnailCacheKey = plan.memoryCacheKey,
@@ -916,7 +942,7 @@ internal fun loadStreamThumbnail(
             },
             onError = { scheduleFreshRequest(::enqueueFreshRequest) },
         )
-        target(StreamThumbnailCacheTarget(imageView, identity, plan.memoryCacheKey))
+        target(StreamThumbnailCacheTarget(imageView, identity, bindToken, plan.memoryCacheKey))
     }.build()))
     return requestHandle
 }

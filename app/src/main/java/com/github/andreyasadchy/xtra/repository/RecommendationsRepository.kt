@@ -92,6 +92,7 @@ class RecommendationsRepository(
                 }
                 debug("PersonalSections sections=${sections?.size ?: 0} items=$itemCount")
                 parsePersonalSections(response)
+                    .filter(::hasRenderableFeedImages)
                     .filterNot { it.channelId in excludedChannelIds }
                     .also { debug("PersonalSections parsed count=${it.size}") }
             } catch (error: CancellationException) {
@@ -229,6 +230,7 @@ class RecommendationsRepository(
         )
         return response.data?.streams?.edges.orEmpty().mapNotNull { it.node.toStream() }
             .filterNot { it.channelId in followedIds }
+            .filter(::hasRenderableFeedImages)
             .take(limit)
     }
 
@@ -346,6 +348,9 @@ enum class RecommendationSource {
     FALLBACK,
     UNAVAILABLE,
 }
+
+private fun hasRenderableFeedImages(stream: Stream): Boolean =
+    !stream.channelImageURL.isNullOrBlank() && !stream.thumbnailURL.isNullOrBlank()
 
 internal fun recommendationSourceFor(
     personalized: List<Stream>?,

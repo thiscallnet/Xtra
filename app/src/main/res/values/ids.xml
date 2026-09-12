@@ -5,6 +5,7 @@
     <item name="stream_thumbnail_successful_fresh_key" type="id" />
     <item name="stream_thumbnail_display_state" type="id" />
     <item name="stream_profile_request_key" type="id" />
+    <item name="stream_image_bind_token" type="id" />
     <item name="tv_focus_helper_installed" type="id" />
     <item name="emote_image_url_key" type="id" />
     <item name="autocomplete_image_request" type="id" />

@@ -98,6 +98,7 @@ class DiscoverViewModel(
     private val recommendationsMutex = Mutex()
     private var currentTrendingSpec: StreamFeedSpec? = null
     private var lastVisibleRefreshAt = 0L
+    private var recommendationsRefreshGeneration = 0L
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<DiscoverState> = combine(
@@ -234,7 +235,15 @@ class DiscoverViewModel(
                         if (result.source == RecommendationSource.UNAVAILABLE && current.data.isNotEmpty()) {
                             current.copy(refreshing = false, hasLoadedOnce = true, error = null)
                         } else {
-                            current.copy(data = result.streams, refreshing = false, hasLoadedOnce = true, error = null)
+                            val generation = ++recommendationsRefreshGeneration
+                            current.copy(
+                                data = result.streams.map { stream ->
+                                    stream.withThumbnailGeneration(generation)
+                                },
+                                refreshing = false,
+                                hasLoadedOnce = true,
+                                error = null,
+                            )
                         }
                     }
                 } catch (error: CancellationException) {
