@@ -8,7 +8,10 @@ import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.text.SpannableStringBuilder
 import android.text.format.DateUtils
+import android.text.method.LinkMovementMethod
+import android.text.util.Linkify
 import android.util.Log
 import android.util.LruCache
 import android.util.TypedValue
@@ -1935,7 +1938,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val sentAt = message.sentAt?.let { TwitchApiHelper.getTimestamp(it, "2") }
         pinnedBinding.pinnedMessageSentAt.text = sentAt?.let { getString(R.string.pinned_message_sent_at, it) }.orEmpty()
         pinnedBinding.pinnedMessageSentAt.isVisible = sentAt != null
-        pinnedBinding.pinnedMessageText.text = message.text
+        val linkedMessage = SpannableStringBuilder(message.text)
+        Linkify.addLinks(linkedMessage, Linkify.WEB_URLS)
+        installLegacyClipLinkClicks(linkedMessage)
+        pinnedBinding.pinnedMessageText.text = linkedMessage
+        pinnedBinding.pinnedMessageText.movementMethod = LinkMovementMethod.getInstance()
         pinnedBinding.pinnedMessageText.isVisible = !pinnedMessageMinimized
         pinnedBinding.pinnedMessageCollapsedPreview.text = message.text
         pinnedBinding.pinnedMessageCollapsedPreview.isVisible = pinnedMessageMinimized
