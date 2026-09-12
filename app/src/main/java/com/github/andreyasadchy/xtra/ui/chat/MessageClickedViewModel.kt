@@ -259,4 +259,4 @@ class MessageClickedViewModel(
 
 internal fun messageClickedFollowedAt(
     user: com.github.andreyasadchy.xtra.graphql.fragment.UserMessageClickedUser,
-): Any? = user.follow?.followedAt
+): Any? = user.followByLogin?.followedAt ?: user.followById?.followedAt
