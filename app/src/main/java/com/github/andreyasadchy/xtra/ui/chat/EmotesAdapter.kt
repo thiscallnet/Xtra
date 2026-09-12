@@ -17,16 +17,9 @@ import androidx.recyclerview.widget.AsyncListDiffer
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
-import coil3.imageLoader
-import coil3.network.NetworkHeaders
-import coil3.network.httpHeaders
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.request.target
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.bumptech.glide.load.model.GlideUrl
-import com.bumptech.glide.load.resource.drawable.DrawableTransitionOptions
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentEmotesListItemBinding
@@ -90,6 +83,7 @@ class EmotesAdapter(
      * mutating a list owned by a caller or by RecyclerView.
      */
     fun submitList(newItems: List<Emote>) {
+        fragment.context?.let { EmotePickerImageLoader.prefetch(it, newItems, emoteQuality) }
         if (reorderable) {
             // The favorites tab rebinds every item on notifyDataSetChanged,
             // which reloads all visible images. Skip redundant submissions
@@ -126,6 +120,10 @@ class EmotesAdapter(
 
     fun currentItems(): List<Emote> = if (reorderable) items.toList() else differ.currentList
 
+    fun prefetch(items: Iterable<Emote>) {
+        fragment.context?.let { EmotePickerImageLoader.prefetch(it, items, emoteQuality) }
+    }
+
     fun setFavoriteKeys(keys: Set<FavoriteEmoteKey>) {
         if (favoriteKeys != keys) {
             favoriteKeys = keys
@@ -158,6 +156,12 @@ class EmotesAdapter(
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val currentItems = if (reorderable) items else differ.currentList
         holder.bind(currentItems.getOrNull(position))
+        prefetch(
+            currentItems.asSequence()
+                .drop(position + 1)
+                .take(EmotePickerImageLoader.LOOKAHEAD_PREFETCH_LIMIT)
+                .asIterable(),
+        )
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
@@ -234,34 +238,19 @@ class EmotesAdapter(
                         item.name,
                     )
                     emote.isFocusable = true
-                    val imageUrl = when (emoteQuality) {
-                        "4" -> item.url4x ?: item.url3x ?: item.url2x ?: item.url1x
-                        "3" -> item.url3x ?: item.url2x ?: item.url1x
-                        "2" -> item.url2x ?: item.url1x
-                        else -> item.url1x
-                    }
+                    val imageUrl = EmotePickerImageLoader.urlFor(item, emoteQuality)
                     // Rebinds (scroll, list resubmission) must not reload an
-                    // image that is already displayed: the crossfade would
-                    // blink even when fading from the image onto itself.
+                    // image that is already displayed.
                     val alreadyLoaded = emote.getTag(R.id.emote_image_url_key) == imageUrl && emote.drawable != null
                     if (alreadyLoaded) {
                         // Keep the current drawable; fall through to listeners.
-                    } else if (imageLibrary == "0" || (imageLibrary == "1" && !item.format.equals("webp", true))) {
+                    } else if (imageUrl != null && (imageLibrary == "0" || (imageLibrary == "1" && !item.format.equals("webp", true)))) {
                         emote.setTag(R.id.emote_image_url_key, imageUrl)
-                        fragment.requireContext().imageLoader.enqueue(
-                            ImageRequest.Builder(fragment.requireContext()).apply {
-                                data(imageUrl)
-                                if (item.thirdParty) {
-                                    httpHeaders(NetworkHeaders.Builder().apply {
-                                        add("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                                    }.build())
-                                }
-                                crossfade(true)
-                                target(emote)
-                            }.build()
-                        )
+                        emote.setImageDrawable(null)
+                        EmotePickerImageLoader.loadInto(fragment.requireContext(), item, emoteQuality, emote)
                     } else {
                         emote.setTag(R.id.emote_image_url_key, imageUrl)
+                        emote.setImageDrawable(null)
                         Glide.with(fragment)
                             .load(
                                 imageUrl.let {
@@ -271,7 +260,7 @@ class EmotesAdapter(
                                 }
                             )
                             .diskCacheStrategy(DiskCacheStrategy.DATA)
-                            .transition(DrawableTransitionOptions.withCrossFade())
+                            .dontAnimate()
                             .into(emote)
                     }
                     if (!canReorder) {
