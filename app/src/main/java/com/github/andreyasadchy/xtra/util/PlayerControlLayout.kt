@@ -12,6 +12,8 @@ object PlayerControlLayout {
     const val GROUP_HIDDEN = "hidden"
 
     const val ANCHOR_TOP_START = "top_start"
+    // Kept for source compatibility with the preview renderer and old saved layouts.
+    // They are intentionally no longer valid placement destinations.
     const val ANCHOR_TOP_CENTER = "top_center"
     const val ANCHOR_TOP_END = "top_end"
     const val ANCHOR_MIDDLE_START = "middle_start"
@@ -22,12 +24,8 @@ object PlayerControlLayout {
 
     val anchors = setOf(
         ANCHOR_TOP_START,
-        ANCHOR_TOP_CENTER,
         ANCHOR_TOP_END,
-        ANCHOR_MIDDLE_START,
-        ANCHOR_MIDDLE_END,
         ANCHOR_BOTTOM_START,
-        ANCHOR_BOTTOM_CENTER,
         ANCHOR_BOTTOM_END,
     )
 
@@ -147,6 +145,7 @@ object PlayerControlLayout {
                     bottomRightLayout.addView(liveCaptions)
                 }
             }
+
         }
 
         hideSecondaryActionsOnTelevision(context, binding)
@@ -183,7 +182,7 @@ object PlayerControlLayout {
         .distinctBy { it.action }
         .joinToString(",") { item ->
             val group = normalizedGroup(item.action, item.group)
-            val anchor = item.anchor.takeIf { it in anchors } ?: defaultAnchor(item.action)
+            val anchor = normalizedAnchor(item.action, item.anchor)
             "${item.action}:$group:$anchor"
         }
 
@@ -325,8 +324,27 @@ object PlayerControlLayout {
         val group = parts.getOrNull(1)?.trim()?.takeIf {
             it in setOf(GROUP_QUICK, GROUP_MENU, GROUP_HIDDEN)
         } ?: GROUP_HIDDEN
-        val anchor = parts.getOrNull(2)?.trim()?.takeIf { it in anchors } ?: defaultAnchor(action)
+        val anchor = normalizedAnchor(action, parts.getOrNull(2)?.trim().orEmpty())
         return ControlPlacement(action, normalizedGroup(action, group), anchor)
+    }
+
+    /**
+     * Keep the top-left slot clear for the minimize affordance. The other three
+     * slots are the actual quick-control rows and cannot collide with transport
+     * controls or the metadata block.
+     *
+     * Older serialized layouts may contain the removed center/middle anchors.
+     * Normalizing them here makes those layouts safe without a separate migration.
+     */
+    internal fun validAnchors(action: String): Set<String> = if (action == "minimize") {
+        anchors
+    } else {
+        anchors - ANCHOR_TOP_START
+    }
+
+    private fun normalizedAnchor(action: String, anchor: String): String = when {
+        anchor in validAnchors(action) -> anchor
+        else -> defaultAnchor(action)
     }
 
     private fun normalizedGroup(action: String, group: String): String = when {

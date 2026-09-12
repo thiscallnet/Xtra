@@ -1372,10 +1372,8 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     private fun setLiveRewindTimelineLayout(enabled: Boolean) {
         val bottom = binding.playerControls.bottomLayout
         val bottomParams = bottom.layoutParams as? RelativeLayout.LayoutParams ?: return
-        val bottomLeft = binding.playerControls.bottomLeftLayout
-        val bottomLeftParams = bottomLeft.layoutParams as? RelativeLayout.LayoutParams ?: return
-        val bottomRight = binding.playerControls.bottomRightLayout
-        val bottomRightParams = bottomRight.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val bottomControls = binding.playerControls.bottomControlLayout
+        val bottomControlsParams = bottomControls.layoutParams as? RelativeLayout.LayoutParams ?: return
         val position = binding.playerControls.position
         val positionParams = position.layoutParams as? RelativeLayout.LayoutParams ?: return
         val duration = binding.playerControls.duration
@@ -1395,10 +1393,8 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             durationParams.bottomMargin = 0
             bottomParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             bottomParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
-            bottomLeftParams.removeRule(RelativeLayout.ABOVE)
-            bottomLeftParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            bottomRightParams.removeRule(RelativeLayout.ABOVE)
-            bottomRightParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            bottomControlsParams.removeRule(RelativeLayout.ABOVE)
+            bottomControlsParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             positionParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             positionParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
             durationParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
@@ -1412,18 +1408,15 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             durationParams.bottomMargin = normalTimeLabelBottomMargin
             bottomParams.removeRule(RelativeLayout.ABOVE)
             bottomParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            bottomLeftParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            bottomLeftParams.addRule(RelativeLayout.ABOVE, R.id.bottomLayout)
-            bottomRightParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            bottomRightParams.addRule(RelativeLayout.ABOVE, R.id.bottomLayout)
+            bottomControlsParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
+            bottomControlsParams.addRule(RelativeLayout.ABOVE, R.id.bottomLayout)
             positionParams.removeRule(RelativeLayout.ABOVE)
             positionParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
             durationParams.removeRule(RelativeLayout.ABOVE)
             durationParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
         }
         bottom.layoutParams = bottomParams
-        bottomLeft.layoutParams = bottomLeftParams
-        bottomRight.layoutParams = bottomRightParams
+        bottomControls.layoutParams = bottomControlsParams
         progress.layoutParams = progressParams
         position.layoutParams = positionParams
         duration.layoutParams = durationParams

@@ -389,6 +389,7 @@ object SettingsMigration {
         // marker already says current; AndroidX ListPreference requires a
         // String and reads the raw SharedPreferences value directly.
         normalizeCaptionIntervalPreference(preferences)
+        normalizeQuickControlPositionPreference(preferences)
         if (!preferences.contains(C.CHAT_RECENT)) {
             // chat_history_preferences.xml enables recent history by default. Seed the
             // key here because this app does not initialize PreferenceManager defaults.
@@ -565,6 +566,14 @@ object SettingsMigration {
                     C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
                     storedValue.toInt().toString(),
                 )
+            }
+        }
+    }
+
+    private fun normalizeQuickControlPositionPreference(preferences: SharedPreferences) {
+        if (preferences.getString(C.PLAYER_CONTROL_POSITION, null) == C.PLAYER_CONTROL_POSITION_MIDDLE) {
+            preferences.edit {
+                putString(C.PLAYER_CONTROL_POSITION, C.PLAYER_CONTROL_POSITION_BELOW)
             }
         }
     }
