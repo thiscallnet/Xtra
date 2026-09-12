@@ -12,6 +12,7 @@ import androidx.core.view.doOnLayout
 import androidx.media3.ui.TimeBar
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
+import com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout
 import kotlin.math.max
 import kotlin.math.roundToInt
 
@@ -156,15 +157,19 @@ object PortraitPlayerControls {
         val viewCenterY = viewOffset.second + view.height / 2f
         val rootCenterX = root.width / 2f
         val rootCenterY = root.height / 2f
-        val parent = view.parent as? ViewGroup
-        val parentOffset = parent?.let { layoutOffsetInAncestor(it, root) } ?: Pair(0f, 0f)
         if (keepLandscapeLayout) {
             view.translationX = 0f
         } else {
             val scaledCenterX = when (horizontalAnchor) {
                 HorizontalAnchor.START -> {
                     val contentEdge = contentEdge(view, isStart = true)
-                    if (contentEdge != null) {
+                    if (contentEdge != null && view.parent is ControlEdgeLayout) {
+                        // ControlEdgeLayout has already allocated this row at
+                        // the edge of its shared width budget. Keep that edge
+                        // when scaling so it cannot collide with a sibling
+                        // anchored directly to the player root.
+                        viewOffset.first + contentEdge + view.width * scale / 2f
+                    } else if (contentEdge != null) {
                         root.paddingLeft - scaledChildEdge(root, view, contentEdge, scale) + viewCenterX
                     } else {
                         root.paddingLeft + view.width * scale / 2f
@@ -173,14 +178,22 @@ object PortraitPlayerControls {
                 HorizontalAnchor.CENTER -> rootCenterX + (viewCenterX - rootCenterX)
                 HorizontalAnchor.END -> {
                     val contentEdge = contentEdge(view, isStart = false)
-                    if (contentEdge != null) {
+                    if (contentEdge != null && view.parent is ControlEdgeLayout) {
+                        // See the START case above. Preserve the allocated
+                        // trailing edge while the row shrinks around its
+                        // center.
+                        viewOffset.first + contentEdge - view.width * scale / 2f
+                    } else if (contentEdge != null) {
                         root.width - root.paddingRight - scaledChildEdge(root, view, contentEdge, scale) + viewCenterX
                     } else {
                         root.width - root.paddingRight - view.width * scale / 2f
                     }
                 }
             }
-            view.translationX = scaledCenterX - parentOffset.first - view.width / 2f
+            // Translation is relative to the current child position inside its
+            // parent. Use the full root-space offset so nested controls do not
+            // receive their existing left position a second time.
+            view.translationX = scaledCenterX - viewOffset.first - view.width / 2f
         }
         val scaledCenterY = when (verticalAnchor) {
             VerticalAnchor.TOP -> viewCenterY * scale
@@ -188,7 +201,7 @@ object PortraitPlayerControls {
             VerticalAnchor.MIDDLE_QUICK -> rootCenterY - MIDDLE_QUICK_OFFSET_DP * root.resources.displayMetrics.density * scale
             VerticalAnchor.BOTTOM -> root.height - (root.height - viewCenterY) * scale
         }
-        view.translationY = scaledCenterY - parentOffset.second - view.height / 2f
+        view.translationY = scaledCenterY - viewOffset.second - view.height / 2f
     }
 
     private fun contentEdge(view: View, isStart: Boolean): Float? {
