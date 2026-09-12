@@ -80,15 +80,19 @@
             tools:text="10" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <LinearLayout
-        android:id="@+id/topLeftLayout"
+    <com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout
+        android:id="@+id/topControlLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_alignParentStart="true"
-        android:layout_marginStart="10dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginEnd="8dp"
-        android:layout_toStartOf="@id/topRightLayout"
+        android:layout_alignParentTop="true"
+        android:layout_marginTop="5dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp">
+
+    <LinearLayout
+        android:id="@+id/topLeftLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
@@ -208,13 +212,10 @@
 
     </LinearLayout>
 
-    <LinearLayout
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
         android:id="@+id/topStartLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentStart="true"
-        android:layout_below="@id/topLeftLayout"
-        android:layout_marginTop="8dp"
         android:orientation="horizontal">
 
         <ImageButton
@@ -230,15 +231,13 @@
             app:tint="@android:color/white"
             tools:visibility="visible" />
 
-    </LinearLayout>
+    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
 
-    <LinearLayout
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
         android:id="@+id/topRightLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentEnd="true"
-        android:layout_marginTop="5dp"
-        android:layout_marginEnd="10dp">
+        android:gravity="end">
 
         <ImageButton
             android:id="@+id/download"
@@ -347,7 +346,9 @@
             app:tint="@android:color/white"
             tools:visibility="visible" />
 
-    </LinearLayout>
+    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
+
+    </com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout>
 
     <LinearLayout
         android:id="@+id/topCenterLayout"
@@ -396,14 +397,19 @@
         android:importantForAccessibility="no"
         android:visibility="invisible" />
 
-    <LinearLayout
-        android:id="@+id/bottomLeftLayout"
-        android:layout_width="wrap_content"
+    <com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout
+        android:id="@+id/bottomControlLayout"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_above="@id/bottomLayout"
-        android:layout_alignParentStart="true"
-        android:layout_marginStart="10dp"
-        android:layout_marginBottom="5dp">
+        android:layout_marginBottom="5dp"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp">
+
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
+        android:id="@+id/bottomLeftLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
 
         <ImageButton
             android:id="@+id/restart"
@@ -497,16 +503,13 @@
             app:tint="@android:color/white"
             tools:visibility="visible" />
 
-    </LinearLayout>
+    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
 
-    <LinearLayout
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
         android:id="@+id/bottomRightLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_above="@id/bottomLayout"
-        android:layout_alignParentEnd="true"
-        android:layout_marginEnd="10dp"
-        android:layout_marginBottom="5dp">
+        android:gravity="end">
 
         <ImageButton
             android:id="@+id/liveCaptions"
@@ -573,7 +576,9 @@
             app:tint="@android:color/white"
             tools:visibility="visible" />
 
-    </LinearLayout>
+    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
+
+    </com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout>
 
     <LinearLayout
         android:id="@+id/bottomCenterLayout"

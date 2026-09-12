@@ -24,6 +24,7 @@ import androidx.core.content.edit
 import androidx.core.widget.NestedScrollView
 import com.google.android.material.button.MaterialButton
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.ui.view.ControlRowPlanner
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.SettingsMigration
@@ -206,7 +207,9 @@ class PlayerControlLayoutEditor(
                 else -> PlayerControlLayout.GROUP_HIDDEN
             }
         }
-        if (item.group == PlayerControlLayout.GROUP_QUICK && item.anchor !in PlayerControlLayout.anchors) {
+        if (item.group == PlayerControlLayout.GROUP_QUICK &&
+            item.anchor !in PlayerControlLayout.validAnchors(action)
+        ) {
             item.anchor = PlayerControlLayout.defaultAnchor(action)
         }
         selectedAction = action
@@ -435,7 +438,7 @@ class PlayerControlLayoutEditor(
                 paint.strokeWidth = dp(1).toFloat()
                 paint.color = themeColor(androidx.appcompat.R.attr.colorPrimary, Color.WHITE)
                 paint.alpha = 180
-                PlayerControlLayout.anchors.forEach { anchor ->
+                PlayerControlLayout.validAnchors(draggingAction.orEmpty()).forEach { anchor ->
                     val point = anchorPoint(anchor)
                     canvas.drawCircle(point.x, point.y, dp(8).toFloat(), paint)
                 }
@@ -556,19 +559,20 @@ class PlayerControlLayoutEditor(
 
         private fun snapChip(action: String, centerX: Float, centerY: Float) {
             val item = items.firstOrNull { it.action == action } ?: return
-            val anchor = PlayerControlLayout.anchors.minByOrNull { candidate ->
+            val anchor = PlayerControlLayout.validAnchors(action).minByOrNull { candidate ->
                 val point = anchorPoint(candidate)
                 hypot((point.x - centerX).toDouble(), (point.y - centerY).toDouble())
             } ?: PlayerControlLayout.defaultAnchor(action)
             items.remove(item)
             item.anchor = anchor
+            val targetAnchor = anchor
             val sameAnchor = items.filter {
-                it.group == PlayerControlLayout.GROUP_QUICK && it.anchor == anchor
+                it.group == PlayerControlLayout.GROUP_QUICK && it.anchor == targetAnchor
             }
-            val crossCoordinate = if (anchor.startsWith("middle")) centerY else centerX
+            val crossCoordinate = if (targetAnchor.startsWith("middle")) centerY else centerX
             val insertBefore = sameAnchor.firstOrNull { other ->
                 val index = sameAnchor.indexOf(other)
-                crossCoordinateFor(anchor, index, sameAnchor.size) > crossCoordinate
+                crossCoordinateFor(targetAnchor, index, sameAnchor.size) > crossCoordinate
             }
             val targetIndex = insertBefore?.let { items.indexOf(it) } ?: items.size
             items.add(targetIndex, item)
@@ -579,9 +583,9 @@ class PlayerControlLayoutEditor(
         private fun positionChildren() {
             val grouped = items.filter { it.group == PlayerControlLayout.GROUP_QUICK }.groupBy { it.anchor }
             grouped.forEach { (anchor, group) ->
-                group.forEachIndexed { index, item ->
+                wrappedControlPoints(anchor, group.size).forEachIndexed { index, point ->
+                    val item = group[index]
                     chips[item.action]?.let { chip ->
-                        val point = controlPoint(anchor, index, group.size)
                         chip.x = point.x - chip.width / 2f
                         chip.y = point.y - chip.height / 2f
                     }
@@ -593,27 +597,40 @@ class PlayerControlLayoutEditor(
             play.y = (height - play.height) / 2f
         }
 
-        private fun controlPoint(anchor: String, index: Int, count: Int): PointF {
+        private fun wrappedControlPoints(anchor: String, count: Int): List<PointF> {
             val size = dp(44)
             val spacing = dp(6)
             val padding = dp(9)
             val menuReserve = if (menu.visibility == View.VISIBLE && anchor == PlayerControlLayout.ANCHOR_TOP_END) dp(48) else 0
-            val total = count * size + (count - 1).coerceAtLeast(0) * spacing
-            val x = when (anchor) {
-                PlayerControlLayout.ANCHOR_TOP_START, PlayerControlLayout.ANCHOR_BOTTOM_START -> padding + size / 2f + index * (size + spacing)
-                PlayerControlLayout.ANCHOR_TOP_CENTER, PlayerControlLayout.ANCHOR_BOTTOM_CENTER -> (width - total) / 2f + size / 2f + index * (size + spacing)
-                PlayerControlLayout.ANCHOR_TOP_END, PlayerControlLayout.ANCHOR_BOTTOM_END -> width - padding - menuReserve - total + size / 2f + index * (size + spacing)
-                PlayerControlLayout.ANCHOR_MIDDLE_START, PlayerControlLayout.ANCHOR_MIDDLE_END -> if (anchor.endsWith("start")) padding + size / 2f else width - padding - size / 2f
-                else -> width / 2f
+            val edgeWidth = ((width - padding * 2) / 2).coerceAtLeast(size)
+            val lines = ControlRowPlanner.lineBreak(edgeWidth, List(count) { size }, spacing)
+            val rowHeight = lines.size * size
+            val rightEdge = width - padding - menuReserve
+            val top = if (anchor.startsWith("top")) {
+                padding.toFloat()
+            } else {
+                (height - padding - dp(13) - rowHeight).toFloat()
             }
-            val y = when (anchor) {
-                PlayerControlLayout.ANCHOR_TOP_START, PlayerControlLayout.ANCHOR_TOP_CENTER, PlayerControlLayout.ANCHOR_TOP_END -> padding + size / 2f
-                PlayerControlLayout.ANCHOR_BOTTOM_START, PlayerControlLayout.ANCHOR_BOTTOM_CENTER, PlayerControlLayout.ANCHOR_BOTTOM_END -> height - padding - size / 2f - dp(13)
-                PlayerControlLayout.ANCHOR_MIDDLE_START, PlayerControlLayout.ANCHOR_MIDDLE_END -> (height - total) / 2f + size / 2f + index * (size + spacing)
-                else -> height / 2f
+            return lines.flatMapIndexed { lineIndex, line ->
+                val lineWidth = line.size * size + (line.size - 1).coerceAtLeast(0) * spacing
+                val lineLeft = when {
+                    anchor.endsWith("start") -> padding
+                    anchor.endsWith("end") -> rightEdge - lineWidth
+                    else -> (width - lineWidth) / 2
+                }
+                line.mapIndexed { childIndex, _ ->
+                    PointF(
+                        (lineLeft.toFloat() + size / 2f + childIndex * (size + spacing))
+                            .coerceIn(size / 2f, (width - size / 2f).coerceAtLeast(size / 2f)),
+                        (top + size / 2f + lineIndex * size)
+                            .coerceIn(size / 2f, (height - size / 2f).coerceAtLeast(size / 2f)),
+                    )
+                }
             }
-            return PointF(x.coerceIn(size / 2f, (width - size / 2f).coerceAtLeast(size / 2f)), y.coerceIn(size / 2f, (height - size / 2f).coerceAtLeast(size / 2f)))
         }
+
+        private fun controlPoint(anchor: String, index: Int, count: Int): PointF =
+            wrappedControlPoints(anchor, count).getOrElse(index) { wrappedControlPoints(anchor, 1).first() }
 
         private fun crossCoordinateFor(anchor: String, index: Int, count: Int): Float {
             val point = controlPoint(anchor, index, count)

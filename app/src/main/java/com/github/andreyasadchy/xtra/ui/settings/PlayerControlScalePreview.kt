@@ -16,6 +16,7 @@ import android.widget.ImageView
 import androidx.preference.Preference
 import androidx.preference.PreferenceViewHolder
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.ui.view.ControlRowPlanner
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.PortraitPlayerControls
@@ -398,9 +399,10 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             if (width <= 0 || height <= 0) return
             val grouped = items.filter { it.group == PlayerControlLayout.GROUP_QUICK }.groupBy { it.anchor }
             grouped.forEach { (anchor, group) ->
-                group.forEachIndexed { index, item ->
+                wrappedControlPoints(anchor, group.size).forEachIndexed { index, point ->
+                    val item = group[index]
                     chips[item.action]?.let { chip ->
-                        placeScaled(chip, controlPoint(anchor, index, group.size), anchor)
+                        placeScaled(chip, point, anchor)
                     }
                 }
             }
@@ -470,51 +472,36 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             view.translationY = boundedY - viewCenterY
         }
 
-        private fun controlPoint(anchor: String, index: Int, count: Int): PointF {
+        private fun wrappedControlPoints(anchor: String, count: Int): List<PointF> {
             val size = previewDp(44).toFloat()
             val spacing = previewDp(6).toFloat()
             val padding = previewDp(9).toFloat()
             val menuReserve = if (anchor == PlayerControlLayout.ANCHOR_TOP_END) previewDp(48) else 0
-            val total = count * size + (count - 1).coerceAtLeast(0) * spacing
-            val x = when (anchor) {
-                PlayerControlLayout.ANCHOR_TOP_START,
-                PlayerControlLayout.ANCHOR_BOTTOM_START -> padding + size / 2f + index * (size + spacing)
-                PlayerControlLayout.ANCHOR_TOP_CENTER,
-                PlayerControlLayout.ANCHOR_BOTTOM_CENTER -> (width - total) / 2f + size / 2f + index * (size + spacing)
-                PlayerControlLayout.ANCHOR_TOP_END,
-                PlayerControlLayout.ANCHOR_BOTTOM_END -> width - padding - menuReserve - total + size / 2f + index * (size + spacing)
-                PlayerControlLayout.ANCHOR_MIDDLE_START,
-                PlayerControlLayout.ANCHOR_MIDDLE_END -> if (anchor.endsWith("start")) padding + size / 2f else width - padding - size / 2f
-                else -> width / 2f
-            }
-            val bottomEndRowOffset = if (
-                anchor == PlayerControlLayout.ANCHOR_BOTTOM_END &&
-                items.any {
-                    it.group == PlayerControlLayout.GROUP_QUICK &&
-                        it.anchor == PlayerControlLayout.ANCHOR_BOTTOM_START
-                }
-            ) {
-                size + spacing
+            val edgeWidth = ((width - padding * 2f) / 2f).roundToInt().coerceAtLeast(size.roundToInt())
+            val lines = ControlRowPlanner.lineBreak(edgeWidth, List(count) { size.toInt() }, spacing.toInt())
+            val rowHeight = lines.size * size
+            val rightEdge = width - padding - menuReserve
+            val top = if (anchor.startsWith("top")) {
+                padding
             } else {
-                0f
+                height - padding - previewDp(13) - rowHeight
             }
-            val y = when (anchor) {
-                PlayerControlLayout.ANCHOR_TOP_CENTER,
-                PlayerControlLayout.ANCHOR_TOP_END -> padding + size / 2f
-                PlayerControlLayout.ANCHOR_TOP_START ->
-                    padding + size / 2f + previewDp(64)
-                PlayerControlLayout.ANCHOR_BOTTOM_START,
-                PlayerControlLayout.ANCHOR_BOTTOM_CENTER -> height - padding - size / 2f - previewDp(13)
-                PlayerControlLayout.ANCHOR_BOTTOM_END ->
-                    height - padding - size / 2f - previewDp(13) - bottomEndRowOffset
-                PlayerControlLayout.ANCHOR_MIDDLE_START,
-                PlayerControlLayout.ANCHOR_MIDDLE_END -> (height - total) / 2f + size / 2f + index * (size + spacing)
-                else -> height / 2f
+            return lines.flatMapIndexed { lineIndex, line ->
+                val lineWidth = line.size * size + (line.size - 1).coerceAtLeast(0) * spacing
+                val lineLeft = when {
+                    anchor.endsWith("start") -> padding
+                    anchor.endsWith("end") -> rightEdge - lineWidth
+                    else -> (width - lineWidth) / 2
+                }
+                line.mapIndexed { childIndex, _ ->
+                    PointF(
+                        (lineLeft + size / 2 + childIndex * (size + spacing))
+                            .coerceIn(size / 2f, (width - size / 2f).coerceAtLeast(size / 2f)),
+                        (top + size / 2 + lineIndex * size)
+                            .coerceIn(size / 2f, (height - size / 2f).coerceAtLeast(size / 2f)),
+                    )
+                }
             }
-            return PointF(
-                x.coerceIn(size / 2f, (width - size / 2f).coerceAtLeast(size / 2f)),
-                y.coerceIn(size / 2f, (height - size / 2f).coerceAtLeast(size / 2f)),
-            )
         }
 
         private fun previewUnit(): Float = if (width == 0) 0f else width / (360f * resources.displayMetrics.density)

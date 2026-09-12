@@ -167,6 +167,23 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun `current schema migrates the removed middle quick control position`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION,
+                C.PLAYER_CONTROL_POSITION to C.PLAYER_CONTROL_POSITION_MIDDLE,
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertEquals(
+            C.PLAYER_CONTROL_POSITION_BELOW,
+            preferences.getString(C.PLAYER_CONTROL_POSITION, null),
+        )
+    }
+
+    @Test
     fun `schema 25 migration keeps moved following content reachable`() {
         val preferences = MemoryPreferences(
             mutableMapOf(

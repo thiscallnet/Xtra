@@ -234,13 +234,11 @@
     <string-array name="playerControlPositionEntries">
         <item>@string/player_control_position_above</item>
         <item>@string/player_control_position_below</item>
-        <item>@string/player_control_position_middle</item>
     </string-array>
 
     <string-array name="playerControlPositionValues" translatable="false">
         <item>above</item>
         <item>below</item>
-        <item>middle</item>
     </string-array>
 
     <string-array name="nameDisplayEntries" translatable="false">

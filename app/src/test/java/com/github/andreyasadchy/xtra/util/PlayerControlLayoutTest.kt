@@ -40,7 +40,7 @@ class PlayerControlLayoutTest {
         assertEquals(PlayerControlLayout.GROUP_MENU, placements.first { it.action == "bookmark" }.group)
         assertEquals(PlayerControlLayout.GROUP_MENU, placements.first { it.action == "viewers" }.group)
         assertEquals(
-            "bookmark:menu:top_center,viewers:menu:top_center",
+            "bookmark:menu:top_end,viewers:menu:top_end",
             PlayerControlLayout.serializeControlLayout(placements),
         )
     }
@@ -53,5 +53,21 @@ class PlayerControlLayoutTest {
         assertEquals(false, PlayerControlLayout.isTvPrimaryAction("speed"))
         assertEquals(false, PlayerControlLayout.isTvPrimaryAction("clip"))
         assertEquals(false, PlayerControlLayout.isTvPrimaryAction("fullscreen"))
+    }
+
+    @Test
+    fun `top start is reserved for minimize in the editor policy`() {
+        assertEquals(
+            PlayerControlLayout.anchors,
+            PlayerControlLayout.validAnchors("minimize"),
+        )
+        assertEquals(
+            setOf(
+                PlayerControlLayout.ANCHOR_TOP_END,
+                PlayerControlLayout.ANCHOR_BOTTOM_START,
+                PlayerControlLayout.ANCHOR_BOTTOM_END,
+            ),
+            PlayerControlLayout.validAnchors("quality"),
+        )
     }
 }

@@ -25,10 +25,6 @@ object PortraitPlayerControls {
     private const val MIDDLE_QUICK_OFFSET_DP = 56f
     /** The metadata pivot sits just inside the text block, after its layout start. */
     const val METADATA_PIVOT_AFTER_INFO_START_DP = 6f
-    // The anchor layouts already provide the landscape-safe margins. Adding a
-    // second portrait inset leaves a visible gap beside the outer controls.
-    private const val EDGE_INSET_DP = 0f
-
     private data class MetadataWidthState(
         val availableWidth: Float,
         val scale: Float,
@@ -155,10 +151,13 @@ object PortraitPlayerControls {
         view.scaleX = scale
         view.scaleY = scale
 
-        val viewCenterX = view.left + view.width / 2f
-        val viewCenterY = view.top + view.height / 2f
+        val viewOffset = layoutOffsetInAncestor(view, root)
+        val viewCenterX = viewOffset.first + view.width / 2f
+        val viewCenterY = viewOffset.second + view.height / 2f
         val rootCenterX = root.width / 2f
         val rootCenterY = root.height / 2f
+        val parent = view.parent as? ViewGroup
+        val parentOffset = parent?.let { layoutOffsetInAncestor(it, root) } ?: Pair(0f, 0f)
         if (keepLandscapeLayout) {
             view.translationX = 0f
         } else {
@@ -166,7 +165,7 @@ object PortraitPlayerControls {
                 HorizontalAnchor.START -> {
                     val contentEdge = contentEdge(view, isStart = true)
                     if (contentEdge != null) {
-                        root.paddingLeft - scaledChildEdge(view, contentEdge, scale) + viewCenterX
+                        root.paddingLeft - scaledChildEdge(root, view, contentEdge, scale) + viewCenterX
                     } else {
                         root.paddingLeft + view.width * scale / 2f
                     }
@@ -175,16 +174,13 @@ object PortraitPlayerControls {
                 HorizontalAnchor.END -> {
                     val contentEdge = contentEdge(view, isStart = false)
                     if (contentEdge != null) {
-                        root.width - root.paddingRight - scaledChildEdge(view, contentEdge, scale) + viewCenterX
+                        root.width - root.paddingRight - scaledChildEdge(root, view, contentEdge, scale) + viewCenterX
                     } else {
                         root.width - root.paddingRight - view.width * scale / 2f
                     }
                 }
             }
-            view.translationX = scaledCenterX - viewCenterX
-            if (scale != 1f && horizontalAnchor != HorizontalAnchor.CENTER && view is ViewGroup) {
-                alignVisibleChildToEdge(root, view, horizontalAnchor)
-            }
+            view.translationX = scaledCenterX - parentOffset.first - view.width / 2f
         }
         val scaledCenterY = when (verticalAnchor) {
             VerticalAnchor.TOP -> viewCenterY * scale
@@ -192,7 +188,7 @@ object PortraitPlayerControls {
             VerticalAnchor.MIDDLE_QUICK -> rootCenterY - MIDDLE_QUICK_OFFSET_DP * root.resources.displayMetrics.density * scale
             VerticalAnchor.BOTTOM -> root.height - (root.height - viewCenterY) * scale
         }
-        view.translationY = scaledCenterY - viewCenterY
+        view.translationY = scaledCenterY - parentOffset.second - view.height / 2f
     }
 
     private fun contentEdge(view: View, isStart: Boolean): Float? {
@@ -207,8 +203,10 @@ object PortraitPlayerControls {
         }
     }
 
-    private fun scaledChildEdge(view: View, childEdge: Float, scale: Float): Float =
-        view.left + (childEdge - view.width / 2f) * scale + view.width / 2f
+    private fun scaledChildEdge(root: View, view: View, childEdge: Float, scale: Float): Float {
+        val viewOffset = layoutOffsetInAncestor(view, root)
+        return viewOffset.first + (childEdge - view.width / 2f) * scale + view.width / 2f
+    }
 
     private fun controlScale(binding: FragmentPlayerBinding, isPortrait: Boolean): Float {
         val density = binding.root.resources.displayMetrics.density
@@ -412,7 +410,10 @@ object PortraitPlayerControls {
         )
     ) {
         C.PLAYER_CONTROL_POSITION_BELOW -> QuickControlPosition.BELOW
-        C.PLAYER_CONTROL_POSITION_MIDDLE -> QuickControlPosition.MIDDLE
+        // The old middle position shared the transport-control area and could
+        // hide play/seek controls. Treat old saved values as the safe below-row
+        // placement; the setting no longer offers a collision-prone middle mode.
+        C.PLAYER_CONTROL_POSITION_MIDDLE -> QuickControlPosition.BELOW
         else -> QuickControlPosition.ABOVE
     }
 
@@ -422,10 +423,8 @@ object PortraitPlayerControls {
     ) {
         val bottom = binding.playerControls.bottomLayout
         val bottomParams = bottom.layoutParams as? RelativeLayout.LayoutParams ?: return
-        val bottomLeft = binding.playerControls.bottomLeftLayout
-        val bottomLeftParams = bottomLeft.layoutParams as? RelativeLayout.LayoutParams ?: return
-        val bottomRight = binding.playerControls.bottomRightLayout
-        val bottomRightParams = bottomRight.layoutParams as? RelativeLayout.LayoutParams ?: return
+        val bottomControls = binding.playerControls.bottomControlLayout
+        val bottomControlsParams = bottomControls.layoutParams as? RelativeLayout.LayoutParams ?: return
         val bottomCenter = binding.playerControls.bottomCenterLayout
         val bottomCenterParams = bottomCenter.layoutParams as? RelativeLayout.LayoutParams ?: return
         val positionView = binding.playerControls.position
@@ -457,28 +456,24 @@ object PortraitPlayerControls {
                 durationParams.bottomMargin = 0
                 durationParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
                 durationParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
-                setQuickControlRule(bottomLeftParams, QuickControlRule.BELOW)
-                setQuickControlRule(bottomRightParams, QuickControlRule.BELOW)
+                setQuickControlRule(bottomControlsParams, QuickControlRule.BELOW)
                 setQuickControlRule(bottomCenterParams, QuickControlRule.BELOW)
             }
             QuickControlPosition.MIDDLE -> {
                 restoreTimelineLayout(bottomParams, progressParams, positionParams, durationParams, density)
-                setQuickControlRule(bottomLeftParams, QuickControlRule.MIDDLE)
-                setQuickControlRule(bottomRightParams, QuickControlRule.MIDDLE)
+                setQuickControlRule(bottomControlsParams, QuickControlRule.MIDDLE)
                 setQuickControlRule(bottomCenterParams, QuickControlRule.MIDDLE)
             }
             QuickControlPosition.ABOVE -> {
                 restoreTimelineLayout(bottomParams, progressParams, positionParams, durationParams, density)
-                setQuickControlRule(bottomLeftParams, QuickControlRule.ABOVE)
-                setQuickControlRule(bottomRightParams, QuickControlRule.ABOVE)
+                setQuickControlRule(bottomControlsParams, QuickControlRule.ABOVE)
                 bottomCenterParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
                 bottomCenterParams.removeRule(RelativeLayout.CENTER_VERTICAL)
                 bottomCenterParams.addRule(RelativeLayout.ABOVE, R.id.streamInfoLayout)
             }
         }
         bottom.layoutParams = bottomParams
-        bottomLeft.layoutParams = bottomLeftParams
-        bottomRight.layoutParams = bottomRightParams
+        bottomControls.layoutParams = bottomControlsParams
         bottomCenter.layoutParams = bottomCenterParams
         progress.layoutParams = progressParams
         positionView.layoutParams = positionParams
@@ -521,44 +516,6 @@ object PortraitPlayerControls {
         durationParams.bottomMargin = (10 * density).toInt()
         durationParams.removeRule(RelativeLayout.ABOVE)
         durationParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-    }
-
-    private fun alignVisibleChildToEdge(
-        root: View,
-        container: ViewGroup,
-        horizontalAnchor: HorizontalAnchor,
-    ) {
-        val childBounds = Rect()
-        val rootLocation = IntArray(2)
-        root.getLocationOnScreen(rootLocation)
-        val visibleChildren = (0 until container.childCount)
-            .map(container::getChildAt)
-            .filter { child ->
-                child.visibility == View.VISIBLE && child.width > 0 && child.height > 0 &&
-                    child.getGlobalVisibleRect(childBounds)
-            }
-        if (visibleChildren.isEmpty()) return
-
-        val visibleEdge = if (horizontalAnchor == HorizontalAnchor.START) {
-            visibleChildren.minOf { child ->
-                val bounds = Rect()
-                child.getGlobalVisibleRect(bounds)
-                bounds.left - rootLocation[0].toFloat()
-            }
-        } else {
-            visibleChildren.maxOf { child ->
-                val bounds = Rect()
-                child.getGlobalVisibleRect(bounds)
-                bounds.right - rootLocation[0].toFloat()
-            }
-        }
-        val inset = EDGE_INSET_DP * root.resources.displayMetrics.density
-        val targetEdge = if (horizontalAnchor == HorizontalAnchor.START) {
-            root.paddingLeft + inset
-        } else {
-            root.width - root.paddingRight - inset
-        }
-        container.translationX += targetEdge - visibleEdge
     }
 
     private fun resetDescendantTransforms(view: ViewGroup) {
