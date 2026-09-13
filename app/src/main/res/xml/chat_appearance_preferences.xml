@@ -1,44 +1,44 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
-    <PreferenceCategory android:title="@string/settings_chat_background" app:iconSpaceReserved="false">
+    <PreferenceCategory android:title="@string/settings_player_background" app:iconSpaceReserved="false">
         <com.github.andreyasadchy.xtra.ui.settings.ChatAppearancePreviewPreference
             android:key="chat_appearance_preview"
             android:summary="@string/settings_chat_appearance_preview_summary"
             android:title="@string/settings_chat_appearance_preview"
             app:iconSpaceReserved="false" />
-        <SwitchPreferenceCompat
-            android:defaultValue="false"
-            android:key="chat_background_enabled"
-            android:summary="@string/settings_chat_background_enabled_summary"
-            android:title="@string/settings_chat_background_enabled"
+        <ListPreference
+            android:defaultValue="inherit_app"
+            android:entries="@array/playerBackgroundModeEntries"
+            android:entryValues="@array/playerBackgroundModeValues"
+            android:key="player_background_mode"
+            android:summary="%s"
+            android:title="@string/settings_player_background_mode"
             app:iconSpaceReserved="false" />
         <Preference
-            android:dependency="chat_background_enabled"
-            android:key="chat_background_choose"
-            android:summary="@string/settings_chat_background_choose_summary"
-            android:title="@string/settings_chat_background_choose"
+            android:key="player_background_choose"
+            android:summary="@string/settings_player_background_choose_summary"
+            android:title="@string/settings_player_background_choose"
             app:iconSpaceReserved="false" />
         <SeekBarPreference
             android:defaultValue="65"
-            android:dependency="chat_background_enabled"
-            android:key="chat_background_visibility"
+            android:key="player_background_visibility"
             android:max="100"
-            android:title="@string/settings_chat_background_visibility"
+            android:title="@string/settings_player_background_visibility"
             app:iconSpaceReserved="false"
             app:min="0"
             app:showSeekBarValue="true" />
         <Preference
-            android:key="chat_background_reset"
-            android:title="@string/settings_chat_background_reset"
+            android:key="player_background_reset"
+            android:title="@string/settings_player_background_reset"
             app:iconSpaceReserved="false" />
     </PreferenceCategory>
     <PreferenceCategory android:title="@string/settings_chat_text" app:iconSpaceReserved="false">
         <EditTextPreference
-            android:key="chat_message_text_color"
+            android:key="player_message_text_color"
             android:summary="@string/settings_chat_text_default_summary"
             android:title="@string/settings_chat_message_text"
             app:iconSpaceReserved="false" />
         <EditTextPreference
-            android:key="chat_metadata_text_color"
+            android:key="player_metadata_text_color"
             android:summary="@string/settings_chat_text_default_summary"
             android:title="@string/settings_chat_metadata_text"
             app:iconSpaceReserved="false" />

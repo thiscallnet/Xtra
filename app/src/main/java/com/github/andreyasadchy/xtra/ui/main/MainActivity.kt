@@ -79,6 +79,9 @@ import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.account.AccountActivity
+import com.github.andreyasadchy.xtra.ui.appearance.ActivityBackgroundController
+import com.github.andreyasadchy.xtra.ui.appearance.AppearanceRepository
+import com.github.andreyasadchy.xtra.ui.appearance.makeBackdropAwareChrome
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.tv.TvRemoteKeyHandler
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
@@ -148,6 +151,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityMainBinding
+    private lateinit var appBackgroundController: ActivityBackgroundController
     private val viewModel: MainViewModel by viewModels { MainViewModelFactory }
     private lateinit var navController: NavController
     var playerFragment: Fragment? = null
@@ -193,6 +197,12 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        appBackgroundController = ActivityBackgroundController(
+            root = binding.root,
+            image = binding.appBackgroundImage,
+            scrim = binding.appBackgroundScrim,
+            repository = AppearanceRepository(this),
+        )
         if (isTv) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
@@ -220,6 +230,7 @@ class MainActivity : AppCompatActivity() {
                 view: View,
                 savedInstanceState: Bundle?,
             ) {
+                makeBackdropAwareChrome(view)
                 view.findViewById<Toolbar>(R.id.toolbar)?.let {
                     SettingsUpdateIndicator.update(it, this@MainActivity)
                     ProfileMenuBinder.bind(it, this@MainActivity)
@@ -696,6 +707,16 @@ class MainActivity : AppCompatActivity() {
         }, 250L)
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (::appBackgroundController.isInitialized) appBackgroundController.start()
+    }
+
+    override fun onStop() {
+        appBackgroundController.stop()
+        super.onStop()
+    }
+
     private fun runDeferredStartupTasks() {
         if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && LiveNotificationScheduler.canPostNotifications(this)) {
             LiveNotificationScheduler.enable(this, baselineOnly = false)
@@ -920,6 +941,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        appBackgroundController.stop()
         PerfFrameMetricsDiagnostics.detach()
         UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
         keepStateNavigator?.onNavigationTransactionCommitted = null

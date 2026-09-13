@@ -93,6 +93,47 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun `legacy chat appearance migrates to player scope without creating an app wallpaper`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION,
+                C.CHAT_BACKGROUND_URI to "content://legacy/background",
+                C.CHAT_BACKGROUND_ENABLED to true,
+                C.CHAT_BACKGROUND_VISIBILITY to 42,
+                C.CHAT_MESSAGE_TEXT_COLOR to "#FFD166",
+                C.CHAT_METADATA_TEXT_COLOR to "#B8F2E6",
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertEquals("content://legacy/background", preferences.getString(C.PLAYER_BACKGROUND_URI, null))
+        assertEquals("custom", preferences.getString(C.PLAYER_BACKGROUND_MODE, null))
+        assertEquals(42, preferences.getInt(C.PLAYER_BACKGROUND_VISIBILITY, 0))
+        assertEquals("#FFD166", preferences.getString(C.PLAYER_MESSAGE_TEXT_COLOR, null))
+        assertEquals("#B8F2E6", preferences.getString(C.PLAYER_METADATA_TEXT_COLOR, null))
+        assertFalse(preferences.contains(C.APP_BACKGROUND_URI))
+        assertFalse(preferences.contains(C.CHAT_BACKGROUND_URI))
+        assertEquals(1, preferences.getInt(C.APPEARANCE_MIGRATION_VERSION, 0))
+    }
+
+    @Test
+    fun `legacy disabled chat appearance migrates to player off mode`() {
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION,
+                C.CHAT_BACKGROUND_URI to "content://legacy/background",
+                C.CHAT_BACKGROUND_ENABLED to false,
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertEquals("off", preferences.getString(C.PLAYER_BACKGROUND_MODE, null))
+        assertEquals("content://legacy/background", preferences.getString(C.PLAYER_BACKGROUND_URI, null))
+    }
+
+    @Test
     fun `explicitly disabled chat history is preserved by migration`() {
         val preferences = MemoryPreferences(
             mutableMapOf(

@@ -91,12 +91,16 @@ import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
 import com.github.andreyasadchy.xtra.model.ui.SettingsSearchItem
 import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.account.AccountActivity
+import com.github.andreyasadchy.xtra.ui.appearance.ActivityBackgroundController
+import com.github.andreyasadchy.xtra.ui.appearance.AppearanceRepository
+import com.github.andreyasadchy.xtra.ui.appearance.DEFAULT_BACKGROUND_VISIBILITY
+import com.github.andreyasadchy.xtra.ui.appearance.PlayerBackgroundMode
+import com.github.andreyasadchy.xtra.ui.appearance.makeBackdropAwareChrome
 import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSections
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
-import com.github.andreyasadchy.xtra.ui.chat.DEFAULT_CHAT_BACKGROUND_VISIBILITY
 import com.github.andreyasadchy.xtra.ui.player.PhoneChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.player.persistPhoneChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.player.phoneChatOverlayConfig
@@ -182,6 +186,7 @@ private const val DISCORD_URL = "https://discord.gg/2cKy8DNgPX"
 class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
+    private lateinit var appBackgroundController: ActivityBackgroundController
     private var changed = false
     private var accountActionIsLogout = false
     private var loginResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -198,6 +203,13 @@ class SettingsActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        appBackgroundController = ActivityBackgroundController(
+            root = binding.root,
+            image = binding.appBackgroundImage,
+            scrim = binding.appBackgroundScrim,
+            repository = AppearanceRepository(this),
+        )
+        makeBackdropAwareChrome(binding.root)
         if (isTelevision()) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
@@ -267,6 +279,16 @@ class SettingsActivity : AppCompatActivity() {
                 return false
             }
         })
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (::appBackgroundController.isInitialized) appBackgroundController.start()
+    }
+
+    override fun onStop() {
+        appBackgroundController.stop()
+        super.onStop()
     }
 
     internal fun consumeSettingsHighlightPreference(): String? {
@@ -689,23 +711,11 @@ class SettingsActivity : AppCompatActivity() {
                     true
                 }.getOrDefault(false)
                 if (!persisted) {
-                    Toast.makeText(requireContext(), R.string.settings_chat_background_persist_failed, Toast.LENGTH_LONG).show()
+                    Toast.makeText(requireContext(), R.string.settings_player_background_persist_failed, Toast.LENGTH_LONG).show()
                     return@registerForActivityResult
                 }
-                val oldUri = requireContext().prefs().getString(C.CHAT_BACKGROUND_URI, null)
-                if (oldUri != null && oldUri != selectedUri.toString()) {
-                    runCatching {
-                        requireContext().contentResolver.releasePersistableUriPermission(
-                            oldUri.toUri(),
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                        )
-                    }
-                }
-                requireContext().prefs().edit {
-                    putString(C.CHAT_BACKGROUND_URI, selectedUri.toString())
-                    putBoolean(C.CHAT_BACKGROUND_ENABLED, true)
-                }
-                findPreference<SwitchPreferenceCompat>(C.CHAT_BACKGROUND_ENABLED)?.isChecked = true
+                AppearanceRepository(requireContext()).setPlayerBackgroundUri(selectedUri)
+                findPreference<ListPreference>(C.PLAYER_BACKGROUND_MODE)?.value = PlayerBackgroundMode.CUSTOM.preferenceValue
                 updateChatAppearancePreferences()
                 findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")?.refreshPreview()
                 (requireActivity() as? SettingsActivity)?.setResult()
@@ -1443,16 +1453,21 @@ class SettingsActivity : AppCompatActivity() {
 
         private fun configureChatAppearancePreferences() {
             val preview = findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")
-            val backgroundEnabled = findPreference<SwitchPreferenceCompat>(C.CHAT_BACKGROUND_ENABLED)
-            val backgroundVisibility = findPreference<SeekBarPreference>(C.CHAT_BACKGROUND_VISIBILITY)
-            val backgroundChoose = findPreference<Preference>("chat_background_choose")
+            val backgroundMode = findPreference<ListPreference>(C.PLAYER_BACKGROUND_MODE)
+            val backgroundVisibility = findPreference<SeekBarPreference>(C.PLAYER_BACKGROUND_VISIBILITY)
+            val backgroundChoose = findPreference<Preference>("player_background_choose")
+            val repository = AppearanceRepository(requireContext())
 
-            backgroundEnabled?.setOnPreferenceChangeListener { _, _ ->
+            backgroundMode?.setOnPreferenceChangeListener { _, _ ->
                 (requireActivity() as? SettingsActivity)?.setResult()
-                Handler(Looper.getMainLooper()).post { preview?.refreshPreview() }
+                Handler(Looper.getMainLooper()).post {
+                    updateChatAppearancePreferences()
+                    preview?.refreshPreview()
+                }
                 true
             }
-            backgroundVisibility?.setOnPreferenceChangeListener { _, _ ->
+            backgroundVisibility?.setOnPreferenceChangeListener { _, value ->
+                repository.setPlayerBackgroundVisibility(value as Int)
                 (requireActivity() as? SettingsActivity)?.setResult()
                 Handler(Looper.getMainLooper()).post { preview?.refreshPreview() }
                 true
@@ -1461,23 +1476,10 @@ class SettingsActivity : AppCompatActivity() {
                 backgroundPhotoLauncher?.launch(arrayOf("image/*"))
                 true
             }
-            findPreference<Preference>("chat_background_reset")?.setOnPreferenceClickListener {
-                val oldUri = requireContext().prefs().getString(C.CHAT_BACKGROUND_URI, null)
-                oldUri?.let { value ->
-                    runCatching {
-                        requireContext().contentResolver.releasePersistableUriPermission(
-                            value.toUri(),
-                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                        )
-                    }
-                }
-                requireContext().prefs().edit {
-                    remove(C.CHAT_BACKGROUND_URI)
-                    remove(C.CHAT_BACKGROUND_VISIBILITY)
-                    putBoolean(C.CHAT_BACKGROUND_ENABLED, false)
-                }
-                backgroundEnabled?.isChecked = false
-                backgroundVisibility?.value = DEFAULT_CHAT_BACKGROUND_VISIBILITY
+            findPreference<Preference>("player_background_reset")?.setOnPreferenceClickListener {
+                repository.resetPlayerBackground()
+                backgroundMode?.value = PlayerBackgroundMode.INHERIT_APP.preferenceValue
+                backgroundVisibility?.value = DEFAULT_BACKGROUND_VISIBILITY
                 updateChatAppearancePreferences()
                 preview?.refreshPreview()
                 (requireActivity() as? SettingsActivity)?.setResult()
@@ -1486,11 +1488,11 @@ class SettingsActivity : AppCompatActivity() {
 
             findPreference<Preference>("chat_restore_text_defaults")?.setOnPreferenceClickListener {
                 requireContext().prefs().edit {
-                    remove(C.CHAT_MESSAGE_TEXT_COLOR)
-                    remove(C.CHAT_METADATA_TEXT_COLOR)
+                    remove(C.PLAYER_MESSAGE_TEXT_COLOR)
+                    remove(C.PLAYER_METADATA_TEXT_COLOR)
                 }
-                findPreference<EditTextPreference>(C.CHAT_MESSAGE_TEXT_COLOR)?.text = null
-                findPreference<EditTextPreference>(C.CHAT_METADATA_TEXT_COLOR)?.text = null
+                findPreference<EditTextPreference>(C.PLAYER_MESSAGE_TEXT_COLOR)?.text = null
+                findPreference<EditTextPreference>(C.PLAYER_METADATA_TEXT_COLOR)?.text = null
                 updateChatAppearancePreferences()
                 preview?.refreshPreview()
                 (requireActivity() as? SettingsActivity)?.setResult()
@@ -1501,22 +1503,23 @@ class SettingsActivity : AppCompatActivity() {
 
         private fun updateChatAppearancePreferences() {
             val preferences = requireContext().prefs()
-            val rawUri = preferences.getString(C.CHAT_BACKGROUND_URI, null)
-            val uriAvailable = rawUri?.let { value ->
-                runCatching {
-                    requireContext().contentResolver.openInputStream(value.toUri())?.use { } != null
-                }.getOrDefault(false)
-            } == true
-            findPreference<Preference>("chat_background_choose")?.summary = when {
-                rawUri.isNullOrBlank() -> getString(R.string.settings_chat_background_choose_summary)
-                uriAvailable -> getString(R.string.settings_chat_background_change_summary)
-                else -> getString(R.string.settings_chat_background_unavailable)
+            val repository = AppearanceRepository(requireContext())
+            val playerBackground = repository.playerBackground()
+            findPreference<Preference>("player_background_choose")?.apply {
+                summary = when {
+                    playerBackground.uri == null -> getString(R.string.settings_player_background_choose_summary)
+                    repository.isUriReadable(playerBackground.uri) -> getString(R.string.settings_chat_background_change_summary)
+                    else -> getString(R.string.settings_chat_background_unavailable)
+                }
+                isVisible = repository.playerBackgroundMode() == PlayerBackgroundMode.CUSTOM
             }
-            findPreference<EditTextPreference>(C.CHAT_MESSAGE_TEXT_COLOR)?.summary = preferences
-                .getString(C.CHAT_MESSAGE_TEXT_COLOR, null)
+            findPreference<SeekBarPreference>(C.PLAYER_BACKGROUND_VISIBILITY)?.isVisible =
+                repository.playerBackgroundMode() == PlayerBackgroundMode.CUSTOM
+            findPreference<EditTextPreference>(C.PLAYER_MESSAGE_TEXT_COLOR)?.summary = preferences
+                .getString(C.PLAYER_MESSAGE_TEXT_COLOR, null)
                 ?: getString(R.string.settings_chat_text_default_summary)
-            findPreference<EditTextPreference>(C.CHAT_METADATA_TEXT_COLOR)?.summary = preferences
-                .getString(C.CHAT_METADATA_TEXT_COLOR, null)
+            findPreference<EditTextPreference>(C.PLAYER_METADATA_TEXT_COLOR)?.summary = preferences
+                .getString(C.PLAYER_METADATA_TEXT_COLOR, null)
                 ?: getString(R.string.settings_chat_text_default_summary)
         }
 
@@ -2172,8 +2175,34 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class ThemeSettingsFragment : MaterialPreferenceFragment() {
+        private var backgroundPhotoLauncher: ActivityResultLauncher<Array<String>>? = null
+
+        override fun onCreate(savedInstanceState: Bundle?) {
+            super.onCreate(savedInstanceState)
+            backgroundPhotoLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                val selectedUri = uri ?: return@registerForActivityResult
+                val persisted = runCatching {
+                    requireContext().contentResolver.takePersistableUriPermission(
+                        selectedUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                    true
+                }.getOrDefault(false)
+                if (!persisted) {
+                    Toast.makeText(requireContext(), R.string.settings_app_background_persist_failed, Toast.LENGTH_LONG).show()
+                    return@registerForActivityResult
+                }
+                AppearanceRepository(requireContext()).setAppBackgroundUri(selectedUri)
+                findPreference<SwitchPreferenceCompat>(C.APP_BACKGROUND_ENABLED)?.isChecked = true
+                updateAppBackgroundPreferences()
+                findPreference<AppBackgroundPreviewPreference>("app_background_preview")?.refreshPreview()
+                (requireActivity() as? SettingsActivity)?.setResult()
+            }
+        }
+
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.theme_preferences, rootKey)
+            configureAppBackgroundPreferences()
             val changeListener = Preference.OnPreferenceChangeListener { _, _ ->
                 (requireActivity() as? SettingsActivity)?.changed = true
                 requireActivity().recreate()
@@ -2195,6 +2224,52 @@ class SettingsActivity : AppCompatActivity() {
                 findNavController().navigate(R.id.appearanceDisplayCompatibilityFragment)
                 true
             }
+        }
+
+        private fun configureAppBackgroundPreferences() {
+            val repository = AppearanceRepository(requireContext())
+            val enabled = findPreference<SwitchPreferenceCompat>(C.APP_BACKGROUND_ENABLED)
+            val visibility = findPreference<SeekBarPreference>(C.APP_BACKGROUND_VISIBILITY)
+            val preview = findPreference<AppBackgroundPreviewPreference>("app_background_preview")
+
+            enabled?.setOnPreferenceChangeListener { _, value ->
+                repository.setAppBackgroundEnabled(value as Boolean)
+                updateAppBackgroundPreferences()
+                preview?.refreshPreview()
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
+            visibility?.setOnPreferenceChangeListener { _, value ->
+                repository.setAppBackgroundVisibility(value as Int)
+                preview?.refreshPreview()
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
+            findPreference<Preference>("app_background_choose")?.setOnPreferenceClickListener {
+                backgroundPhotoLauncher?.launch(arrayOf("image/*"))
+                true
+            }
+            findPreference<Preference>("app_background_reset")?.setOnPreferenceClickListener {
+                repository.resetAppBackground()
+                enabled?.isChecked = false
+                visibility?.value = DEFAULT_BACKGROUND_VISIBILITY
+                updateAppBackgroundPreferences()
+                preview?.refreshPreview()
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
+            updateAppBackgroundPreferences()
+        }
+
+        private fun updateAppBackgroundPreferences() {
+            val repository = AppearanceRepository(requireContext())
+            val configuration = repository.appBackground()
+            findPreference<Preference>("app_background_choose")?.summary = when {
+                configuration.uri == null -> getString(R.string.settings_app_background_choose_summary)
+                repository.isUriReadable(configuration.uri) -> getString(R.string.settings_app_background_change_summary)
+                else -> getString(R.string.settings_app_background_unavailable)
+            }
+            findPreference<SeekBarPreference>(C.APP_BACKGROUND_VISIBILITY)?.isEnabled = configuration.enabled
         }
 
     }

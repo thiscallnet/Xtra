@@ -45,6 +45,9 @@ import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
 import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
+import com.github.andreyasadchy.xtra.ui.appearance.ActivityBackgroundController
+import com.github.andreyasadchy.xtra.ui.appearance.AppearanceRepository
+import com.github.andreyasadchy.xtra.ui.appearance.makeBackdropAwareChrome
 import com.github.andreyasadchy.xtra.ui.settings.ColorPickerDialog
 import com.github.andreyasadchy.xtra.ui.settings.parsePickerColor
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
@@ -69,6 +72,7 @@ import java.util.Locale
 class AccountActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityAccountBinding
+    private lateinit var appBackgroundController: ActivityBackgroundController
     private val viewModel: AccountViewModel by viewModels()
     private val authSessionMaintainer by lazy { (application as XtraApp).xtraModule.authSessionMaintainer }
     private var page = PAGE_MAIN
@@ -106,6 +110,13 @@ class AccountActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityAccountBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        appBackgroundController = ActivityBackgroundController(
+            root = binding.root,
+            image = binding.appBackgroundImage,
+            scrim = binding.appBackgroundScrim,
+            repository = AppearanceRepository(this),
+        )
+        makeBackdropAwareChrome(binding.root)
         if (isTelevision()) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         }
@@ -138,6 +149,16 @@ class AccountActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (::appBackgroundController.isInitialized) appBackgroundController.start()
+    }
+
+    override fun onStop() {
+        appBackgroundController.stop()
+        super.onStop()
     }
 
     private fun setupWindowInsets() {

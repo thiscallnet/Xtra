@@ -10,6 +10,44 @@
         android:title="@string/theme"
         app:iconSpaceReserved="false" />
 
+    <PreferenceCategory
+        android:title="@string/settings_app_background"
+        app:iconSpaceReserved="false">
+
+        <com.github.andreyasadchy.xtra.ui.settings.AppBackgroundPreviewPreference
+            android:key="app_background_preview"
+            android:summary="@string/settings_app_background_preview_summary"
+            android:title="@string/settings_app_background_preview"
+            app:iconSpaceReserved="false" />
+
+        <SwitchPreferenceCompat
+            android:defaultValue="false"
+            android:key="app_background_enabled"
+            android:summary="@string/settings_app_background_enabled_summary"
+            android:title="@string/settings_app_background_enabled"
+            app:iconSpaceReserved="false" />
+
+        <Preference
+            android:key="app_background_choose"
+            android:summary="@string/settings_app_background_choose_summary"
+            android:title="@string/settings_app_background_choose"
+            app:iconSpaceReserved="false" />
+
+        <SeekBarPreference
+            android:defaultValue="65"
+            android:key="app_background_visibility"
+            android:max="100"
+            android:title="@string/settings_app_background_visibility"
+            app:iconSpaceReserved="false"
+            app:min="0"
+            app:showSeekBarValue="true" />
+
+        <Preference
+            android:key="app_background_reset"
+            android:title="@string/settings_app_background_reset"
+            app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+
     <SwitchPreferenceCompat
         android:defaultValue="false"
         android:key="settings_device_colors"

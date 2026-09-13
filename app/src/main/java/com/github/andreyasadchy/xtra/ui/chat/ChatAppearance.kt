@@ -4,11 +4,12 @@ import android.content.Context
 import android.graphics.Color
 import android.net.Uri
 import androidx.annotation.ColorInt
-import androidx.core.net.toUri
+import com.github.andreyasadchy.xtra.ui.appearance.AppearanceRepository
+import com.github.andreyasadchy.xtra.ui.appearance.DEFAULT_BACKGROUND_VISIBILITY
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 
-internal const val DEFAULT_CHAT_BACKGROUND_VISIBILITY = 65
+internal const val DEFAULT_CHAT_BACKGROUND_VISIBILITY = DEFAULT_BACKGROUND_VISIBILITY
 
 internal data class ChatAppearancePreferenceValues(
     val backgroundUri: Uri? = null,
@@ -38,17 +39,13 @@ internal fun resolveChatAppearance(
     @ColorInt metadataDefaultColor: Int,
 ): ResolvedChatAppearance {
     val preferences = context.prefs()
+    val playerBackground = AppearanceRepository(context).resolvedPlayerBackground()
     val values = ChatAppearancePreferenceValues(
-        backgroundUri = preferences.getString(C.CHAT_BACKGROUND_URI, null)
-            ?.takeIf { it.isNotBlank() }
-            ?.let { runCatching { it.toUri() }.getOrNull() },
-        backgroundEnabled = preferences.getBoolean(C.CHAT_BACKGROUND_ENABLED, false),
-        backgroundVisibility = preferences.getInt(
-            C.CHAT_BACKGROUND_VISIBILITY,
-            DEFAULT_CHAT_BACKGROUND_VISIBILITY,
-        ),
-        messageTextColor = preferences.getString(C.CHAT_MESSAGE_TEXT_COLOR, null),
-        metadataTextColor = preferences.getString(C.CHAT_METADATA_TEXT_COLOR, null),
+        backgroundUri = playerBackground.uri,
+        backgroundEnabled = playerBackground.enabled,
+        backgroundVisibility = playerBackground.visibility,
+        messageTextColor = preferences.getString(C.PLAYER_MESSAGE_TEXT_COLOR, null),
+        metadataTextColor = preferences.getString(C.PLAYER_METADATA_TEXT_COLOR, null),
     )
     return resolveChatAppearance(values, surfaceColor, messageDefaultColor, metadataDefaultColor)
 }

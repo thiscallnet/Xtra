@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
+import com.github.andreyasadchy.xtra.ui.appearance.DEFAULT_BACKGROUND_VISIBILITY
+import com.github.andreyasadchy.xtra.ui.appearance.PlayerBackgroundMode
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
 
 /**
@@ -200,9 +202,19 @@ object SettingsMigration {
         C.CHAT_INPUT_EMOTES,
         C.CHAT_SIZE_MODIFIER,
         C.CHAT_BACKGROUND_ENABLED,
+        C.CHAT_BACKGROUND_URI,
         C.CHAT_BACKGROUND_VISIBILITY,
         C.CHAT_MESSAGE_TEXT_COLOR,
         C.CHAT_METADATA_TEXT_COLOR,
+        C.APP_BACKGROUND_ENABLED,
+        C.APP_BACKGROUND_URI,
+        C.APP_BACKGROUND_VISIBILITY,
+        C.PLAYER_BACKGROUND_MODE,
+        C.PLAYER_BACKGROUND_URI,
+        C.PLAYER_BACKGROUND_VISIBILITY,
+        C.PLAYER_MESSAGE_TEXT_COLOR,
+        C.PLAYER_METADATA_TEXT_COLOR,
+        C.APPEARANCE_MIGRATION_VERSION,
         C.CHAT_TEXT_SIZE,
         C.CHAT_EMOTE_SIZE,
         C.CHAT_BADGE_SIZE,
@@ -339,6 +351,16 @@ object SettingsMigration {
     )
 
     fun resetUserPreferences(context: Context) {
+        listOf(C.APP_BACKGROUND_URI, C.PLAYER_BACKGROUND_URI, C.CHAT_BACKGROUND_URI).forEach { key ->
+            context.rawPrefs().getString(key, null)?.let { value ->
+                runCatching {
+                    context.contentResolver.releasePersistableUriPermission(
+                        android.net.Uri.parse(value),
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                }
+            }
+        }
         context.rawPrefs().edit {
             RESETTABLE_PREFERENCE_KEYS.forEach(::remove)
             putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)
@@ -401,6 +423,7 @@ object SettingsMigration {
                 putBoolean(C.CHAT_RECENT, C.CHAT_RECENT_DEFAULT)
             }
         }
+        migrateAppearancePreferences(preferences)
         if (preferences.getInt(C.SETTINGS_VERSION, 0) >= C.SETTINGS_SCHEMA_VERSION) return
         val isFreshInstall = freshInstall ?: inferFreshInstall(preferences)
 
@@ -559,6 +582,55 @@ object SettingsMigration {
             remove(C.UI_THEME_COMPACT_TEXT)
 
             putInt(C.SETTINGS_VERSION, C.SETTINGS_SCHEMA_VERSION)
+        }
+    }
+
+    private fun migrateAppearancePreferences(preferences: SharedPreferences) {
+        if (preferences.getInt(C.APPEARANCE_MIGRATION_VERSION, 0) >= 1) return
+
+        val oldBackgroundKeysPresent = preferences.contains(C.CHAT_BACKGROUND_URI) ||
+            preferences.contains(C.CHAT_BACKGROUND_ENABLED) ||
+            preferences.contains(C.CHAT_BACKGROUND_VISIBILITY)
+        preferences.edit {
+            if (!preferences.contains(C.PLAYER_BACKGROUND_URI)) {
+                preferences.getString(C.CHAT_BACKGROUND_URI, null)?.let {
+                    putString(C.PLAYER_BACKGROUND_URI, it)
+                }
+            }
+            if (!preferences.contains(C.PLAYER_BACKGROUND_VISIBILITY) &&
+                preferences.contains(C.CHAT_BACKGROUND_VISIBILITY)
+            ) {
+                putInt(
+                    C.PLAYER_BACKGROUND_VISIBILITY,
+                    preferences.getInt(C.CHAT_BACKGROUND_VISIBILITY, DEFAULT_BACKGROUND_VISIBILITY),
+                )
+            }
+            if (!preferences.contains(C.PLAYER_BACKGROUND_MODE) && oldBackgroundKeysPresent) {
+                putString(
+                    C.PLAYER_BACKGROUND_MODE,
+                    if (preferences.getBoolean(C.CHAT_BACKGROUND_ENABLED, false)) {
+                        PlayerBackgroundMode.CUSTOM.preferenceValue
+                    } else {
+                        PlayerBackgroundMode.OFF.preferenceValue
+                    },
+                )
+            }
+            if (!preferences.contains(C.PLAYER_MESSAGE_TEXT_COLOR)) {
+                preferences.getString(C.CHAT_MESSAGE_TEXT_COLOR, null)?.let {
+                    putString(C.PLAYER_MESSAGE_TEXT_COLOR, it)
+                }
+            }
+            if (!preferences.contains(C.PLAYER_METADATA_TEXT_COLOR)) {
+                preferences.getString(C.CHAT_METADATA_TEXT_COLOR, null)?.let {
+                    putString(C.PLAYER_METADATA_TEXT_COLOR, it)
+                }
+            }
+            remove(C.CHAT_BACKGROUND_ENABLED)
+            remove(C.CHAT_BACKGROUND_URI)
+            remove(C.CHAT_BACKGROUND_VISIBILITY)
+            remove(C.CHAT_MESSAGE_TEXT_COLOR)
+            remove(C.CHAT_METADATA_TEXT_COLOR)
+            putInt(C.APPEARANCE_MIGRATION_VERSION, 1)
         }
     }
 

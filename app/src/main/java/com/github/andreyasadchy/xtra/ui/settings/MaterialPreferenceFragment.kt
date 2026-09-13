@@ -36,8 +36,8 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
     override fun onDisplayPreferenceDialog(preference: Preference) {
         val editTextPreference = preference as? EditTextPreference
         colorPickerConfig(preference)?.let { config ->
-            val defaultAction: (() -> Boolean)? = if (editTextPreference?.key == C.CHAT_MESSAGE_TEXT_COLOR ||
-                editTextPreference?.key == C.CHAT_METADATA_TEXT_COLOR
+            val defaultAction: (() -> Boolean)? = if (editTextPreference?.key == C.PLAYER_MESSAGE_TEXT_COLOR ||
+                editTextPreference?.key == C.PLAYER_METADATA_TEXT_COLOR
             ) {
                 {
                     editTextPreference.text = null
@@ -88,11 +88,11 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
             C.CHAT_HIGHLIGHT_COLOR -> DEFAULT_CHAT_HIGHLIGHT_COLOR to true
             C.PLAYER_LIVE_CAPTION_BACKGROUND_COLOR -> Color.BLACK to true
             C.PLAYER_LIVE_CAPTION_TEXT_COLOR -> Color.WHITE to false
-            C.CHAT_MESSAGE_TEXT_COLOR -> MaterialColors.getColor(
+            C.PLAYER_MESSAGE_TEXT_COLOR -> MaterialColors.getColor(
                 listView,
                 com.google.android.material.R.attr.colorOnSurface,
             ) to false
-            C.CHAT_METADATA_TEXT_COLOR -> MaterialColors.getColor(
+            C.PLAYER_METADATA_TEXT_COLOR -> MaterialColors.getColor(
                 listView,
                 com.google.android.material.R.attr.colorOnSurfaceVariant,
             ) to false

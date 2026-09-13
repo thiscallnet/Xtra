@@ -6,6 +6,21 @@
     android:layout_height="match_parent"
     android:background="?android:colorBackground">
 
+    <ImageView
+        android:id="@+id/appBackgroundImage"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        android:visibility="gone" />
+
+    <View
+        android:id="@+id/appBackgroundScrim"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
     <androidx.fragment.app.FragmentContainerView
         android:id="@+id/navHostFragment"
         android:name="com.github.andreyasadchy.xtra.ui.main.MainNavHostFragment"
