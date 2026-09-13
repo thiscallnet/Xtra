@@ -236,9 +236,14 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
                 paint,
             )
 
-            // Keep the metadata row fixed while the minimize control sits in
-            // the compact top-start control slot.
-            drawMetadata(canvas, 12f, size)
+            // Reserve the top-start row before drawing metadata, just as the
+            // runtime ControlEdgeLayout does.
+            val topStartCount = items.count {
+                it.group == PlayerControlLayout.GROUP_QUICK &&
+                    it.anchor == PlayerControlLayout.ANCHOR_TOP_START
+            }
+            val topStartWidth = wrappedControlWidth(topStartCount)
+            drawMetadata(canvas, 12f + topStartWidth + if (topStartCount > 0) 6f else 0f, size)
 
             paint.color = Color.argb(140, 255, 255, 255)
             canvas.drawRoundRect(
@@ -481,10 +486,10 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             val lines = ControlRowPlanner.lineBreak(edgeWidth, List(count) { size.toInt() }, spacing.toInt())
             val rowHeight = lines.size * size
             val rightEdge = width - padding - menuReserve
-            val top = if (anchor.startsWith("top")) {
-                padding
-            } else {
-                height - padding - previewDp(13) - rowHeight
+            val top = when {
+                anchor.startsWith("top") -> padding
+                anchor.startsWith("bottom") -> height - padding - previewDp(13) - rowHeight
+                else -> ((height - rowHeight) / 2f).coerceAtLeast(padding)
             }
             return lines.flatMapIndexed { lineIndex, line ->
                 val lineWidth = line.size * size + (line.size - 1).coerceAtLeast(0) * spacing
@@ -502,6 +507,19 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
                     )
                 }
             }
+        }
+
+        private fun wrappedControlWidth(count: Int): Float {
+            if (count <= 0) return 0f
+            val size = previewDp(44)
+            val spacing = previewDp(6)
+            val padding = previewDp(9)
+            val edgeWidth = ((width - padding * 2f) / 2f).roundToInt().coerceAtLeast(size)
+            val lines = ControlRowPlanner.lineBreak(edgeWidth, List(count) { size }, spacing)
+            val maxWidth = lines.maxOfOrNull { line ->
+                line.size * size + (line.size - 1).coerceAtLeast(0) * spacing
+            } ?: 0
+            return maxWidth.toFloat() / previewUnit()
         }
 
         private fun previewUnit(): Float = if (width == 0) 0f else width / (360f * resources.displayMetrics.density)
@@ -545,6 +563,7 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             "chapters" -> R.drawable.baseline_format_list_bulleted_black_24
             "restart" -> R.drawable.baseline_replay_black_24
             "live" -> androidx.media3.ui.R.drawable.exo_icon_fastforward
+            "live_captions" -> androidx.media3.ui.R.drawable.exo_ic_subtitle_off
             "clip" -> R.drawable.ic_movie_clip_black_24
             "volume" -> R.drawable.baseline_volume_up_black_24
             "compressor" -> R.drawable.baseline_audio_compressor_off_24dp

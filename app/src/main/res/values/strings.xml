@@ -752,6 +752,7 @@ Metadata text</string>
     <string name="player_exit_fullscreen">Exit full screen</string>
     <string name="player_open_channel">%1$s. Open channel</string>
     <string name="player_open_category">%1$s. Open category</string>
+    <string name="player_playing">Playing</string>
     <string name="player_viewers">%1$s. Open viewer list</string>
     <string name="player_position">Position %1$s</string>
     <string name="player_duration">Duration %1$s</string>

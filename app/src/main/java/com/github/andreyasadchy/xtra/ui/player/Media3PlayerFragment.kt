@@ -189,7 +189,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var pendingLiveSession: LiveRewindSession? = null
     private var liveRewindSwitching = false
     private var liveRewindReturningLive = false
-    private var uptimeStartedAtMs: Long? = null
     private var liveRewindPendingVodId: String? = null
     private var liveRewindPendingTargetMs: Long? = null
     private var renderedLiveRewindState: LiveRewindRenderState? = null
@@ -203,7 +202,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val positionDescription: String,
         val durationText: String,
         val durationDescription: String,
-        val edgeColor: Int,
         val liveButtonVisible: Boolean,
     )
 
@@ -1017,6 +1015,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 }
                 val gameName = requireArguments().getString(KEY_GAME_NAME)
                 if (!gameName.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_CATEGORY, true)) {
+                    playingLabel.visibility = View.VISIBLE
                     category.visibility = View.VISIBLE
                     category.text = gameName
                     category.isFocusable = true
@@ -1029,6 +1028,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         ))
                         minimize()
                     }
+                } else {
+                    playingLabel.visibility = View.GONE
+                    category.visibility = View.GONE
+                    category.text = null
+                    category.setOnClickListener(null)
+                    category.isFocusable = false
+                    category.contentDescription = null
                 }
                 // Placement controls where an eligible action is shown; it must not
                 // prevent the action from being rebound when the editor saves live.
@@ -1152,13 +1158,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                     // a category change is never sent to the
                                     // Media3 recorder source.
                                     updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
-                                    if (requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true)) {
-                                        stream.createdAt?.let { date ->
-                                            Instant.parseOrNull(date)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let { startedAtMs ->
-                                                updateUptime(startedAtMs)
-                                            }
-                                        }
-                                    }
                                     if (isLiveRewindEnabled() &&
                                         videoType == BasePlaybackService.STREAM &&
                                         hasLiveStreamSessionChanged(
@@ -1196,13 +1195,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         setOnClickListener {
                             showController(force = true)
                             openViewerList()
-                        }
-                    }
-                    if (requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true)) {
-                        requireArguments().getString(KEY_STARTED_AT)?.let {
-                            Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let { startedAtMs ->
-                                updateUptime(startedAtMs)
-                            }
                         }
                     }
                     rewind.visibility = if (requireContext().isTelevision()) View.VISIBLE else View.GONE
@@ -2138,17 +2130,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 viewersLayout.visibility = View.VISIBLE
                 titleAndViewersLayout.visibility = View.VISIBLE
                 viewersLayout.contentDescription = getString(R.string.player_viewers, viewersText.text)
-                viewersIcon.visibility = if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_ICON, true)) {
-                    View.VISIBLE
-                } else {
-                    View.GONE
-                }
             } else {
                 viewersText.text = null
                 viewersLayout.visibility = View.GONE
                 viewersLayout.contentDescription = null
-                viewersIcon.visibility = View.GONE
-                titleAndViewersLayout.visibility = if (title.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+                titleAndViewersLayout.visibility = if (
+                    title.visibility == View.VISIBLE ||
+                        category.visibility == View.VISIBLE
+                ) View.VISIBLE else View.GONE
             }
         }
     }
@@ -2202,34 +2191,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             } else {
                 onLiveStreamWentOffline()
             }
-            if (live) {
-                serverTime?.times(1000)?.let(::updateUptime)
-            } else {
-                updateUptime(null)
-            }
-        }
-    }
-
-    private fun updateUptime(uptimeMs: Long?) {
-        with(binding.playerControls) {
-            if (uptimeMs != null && requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true)) {
-                uptimeLayout.visibility = View.VISIBLE
-                if (uptimeStartedAtMs != uptimeMs || !uptimeTimer.isShown) {
-                    uptimeTimer.stop()
-                    uptimeTimer.base = SystemClock.elapsedRealtime() + uptimeMs - System.currentTimeMillis()
-                    uptimeTimer.start()
-                }
-                uptimeStartedAtMs = uptimeMs
-                if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_ICON, true)) {
-                    uptimeIcon.visibility = View.VISIBLE
-                } else {
-                    uptimeIcon.visibility = View.GONE
-                }
-            } else {
-                uptimeStartedAtMs = null
-                uptimeTimer.stop()
-                uptimeLayout.visibility = View.GONE
-            }
         }
     }
 
@@ -2244,14 +2205,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 visibility = View.GONE
             }
         }
-        binding.playerControls.titleAndViewersLayout.visibility = if (
-            binding.playerControls.title.visibility == View.VISIBLE ||
-                binding.playerControls.viewersLayout.visibility == View.VISIBLE
-        ) View.VISIBLE else View.GONE
         binding.playerControls.category.apply {
-            if (!gameName.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_CATEGORY, true)) {
+            val showCategory = !gameName.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_CATEGORY, true)
+            if (showCategory) {
                 text = gameName
                 visibility = View.VISIBLE
+                isFocusable = true
+                contentDescription = getString(R.string.player_open_category, gameName)
                 setOnClickListener {
                     findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
                         gameId = gameId,
@@ -2263,8 +2223,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             } else {
                 text = null
                 visibility = View.GONE
+                isFocusable = false
+                setOnClickListener(null)
+                contentDescription = null
             }
+            binding.playerControls.playingLabel.visibility = if (showCategory) View.VISIBLE else View.GONE
         }
+        binding.playerControls.titleAndViewersLayout.visibility = if (
+            binding.playerControls.title.visibility == View.VISIBLE ||
+                binding.playerControls.category.visibility == View.VISIBLE ||
+                binding.playerControls.viewersLayout.visibility == View.VISIBLE
+        ) View.VISIBLE else View.GONE
     }
 
     protected open fun onViewingMetadataChanged(
@@ -3034,9 +3003,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             if (isRewound) R.string.player_position else R.string.player_duration,
             durationText,
         )
-        val edgeColor = requireContext().getColor(
-            if (livePlaybackMode is LivePlaybackMode.Live && !liveRewindStreamOffline) R.color.liveStreamRed else R.color.chatStatusDark,
-        )
         val liveButtonVisible = isRewound && !liveRewindStreamOffline
         val next = LiveRewindRenderState(
             edgeMs = edgeMs,
@@ -3045,7 +3011,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             positionDescription = positionDescription,
             durationText = durationText,
             durationDescription = durationDescription,
-            edgeColor = edgeColor,
             liveButtonVisible = liveButtonVisible,
         )
         if (next == renderedLiveRewindState) {
@@ -3077,9 +3042,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
         if (previous == null) {
             binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
-        }
-        if (previous?.edgeColor != next.edgeColor) {
-            binding.playerControls.uptimeIcon.imageTintList = ColorStateList.valueOf(next.edgeColor)
         }
         if (previous?.liveButtonVisible != next.liveButtonVisible) {
             binding.playerControls.liveButton.visibility =

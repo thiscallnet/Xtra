@@ -3,7 +3,10 @@ package com.github.andreyasadchy.xtra.util
 import android.content.Context
 import android.view.View
 import android.view.ViewGroup
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
+import com.github.andreyasadchy.xtra.ui.view.PlayerControlOverlayLayout
+import kotlin.math.roundToInt
 
 object PlayerControlLayout {
 
@@ -12,8 +15,6 @@ object PlayerControlLayout {
     const val GROUP_HIDDEN = "hidden"
 
     const val ANCHOR_TOP_START = "top_start"
-    // Kept for source compatibility with the preview renderer and old saved layouts.
-    // They are intentionally no longer valid placement destinations.
     const val ANCHOR_TOP_CENTER = "top_center"
     const val ANCHOR_TOP_END = "top_end"
     const val ANCHOR_MIDDLE_START = "middle_start"
@@ -24,10 +25,16 @@ object PlayerControlLayout {
 
     val anchors = setOf(
         ANCHOR_TOP_START,
+        ANCHOR_TOP_CENTER,
         ANCHOR_TOP_END,
+        ANCHOR_MIDDLE_START,
+        ANCHOR_MIDDLE_END,
         ANCHOR_BOTTOM_START,
+        ANCHOR_BOTTOM_CENTER,
         ANCHOR_BOTTOM_END,
     )
+
+    private const val CONTROL_SPACING_DP = 4
 
     /**
      * The small set of actions that belongs on the primary TV control surface.
@@ -66,6 +73,7 @@ object PlayerControlLayout {
         ControlDefinition("chapters", C.PLAYER_GAMES_BUTTON, true, C.PLAYER_MENU_GAMES, false, canQuick = true, canMenu = true),
         ControlDefinition("restart", C.PLAYER_RESTART, true, C.PLAYER_MENU_RESTART, false, canQuick = true, canMenu = true),
         ControlDefinition("live", C.PLAYER_SEEK_LIVE, false, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("live_captions", null, true, null, false, canQuick = true, canMenu = false),
         ControlDefinition("clip", C.PLAYER_CLIP_BUTTON, true, null, false, canQuick = true, canMenu = false),
         ControlDefinition("volume", C.PLAYER_VOLUME_BUTTON, true, C.PLAYER_MENU_VOLUME, false, canQuick = true, canMenu = true),
         ControlDefinition("compressor", C.PLAYER_AUDIO_COMPRESSOR_BUTTON, true, null, false, canQuick = true, canMenu = false),
@@ -87,6 +95,16 @@ object PlayerControlLayout {
 
     fun applyToPlayer(context: Context, binding: FragmentPlayerBinding) {
         val focusedControl = binding.playerControls.root.findFocus()
+        val overlay = binding.playerControls.root.findViewById<PlayerControlOverlayLayout>(R.id.controlOverlay)
+        overlay?.prepare(binding.playerControls.root)
+        overlay?.setObstacles(
+            binding.playerControls.centerControls,
+            listOf(
+                binding.playerControls.bottomLayout,
+                binding.playerControls.position,
+                binding.playerControls.duration,
+            ),
+        )
         val placements = controlPlacements(
             context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
             if (context.isTelevision()) tvControlLayout(context) else legacyControlLayout(context),
@@ -116,6 +134,7 @@ object PlayerControlLayout {
                     (view.parent as? ViewGroup)?.removeView(view)
                     container.addView(view)
                 }
+                applyControlSpacing(view, context.resources.displayMetrics.density)
                 val allowedOnTv = !context.isTelevision() || action in tvPrimaryActions
                 view.visibility = if (allowedOnTv && placement?.group == GROUP_QUICK && view.hasOnClickListeners()) {
                     View.VISIBLE
@@ -130,20 +149,6 @@ object PlayerControlLayout {
                     quickOrderByAnchor[anchor].orEmpty(),
                     controls,
                 )
-            }
-
-            // Live captions are intentionally not part of the customizable control
-            // layout, but they must still have a stable position after the other
-            // children are reordered. Keep the caption toggle immediately before
-            // fullscreen in the bottom-right controls.
-            if (liveCaptions.parent === bottomRightLayout) {
-                bottomRightLayout.removeView(liveCaptions)
-                val fullscreenIndex = bottomRightLayout.indexOfChild(fullscreen)
-                if (fullscreenIndex >= 0) {
-                    bottomRightLayout.addView(liveCaptions, fullscreenIndex)
-                } else {
-                    bottomRightLayout.addView(liveCaptions)
-                }
             }
 
         }
@@ -230,6 +235,7 @@ object PlayerControlLayout {
             "quality" to quality,
             "restart" to restart,
             "live" to seekLive,
+            "live_captions" to liveCaptions,
             "clip" to clip,
             "chapters" to vodGames,
             "volume" to volume,
@@ -245,9 +251,9 @@ object PlayerControlLayout {
     // Keep pre-editor installations faithful to their old visibility preferences until
     // they have a serialized layout of their own.
     private fun legacyControlLayout(context: Context): String = controlDefinitions.joinToString(",") { definition ->
-        val quick = definition.canQuick && definition.quickKey?.let {
+        val quick = definition.canQuick && (definition.quickKey?.let {
             context.prefs().getBoolean(it, definition.quickDefault)
-        } == true
+        } ?: definition.quickDefault)
         val menu = definition.canMenu && definition.menuKey?.let {
             context.prefs().getBoolean(it, definition.menuDefault)
         } == true
@@ -260,11 +266,11 @@ object PlayerControlLayout {
     }
 
     private fun tvControlLayout(context: Context): String = controlDefinitions.joinToString(",") { definition ->
-        val quick = definition.action in tvPrimaryActions && definition.quickKey?.let {
+        val quick = definition.action in tvPrimaryActions && (definition.quickKey?.let {
             // TV has its own defaults for the primary surface, while a stored
             // preference still lets a user intentionally hide one of them.
             context.prefs().getBoolean(it, true)
-        } == true
+        } ?: definition.quickDefault)
         val menu = definition.canMenu && definition.menuKey?.let {
             context.prefs().getBoolean(it, definition.menuDefault)
         } == true
@@ -288,7 +294,7 @@ object PlayerControlLayout {
         "minimize" -> ANCHOR_TOP_START
         "download", "follow", "quality", "speed", "sleep", "aspect" -> ANCHOR_TOP_END
         "chapters", "restart", "live", "clip", "volume", "compressor", "mode" -> ANCHOR_BOTTOM_START
-        "subtitles", "chat_input", "chat", "fullscreen" -> ANCHOR_BOTTOM_END
+        "subtitles", "chat_input", "chat", "fullscreen", "live_captions" -> ANCHOR_BOTTOM_END
         else -> ANCHOR_TOP_END
     }
 
@@ -328,19 +334,8 @@ object PlayerControlLayout {
         return ControlPlacement(action, normalizedGroup(action, group), anchor)
     }
 
-    /**
-     * Keep the top-left slot clear for the minimize affordance. The other three
-     * slots are the actual quick-control rows and cannot collide with transport
-     * controls or the metadata block.
-     *
-     * Older serialized layouts may contain the removed center/middle anchors.
-     * Normalizing them here makes those layouts safe without a separate migration.
-     */
-    internal fun validAnchors(action: String): Set<String> = if (action == "minimize") {
-        anchors
-    } else {
-        anchors - ANCHOR_TOP_START
-    }
+    /** Every quick action can use any of the eight perimeter positions. */
+    internal fun validAnchors(action: String): Set<String> = anchors
 
     private fun normalizedAnchor(action: String, anchor: String): String = when {
         anchor in validAnchors(action) -> anchor
@@ -357,4 +352,14 @@ object PlayerControlLayout {
     private fun parseActions(serialized: String): List<String> = serialized
         .split(',')
         .mapNotNull { it.substringBefore(':').trim().takeIf(String::isNotEmpty) }
+
+    private fun applyControlSpacing(view: View, density: Float) {
+        val spacing = (CONTROL_SPACING_DP * density).roundToInt()
+        val params = view.layoutParams as? ViewGroup.MarginLayoutParams ?: return
+        if (params.leftMargin == spacing && params.topMargin == spacing &&
+            params.rightMargin == spacing && params.bottomMargin == spacing
+        ) return
+        params.setMargins(spacing, spacing, spacing, spacing)
+        view.layoutParams = params
+    }
 }

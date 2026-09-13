@@ -919,7 +919,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     override fun seekToLivePosition() {
-        player?.seekToDefaultPosition()
+        player?.let { controller ->
+            controller.playWhenReady = true
+            controller.seekToDefaultPosition()
+        }
     }
 
     override suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean {

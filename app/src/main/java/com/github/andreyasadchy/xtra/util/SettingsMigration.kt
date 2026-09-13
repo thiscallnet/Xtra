@@ -847,7 +847,9 @@ object SettingsMigration {
     }
 
     private fun controlLayout(preferences: SharedPreferences): String = controlSources.joinToString(",") { source ->
-        val quick = source.canQuick && source.quickKey?.let { preferences.getBoolean(it, source.quickDefault) } == true
+        val quick = source.canQuick && (source.quickKey?.let {
+            preferences.getBoolean(it, source.quickDefault)
+        } ?: source.quickDefault)
         val menu = source.menuKey?.let { preferences.getBoolean(it, source.menuDefault) } ?: false
         "${source.action}:${controlGroup(quick, menu)}"
     }

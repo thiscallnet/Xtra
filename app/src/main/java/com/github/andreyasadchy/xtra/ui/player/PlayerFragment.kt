@@ -191,7 +191,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     private var pendingLiveSession: LiveRewindSession? = null
     private var liveRewindSwitching = false
     private var liveRewindReturningLive = false
-    private var uptimeStartedAtMs: Long? = null
     private var liveRewindPendingVodId: String? = null
     private var liveRewindPendingTargetMs: Long? = null
     private var lastTvFocusedControl: View? = null
@@ -460,6 +459,10 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             openLiveCaptionSettings()
             true
         }
+        // The captions toggle is part of the same persisted control layout as
+        // every other quick action, so a state refresh must preserve its chosen
+        // perimeter anchor and visibility group.
+        PlayerControlLayout.applyToPlayer(requireContext(), binding)
     }
 
     private fun openLiveCaptionSettings() {
@@ -1342,10 +1345,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             binding.playerControls.duration.text,
         )
         binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
-        val edgeColor = requireContext().getColor(
-            if (livePlaybackMode is LivePlaybackMode.Live && !liveRewindStreamOffline) R.color.liveStreamRed else R.color.chatStatusDark,
-        )
-        binding.playerControls.uptimeIcon.imageTintList = ColorStateList.valueOf(edgeColor)
         binding.playerControls.liveButton.visibility =
             if (livePlaybackMode is LivePlaybackMode.Rewound && !liveRewindStreamOffline) {
                 View.VISIBLE
@@ -1694,6 +1693,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 }
                 val gameName = playbackService?.gameName
                 if (!gameName.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_CATEGORY, true)) {
+                    playingLabel.visibility = View.VISIBLE
                     category.visibility = View.VISIBLE
                     category.text = gameName
                     category.isFocusable = true
@@ -1706,6 +1706,13 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         ))
                         minimize()
                     }
+                } else {
+                    playingLabel.visibility = View.GONE
+                    category.visibility = View.GONE
+                    category.text = null
+                    category.setOnClickListener(null)
+                    category.isFocusable = false
+                    category.contentDescription = null
                 }
                 // Placement controls where an eligible action is shown; it must not
                 // prevent the action from being rebound when the editor saves live.
@@ -1827,13 +1834,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                     // the title/category views are already
                                     // populated.
                                     updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
-                                    if (requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true)) {
-                                        stream.createdAt?.let { date ->
-                                            Instant.parseOrNull(date)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let { createdAt ->
-                                                updateUptime(createdAt)
-                                            }
-                                        }
-                                    }
                                     if (isLiveRewindEnabled() &&
                                         playbackService?.type == BasePlaybackService.STREAM &&
                                         hasLiveStreamSessionChanged(
@@ -1871,13 +1871,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                         setOnClickListener {
                             showController(force = true)
                             openViewerList()
-                        }
-                    }
-                    if (requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true)) {
-                        playbackService?.createdAt?.let {
-                            Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let { createdAt ->
-                                updateUptime(createdAt)
-                            }
                         }
                     }
                     rewind.visibility = if (requireContext().isTelevision()) View.VISIBLE else View.GONE
@@ -2763,17 +2756,14 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 viewersLayout.visibility = View.VISIBLE
                 titleAndViewersLayout.visibility = View.VISIBLE
                 viewersLayout.contentDescription = getString(R.string.player_viewers, viewersText.text)
-                viewersIcon.visibility = if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_ICON, true)) {
-                    View.VISIBLE
-                } else {
-                    View.GONE
-                }
             } else {
                 viewersText.text = null
                 viewersLayout.visibility = View.GONE
                 viewersLayout.contentDescription = null
-                viewersIcon.visibility = View.GONE
-                titleAndViewersLayout.visibility = if (title.visibility == View.VISIBLE) View.VISIBLE else View.GONE
+                titleAndViewersLayout.visibility = if (
+                    title.visibility == View.VISIBLE ||
+                        category.visibility == View.VISIBLE
+                ) View.VISIBLE else View.GONE
             }
         }
     }
@@ -2827,34 +2817,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             } else {
                 onLiveStreamWentOffline()
             }
-            if (live) {
-                serverTime?.times(1000)?.let(::updateUptime)
-            } else {
-                updateUptime(null)
-            }
-        }
-    }
-
-    private fun updateUptime(uptimeMs: Long?) {
-        with(binding.playerControls) {
-            if (uptimeMs != null && requireContext().prefs().getBoolean(C.PLAYER_SHOW_UPTIME, true)) {
-                uptimeLayout.visibility = View.VISIBLE
-                if (uptimeStartedAtMs != uptimeMs || !uptimeTimer.isShown) {
-                    uptimeTimer.stop()
-                    uptimeTimer.base = SystemClock.elapsedRealtime() + uptimeMs - System.currentTimeMillis()
-                    uptimeTimer.start()
-                }
-                uptimeStartedAtMs = uptimeMs
-                if (requireContext().prefs().getBoolean(C.PLAYER_VIEWER_ICON, true)) {
-                    uptimeIcon.visibility = View.VISIBLE
-                } else {
-                    uptimeIcon.visibility = View.GONE
-                }
-            } else {
-                uptimeStartedAtMs = null
-                uptimeTimer.stop()
-                uptimeLayout.visibility = View.GONE
-            }
         }
     }
 
@@ -2874,14 +2836,13 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 visibility = View.GONE
             }
         }
-        binding.playerControls.titleAndViewersLayout.visibility = if (
-            binding.playerControls.title.visibility == View.VISIBLE ||
-                binding.playerControls.viewersLayout.visibility == View.VISIBLE
-        ) View.VISIBLE else View.GONE
         binding.playerControls.category.apply {
-            if (!gameName.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_CATEGORY, true)) {
+            val showCategory = !gameName.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_CATEGORY, true)
+            if (showCategory) {
                 text = gameName
                 visibility = View.VISIBLE
+                isFocusable = true
+                contentDescription = getString(R.string.player_open_category, gameName)
                 setOnClickListener {
                     findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
                         gameId = gameId,
@@ -2893,8 +2854,17 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             } else {
                 text = null
                 visibility = View.GONE
+                isFocusable = false
+                setOnClickListener(null)
+                contentDescription = null
             }
+            binding.playerControls.playingLabel.visibility = if (showCategory) View.VISIBLE else View.GONE
         }
+        binding.playerControls.titleAndViewersLayout.visibility = if (
+            binding.playerControls.title.visibility == View.VISIBLE ||
+                binding.playerControls.category.visibility == View.VISIBLE ||
+                binding.playerControls.viewersLayout.visibility == View.VISIBLE
+        ) View.VISIBLE else View.GONE
     }
 
     fun openViewerList() {

@@ -97,7 +97,7 @@
         android:id="@+id/topLeftLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
+        android:gravity="top"
         android:orientation="horizontal">
 
         <ImageView
@@ -158,57 +158,82 @@
                         tools:text="title"
                         tools:visibility="visible" />
 
-                    <LinearLayout
-                        android:id="@+id/viewersLayout"
-                        android:layout_width="wrap_content"
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        android:id="@+id/streamDetailsLayout"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="2dp"
-                        android:gravity="center_vertical|start"
-                        android:minWidth="40dp"
-                        android:minHeight="40dp"
-                        android:orientation="horizontal"
-                        android:visibility="gone"
-                        android:foreground="?attr/selectableItemBackgroundBorderless"
                         tools:visibility="visible">
 
-                        <ImageView
-                            android:id="@+id/viewersIcon"
-                            android:layout_width="20dp"
-                            android:layout_height="20dp"
-                            android:background="@android:color/transparent"
+                        <TextView
+                            android:id="@+id/playingLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginEnd="2dp"
                             android:importantForAccessibility="no"
-                            android:padding="0dp"
-                            android:src="@drawable/baseline_person_black_24"
+                            android:text="@string/player_playing"
+                            android:textColor="#CCFFFFFF"
+                            android:textSize="12sp"
                             android:visibility="gone"
-                            app:tint="@android:color/white"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toStartOf="@id/category"
+                            app:layout_constraintHorizontal_chainStyle="packed"
+                            app:layout_constraintHorizontal_bias="0"
+                            app:layout_constraintStart_toStartOf="parent"
+                            app:layout_constraintTop_toTopOf="parent"
                             tools:visibility="visible" />
 
                         <TextView
-                            android:id="@+id/viewersText"
+                            android:id="@+id/category"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:layout_marginStart="2dp"
+                            android:layout_marginEnd="4dp"
                             android:ellipsize="end"
+                            android:gravity="center_vertical|start"
                             android:maxLines="1"
-                            android:textColor="@android:color/white"
-                            tools:text="for 35 viewers" />
+                            android:textColor="#CCFFFFFF"
+                            android:textSize="12sp"
+                            android:visibility="gone"
+                            app:layout_constrainedWidth="true"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toStartOf="@id/viewersLayout"
+                            app:layout_constraintHorizontal_bias="0"
+                            app:layout_constraintStart_toEndOf="@id/playingLabel"
+                            app:layout_constraintTop_toTopOf="parent"
+                            tools:text="game"
+                            tools:visibility="visible" />
 
-                    </LinearLayout>
+                        <LinearLayout
+                            android:id="@+id/viewersLayout"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:foreground="?attr/selectableItemBackgroundBorderless"
+                            android:gravity="center_vertical|start"
+                            android:minWidth="48dp"
+                            android:minHeight="48dp"
+                            android:orientation="horizontal"
+                            android:visibility="gone"
+                            app:layout_constraintBottom_toBottomOf="parent"
+                            app:layout_constraintEnd_toEndOf="parent"
+                            app:layout_constraintHorizontal_bias="0"
+                            app:layout_constraintStart_toEndOf="@id/category"
+                            app:layout_constraintTop_toTopOf="parent"
+                            tools:visibility="visible">
+
+                            <TextView
+                                android:id="@+id/viewersText"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:ellipsize="end"
+                                android:maxLines="1"
+                                android:textColor="@android:color/white"
+                                tools:text="for 35 viewers" />
+
+                        </LinearLayout>
+                    </androidx.constraintlayout.widget.ConstraintLayout>
 
                 </LinearLayout>
-
-                <TextView
-                    android:id="@+id/category"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:ellipsize="end"
-                    android:gravity="center_vertical|start"
-                    android:maxLines="1"
-                    android:textColor="#CCFFFFFF"
-                    android:textSize="12sp"
-                    android:visibility="gone"
-                    tools:text="game"
-                    tools:visibility="visible" />
 
             </LinearLayout>
 
@@ -354,22 +379,15 @@
 
     </com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout>
 
-    <LinearLayout
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
         android:id="@+id/topCenterLayout"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:layout_centerHorizontal="true"
-        android:layout_marginTop="@dimen/tv_safe_vertical" />
+        android:layout_height="wrap_content" />
 
-    <LinearLayout
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
         android:id="@+id/middleLeftLayout"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentStart="true"
-        android:layout_centerVertical="true"
-        android:layout_marginStart="@dimen/tv_safe_horizontal"
-        android:orientation="vertical">
+        android:layout_height="wrap_content">
 
         <ImageButton
             android:id="@+id/interactionLock"
@@ -382,16 +400,12 @@
             android:src="@drawable/baseline_lock_black_24"
             app:tint="@android:color/white" />
 
-    </LinearLayout>
+    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
 
-    <LinearLayout
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
         android:id="@+id/middleRightLayout"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentEnd="true"
-        android:layout_centerVertical="true"
-        android:layout_marginEnd="@dimen/tv_safe_horizontal"
-        android:orientation="vertical" />
+        android:layout_height="wrap_content" />
 
     <View
         android:id="@+id/quickControlsBottomAnchor"
@@ -583,59 +597,10 @@
 
     </com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout>
 
-    <LinearLayout
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
         android:id="@+id/bottomCenterLayout"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_above="@id/streamInfoLayout"
-        android:layout_centerHorizontal="true"
-        android:layout_marginBottom="@dimen/tv_player_bottom_spacing" />
-
-    <LinearLayout
-        android:id="@+id/streamInfoLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_above="@id/bottomLayout"
-        android:layout_centerHorizontal="true"
-        android:layout_marginBottom="@dimen/tv_player_bottom_spacing"
-        android:baselineAligned="false"
-        android:gravity="center_vertical">
-
-        <LinearLayout
-            android:id="@+id/uptimeLayout"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="6dp"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:gravity="center"
-            android:visibility="gone"
-            tools:visibility="visible">
-
-            <ImageView
-                android:id="@+id/uptimeIcon"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:layout_marginEnd="4dp"
-                android:background="@android:color/transparent"
-                android:importantForAccessibility="no"
-                android:padding="0dp"
-                android:src="@drawable/baseline_circle_24"
-                android:visibility="gone"
-                app:tint="@color/liveStreamRed"
-                tools:visibility="visible" />
-
-            <Chronometer
-                android:id="@+id/uptimeTimer"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:layout_marginBottom="7dp"
-                android:textColor="@android:color/white" />
-
-        </LinearLayout>
-
-    </LinearLayout>
+        android:layout_height="wrap_content" />
 
     <TextView
         android:id="@+id/position"
@@ -698,5 +663,14 @@
         android:gravity="center"
         android:textColor="@android:color/white"
         tools:text="1:12:16" />
+
+    <com.github.andreyasadchy.xtra.ui.view.PlayerControlOverlayLayout
+        android:id="@+id/controlOverlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_alignParentTop="true"
+        android:layout_alignParentBottom="true"
+        android:layout_alignParentStart="true"
+        android:layout_alignParentEnd="true" />
 
 </RelativeLayout>

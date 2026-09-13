@@ -76,7 +76,6 @@ object PortraitPlayerControls {
                 Triple(bottomLeftLayout, HorizontalAnchor.START, quickVerticalAnchor),
                 Triple(bottomRightLayout, HorizontalAnchor.END, quickVerticalAnchor),
                 Triple(bottomCenterLayout, HorizontalAnchor.CENTER, quickVerticalAnchor),
-                Triple(streamInfoLayout, HorizontalAnchor.CENTER, VerticalAnchor.BOTTOM),
                 Triple(bottomLayout, HorizontalAnchor.CENTER, VerticalAnchor.BOTTOM),
             )
             compositionContainers.forEach { (container, horizontalAnchor, verticalAnchor) ->
@@ -482,7 +481,7 @@ object PortraitPlayerControls {
                 setQuickControlRule(bottomControlsParams, QuickControlRule.ABOVE)
                 bottomCenterParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
                 bottomCenterParams.removeRule(RelativeLayout.CENTER_VERTICAL)
-                bottomCenterParams.addRule(RelativeLayout.ABOVE, R.id.streamInfoLayout)
+                bottomCenterParams.addRule(RelativeLayout.ABOVE, R.id.bottomLayout)
             }
         }
         bottom.layoutParams = bottomParams

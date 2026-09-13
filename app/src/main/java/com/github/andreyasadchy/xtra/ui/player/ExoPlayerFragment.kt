@@ -545,7 +545,10 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
     }
 
     override fun seekToLivePosition() {
-        playbackService?.player?.seekToDefaultPosition()
+        playbackService?.player?.let { player ->
+            player.playWhenReady = true
+            player.seekToDefaultPosition()
+        }
     }
 
     override suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean =

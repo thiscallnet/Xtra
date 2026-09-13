@@ -102,6 +102,7 @@ class PlayerControlLayoutEditor(
                 "chapters" -> R.string.player_vod_games
                 "restart" -> R.string.player_restart
                 "live" -> R.string.player_seek_live
+                "live_captions" -> R.string.player_live_captions
                 "clip" -> R.string.player_clip
                 "volume" -> R.string.player_volume
                 "compressor" -> R.string.player_audio_compressor
@@ -606,10 +607,10 @@ class PlayerControlLayoutEditor(
             val lines = ControlRowPlanner.lineBreak(edgeWidth, List(count) { size }, spacing)
             val rowHeight = lines.size * size
             val rightEdge = width - padding - menuReserve
-            val top = if (anchor.startsWith("top")) {
-                padding.toFloat()
-            } else {
-                (height - padding - dp(13) - rowHeight).toFloat()
+            val top = when {
+                anchor.startsWith("top") -> padding.toFloat()
+                anchor.startsWith("bottom") -> (height - padding - dp(13) - rowHeight).toFloat()
+                else -> ((height - rowHeight) / 2f).coerceAtLeast(padding.toFloat())
             }
             return lines.flatMapIndexed { lineIndex, line ->
                 val lineWidth = line.size * size + (line.size - 1).coerceAtLeast(0) * spacing
@@ -665,6 +666,7 @@ class PlayerControlLayoutEditor(
         "chapters" -> R.drawable.baseline_format_list_bulleted_black_24
         "restart" -> R.drawable.baseline_replay_black_24
         "live" -> androidx.media3.ui.R.drawable.exo_icon_fastforward
+        "live_captions" -> androidx.media3.ui.R.drawable.exo_ic_subtitle_off
         "clip" -> R.drawable.ic_movie_clip_black_24
         "volume" -> R.drawable.baseline_volume_up_black_24
         "compressor" -> R.drawable.baseline_audio_compressor_off_24dp

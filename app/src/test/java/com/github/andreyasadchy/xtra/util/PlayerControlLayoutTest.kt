@@ -40,7 +40,7 @@ class PlayerControlLayoutTest {
         assertEquals(PlayerControlLayout.GROUP_MENU, placements.first { it.action == "bookmark" }.group)
         assertEquals(PlayerControlLayout.GROUP_MENU, placements.first { it.action == "viewers" }.group)
         assertEquals(
-            "bookmark:menu:top_end,viewers:menu:top_end",
+            "bookmark:menu:top_center,viewers:menu:top_center",
             PlayerControlLayout.serializeControlLayout(placements),
         )
     }
@@ -56,18 +56,27 @@ class PlayerControlLayoutTest {
     }
 
     @Test
-    fun `top start is reserved for minimize in the editor policy`() {
+    fun `every action can use every perimeter anchor`() {
         assertEquals(
             PlayerControlLayout.anchors,
             PlayerControlLayout.validAnchors("minimize"),
         )
         assertEquals(
-            setOf(
-                PlayerControlLayout.ANCHOR_TOP_END,
-                PlayerControlLayout.ANCHOR_BOTTOM_START,
-                PlayerControlLayout.ANCHOR_BOTTOM_END,
-            ),
+            PlayerControlLayout.anchors,
             PlayerControlLayout.validAnchors("quality"),
+        )
+    }
+
+    @Test
+    fun `live captions is included in the customizable quick controls`() {
+        val placements = PlayerControlLayout.controlPlacements(
+            null,
+            PlayerControlLayout.defaultControlLayout(),
+        )
+
+        assertEquals(
+            PlayerControlLayout.GROUP_QUICK,
+            placements.first { it.action == "live_captions" }.group,
         )
     }
 }
