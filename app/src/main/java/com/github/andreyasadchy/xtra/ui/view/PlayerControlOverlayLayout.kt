@@ -82,7 +82,6 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         }
 
         val availableWidth = (measuredWidth - inset * 2).coerceAtLeast(1)
-        val availableHeight = (measuredHeight - inset * 2).coerceAtLeast(1)
         val transport = transportBounds() ?: estimatedTransportBounds(measuredWidth, measuredHeight)
         val metadata = findChild(R.id.topLeftLayout)
         val metadataVisible = metadata?.let(::hasVisibleDescendant) == true
@@ -93,15 +92,14 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         val sideWidth = ((availableWidth - centerMinimum - gap * 3) / 2)
             .coerceAtLeast(dp(48))
         val topHeight = (transport.top - inset - gap).coerceAtLeast(dp(48))
-        measureBounded(topStart, sideWidth, topHeight)
-        measureBounded(topEnd, sideWidth, topHeight)
+        measureControlRow(topStart, sideWidth)
+        measureControlRow(topEnd, sideWidth)
         val centerAvailableWidth = (availableWidth -
             max(topStart?.measuredWidth ?: 0, 0) - max(topEnd?.measuredWidth ?: 0, 0) - gap * 2)
             .coerceAtLeast(centerMinimum)
-        measureBounded(
+        measureControlRow(
             topCenter,
             centerAvailableWidth,
-            topHeight,
         )
         val metadataWidth = if (metadataVisible) {
             (availableWidth - max(topStart?.measuredWidth ?: 0, 0) -
@@ -112,38 +110,24 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         }
         metadata?.let { measureExactly(it, metadataWidth, topHeight) }
 
-        val timeline = timelineBounds(measuredHeight)
-        val timelineTop = timeline?.top ?: (measuredHeight - inset)
         val bottomStart = findChild(R.id.bottomLeftLayout)
         val bottomEnd = findChild(R.id.bottomRightLayout)
         val bottomCenter = findChild(R.id.bottomCenterLayout)
-        val bottomHeight = (timelineTop - transport.bottom - gap * 2).coerceAtLeast(dp(48))
-        measureBounded(bottomStart, sideWidth, bottomHeight)
-        measureBounded(bottomEnd, sideWidth, bottomHeight)
+        measureControlRow(bottomStart, sideWidth)
+        measureControlRow(bottomEnd, sideWidth)
         val bottomCenterWidth = (availableWidth - max(bottomStart?.measuredWidth ?: 0, 0) -
             max(bottomEnd?.measuredWidth ?: 0, 0) - gap * 2).coerceAtLeast(centerMinimum)
-        measureBounded(
+        measureControlRow(
             bottomCenter,
             bottomCenterWidth,
-            bottomHeight,
         )
 
         val middleStart = findChild(R.id.middleLeftLayout)
         val middleEnd = findChild(R.id.middleRightLayout)
         val middleStartWidth = (transport.left - inset - gap).coerceAtLeast(dp(48))
         val middleEndWidth = (measuredWidth - transport.right - inset - gap).coerceAtLeast(dp(48))
-        val topRowsHeight = max(
-            max(topStart?.measuredHeight ?: 0, topEnd?.measuredHeight ?: 0),
-            max(topCenter?.measuredHeight ?: 0, metadata?.measuredHeight ?: 0),
-        )
-        val bottomRowsHeight = max(
-            max(bottomStart?.measuredHeight ?: 0, bottomEnd?.measuredHeight ?: 0),
-            bottomCenter?.measuredHeight ?: 0,
-        )
-        val middleHeight = (measuredHeight - inset * 2 - topRowsHeight - bottomRowsHeight - gap * 4)
-            .coerceAtLeast(dp(48))
-        measureBounded(middleStart, middleStartWidth, middleHeight)
-        measureBounded(middleEnd, middleEndWidth, middleHeight)
+        measureControlRow(middleStart, middleStartWidth)
+        measureControlRow(middleEnd, middleEndWidth)
 
         setMeasuredDimension(
             resolveSize(measuredWidth, widthMeasureSpec),
@@ -262,11 +246,11 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         .map(::getChildAt)
         .firstOrNull { it.id == id }
 
-    private fun measureBounded(child: View?, maxWidth: Int, maxHeight: Int) {
+    private fun measureControlRow(child: View?, maxWidth: Int) {
         child ?: return
         child.measure(
             MeasureSpec.makeMeasureSpec(maxWidth.coerceAtLeast(1), MeasureSpec.AT_MOST),
-            MeasureSpec.makeMeasureSpec(maxHeight.coerceAtLeast(1), MeasureSpec.AT_MOST),
+            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
         )
     }
 
