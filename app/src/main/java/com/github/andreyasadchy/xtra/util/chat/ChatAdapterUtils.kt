@@ -240,7 +240,7 @@ object ChatAdapterUtils {
         return description
     }
 
-    fun prepareChatMessage(chatMessage: ChatMessage, context: Context, itemView: View?, enableTimestamps: Boolean, timestampFormat: String?, firstMsgVisibility: Int, firstChatMsg: String, redeemedChatMsg: String, redeemedNoMsg: String, replyMessage: String, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useRandomColors: Boolean, random: Random, useReadableColors: Boolean, isLightTheme: Boolean, nameDisplay: String?, useBoldNames: Boolean, showNamePaints: Boolean, namePaints: List<NamePaint>, showBadges: Boolean, showSTVBadges: Boolean, stvBadges: List<STVBadge>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUsers: List<STVUser>, enableOverlayEmotes: Boolean, showSystemMessageEmotes: Boolean, loggedInUser: String?, chatUrl: String?, userColors: HashMap<String, Int>, savedColors: HashMap<String, Int>, translateAllMessages: Boolean, translateMessage: (ChatMessage, String?) -> Unit, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, localTwitchEmotes: List<TwitchEmote>, thirdPartyEmotes: List<Emote>, globalBadges: List<TwitchBadge>, channelBadges: List<TwitchBadge>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalBadges: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>, catalogIndexes: ChatCatalogIndexes? = null, includeAccessibilityDescription: Boolean = false, highlightSettings: ChatHighlightSettings = ChatHighlightSettings()): MessageResult {
+    fun prepareChatMessage(chatMessage: ChatMessage, context: Context, itemView: View?, enableTimestamps: Boolean, timestampFormat: String?, firstMsgVisibility: Int, firstChatMsg: String, redeemedChatMsg: String, redeemedNoMsg: String, replyMessage: String, imageClick: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?, useRandomColors: Boolean, random: Random, useReadableColors: Boolean, isLightTheme: Boolean, nameDisplay: String?, useBoldNames: Boolean, showNamePaints: Boolean, namePaints: List<NamePaint>, showBadges: Boolean, showSTVBadges: Boolean, stvBadges: List<STVBadge>, showPersonalEmotes: Boolean, personalEmoteSets: Map<String, List<Emote>>, stvUsers: List<STVUser>, enableOverlayEmotes: Boolean, showSystemMessageEmotes: Boolean, loggedInUser: String?, chatUrl: String?, userColors: HashMap<String, Int>, savedColors: HashMap<String, Int>, translateAllMessages: Boolean, translateMessage: (ChatMessage, String?) -> Unit, showLanguageDownloadDialog: (ChatMessage, String) -> Unit, hideErrors: Boolean, localTwitchEmotes: List<TwitchEmote>, thirdPartyEmotes: List<Emote>, globalBadges: List<TwitchBadge>, channelBadges: List<TwitchBadge>, cheerEmotes: List<CheerEmote>, savedLocalTwitchEmotes: MutableMap<String, ByteArray>, savedLocalBadges: MutableMap<String, ByteArray>, savedLocalCheerEmotes: MutableMap<String, ByteArray>, savedLocalEmotes: MutableMap<String, ByteArray>, catalogIndexes: ChatCatalogIndexes? = null, includeAccessibilityDescription: Boolean = false, highlightSettings: ChatHighlightSettings = ChatHighlightSettings(), secondaryTextColor: Int? = null): MessageResult {
         val indexes = catalogIndexes ?: ChatCatalogIndexes.create(localTwitchEmotes, thirdPartyEmotes, globalBadges, channelBadges, stvUsers, stvBadges, namePaints, personalEmoteSets, cheerEmotes)
         val builder = SpannableStringBuilder()
         val images = ArrayList<Image>()
@@ -251,6 +251,7 @@ object ChatAdapterUtils {
         var translated = false
         var backgroundResource = 0
         var backgroundColor: Int? = null
+        val metadataColor = secondaryTextColor ?: getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)
         var highlightMatch = shouldHighlightLegacyChatMessage(chatMessage, highlightSettings)
         var builderIndex = 0
         val badgeVisibility = chatBadgeVisibility(showBadges, showSTVBadges, showNamePaints, showPersonalEmotes)
@@ -293,7 +294,7 @@ object ChatAdapterUtils {
                 } else {
                     chatMessage.reply?.userName ?: chatMessage.reply?.userLogin
                 }
-                val mutedColor = getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)
+                val mutedColor = metadataColor
                 appendSpecialIcon(builder, context, R.drawable.ic_chat_reply, mutedColor, sizeDp = 18)
                 builder.append(' ')
                 val string = replyMessage.format(userName, "")
@@ -310,7 +311,7 @@ object ChatAdapterUtils {
             }
             chatMessage.isWatchStreakNotice() -> {
                 val headingColor = getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme)
-                val mutedColor = getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme)
+                val mutedColor = secondaryTextColor ?: getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme)
                 val userColor = chatMessage.color?.let { getSavedColor(it, savedColors, useReadableColors, isLightTheme) }
                     ?: headingColor
                 userName = chatMessage.displayName(nameDisplay)
@@ -368,7 +369,7 @@ object ChatAdapterUtils {
                     val timestamp = TwitchApiHelper.getTimestamp(chatMessage.timestamp, timestampFormat)
                     if (timestamp != null) {
                         builder.append("$timestamp ")
-                        builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), 0, timestamp.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(ForegroundColorSpan(metadataColor), 0, timestamp.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                         builderIndex += timestamp.length + 1
                     }
                 }
@@ -383,14 +384,14 @@ object ChatAdapterUtils {
                         appendSubscriptionSystemMessage(
                             builder,
                             chatMessage.systemMsg,
-                            getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme),
+                            secondaryTextColor ?: getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme),
                             chatMessage.color?.let { getSavedColor(it, savedColors, useReadableColors, isLightTheme) }
                                 ?: getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme),
                             chatMessage.userName ?: chatMessage.userLogin,
                         )
                     } else {
                         builder.append(chatMessage.systemMsg)
-                        builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), systemStart, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(ForegroundColorSpan(metadataColor), systemStart, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
                     if (showSystemMessageEmotes) {
                         prepareEmotes(chatMessage, chatMessage.systemMsg, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
@@ -419,7 +420,7 @@ object ChatAdapterUtils {
                         }
                         val string = redeemedNoMsg.format(userName, reward.title)
                         builder.append("$string ")
-                        builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + string.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(ForegroundColorSpan(metadataColor), builderIndex, builderIndex + string.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                         if (showSystemMessageEmotes) {
                             prepareEmotes(chatMessage, string, builder, builderIndex, images, imageClick, useReadableColors, isLightTheme, enableOverlayEmotes, useBoldNames, loggedInUser, chatUrl, savedColors, localTwitchEmotes, showPersonalEmotes, personalEmoteSets, null, thirdPartyEmotes, cheerEmotes, savedLocalTwitchEmotes, savedLocalCheerEmotes, savedLocalEmotes, indexes)
                         }
@@ -438,7 +439,7 @@ object ChatAdapterUtils {
                         if (reward.cost != null) {
                             val cost = NumberFormat.getInstance().format(reward.cost)
                             builder.append(cost)
-                            builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + cost.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                            builder.setSpan(ForegroundColorSpan(metadataColor), builderIndex, builderIndex + cost.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                             builderIndex += cost.length
                         }
                     }
@@ -478,14 +479,14 @@ object ChatAdapterUtils {
                         appendSubscriptionSystemMessage(
                             builder,
                             chatMessage.systemMsg,
-                            getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme),
+                            secondaryTextColor ?: getSavedColor("#C4BEC9", savedColors, useReadableColors, isLightTheme),
                             chatMessage.color?.let { getSavedColor(it, savedColors, useReadableColors, isLightTheme) }
                                 ?: getSavedColor("#E8E4EC", savedColors, useReadableColors, isLightTheme),
                             chatMessage.userName ?: chatMessage.userLogin,
                         )
                     } else {
                         builder.append(chatMessage.systemMsg)
-                        builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), systemStart, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(ForegroundColorSpan(metadataColor), systemStart, builder.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                     }
                     builder.append('\n')
                     builderIndex += chatMessage.systemMsg.length + 1
@@ -527,7 +528,7 @@ object ChatAdapterUtils {
                     val timestamp = TwitchApiHelper.getTimestamp(chatMessage.timestamp, timestampFormat)
                     if (timestamp != null) {
                         builder.append("$timestamp ")
-                        builder.setSpan(ForegroundColorSpan(getSavedColor("#999999", savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + timestamp.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                        builder.setSpan(ForegroundColorSpan(metadataColor), builderIndex, builderIndex + timestamp.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                         builderIndex += timestamp.length + 1
                     }
                 }

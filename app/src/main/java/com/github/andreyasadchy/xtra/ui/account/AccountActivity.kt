@@ -45,6 +45,8 @@ import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
 import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
+import com.github.andreyasadchy.xtra.ui.settings.ColorPickerDialog
+import com.github.andreyasadchy.xtra.ui.settings.parsePickerColor
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
@@ -598,31 +600,18 @@ class AccountActivity : AppCompatActivity() {
     }
 
     private fun showCustomColorEditor(current: String?) {
-        val inputLayout = TextInputLayout(this).apply { hint = getString(R.string.account_hex_color) }
-        val input = TextInputEditText(this).apply {
-            setText(current?.takeIf { it.startsWith("#") } ?: "#")
-            inputType = InputType.TYPE_CLASS_TEXT
-            filters = arrayOf(InputFilter.LengthFilter(7))
-        }
-        inputLayout.addView(input)
-        val dialog = MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.account_custom_color)
-            .setView(inputLayout)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(android.R.string.ok, null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val value = input.text?.toString()?.trim().orEmpty().uppercase()
-                if (!isValidCustomChatColor(value)) {
-                    inputLayout.error = getString(R.string.account_invalid_color)
-                } else {
-                    dialog.dismiss()
-                    viewModel.updateChatColor(value)
-                }
-            }
-        }
-        dialog.show()
+        val defaultColor = Color.parseColor("#9146FF")
+        ColorPickerDialog.show(
+            this,
+            getString(R.string.account_custom_color),
+            current?.let { parsePickerColor(it, allowAlpha = false) } ?: defaultColor,
+            defaultColor,
+            false,
+            { value ->
+                viewModel.updateChatColor(value)
+                true
+            },
+        )
     }
 
     private fun showCategoryDialog(current: String?) {

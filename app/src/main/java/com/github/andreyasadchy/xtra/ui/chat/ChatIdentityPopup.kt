@@ -41,6 +41,8 @@ import com.github.andreyasadchy.xtra.model.chat.ChatIdentityBadge
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityCampaign
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import com.github.andreyasadchy.xtra.ui.settings.ColorPickerDialog
+import com.github.andreyasadchy.xtra.ui.settings.parsePickerColor
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputEditText
@@ -529,56 +531,18 @@ class ChatIdentityPopup(
     }
 
     private fun showCustomColorDialog(currentColor: String?) {
-        val inputLayout = TextInputLayout(context).apply {
-            hint = context.getString(R.string.chat_identity_custom_color_hint)
-        }
-        val input = TextInputEditText(context).apply {
-            setSingleLine(true)
-            setText(currentColor ?: "#9146FF")
-            selectAll()
-        }
-        inputLayout.addView(input)
-        val preview = View(context).apply {
-            layoutParams = LinearLayout.LayoutParams(context.dp(40), context.dp(40)).apply {
-                topMargin = context.dp(12)
-            }
-        }
-        val container = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(context.dp(24), 0, context.dp(24), 0)
-            addView(inputLayout)
-            addView(preview)
-        }
-        fun updatePreview() {
-            val value = input.text?.toString()?.trim()?.uppercase() ?: ""
-            preview.background = if (Regex("^#[0-9A-F]{6}$").matches(value)) {
-                GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.parseColor(value)) }
-            } else {
-                ColorDrawable(MaterialColors.getColor(preview, com.google.android.material.R.attr.colorSurfaceVariant))
-            }
-        }
-        input.addTextChangedListener { updatePreview() }
-        updatePreview()
-        val dialog = context.getAlertDialogBuilder()
-            .setTitle(R.string.chat_identity_custom_color_title)
-            .setView(container)
-            .setNegativeButton(android.R.string.cancel, null)
-            .setPositiveButton(android.R.string.ok, null)
-            .create()
-        dialog.setOnShowListener {
-            val button = dialog.getButton(Dialog.BUTTON_POSITIVE)
-            button.setOnClickListener {
-                val value = input.text?.toString()?.trim()?.uppercase() ?: ""
-                if (!Regex("^#[0-9A-F]{6}$").matches(value)) {
-                    inputLayout.error = context.getString(R.string.chat_identity_invalid_color)
-                } else {
-                    inputLayout.error = null
-                    viewModel.setChatIdentityNameColor(value)
-                    dialog.dismiss()
-                }
-            }
-        }
-        dialog.show()
+        val defaultColor = Color.parseColor("#9146FF")
+        ColorPickerDialog.show(
+            context,
+            context.getString(R.string.chat_identity_custom_color_title),
+            currentColor?.let { parsePickerColor(it, allowAlpha = false) } ?: defaultColor,
+            defaultColor,
+            false,
+            { value ->
+                viewModel.setChatIdentityNameColor(value)
+                true
+            },
+        )
     }
 
     private fun hideIme() {

@@ -20,6 +20,7 @@ class ChatTimelineAdapter(
     private val onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
     private val onGifClick: ((ChatGifInteraction) -> Unit)? = null,
     private val onMessageClick: ((ChatMessageId) -> Unit)? = null,
+    private var messageTextColor: Int? = null,
 ) : RecyclerView.Adapter<ChatTimelineAdapter.Holder>() {
     private var attachedRecyclerView: RecyclerView? = null
     private var animationBudget = Int.MAX_VALUE
@@ -62,11 +63,13 @@ class ChatTimelineAdapter(
             it.setAnimateGifs(animateGifs)
             it.setInteractionCallbacks(onMessageLongClick, onEmoteClick, onGifClick)
             it.setMessageClickCallback(onMessageClick)
+            messageTextColor?.let(it::setTextColor)
             it.layoutParams = ViewGroup.LayoutParams(-1, -2)
         },
     )
     override fun onBindViewHolder(holder: Holder, position: Int) {
         holder.view.setRenderingActive(renderingActive)
+        messageTextColor?.let(holder.view::setTextColor)
         holder.view.setMessageTextSizeSp(textSizeSp)
         holder.view.setAnimateGifs(animateGifs)
         // A recycled holder may have been inside the budget for its previous row. Keep the new
@@ -158,6 +161,12 @@ class ChatTimelineAdapter(
     fun setAnimateGifs(value: Boolean) {
         if (animateGifs == value) return
         animateGifs = value
+        if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
+
+    fun setMessageTextColor(value: Int?) {
+        if (messageTextColor == value) return
+        messageTextColor = value
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
     }
 

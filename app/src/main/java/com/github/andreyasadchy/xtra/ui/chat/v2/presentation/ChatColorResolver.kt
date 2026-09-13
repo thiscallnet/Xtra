@@ -14,6 +14,7 @@ class ChatColorResolver(
     private val neutralFallback: Boolean = false,
     private val maxEntries: Int = 128,
     @ColorInt private val background: Int = 0xFF101010.toInt(),
+    @ColorInt private val customSecondaryTextColor: Int? = null,
 ) {
     private companion object {
         const val SECONDARY_TEXT_MIN_CONTRAST = 4.5
@@ -52,7 +53,11 @@ class ChatColorResolver(
      */
     @ColorInt
     fun mutedTextColor(@ColorInt rowBackground: Int): Int =
-        readableSecondaryText(rowBackground, 0xFF5F5B66.toInt(), 0xFFC4BEC9.toInt())
+        customSecondaryTextColor ?: readableSecondaryText(rowBackground, 0xFF5F5B66.toInt(), 0xFFC4BEC9.toInt())
+
+    @ColorInt
+    fun timestampTextColor(@ColorInt rowBackground: Int): Int =
+        customSecondaryTextColor ?: resolve("#999999", rowBackground = rowBackground)
 
     /**
      * Bright heading text for tinted event rows (e.g. the subscription actor

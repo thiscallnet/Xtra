@@ -32,6 +32,32 @@ class ChatRowLightModeTest {
     }
 
     @Test
+    fun customSecondaryColorIsUsedForMutedTextAndTimestampsOnly() {
+        val customSecondary = 0xFFB8F2E6.toInt()
+        val customResolver = ChatColorResolver(customSecondaryTextColor = customSecondary)
+
+        assertEquals(customSecondary, customResolver.mutedTextColor(darkBackground))
+        assertEquals(customSecondary, customResolver.timestampTextColor(darkBackground))
+        assertEquals(0xFFFF0000.toInt(), customResolver.resolve("#FF0000", "user", darkBackground))
+    }
+
+    @Test
+    fun compiledReplyAndTimestampUseTheSameCustomSecondaryColor() {
+        val customSecondary = 0xFFB8F2E6.toInt()
+        val row = ChatRowCompiler(
+            colors = ChatColorResolver(customSecondaryTextColor = customSecondary),
+            background = { darkBackground },
+            timestampText = { "12:42" },
+        ).compile(message(ChatSegment.Text("hello")).copy(reply = reply()))
+
+        assertEquals(customSecondary, row.timestampColor)
+        assertEquals(
+            customSecondary,
+            row.pieces.filterIsInstance<ChatPiece.Reply>().single().color,
+        )
+    }
+
+    @Test
     fun brightHeadingTextAdaptsToRowBackground() {
         assertEquals(0xFF1F1B24.toInt(), resolver.brightTextColor(lightBackground))
         assertEquals(0xFFE8E4EC.toInt(), resolver.brightTextColor(darkBackground))

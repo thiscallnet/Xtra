@@ -29,6 +29,7 @@ import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.content.res.use
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -335,6 +336,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var adapter: ChatAdapter? = null
     private var interactionAdapterFactory: ChatInteractionAdapterFactory? = null
     private var chatV2Renderer: ChatV2RendererController? = null
+    private var chatBackgroundRequest: Disposable? = null
+    private var chatBackgroundRequestGeneration = 0
     private val chatV2SessionSlot = ChatV2SessionSlot()
     private var chatV2ViewportState = ChatViewportState()
     private var useChatV2 = false
@@ -733,8 +736,62 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         return binding.root
     }
 
+    private fun applyChatBackgroundAppearance() {
+        val currentBinding = _binding ?: return
+        val surface = MaterialColors.getColor(
+            currentBinding.root,
+            com.google.android.material.R.attr.colorSurface,
+        )
+        val appearance = resolveChatAppearance(
+            context = requireContext(),
+            surfaceColor = surface,
+            messageDefaultColor = MaterialColors.getColor(
+                currentBinding.root,
+                com.google.android.material.R.attr.colorOnSurface,
+            ),
+            metadataDefaultColor = MaterialColors.getColor(
+                currentBinding.root,
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+            ),
+        )
+        val requestGeneration = ++chatBackgroundRequestGeneration
+        chatBackgroundRequest?.dispose()
+        chatBackgroundRequest = null
+        currentBinding.chatBackgroundImage.setImageDrawable(null)
+        if (!shouldRenderChatBackground(appearance)) {
+            currentBinding.chatBackgroundImage.isGone = true
+            currentBinding.chatBackgroundScrim.isGone = true
+            return
+        }
+        currentBinding.chatBackgroundImage.apply {
+            isVisible = true
+            alpha = appearance.backgroundVisibility / 100f
+        }
+        currentBinding.chatBackgroundScrim.apply {
+            isVisible = true
+            setBackgroundColor(ColorUtils.setAlphaComponent(surface, 0xB8))
+        }
+        chatBackgroundRequest = requireContext().imageLoader.enqueue(
+            ImageRequest.Builder(requireContext())
+                .data(appearance.backgroundUri)
+                .crossfade(true)
+                .target(currentBinding.chatBackgroundImage)
+                .listener(object : ImageRequest.Listener {
+                    override fun onError(request: ImageRequest, result: coil3.request.ErrorResult) {
+                        if (_binding !== currentBinding || chatBackgroundRequestGeneration != requestGeneration) return
+                        currentBinding.chatBackgroundImage.setImageDrawable(null)
+                        currentBinding.chatBackgroundImage.isGone = true
+                        currentBinding.chatBackgroundScrim.isGone = true
+                        chatBackgroundRequest = null
+                    }
+                })
+                .build(),
+        )
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        applyChatBackgroundAppearance()
         chatV2ViewportState = restoreChatV2ViewportState(savedInstanceState)
         useChatV2 = false
         seenPinnedMessageId = savedInstanceState?.getString(KEY_SEEN_PINNED_MESSAGE_ID)
@@ -923,6 +980,22 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         true,
                     )
                     val chatStyle = resolveChatRenderStyle(requireContext())
+                    val chatSurface = MaterialColors.getColor(
+                        requireView(),
+                        com.google.android.material.R.attr.colorSurface,
+                    )
+                    val chatAppearance = resolveChatAppearance(
+                        context = requireContext(),
+                        surfaceColor = chatSurface,
+                        messageDefaultColor = MaterialColors.getColor(
+                            requireView(),
+                            com.google.android.material.R.attr.colorOnSurface,
+                        ),
+                        metadataDefaultColor = MaterialColors.getColor(
+                            requireView(),
+                            com.google.android.material.R.attr.colorOnSurfaceVariant,
+                        ),
+                    )
                     val profilePopoutGesture = ChatProfilePopoutGesture.fromPreference(
                         requireContext().prefs().getString(C.CHAT_PROFILE_POPOUT_GESTURE, "tap"),
                     )
@@ -967,7 +1040,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         showSystemMessageEmotes = requireContext().prefs().getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
                         chatUrl = chatUrl,
                         fragment = this@ChatFragment,
-                        backgroundColor = MaterialColors.getColor(requireView(), com.google.android.material.R.attr.colorSurface),
+                        backgroundColor = chatSurface,
+                        messageTextColor = chatAppearance.messageTextColor,
+                        metadataTextColor = chatAppearance.metadataTextColor,
                         dialogBackgroundColor = MaterialColors.getColor(
                             requireView(),
                             com.google.android.material.R.attr.colorSurfaceContainerLow
@@ -1021,10 +1096,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     if (useChatV2) {
                         val app = requireContext().applicationContext as XtraApp
-                        val chatBackground = MaterialColors.getColor(
-                            requireView(),
-                            com.google.android.material.R.attr.colorSurface,
-                        )
                         val activeSessionSource = chatV2ActiveSessions()
                         viewModel.bindV2SessionSource(activeSessionSource)
                         chatV2Renderer = ChatV2RendererController(
@@ -1055,7 +1126,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             timestampFormat = chatStyle.timestampFormat,
                             showTimestamps = chatStyle.showTimestamps,
                             readableUsernameColors = requireContext().prefs().getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
-                            backgroundColor = chatBackground,
+                            backgroundColor = chatSurface,
+                            rowBackgroundColor = chatAppearance.rowBackgroundColor,
+                            messageTextColor = chatAppearance.messageTextColor,
+                            secondaryTextColor = chatAppearance.metadataTextColor,
                             presentationLabels = ChatPresentationLabels(
                                 firstChatter = getString(R.string.chat_first),
                                 redeemed = { reward -> getString(R.string.redeemed, reward) },
@@ -2239,6 +2313,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onResume() {
         super.onResume()
+        applyChatBackgroundAppearance()
         adapter?.refreshChatHighlightSettings()
         if (useChatV2) {
             chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
@@ -3863,6 +3938,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
         chatV2Renderer?.detach()
         chatV2Renderer = null
+        chatBackgroundRequestGeneration++
+        chatBackgroundRequest?.dispose()
+        chatBackgroundRequest = null
         viewModel.clearV2SessionSource()
         adapter = null
         interactionAdapterFactory = null

@@ -101,6 +101,9 @@ class ChatV2RendererController(
     showTimestamps: Boolean = false,
     private val readableUsernameColors: Boolean = true,
     private val backgroundColor: Int = 0xFF101010.toInt(),
+    private val rowBackgroundColor: Int = backgroundColor,
+    private val messageTextColor: Int? = null,
+    private val secondaryTextColor: Int? = null,
     private val presentationLabels: ChatPresentationLabels = ChatPresentationLabels(),
     animationBudget: Int = DEFAULT_ANIMATION_BUDGET,
     private val onStateChanged: (ChatViewportState) -> Unit = {},
@@ -138,6 +141,7 @@ class ChatV2RendererController(
         onMessageClick = if (profilePopoutGesture.allowsTap) {
             { id -> latestMessages.firstOrNull { it.id == id }?.let(onMessageLongClick) }
         } else null,
+        messageTextColor = messageTextColor,
     )
     init {
         adapter.setAnimationBudget(animationBudget)
@@ -259,6 +263,7 @@ class ChatV2RendererController(
         presentation.replaceCompiler(createPresentationCompiler(style))
         adapter.setMessageTextSizeSp(style.textSizeSp)
         adapter.setAnimateGifs(style.animateGifs)
+        adapter.setMessageTextColor(messageTextColor)
         for (index in 0 until recyclerView.childCount) {
             (recyclerView.getChildAt(index) as? ChatMessageTextView)?.apply {
                 setMessageTextSizeSp(style.textSizeSp)
@@ -660,6 +665,7 @@ class ChatV2RendererController(
                 randomFallback = randomUsernameColors,
                 neutralFallback = !randomUsernameColors,
                 background = background,
+                customSecondaryTextColor = secondaryTextColor,
             ),
             emoteHeightPx = style.emoteHeightPx,
             badgeHeightPx = style.badgeHeightPx,
@@ -678,7 +684,8 @@ class ChatV2RendererController(
             } else {
                 { null }
             },
-            background = { background },
+            background = { rowBackgroundColor },
+            readabilityBackground = { background },
             labels = presentationLabels,
             gifDisplayMode = style.gifDisplayMode,
             highlightSettings = highlightSettings,

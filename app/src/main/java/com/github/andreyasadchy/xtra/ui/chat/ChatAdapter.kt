@@ -129,6 +129,8 @@ internal data class ChatAdapterConfiguration(
     val chatUrl: String?,
     val fragment: Fragment,
     val backgroundColor: Int,
+    val messageTextColor: Int? = null,
+    val metadataTextColor: Int? = null,
     val dialogBackgroundColor: Int,
     val imageLibrary: String?,
     val messageTextSize: Float,
@@ -218,6 +220,8 @@ class ChatAdapter(
     private val chatUrl: String?,
     private val fragment: Fragment,
     private val backgroundColor: Int,
+    private val messageTextColor: Int?,
+    private val metadataTextColor: Int?,
     private val dialogBackgroundColor: Int,
     private val imageLibrary: String?,
     private val messageTextSize: Float,
@@ -271,6 +275,8 @@ class ChatAdapter(
         chatUrl = configuration.chatUrl,
         fragment = configuration.fragment,
         backgroundColor = configuration.backgroundColor,
+        messageTextColor = configuration.messageTextColor,
+        metadataTextColor = configuration.metadataTextColor,
         dialogBackgroundColor = configuration.dialogBackgroundColor,
         imageLibrary = configuration.imageLibrary,
         messageTextSize = configuration.messageTextSize,
@@ -1259,6 +1265,7 @@ class ChatAdapter(
         }
 
         internal fun bind(chatMessage: ChatMessage, cacheKey: RenderCacheKey, result: ChatAdapterUtils.MessageResult) {
+            messageTextColor?.let(textView::setTextColor)
             if (result.backgroundColor != null) itemView.setBackgroundColor(result.backgroundColor)
             else setChatMessageBackground(itemView, result.backgroundResource)
             applyNamePaintBackground(result.builder, itemView.background)
@@ -1883,6 +1890,7 @@ class ChatAdapter(
             catalogIndexes = indexes,
             includeAccessibilityDescription = true,
             highlightSettings = highlightSettings,
+            secondaryTextColor = metadataTextColor,
         )
         val clipLinks = clipLinksOf(chatMessage.message)
         if (clipLinks.isNotEmpty()) {

@@ -84,6 +84,7 @@ class ChatRowCompiler(
     private val translation: (ChatMessage) -> String? = { null },
     private val timestampText: (Long) -> String? = { null },
     private val background: (ChatMessage) -> Int = { 0 },
+    private val readabilityBackground: (ChatMessage) -> Int = background,
     private val labels: ChatPresentationLabels = ChatPresentationLabels(),
     private val gifDisplayMode: ChatGifDisplayMode = ChatGifDisplayMode.LARGE,
     private val highlightSettings: ChatHighlightSettings = ChatHighlightSettings(),
@@ -142,12 +143,13 @@ class ChatRowCompiler(
                 hasNoticeBackground
         val isPersonalHighlight = shouldHighlightV2ChatMessage(message, highlightSettings) && !hasSpecialBackground
         val baseBackground = background(message)
-        val rowBackground = if (isPersonalHighlight) {
-            compositeColors(highlightSettings.color, baseBackground)
+        val baseReadabilityBackground = readabilityBackground(message)
+        val rowReadabilityBackground = if (isPersonalHighlight) {
+            compositeColors(highlightSettings.color, baseReadabilityBackground)
         } else {
-            baseBackground
+            baseReadabilityBackground
         }
-        val mutedColor = colors.mutedTextColor(rowBackground)
+        val mutedColor = colors.mutedTextColor(rowReadabilityBackground)
         var moderationPieceRange: IntRange? = null
         val pieces = buildList {
             message.reply?.let { reply ->
@@ -190,7 +192,7 @@ class ChatRowCompiler(
             }
             message.source?.let { source ->
                 val sourceName = source.broadcasterName ?: source.broadcasterLogin ?: source.broadcasterId
-                add(ChatPiece.Source(sourceName, colors.mutedTextColor(rowBackground)))
+                add(ChatPiece.Source(sourceName, colors.mutedTextColor(rowReadabilityBackground)))
                 add(ChatPiece.Text(" "))
             }
             val moderationStart = message.moderation?.let { size }
@@ -199,7 +201,7 @@ class ChatRowCompiler(
                 name?.let {
                     add(ChatPiece.Username(
                         it,
-                        colors.resolve(user.color?.let(::colorToHex), user.id ?: user.login ?: it, rowBackground),
+                        colors.resolve(user.color?.let(::colorToHex), user.id ?: user.login ?: it, rowReadabilityBackground),
                         bold = boldNames,
                         paint = if (showNamePaints) {
                             user.id?.let(catalog.userDecorations::get)?.paintId?.let(catalog.namePaints::get)
@@ -215,7 +217,7 @@ class ChatRowCompiler(
             addAll(renderSegments(resolvedSegments, catalog, targetHeight))
             moderationStart?.let { moderationPieceRange = it until size }
             moderationSuffix?.let { suffix ->
-                add(ChatPiece.Text(" $suffix", color = colors.brightTextColor(rowBackground)))
+                add(ChatPiece.Text(" $suffix", color = colors.brightTextColor(rowReadabilityBackground)))
             }
             translation(message)?.takeIf { it.isNotBlank() }?.let {
                 add(ChatPiece.Text("\n$it", color = mutedColor))
@@ -225,7 +227,7 @@ class ChatRowCompiler(
             id = message.id,
             channelId = message.channelId,
             timestampText = timestampText(message.timestampMs),
-            timestampColor = colors.resolve("#999999", rowBackground = rowBackground),
+            timestampColor = colors.timestampTextColor(rowReadabilityBackground),
             pieces = pieces,
             background = if (isPersonalHighlight) highlightSettings.color else baseBackground,
             backgroundStyle = when {
@@ -307,7 +309,8 @@ class ChatRowCompiler(
         hasSemanticBody: Boolean,
     ): ChatRowUiModel {
         val baseBackground = background(message)
-        val mutedColor = colors.mutedTextColor(baseBackground)
+        val baseReadabilityBackground = readabilityBackground(message)
+        val mutedColor = colors.mutedTextColor(baseReadabilityBackground)
         val systemEvent = eventKind == ChatEventKind.ANNOUNCEMENT ||
             eventKind == ChatEventKind.RAID ||
             eventKind == ChatEventKind.NOTICE
@@ -319,7 +322,7 @@ class ChatRowCompiler(
         )
         val targetHeight = emoteTargetHeight(message)
         val bodyPieces = if (hasSemanticBody) {
-            messageBodyPieces(message, resolvedSegments, catalog, targetHeight, baseBackground)
+            messageBodyPieces(message, resolvedSegments, catalog, targetHeight, baseReadabilityBackground)
         } else {
             emptyList()
         }
@@ -330,7 +333,7 @@ class ChatRowCompiler(
             isPrimeSubscription = isPrimeSubscription,
             resolvedSegments = resolvedSegments,
             bodyPieces = bodyPieces,
-            baseBackground = baseBackground,
+            baseBackground = baseReadabilityBackground,
             mutedColor = mutedColor,
         )
         var moderationStart: Int? = null
@@ -356,7 +359,7 @@ class ChatRowCompiler(
                 moderationStart = size - event.bodyPieces.size
                 moderationEnd = size
             }
-            message.moderation?.let { add(ChatPiece.Text(" ${labels.moderationSuffix(it)}", color = colors.brightTextColor(baseBackground))) }
+            message.moderation?.let { add(ChatPiece.Text(" ${labels.moderationSuffix(it)}", color = colors.brightTextColor(baseReadabilityBackground))) }
             translation(message)?.takeIf { it.isNotBlank() }?.let {
                 add(ChatPiece.Text("\n$it", color = mutedColor))
             }
@@ -369,7 +372,7 @@ class ChatRowCompiler(
             id = message.id,
             channelId = message.channelId,
             timestampText = timestampText(message.timestampMs),
-            timestampColor = colors.resolve("#999999", rowBackground = baseBackground),
+            timestampColor = colors.timestampTextColor(baseReadabilityBackground),
             pieces = pieces,
             background = baseBackground,
             backgroundStyle = ChatRowBackground.EVENT,

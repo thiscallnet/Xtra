@@ -16,7 +16,23 @@
         <FrameLayout
             android:layout_width="match_parent"
             android:layout_height="0dp"
+            android:background="?attr/colorSurface"
             android:layout_weight="1">
+
+            <ImageView
+                android:id="@+id/chatBackgroundImage"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop"
+                android:visibility="gone" />
+
+            <View
+                android:id="@+id/chatBackgroundScrim"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:importantForAccessibility="no"
+                android:visibility="gone" />
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/recyclerView"

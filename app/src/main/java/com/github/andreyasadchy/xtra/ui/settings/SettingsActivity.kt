@@ -96,6 +96,7 @@ import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSect
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
+import com.github.andreyasadchy.xtra.ui.chat.DEFAULT_CHAT_BACKGROUND_VISIBILITY
 import com.github.andreyasadchy.xtra.ui.player.PhoneChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.player.persistPhoneChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.player.phoneChatOverlayConfig
@@ -450,7 +451,7 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun setResult() {
+    internal fun setResult() {
         if (!changed) {
             changed = true
             setResult(RESULT_OK)
@@ -633,6 +634,7 @@ class SettingsActivity : AppCompatActivity() {
         private val viewModel: SettingsViewModel by activityViewModels { SettingsViewModelFactory }
         private var backupResultLauncher: ActivityResultLauncher<Intent>? = null
         private var restoreResultLauncher: ActivityResultLauncher<Intent>? = null
+        private var backgroundPhotoLauncher: ActivityResultLauncher<Array<String>>? = null
         private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
 
         override fun onCreate(savedInstanceState: Bundle?) {
@@ -676,6 +678,37 @@ class SettingsActivity : AppCompatActivity() {
                     viewModel.reportLiveNotificationPermissionDenied()
                 }
                 updateLiveNotificationsSummary()
+            }
+            backgroundPhotoLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+                val selectedUri = uri ?: return@registerForActivityResult
+                val persisted = runCatching {
+                    requireContext().contentResolver.takePersistableUriPermission(
+                        selectedUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                    true
+                }.getOrDefault(false)
+                if (!persisted) {
+                    Toast.makeText(requireContext(), R.string.settings_chat_background_persist_failed, Toast.LENGTH_LONG).show()
+                    return@registerForActivityResult
+                }
+                val oldUri = requireContext().prefs().getString(C.CHAT_BACKGROUND_URI, null)
+                if (oldUri != null && oldUri != selectedUri.toString()) {
+                    runCatching {
+                        requireContext().contentResolver.releasePersistableUriPermission(
+                            oldUri.toUri(),
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    }
+                }
+                requireContext().prefs().edit {
+                    putString(C.CHAT_BACKGROUND_URI, selectedUri.toString())
+                    putBoolean(C.CHAT_BACKGROUND_ENABLED, true)
+                }
+                findPreference<SwitchPreferenceCompat>(C.CHAT_BACKGROUND_ENABLED)?.isChecked = true
+                updateChatAppearancePreferences()
+                findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")?.refreshPreview()
+                (requireActivity() as? SettingsActivity)?.setResult()
             }
         }
 
@@ -1390,7 +1423,10 @@ class SettingsActivity : AppCompatActivity() {
             }
             if (settingsScreen == SCREEN_CHAT_TRANSLATION) configureTranslationPreferences()
             if (settingsScreen == SCREEN_PLAYER_SEEK) configureSeekPreferences()
-            if (settingsScreen == SCREEN_CHAT_APPEARANCE) configureChatSizePreferences()
+            if (settingsScreen == SCREEN_CHAT_APPEARANCE) {
+                configureChatAppearancePreferences()
+                configureChatSizePreferences()
+            }
             if (settingsScreen == SCREEN_CHAT_FEATURES) configureChatHighlightPreferences()
             if (settingsScreen == SCREEN_CHAT_VISIBILITY) configureChatVisibilityPreferences()
             if (settingsScreen == SCREEN_DOWNLOAD_LIVE) configureLiveDownloadPreferences()
@@ -1403,6 +1439,85 @@ class SettingsActivity : AppCompatActivity() {
                 (requireActivity() as? SettingsActivity)?.setResult()
                 true
             }
+        }
+
+        private fun configureChatAppearancePreferences() {
+            val preview = findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")
+            val backgroundEnabled = findPreference<SwitchPreferenceCompat>(C.CHAT_BACKGROUND_ENABLED)
+            val backgroundVisibility = findPreference<SeekBarPreference>(C.CHAT_BACKGROUND_VISIBILITY)
+            val backgroundChoose = findPreference<Preference>("chat_background_choose")
+
+            backgroundEnabled?.setOnPreferenceChangeListener { _, _ ->
+                (requireActivity() as? SettingsActivity)?.setResult()
+                Handler(Looper.getMainLooper()).post { preview?.refreshPreview() }
+                true
+            }
+            backgroundVisibility?.setOnPreferenceChangeListener { _, _ ->
+                (requireActivity() as? SettingsActivity)?.setResult()
+                Handler(Looper.getMainLooper()).post { preview?.refreshPreview() }
+                true
+            }
+            backgroundChoose?.setOnPreferenceClickListener {
+                backgroundPhotoLauncher?.launch(arrayOf("image/*"))
+                true
+            }
+            findPreference<Preference>("chat_background_reset")?.setOnPreferenceClickListener {
+                val oldUri = requireContext().prefs().getString(C.CHAT_BACKGROUND_URI, null)
+                oldUri?.let { value ->
+                    runCatching {
+                        requireContext().contentResolver.releasePersistableUriPermission(
+                            value.toUri(),
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                        )
+                    }
+                }
+                requireContext().prefs().edit {
+                    remove(C.CHAT_BACKGROUND_URI)
+                    remove(C.CHAT_BACKGROUND_VISIBILITY)
+                    putBoolean(C.CHAT_BACKGROUND_ENABLED, false)
+                }
+                backgroundEnabled?.isChecked = false
+                backgroundVisibility?.value = DEFAULT_CHAT_BACKGROUND_VISIBILITY
+                updateChatAppearancePreferences()
+                preview?.refreshPreview()
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
+
+            findPreference<Preference>("chat_restore_text_defaults")?.setOnPreferenceClickListener {
+                requireContext().prefs().edit {
+                    remove(C.CHAT_MESSAGE_TEXT_COLOR)
+                    remove(C.CHAT_METADATA_TEXT_COLOR)
+                }
+                findPreference<EditTextPreference>(C.CHAT_MESSAGE_TEXT_COLOR)?.text = null
+                findPreference<EditTextPreference>(C.CHAT_METADATA_TEXT_COLOR)?.text = null
+                updateChatAppearancePreferences()
+                preview?.refreshPreview()
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
+            updateChatAppearancePreferences()
+        }
+
+        private fun updateChatAppearancePreferences() {
+            val preferences = requireContext().prefs()
+            val rawUri = preferences.getString(C.CHAT_BACKGROUND_URI, null)
+            val uriAvailable = rawUri?.let { value ->
+                runCatching {
+                    requireContext().contentResolver.openInputStream(value.toUri())?.use { } != null
+                }.getOrDefault(false)
+            } == true
+            findPreference<Preference>("chat_background_choose")?.summary = when {
+                rawUri.isNullOrBlank() -> getString(R.string.settings_chat_background_choose_summary)
+                uriAvailable -> getString(R.string.settings_chat_background_change_summary)
+                else -> getString(R.string.settings_chat_background_unavailable)
+            }
+            findPreference<EditTextPreference>(C.CHAT_MESSAGE_TEXT_COLOR)?.summary = preferences
+                .getString(C.CHAT_MESSAGE_TEXT_COLOR, null)
+                ?: getString(R.string.settings_chat_text_default_summary)
+            findPreference<EditTextPreference>(C.CHAT_METADATA_TEXT_COLOR)?.summary = preferences
+                .getString(C.CHAT_METADATA_TEXT_COLOR, null)
+                ?: getString(R.string.settings_chat_text_default_summary)
         }
 
         private fun configureChatHighlightPreferences() {
@@ -2530,7 +2645,7 @@ class SettingsActivity : AppCompatActivity() {
                     editText.hint = "#1A1A1A"
                 }
                 customColor?.setOnPreferenceChangeListener { _, value ->
-                    val valid = runCatching { Color.parseColor(value as String) }.isSuccess
+                    val valid = parsePickerColor(value.toString(), allowAlpha = true) != null
                     if (!valid) {
                         Toast.makeText(requireContext(), R.string.live_caption_custom_color_summary, Toast.LENGTH_SHORT).show()
                     }
@@ -2581,7 +2696,7 @@ class SettingsActivity : AppCompatActivity() {
                         editText.hint = "#FFFFFF"
                     }
                     setOnPreferenceChangeListener { _, value ->
-                        val valid = runCatching { Color.parseColor(value.toString()) }.isSuccess
+                        val valid = parsePickerColor(value.toString(), allowAlpha = false) != null
                         if (!valid) {
                             Toast.makeText(
                                 requireContext(),
