@@ -155,7 +155,7 @@ class ChatBubbleManager(
             context,
             channelId.hashCode(),
             activityIntent,
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            PendingIntent.FLAG_UPDATE_CURRENT or bubblePendingIntentFlags(),
         )
         val icon = IconCompat.createWithResource(context, R.mipmap.ic_launcher)
         val bubble = NotificationCompat.BubbleMetadata.Builder(contentIntent, icon)
@@ -204,6 +204,9 @@ class ChatBubbleManager(
     private fun createShortcut(channelId: String, login: String, name: String, streamId: String?) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         val shortcutIntent = Intent(context, ChatBubbleActivity::class.java).apply {
+            // Android 15 validates every intent in a dynamic shortcut and requires an action,
+            // even when the intent targets an explicit activity component.
+            action = Intent.ACTION_VIEW
             putExtra(ChatBubbleActivity.EXTRA_CHANNEL_ID, channelId)
             putExtra(ChatBubbleActivity.EXTRA_CHANNEL_LOGIN, login)
             putExtra(ChatBubbleActivity.EXTRA_CHANNEL_NAME, name)
@@ -230,6 +233,9 @@ class ChatBubbleManager(
             )
         }
     }
+
+    private fun bubblePendingIntentFlags(): Int =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
 
     private fun shortcutId(channelId: String): String = "xtra_chat_$channelId"
     private val channelIdForBubbles get() = context.getString(R.string.notification_chat_bubbles_channel_id)

@@ -67,7 +67,7 @@
                         android:background="?android:selectableItemBackgroundBorderless"
                         android:contentDescription="@string/chat_bubble_open"
                         android:padding="12dp"
-                        android:src="@drawable/ic_chat_identity"
+                        android:src="@drawable/ic_chat_bubble"
                         android:visibility="gone"
                         app:tint="?attr/colorOnSurfaceVariant" />
 
