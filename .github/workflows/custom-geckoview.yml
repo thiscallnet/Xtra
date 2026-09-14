@@ -7,41 +7,89 @@ on:
       - 'geckoview/**'
       - '.github/workflows/custom-geckoview.yml'
   pull_request:
-    branches: [master]
+    branches: [master, feature/geckoview-release-size]
     paths:
       - 'geckoview/**'
       - '.github/workflows/custom-geckoview.yml'
   workflow_dispatch:
     inputs:
+      experiment:
+        description: x86_64 GeckoView experiment
+        required: true
+        default: validate
+        type: choice
+        options:
+          - validate
+          - x86_64-auth
+          - x86_64-nowebrtc
+          - x86_64-nowebspeech
+          - x86_64-minimal
+          - x86_64-twitch-auth-radical-r1
       scope:
         description: Native build scope
         required: true
-        default: smoke-arm64
+        default: none
         type: choice
         options:
+          - none
           - smoke-arm64
           - release-both
+          - r1-x86
+          - r1-release
+          - r1-preserve
       experimental_nowebrtc:
         description: Build the ARM64 no-WebRTC experiment
         required: false
         default: false
         type: boolean
       release_tag:
-        description: Optional xtra-gv-* tag to publish the universal safe AAR under
+        description: Immutable release tag for safe or Twitch-auth R1 publication
         required: false
         default: ''
         type: string
+      r1_source_run_id:
+        description: Successful full R1 qualification run to promote without rebuilding Gecko
+        required: false
+        default: ''
+        type: string
+      r1_preserved_run_id:
+        description: Preservation-only R1 artifact run to consume during promotion
+        required: false
+        default: ''
+        type: string
+      diagnostic_symbols:
+        description: Force x86_64 Gecko rebuild and upload matching native symbols
+        required: false
+        default: false
+        type: boolean
+      preflight_only:
+        description: Run radical configure/patch preflight without native compilation
+        required: false
+        default: false
+        type: boolean
+      symbolicate_run_id:
+        description: Existing x86_64 diagnostic run to symbolicate without rebuilding
+        required: false
+        default: ''
+        type: string
+      symbolicate_crash_build_id:
+        description: Build ID recorded by the tombstone being symbolicated
+        required: false
+        default: '06e2d8a2a68ceb2aa81a7e1e29c3aafe0bbe616e'
+        type: string
 
 permissions:
+  actions: write
   contents: read
 
 concurrency:
-  group: custom-geckoview-${{ github.ref }}
+  group: custom-geckoview-${{ github.ref }}-${{ github.sha }}
   cancel-in-progress: false
 
 env:
   CACHE_SCHEMA: v3
   TOOLCHAIN_CACHE_SCHEMA: v4
+  GECKO_RUST_VERSION: '1.97.1'
 
 jobs:
   validate-recipe:
@@ -50,6 +98,11 @@ jobs:
     outputs:
       run_heavy: ${{ steps.scope.outputs.run_heavy }}
       release_both: ${{ steps.scope.outputs.release_both }}
+      r1_release: ${{ steps.scope.outputs.r1_release }}
+      r1_x86: ${{ steps.scope.outputs.r1_x86 }}
+      r1_promote: ${{ steps.scope.outputs.r1_promote }}
+      r1_preserve: ${{ steps.scope.outputs.r1_preserve }}
+      profile: ${{ steps.scope.outputs.profile }}
       matrix: ${{ steps.scope.outputs.matrix }}
     steps:
       - name: Checkout Xtra configuration
@@ -63,32 +116,192 @@ jobs:
           set -euo pipefail
           bash -n geckoview/scripts/*.sh
           python3 -m py_compile geckoview/scripts/*.py
+          python3 geckoview/scripts/test-combine-r1-aar.py
+          python3 geckoview/scripts/test-collect-r1-aars.py
+          bash geckoview/scripts/test-r1-promotion-layout.sh
+          bash geckoview/scripts/test-r1-release-provenance.sh
+          bash geckoview/scripts/test-toolchain-cache.sh
+          bash geckoview/scripts/test-x86-android-toolchain.sh
           python3 geckoview/scripts/validate-recipe.py
+          rust_version_file="$(tr -d '\r\n' < geckoview/RUST_TOOLCHAIN_VERSION)"
+          [[ "$rust_version_file" == "$GECKO_RUST_VERSION" ]] || {
+            echo "Rust toolchain version mismatch: file=$rust_version_file workflow=$GECKO_RUST_VERSION" >&2
+            exit 1
+          }
 
       - name: Select native build scope
         id: scope
         shell: bash
+        env:
+          R1_SOURCE_RUN_ID: ${{ inputs.r1_source_run_id }}
         run: |
           set -euo pipefail
+          r1_promote=false
+          r1_preserve=false
           if [[ "$GITHUB_EVENT_NAME" == pull_request || "$GITHUB_EVENT_NAME" == push ]]; then
             run_heavy=false
             release_both=false
+            r1_release=false
+            r1_x86=false
+            profile=safe
+            matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"}]}'
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "${{ inputs.scope }}" == r1-x86 ]]; then
+            run_heavy=true
+            release_both=false
+            r1_release=false
+            r1_x86=true
+            profile=twitch-auth-radical-r1
+            matrix='{"include":[{"abi":"x86","label":"x86"}]}'
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "${{ inputs.experiment }}" != validate ]]; then
+            run_heavy=false
+            release_both=false
+            r1_release=false
+            r1_x86=false
+            profile=safe
             matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"}]}'
           elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "${{ inputs.scope }}" == smoke-arm64 ]]; then
             run_heavy=true
             release_both=false
+            r1_release=false
+            r1_x86=false
+            profile=safe
             matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"}]}'
-          else
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "${{ inputs.scope }}" == release-both ]]; then
             run_heavy=true
             release_both=true
+            r1_release=false
+            r1_x86=false
+            profile=safe
             matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"},{"abi":"armeabi-v7a","label":"ARMv7"}]}'
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "${{ inputs.scope }}" == r1-release ]]; then
+            release_both=false
+            r1_x86=false
+            if [[ -n "$R1_SOURCE_RUN_ID" ]]; then
+              run_heavy=false
+              r1_release=false
+              r1_promote=true
+              profile=twitch-auth-radical-r1
+              matrix='{"include":[]}'
+            else
+              run_heavy=true
+              r1_release=true
+              profile=twitch-auth-radical-r1
+              matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"},{"abi":"armeabi-v7a","label":"ARMv7"},{"abi":"x86","label":"x86"},{"abi":"x86_64","label":"x86_64"}]}'
+            fi
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "${{ inputs.scope }}" == r1-preserve ]]; then
+            [[ -n "$R1_SOURCE_RUN_ID" ]] || {
+              echo 'r1_source_run_id is required for scope=r1-preserve' >&2
+              exit 2
+            }
+            run_heavy=false
+            release_both=false
+            r1_release=false
+            r1_x86=false
+            r1_preserve=true
+            profile=twitch-auth-radical-r1
+            matrix='{"include":[]}'
+          elif [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "${{ inputs.experimental_nowebrtc }}" == true ]]; then
+            run_heavy=true
+            release_both=false
+            r1_release=false
+            r1_x86=false
+            profile=safe
+            matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"}]}'
+          else
+            run_heavy=false
+            release_both=false
+            r1_release=false
+            r1_x86=false
+            profile=safe
+            matrix='{"include":[{"abi":"arm64-v8a","label":"ARM64"}]}'
           fi
           {
             echo "run_heavy=$run_heavy"
             echo "release_both=$release_both"
+            echo "r1_release=$r1_release"
+            echo "r1_x86=$r1_x86"
+            echo "r1_promote=$r1_promote"
+            echo "r1_preserve=$r1_preserve"
+            echo "profile=$profile"
             echo "matrix=$matrix"
           } >> "$GITHUB_OUTPUT"
           echo "native_build_scope=$matrix"
+
+  symbolicate-existing-crash:
+    name: Symbolicate existing x86_64 crash
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.symbolicate_run_id != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install symbolizer
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes binutils llvm
+          symbolizer="$(command -v llvm-symbolizer || find /usr/lib/llvm-*/bin -name llvm-symbolizer -print -quit)"
+          test -x "$symbolizer"
+          echo "LLVM_SYMBOLIZER=$symbolizer" >> "$GITHUB_ENV"
+          "$symbolizer" --version | head -n 1
+
+      - name: Download matching diagnostic symbols
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.symbolicate_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || {
+            echo "symbolicate_run_id must be numeric: $RUN_ID" >&2
+            exit 2
+          }
+          gh run download "$RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name xtra-geckoview-x86_64-auth-symbols \
+            --dir "$RUNNER_TEMP/symbol-input"
+
+      - name: Verify Build ID and symbolicate known crash
+        env:
+          EXPECTED_BUILD_ID: ${{ inputs.symbolicate_crash_build_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          symbol_dir="$RUNNER_TEMP/symbol-input/gecko-symbols"
+          libxul="$symbol_dir/libxul.so"
+          test -f "$libxul"
+          actual_build_id="$(readelf -n "$libxul" | sed -n 's/^[[:space:]]*Build ID: //p' | head -n 1)"
+          [[ "$EXPECTED_BUILD_ID" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "symbolicate_crash_build_id must be a 40-character hex Build ID" >&2
+            exit 2
+          }
+          if [[ "$actual_build_id" != "$EXPECTED_BUILD_ID" ]]; then
+            echo "Crash and symbol Build IDs differ; refusing to symbolicate" >&2
+            echo "crash_build_id=$EXPECTED_BUILD_ID" >&2
+            echo "symbols_build_id=$actual_build_id" >&2
+            exit 1
+          fi
+          {
+            echo "symbol_build_id=$actual_build_id"
+            echo "crash_build_id=$EXPECTED_BUILD_ID"
+            echo "source_run_id=${{ inputs.symbolicate_run_id }}"
+            echo
+            LLVM_SYMBOLIZER="$LLVM_SYMBOLIZER" \
+              bash geckoview/scripts/symbolicate-android-crash.sh \
+              "$libxul" geckoview/diagnostics/x86_64-auth-crash-pcs.txt
+          } | tee "$RUNNER_TEMP/symbolicated-crash.txt"
+
+      - name: Upload compact symbolication report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-x86_64-auth-symbolicated-crash
+          retention-days: 1
+          path: ${{ runner.temp }}/symbolicated-crash.txt
+          if-no-files-found: warn
 
   prepare-toolchain:
     name: Prepare Gecko toolchain
@@ -116,9 +329,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
+          source_identity="$(python3 -c 'import json; l=json.load(open("geckoview/SOURCE_LOCK.json")); print(l["sourceGitRevision"]); print(l["archiveSha256"]); print(open("geckoview/SOURCE_REVISION").read().strip())')"
+          source_key="$(printf '%s\n' "$source_identity" | sha256sum | awk '{print $1}')"
           {
-            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-rust-${GECKO_RUST_VERSION}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
           } >> "$GITHUB_OUTPUT"
 
@@ -179,15 +393,16 @@ jobs:
           key: ${{ steps.keys.outputs.toolchain_key }}
 
   build-skinny:
-    name: ${{ matrix.label }} / safe
+    name: ${{ matrix.label }} / ${{ needs.validate-recipe.outputs.profile }}
     needs: [validate-recipe, prepare-toolchain]
     if: ${{ needs.validate-recipe.outputs.run_heavy == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 360
     env:
+      BUILD_PROFILE: ${{ needs.validate-recipe.outputs.profile }}
       SCCACHE_GHA_ENABLED: 'on'
       SCCACHE_GHA_RW_MODE: READ_WRITE
-      SCCACHE_GHA_VERSION: xtra-geckoview-v1-${{ matrix.abi }}-safe
+      SCCACHE_GHA_VERSION: xtra-geckoview-v1-${{ matrix.abi }}-${{ needs.validate-recipe.outputs.profile }}
     strategy:
       fail-fast: false
       max-parallel: 2
@@ -207,7 +422,25 @@ jobs:
       - name: Install Gecko build tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ninja-build patch unzip
+          sudo apt-get install --yes binutils ninja-build patch unzip
+
+      - name: Configure R1 build swap
+        if: ${{ needs.validate-recipe.outputs.r1_release == 'true' || needs.validate-recipe.outputs.r1_x86 == 'true' }}
+        shell: bash
+        env:
+          GECKO_SWAP_FILE: ${{ runner.temp }}/xtra-gecko-r1.swap
+        run: |
+          set -euo pipefail
+          target_bytes=$((12 * 1024 * 1024 * 1024))
+          current_bytes="$(free -b | awk '/^Swap:/ {print $2}')"
+          if (( current_bytes < target_bytes )); then
+            required_bytes=$((target_bytes - current_bytes))
+            sudo fallocate -l "$required_bytes" "$GECKO_SWAP_FILE"
+            sudo chmod 600 "$GECKO_SWAP_FILE"
+            sudo mkswap "$GECKO_SWAP_FILE" >/dev/null
+            sudo swapon "$GECKO_SWAP_FILE"
+          fi
+          free -h
 
       - name: Compute cache keys
         id: keys
@@ -216,19 +449,39 @@ jobs:
           ABI: ${{ matrix.abi }}
         run: |
           set -euo pipefail
-          source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
-          recipe_key="$(sha256sum \
-            geckoview/SOURCE_LOCK.json \
-            geckoview/COMPILE_RECIPE_VERSION \
-            geckoview/mozconfigs/common.mozconfig \
-            "geckoview/mozconfigs/${ABI}-safe.mozconfig" \
-            geckoview/patches/0001-disable-android-hls.patch | \
-            sha256sum | awk '{print $1}')"
+          profile="$BUILD_PROFILE"
+          profile_file="geckoview/mozconfigs/${ABI}-${profile}.mozconfig"
+          test -f "$profile_file"
+          recipe_files=(
+            geckoview/SOURCE_LOCK.json
+            geckoview/COMPILE_RECIPE_VERSION
+            geckoview/RUST_TOOLCHAIN_VERSION
+            geckoview/mozconfigs/common.mozconfig
+            "$profile_file"
+            geckoview/patches/0001-disable-android-hls.patch
+          )
+          if [[ "$profile" == twitch-auth-radical-r1 ]]; then
+            recipe_files+=(
+              geckoview/mozconfigs/twitch-auth-radical-r1.mozconfig
+              geckoview/patches/0002-exclude-webrtc-dependent-android-test.patch
+              geckoview/patches/0003-twitch-auth-lite-build-cuts.patch
+            )
+          fi
+          if [[ "$ABI" == x86 ]]; then
+            recipe_files+=(
+              geckoview/scripts/build-aar.sh
+              geckoview/scripts/toolchain-cache.sh
+              geckoview/scripts/verify-x86-config.py
+            )
+          fi
+          source_identity="$(python3 -c 'import json; l=json.load(open("geckoview/SOURCE_LOCK.json")); print(l["sourceGitRevision"]); print(l["archiveSha256"]); print(open("geckoview/SOURCE_REVISION").read().strip())')"
+          source_key="$(printf '%s\n' "$source_identity" | sha256sum | awk '{print $1}')"
+          recipe_key="$(sha256sum "${recipe_files[@]}" | sha256sum | awk '{print $1}')"
           {
             echo "source_key=$source_key"
             echo "recipe_key=$recipe_key"
-            echo "built_key=gecko-built-${source_key}-${ABI}-safe-${recipe_key}-${CACHE_SCHEMA}"
-            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
+            echo "built_key=gecko-built-${source_key}-${ABI}-${profile}-${recipe_key}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-rust-${GECKO_RUST_VERSION}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
           } >> "$GITHUB_OUTPUT"
 
@@ -257,8 +510,22 @@ jobs:
             echo "Mozilla sccache is missing: $sccache_dir/sccache" >&2
             exit 1
           fi
-          echo "$sccache_dir" >> "$GITHUB_PATH"
-          export PATH="$sccache_dir:$PATH"
+          if [[ "$BUILD_PROFILE" == twitch-auth-radical-r1 && "$GITHUB_REF" != refs/heads/master ]]; then
+            local_bin="$RUNNER_TEMP/sccache-local-only-bin"
+            mkdir -p "$local_bin"
+            chmod +x "$GITHUB_WORKSPACE/geckoview/scripts/sccache-local-only.sh"
+            ln -sf "$GITHUB_WORKSPACE/geckoview/scripts/sccache-local-only.sh" "$local_bin/sccache"
+            echo "$local_bin" >> "$GITHUB_PATH"
+            export PATH="$local_bin:$PATH"
+            echo "SCCACHE_REAL_BINARY=$sccache_dir/sccache" >> "$GITHUB_ENV"
+            echo 'SCCACHE_CACHE_SIZE=4G' >> "$GITHUB_ENV"
+            export SCCACHE_REAL_BINARY="$sccache_dir/sccache"
+            echo 'sccache_backend=local-only'
+          else
+            echo "$sccache_dir" >> "$GITHUB_PATH"
+            export PATH="$sccache_dir:$PATH"
+            echo 'sccache_backend=github-actions-cache'
+          fi
           command -v sccache
           sccache --version
 
@@ -283,7 +550,12 @@ jobs:
           GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
           GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
           GECKO_COMPILED_CACHE_DIR: ${{ runner.temp }}/gecko-built-cache
-        run: ./geckoview/scripts/build-aar.sh "${{ matrix.abi }}" safe
+          GECKO_BUILD_JOBS: ${{ (needs.validate-recipe.outputs.r1_release == 'true' || needs.validate-recipe.outputs.r1_x86 == 'true') && '1' || '2' }}
+          GRADLE_OPTS: -Dorg.gradle.daemon=false
+        run: |
+          set -o pipefail
+          ./geckoview/scripts/build-aar.sh "${{ matrix.abi }}" "$BUILD_PROFILE" 2>&1 |
+            tee "$RUNNER_TEMP/gecko-build.log"
 
       - name: Record sccache statistics
         if: always()
@@ -335,8 +607,9 @@ jobs:
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: xtra-geckoview-${{ matrix.abi }}-safe
+          name: xtra-geckoview-${{ matrix.abi }}-${{ needs.validate-recipe.outputs.profile }}
           path: |
+            geckoview/artifacts/*.aar
             geckoview/artifacts/*.target.maven.zip
             geckoview/artifacts/*.json
           if-no-files-found: error
@@ -348,12 +621,592 @@ jobs:
         with:
           name: xtra-geckoview-${{ matrix.abi }}-failure-diagnostics
           path: |
+            ${{ runner.temp }}/gecko-build.log
+            ${{ runner.temp }}/gecko-source/config.log
+            ${{ runner.temp }}/gecko-source/obj-xtra-*/config.log
+            ${{ runner.temp }}/gecko-source/obj-xtra-*/config.status
             ${{ runner.temp }}/gecko-source/.mozconfig
             ${{ runner.temp }}/gecko-source/obj-xtra-*/config.status.json
             ${{ runner.temp }}/sccache-stats.txt
             geckoview/artifacts/*.json
           if-no-files-found: ignore
           retention-days: 7
+
+      - name: Remove R1 build swap
+        if: ${{ always() && (needs.validate-recipe.outputs.r1_release == 'true' || needs.validate-recipe.outputs.r1_x86 == 'true') }}
+        shell: bash
+        env:
+          GECKO_SWAP_FILE: ${{ runner.temp }}/xtra-gecko-r1.swap
+        run: |
+          set -euo pipefail
+          if sudo swapon --show=NAME --noheadings | awk -v path="$GECKO_SWAP_FILE" '$1 == path { found = 1 } END { exit !found }'; then
+            sudo swapoff "$GECKO_SWAP_FILE"
+          fi
+          sudo rm -f -- "$GECKO_SWAP_FILE"
+
+  x86-experiment:
+    name: x86_64 / ${{ inputs.experiment }}
+    needs: validate-recipe
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.experiment != 'validate' && inputs.scope != 'r1-x86' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    env:
+      GECKO_EXPERIMENT: ${{ inputs.experiment }}
+      GECKO_BUILD_JOBS: '1'
+      # GitHub's cache service rejects sccache writes from PR/feature-branch
+      # jobs. Disable that backend there; it otherwise turns every compile
+      # into a doomed remote write attempt. The default branch may write.
+      SCCACHE_LOG: debug
+      GECKO_SWAP_GIB: '12'
+      SCCACHE_CACHE_SIZE: 4G
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Reclaim runner disk and report baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'Disk before cleanup:'
+          df -h /
+          sudo rm -rf -- \
+            /usr/share/dotnet \
+            /opt/ghc \
+            /usr/local/.ghcup \
+            /usr/local/share/boost \
+            /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL || true
+          if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+            timeout 30s docker system prune -af || true
+          fi
+          sudo apt-get clean
+          echo 'Disk after cleanup:'
+          df -h /
+          du -sh "$RUNNER_TEMP"/* 2>/dev/null | sort -h || true
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      - name: Configure Gecko build swap
+        shell: bash
+        env:
+          GECKO_SWAP_FILE: ${{ runner.temp }}/xtra-gecko.swap
+        run: |
+          set -euo pipefail
+          target_bytes=$((GECKO_SWAP_GIB * 1024 * 1024 * 1024))
+          current_bytes="$(free -b | awk '/^Swap:/ {print $2}')"
+          echo "Configured swap bytes=$current_bytes target_bytes=$target_bytes"
+
+          if (( current_bytes < target_bytes )); then
+            required_bytes=$((target_bytes - current_bytes))
+            if sudo swapon --show=NAME --noheadings | \
+              awk -v path="$GECKO_SWAP_FILE" '$1 == path { found = 1 } END { exit !found }'; then
+              sudo swapoff "$GECKO_SWAP_FILE"
+            fi
+            sudo rm -f -- "$GECKO_SWAP_FILE"
+            sudo fallocate -l "$required_bytes" "$GECKO_SWAP_FILE"
+            sudo chmod 600 "$GECKO_SWAP_FILE"
+            sudo mkswap "$GECKO_SWAP_FILE" >/dev/null
+            sudo swapon "$GECKO_SWAP_FILE"
+          fi
+
+          echo 'Swap after configuration:'
+          free -h
+          swapon --show
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-provider: basic
+
+      - name: Install Gecko build tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes binutils ninja-build patch unzip
+
+      - name: Select Gecko profile
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GECKO_EXPERIMENT" in
+            x86_64-auth|x86_64-nowebrtc|x86_64-nowebspeech|x86_64-minimal|x86_64-twitch-auth-radical-r1)
+              echo "GECKO_PROFILE=${GECKO_EXPERIMENT#x86_64-}" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "Unsupported x86_64 experiment: $GECKO_EXPERIMENT" >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Compute x86_64 cache keys
+        id: keys
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_git_revision="$(python3 -c 'import json; print(json.load(open("geckoview/SOURCE_LOCK.json"))["sourceGitRevision"])')"
+          source_archive_sha256="$(python3 -c 'import json; print(json.load(open("geckoview/SOURCE_LOCK.json"))["archiveSha256"])')"
+          source_key="${source_git_revision}-${source_archive_sha256:0:16}"
+          legacy_source_key=519aba0bfb421d93da6c236260d20707fb0ea04470c5178edf006b8820343269
+          recipe_key="$(sha256sum \
+            geckoview/SOURCE_LOCK.json \
+            geckoview/COMPILE_RECIPE_VERSION \
+            geckoview/RUST_TOOLCHAIN_VERSION \
+            geckoview/mozconfigs/common.mozconfig \
+            "geckoview/mozconfigs/x86_64-${GECKO_PROFILE}.mozconfig" \
+            geckoview/patches/0001-disable-android-hls.patch \
+            geckoview/patches/0002-exclude-webrtc-dependent-android-test.patch \
+            geckoview/patches/0003-twitch-auth-lite-build-cuts.patch | \
+            sha256sum | awk '{print $1}')"
+          {
+            echo "source_key=$source_key"
+            echo "recipe_key=$recipe_key"
+            echo "built_key=gecko-built-${source_key}-x86_64-${GECKO_PROFILE}-${recipe_key}-${CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-rust-${GECKO_RUST_VERSION}-${TOOLCHAIN_CACHE_SCHEMA}"
+            echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
+            echo "legacy_toolchain_key=gecko-toolchains-${legacy_source_key}-${RUNNER_OS}-${RUNNER_ARCH}-rust-${GECKO_RUST_VERSION}-${TOOLCHAIN_CACHE_SCHEMA}"
+            echo "legacy_source_cache_key=gecko-source-${legacy_source_key}-${CACHE_SCHEMA}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore pinned source archive cache
+        id: source-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          # source-common.sh stores the compressed, verified archive here;
+          # the expanded checkout remains disposable in RUNNER_TEMP.
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Restore legacy source archive cache
+        id: source-cache-legacy
+        if: steps.source-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.legacy_source_cache_key }}
+
+      - name: Restore Mozilla toolchain cache
+        id: mozbuild-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Restore legacy Mozilla toolchain cache
+        id: mozbuild-cache-legacy
+        if: steps.mozbuild-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
+          key: ${{ steps.keys.outputs.legacy_toolchain_key }}
+
+      - name: Report restored cache sizes
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "source_cache_hit=${{ steps.source-cache.outputs.cache-hit }}"
+          echo "legacy_source_cache_hit=${{ steps.source-cache-legacy.outputs.cache-hit }}"
+          echo "toolchain_cache_hit=${{ steps.mozbuild-cache.outputs.cache-hit }}"
+          echo "legacy_toolchain_cache_hit=${{ steps.mozbuild-cache-legacy.outputs.cache-hit }}"
+          df -h /
+          du -sh "$RUNNER_TEMP"/* 2>/dev/null | sort -h || true
+          du -sh "$HOME/.mozbuild" "$HOME/.cargo" "$HOME/.rustup" 2>/dev/null | sort -h || true
+
+      - name: Select bootstrap mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.mozbuild-cache.outputs.cache-hit }}" == true || "${{ steps.mozbuild-cache-legacy.outputs.cache-hit }}" == true ]]; then
+            echo 'GECKO_SKIP_BOOTSTRAP=1' >> "$GITHUB_ENV"
+            echo 'Using restored Mozilla toolchain; build-aar.sh will skip bootstrap only when its completion marker is present.'
+          else
+            echo 'GECKO_SKIP_BOOTSTRAP=0' >> "$GITHUB_ENV"
+            echo 'Mozilla toolchain cache missed; build-aar.sh will bootstrap once.'
+          fi
+
+      - name: Select diagnostic symbol mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.diagnostic_symbols }}" == true ]]; then
+            echo 'GECKO_FORCE_REBUILD=1' >> "$GITHUB_ENV"
+            echo "GECKO_SYMBOLS_DIR=$RUNNER_TEMP/gecko-symbols" >> "$GITHUB_ENV"
+            echo 'Diagnostic symbols enabled: compiled Gecko artifact cache will be bypassed.'
+          else
+            echo 'GECKO_FORCE_REBUILD=0' >> "$GITHUB_ENV"
+          fi
+
+      - name: Use Mozilla sccache
+        shell: bash
+        run: |
+          set -euo pipefail
+          sccache_dir="$HOME/.mozbuild/sccache"
+          if [[ ! -x "$sccache_dir/sccache" ]]; then
+            echo "Mozilla sccache is missing: $sccache_dir/sccache" >&2
+            exit 1
+          fi
+          # Ensure no server started by a different sccache binary survives.
+          "$sccache_dir/sccache" --stop-server >/dev/null 2>&1 || true
+          echo "SCCACHE_ERROR_LOG=$RUNNER_TEMP/sccache-error.log" >> "$GITHUB_ENV"
+          if [[ "$GITHUB_REF" == 'refs/heads/master' ]]; then
+            echo "$sccache_dir" >> "$GITHUB_PATH"
+            echo "SCCACHE=$sccache_dir/sccache" >> "$GITHUB_ENV"
+            export PATH="$sccache_dir:$PATH"
+            echo 'sccache_backend=github-actions-cache'
+          else
+            local_bin="$RUNNER_TEMP/sccache-local-only-bin"
+            mkdir -p "$local_bin"
+            chmod +x "$GITHUB_WORKSPACE/geckoview/scripts/sccache-local-only.sh"
+            ln -sf "$GITHUB_WORKSPACE/geckoview/scripts/sccache-local-only.sh" "$local_bin/sccache"
+            echo "$local_bin" >> "$GITHUB_PATH"
+            echo "SCCACHE=$local_bin/sccache" >> "$GITHUB_ENV"
+            echo "SCCACHE_REAL_BINARY=$sccache_dir/sccache" >> "$GITHUB_ENV"
+            export PATH="$local_bin:$PATH"
+            export SCCACHE_REAL_BINARY="$sccache_dir/sccache"
+            echo 'sccache_backend=local-only'
+          fi
+          hash -r
+          command -v sccache
+          sccache --version
+          echo "SCCACHE_GHA_ENABLED=${SCCACHE_GHA_ENABLED:-disabled}"
+          echo "SCCACHE_GHA_RW_MODE=${SCCACHE_GHA_RW_MODE:-disabled}"
+
+      - name: Configure sccache GitHub Actions cache
+        if: github.ref == 'refs/heads/master'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            core.exportVariable('SCCACHE_GHA_ENABLED', 'on');
+            core.exportVariable('SCCACHE_GHA_RW_MODE', 'READ_WRITE');
+            core.exportVariable('SCCACHE_GHA_VERSION', 'xtra-geckoview-v1-x86_64-x86_64-auth');
+            core.exportVariable('ACTIONS_RESULTS_URL', process.env.ACTIONS_RESULTS_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+      - name: Probe sccache backend
+        if: inputs.experiment == 'x86_64-twitch-auth-radical-r1'
+        shell: bash
+        env:
+          SCCACHE_LOG: debug
+        run: |
+          set -uo pipefail
+          probe_dir="$RUNNER_TEMP/sccache-probe"
+          mkdir -p "$probe_dir"
+          printf 'int xtra_sccache_probe(void) { return 0; }\n' > "$probe_dir/probe.c"
+          clang_bin="$HOME/.mozbuild/clang/bin/clang"
+          if [[ ! -x "$clang_bin" ]]; then
+            echo "sccache probe compiler missing: $clang_bin" >&2
+            exit 1
+          fi
+          echo "sccache_probe_compiler=$clang_bin"
+          echo "sccache_probe_environment:"
+          env | sort | grep -E '^(ACTIONS_RESULTS_URL|SCCACHE|RUNNER_|GITHUB_EVENT_NAME|GITHUB_REF|GITHUB_SHA)' | sed 's/ACTIONS_RUNTIME_TOKEN=.*/ACTIONS_RUNTIME_TOKEN=***REDACTED***/'
+          sccache --zero-stats >/dev/null 2>&1 || true
+          set +e
+          SCCACHE_LOG=debug sccache "$clang_bin" -c "$probe_dir/probe.c" -o "$probe_dir/probe.o" 2>&1 | tee "$RUNNER_TEMP/sccache-probe.log"
+          probe_status=${PIPESTATUS[0]}
+          set -e
+          echo "sccache_probe_exit=$probe_status"
+          sccache --show-stats 2>&1 | tee -a "$RUNNER_TEMP/sccache-probe.log" || true
+          if [[ -s "${SCCACHE_ERROR_LOG:-}" ]]; then
+            {
+              echo 'sccache_error_log_excerpt_start'
+              grep -m 40 -E 'ERROR|error|failed|HTTP|status|429|403|401|rate|cache' "$SCCACHE_ERROR_LOG" ||
+                sed -n '1,80p' "$SCCACHE_ERROR_LOG"
+              echo 'sccache_error_log_excerpt_end'
+            } 2>&1 | tee -a "$RUNNER_TEMP/sccache-probe.log"
+          else
+            echo 'sccache_error_log=empty-or-missing' | tee -a "$RUNNER_TEMP/sccache-probe.log"
+          fi
+          if [[ "${SCCACHE_GHA_ENABLED:-}" == 'on' && -s "${SCCACHE_ERROR_LOG:-}" ]] &&
+            grep -Eq 'storage write check failed|Cannot write to read-only storage|HTTP/[0-9.]+ 4(0[0-9]|22)' "$SCCACHE_ERROR_LOG"; then
+            echo 'sccache GHA backend write probe failed permanently; refusing to start Gecko compilation' >&2
+            exit 1
+          fi
+          exit "$probe_status"
+
+      - name: Restore compiled x86_64 GeckoView artifacts
+        id: compiled-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ${{ runner.temp }}/gecko-built-cache
+          key: ${{ steps.keys.outputs.built_key }}
+
+      - name: Preflight radical configure and patch application
+        if: inputs.experiment == 'x86_64-twitch-auth-radical-r1' && (inputs.preflight_only == true || steps.compiled-cache.outputs.cache-hit != 'true')
+        shell: bash
+        env:
+          GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
+          GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
+          GECKO_PREFLIGHT_ONLY: 1
+          GRADLE_OPTS: -Dorg.gradle.daemon=false
+        run: |
+          set -euo pipefail
+          ./geckoview/scripts/build-aar.sh x86_64 "$GECKO_PROFILE" 2>&1 | tee "$RUNNER_TEMP/gecko-preflight.log"
+
+      - name: Build and verify x86_64 GeckoView AAR
+        id: build
+        if: inputs.preflight_only != true
+        shell: bash
+        env:
+          GECKO_SOURCE_DIR: ${{ runner.temp }}/gecko-source
+          GECKO_SOURCE_CACHE_DIR: ${{ runner.temp }}/gecko-source-snapshot
+          GECKO_REUSE_SOURCE: 1
+          GRADLE_OPTS: -Dorg.gradle.daemon=false
+        run: |
+          set -euo pipefail
+          monitor_pid=''
+          stop_monitor() {
+            local pid="${monitor_pid:-}"
+            monitor_pid=''
+            if [[ -n "$pid" ]]; then
+              kill "$pid" 2>/dev/null || true
+              wait "$pid" 2>/dev/null || true
+            fi
+          }
+          trap stop_monitor EXIT
+          trap 'exit 143' INT TERM
+
+          resource_heartbeat() {
+            echo '::group::Gecko resource heartbeat'
+            date -u '+%Y-%m-%dT%H:%M:%SZ'
+            free -h
+            df -h /
+            ps -eo pid,comm,rss,%mem --sort=-rss | head -10 || true
+            echo '::endgroup::'
+          }
+
+          resource_heartbeat
+          (
+            while sleep 300; do
+              resource_heartbeat
+            done
+          ) &
+          monitor_pid=$!
+          echo "resource_heartbeat_pid=$monitor_pid interval_seconds=300"
+          ./geckoview/scripts/build-aar.sh x86_64 "$GECKO_PROFILE" 2>&1 | tee "$RUNNER_TEMP/gecko-build.log"
+
+      - name: Save compiled x86_64 GeckoView artifacts
+        if: always() && steps.build.outcome == 'success' && steps.compiled-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-built-cache
+          key: ${{ steps.keys.outputs.built_key }}
+
+      - name: Locate exact generated AAR
+        id: artifact
+        if: success() && inputs.preflight_only != true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t aar_files < <(find geckoview/artifacts -maxdepth 1 -type f \
+            -name "xtra-geckoview-x86_64-${GECKO_PROFILE}-*.aar" -print | sort)
+          if [[ "${#aar_files[@]}" -ne 1 ]]; then
+            printf 'Expected exactly one fresh x86_64 %s AAR, found %s:\n' \
+              "$GECKO_EXPERIMENT" "${#aar_files[@]}" >&2
+            printf '  %s\n' "${aar_files[@]}" >&2
+            exit 1
+          fi
+          aar="$(realpath -- "${aar_files[0]}")"
+          artifact_id="$(basename "$aar" .aar)"
+          maven="${aar%.aar}.target.maven.zip"
+          test -f "$maven"
+          echo "aar_path=$aar" >> "$GITHUB_OUTPUT"
+          echo "maven_path=$maven" >> "$GITHUB_OUTPUT"
+          echo "artifact_id=$artifact_id" >> "$GITHUB_OUTPUT"
+          echo "Using exact generated AAR: $aar"
+          echo "Using matching Maven archive: $maven"
+          stat -c 'AAR compressed bytes=%s' "$aar"
+          df -h /
+
+      - name: Upload generated x86_64 GeckoView inputs
+        if: always() && steps.artifact.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-${{ inputs.experiment }}-gecko-inputs
+          retention-days: 1
+          path: |
+            ${{ steps.artifact.outputs.aar_path }}
+            ${{ steps.artifact.outputs.maven_path }}
+            geckoview/artifacts/${{ steps.artifact.outputs.artifact_id }}.json
+          if-no-files-found: error
+
+      - name: Upload x86_64 Gecko diagnostic symbols
+        if: always() && inputs.diagnostic_symbols == true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-${{ inputs.experiment }}-symbols
+          retention-days: 1
+          path: |
+            ${{ runner.temp }}/gecko-symbols/**
+            ${{ runner.temp }}/gecko-build.log
+          if-no-files-found: warn
+
+      - name: Build Xtra debug APK with exact AAR
+        id: apk
+        if: success() && inputs.preflight_only != true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:assembleDebug \
+            --max-workers=1 \
+            "-PxtraGeckoViewAar=${{ steps.artifact.outputs.aar_path }}" 2>&1 | tee "$RUNNER_TEMP/xtra-debug-build.log"
+          apk='app/build/outputs/apk/debug/app-debug.apk'
+          test -f "$apk"
+          stat -c 'Xtra debug APK bytes=%s' "$apk"
+          echo 'Disk after Xtra debug APK package:'
+          df -h /
+          du -sh "$RUNNER_TEMP"/* 2>/dev/null | sort -h || true
+
+      - name: Record x86_64 measurements
+        if: success() && inputs.preflight_only != true
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./geckoview/scripts/measure-artifacts.sh \
+            "${{ steps.artifact.outputs.artifact_id }}" \
+            "${{ steps.artifact.outputs.aar_path }}" \
+            app/build/outputs/apk/debug/app-debug.apk \
+            not-tested \
+            geckoview/artifacts/measurements.tsv
+          echo 'Recorded measurements:'
+          tail -n 3 geckoview/artifacts/measurements.tsv
+          artifact_id="${{ steps.artifact.outputs.artifact_id }}"
+          measurement_row="$(awk -F '\t' -v build="$artifact_id" \
+            'NR == 1 || $1 == build { print }' geckoview/artifacts/measurements.tsv)"
+          test -n "$measurement_row"
+          {
+            echo '## x86_64 GeckoView measurement'
+            echo
+            echo '```tsv'
+            printf '%s\n' "$measurement_row"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Record sccache statistics
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          sccache --show-stats | tee "$RUNNER_TEMP/sccache-stats.txt"
+
+      - name: Report final disk usage
+        if: always()
+        shell: bash
+        run: |
+          echo 'Final disk usage:'
+          df -h /
+          du -sh "$RUNNER_TEMP"/* 2>/dev/null | sort -h || true
+          du -sh "$HOME/.mozbuild" "$HOME/.cargo" "$HOME/.rustup" 2>/dev/null | sort -h || true
+
+      - name: Check source archive cache
+        id: source-ready
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f "$RUNNER_TEMP/gecko-source-snapshot/.xtra-source-snapshot.json" ]]; then
+            echo 'ready=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'ready=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check Mozilla bootstrap marker
+        id: bootstrap_marker
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_git_revision="$(python3 - <<'PY'
+          import json
+          with open('geckoview/SOURCE_LOCK.json', encoding='utf-8') as source_lock:
+              print(json.load(source_lock)['sourceGitRevision'])
+          PY
+          )"
+          marker="$HOME/.mozbuild/.xtra-gecko-bootstrap-complete-${source_git_revision}"
+          if [[ -f "$marker" ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Mozilla bootstrap marker found: $marker"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Mozilla bootstrap marker not found: $marker"
+          fi
+
+      - name: Save pinned source archive cache
+        if: always() && steps.source-ready.outputs.ready == 'true' && steps.source-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: ${{ runner.temp }}/gecko-source-snapshot
+          key: ${{ steps.keys.outputs.source_cache_key }}
+
+      - name: Save Mozilla toolchain cache
+        if: always() && steps.bootstrap_marker.outputs.ready == 'true' && steps.mozbuild-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        continue-on-error: true
+        with:
+          path: |
+            ~/.mozbuild
+            ~/.cargo
+            ~/.rustup
+          key: ${{ steps.keys.outputs.toolchain_key }}
+
+      - name: Upload x86_64 experiment APK and measurements
+        if: success() && inputs.preflight_only != true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-${{ inputs.experiment }}-debug
+          retention-days: 1
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            geckoview/artifacts/measurements.tsv
+          if-no-files-found: error
+
+      - name: Upload compact x86_64 failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-${{ inputs.experiment }}-failure-diagnostics
+          retention-days: 1
+          path: |
+            ${{ runner.temp }}/gecko-build.log
+            ${{ runner.temp }}/gecko-preflight.log
+            ${{ runner.temp }}/xtra-debug-build.log
+            ${{ runner.temp }}/sccache-probe.log
+            ${{ runner.temp }}/sccache-error.log
+            ${{ runner.temp }}/sccache-stats.txt
+            ${{ runner.temp }}/gecko-source/.mozconfig
+            ${{ runner.temp }}/gecko-source/obj-xtra-*/config.status.json
+            geckoview/artifacts/*.json
+          if-no-files-found: ignore
+
+      - name: Remove temporary Gecko build swap
+        if: always()
+        shell: bash
+        env:
+          GECKO_SWAP_FILE: ${{ runner.temp }}/xtra-gecko.swap
+        run: |
+          set -euo pipefail
+          if sudo swapon --show=NAME --noheadings | \
+            awk -v path="$GECKO_SWAP_FILE" '$1 == path { found = 1 } END { exit !found }'; then
+            sudo swapoff "$GECKO_SWAP_FILE"
+          fi
+          sudo rm -f -- "$GECKO_SWAP_FILE"
+          echo 'Temporary Gecko swap removed.'
+          free -h
 
   experimental-nowebrtc:
     name: ARM64 / nowebrtc (experimental)
@@ -378,20 +1231,22 @@ jobs:
           distribution: temurin
 
       - name: Install Gecko build tools
-        run: sudo apt-get update && sudo apt-get install --yes ninja-build patch unzip
+        run: sudo apt-get update && sudo apt-get install --yes binutils ninja-build patch unzip
 
       - name: Compute cache keys
         id: keys
         shell: bash
         run: |
           set -euo pipefail
-          source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
+          source_identity="$(python3 -c 'import json; l=json.load(open("geckoview/SOURCE_LOCK.json")); print(l["sourceGitRevision"]); print(l["archiveSha256"]); print(open("geckoview/SOURCE_REVISION").read().strip())')"
+          source_key="$(printf '%s\n' "$source_identity" | sha256sum | awk '{print $1}')"
           recipe_key="$(sha256sum geckoview/SOURCE_LOCK.json geckoview/COMPILE_RECIPE_VERSION \
+            geckoview/RUST_TOOLCHAIN_VERSION \
             geckoview/mozconfigs/common.mozconfig geckoview/mozconfigs/arm64-v8a-nowebrtc.mozconfig \
             geckoview/patches/0001-disable-android-hls.patch | sha256sum | awk '{print $1}')"
           {
             echo "source_key=$source_key"
-            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-rust-${GECKO_RUST_VERSION}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
             echo "built_key=gecko-built-${source_key}-arm64-v8a-nowebrtc-${recipe_key}-${CACHE_SCHEMA}"
           } >> "$GITHUB_OUTPUT"
@@ -527,7 +1382,7 @@ jobs:
           distribution: temurin
 
       - name: Install Gecko build tools
-        run: sudo apt-get update && sudo apt-get install --yes ninja-build patch unzip
+        run: sudo apt-get update && sudo apt-get install --yes binutils ninja-build patch unzip
 
       - name: Download ARM64 Maven archive
         uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
@@ -549,7 +1404,8 @@ jobs:
           arm64_zip="$(find fat-inputs/arm64 -type f -name '*.target.maven.zip' -print -quit)"
           armv7_zip="$(find fat-inputs/armv7 -type f -name '*.target.maven.zip' -print -quit)"
           [[ -n "$arm64_zip" && -n "$armv7_zip" ]] || exit 1
-          source_key="$(sha256sum geckoview/SOURCE_REVISION geckoview/SOURCE_LOCK.json | sha256sum | awk '{print $1}')"
+          source_identity="$(python3 -c 'import json; l=json.load(open("geckoview/SOURCE_LOCK.json")); print(l["sourceGitRevision"]); print(l["archiveSha256"]); print(open("geckoview/SOURCE_REVISION").read().strip())')"
+          source_key="$(printf '%s\n' "$source_identity" | sha256sum | awk '{print $1}')"
           input_key="$(sha256sum "$arm64_zip" "$armv7_zip" | sha256sum | awk '{print $1}')"
           recipe_key="$(sha256sum geckoview/SOURCE_LOCK.json geckoview/COMPILE_RECIPE_VERSION \
             geckoview/mozconfigs/common.mozconfig geckoview/mozconfigs/fat.mozconfig \
@@ -558,7 +1414,7 @@ jobs:
             echo "arm64_zip=$arm64_zip"
             echo "armv7_zip=$armv7_zip"
             echo "source_cache_key=gecko-source-${source_key}-${CACHE_SCHEMA}"
-            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-${TOOLCHAIN_CACHE_SCHEMA}"
+            echo "toolchain_key=gecko-toolchains-${source_key}-${RUNNER_OS}-${RUNNER_ARCH}-rust-${GECKO_RUST_VERSION}-${TOOLCHAIN_CACHE_SCHEMA}"
             echo "fat_key=gecko-fat-${source_key}-${input_key}-${recipe_key}-${CACHE_SCHEMA}"
           } >> "$GITHUB_OUTPUT"
 
@@ -662,6 +1518,431 @@ jobs:
           path: geckoview/artifacts/*universal-safe*
           if-no-files-found: error
           retention-days: 1
+
+  r1-integration:
+    name: Xtra debug / ${{ matrix.abi }} / twitch-auth-radical-r1
+    needs: [validate-recipe, build-skinny]
+    if: ${{ needs.validate-recipe.outputs.r1_release == 'true' || needs.validate-recipe.outputs.r1_x86 == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.validate-recipe.outputs.matrix) }}
+    env:
+      R1_PROFILE: twitch-auth-radical-r1
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: temurin
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-provider: basic
+
+      - name: Install verification tools
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install --yes binutils unzip jq
+
+      - name: Download same-run R1 AAR
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: xtra-geckoview-${{ matrix.abi }}-${{ env.R1_PROFILE }}
+          path: r1-inputs
+
+      - name: Verify exact R1 AAR identity
+        id: artifact
+        shell: bash
+        env:
+          ABI: ${{ matrix.abi }}
+        run: |
+          set -euo pipefail
+          mapfile -t aar_files < <(find r1-inputs -type f -name '*.aar' -print | sort)
+          mapfile -t manifest_files < <(find r1-inputs -type f -name '*.json' -print | sort)
+          [[ "${#aar_files[@]}" -eq 1 ]] || { echo "Expected exactly one R1 AAR" >&2; exit 1; }
+          [[ "${#manifest_files[@]}" -ge 1 ]] || { echo "R1 AAR manifest is missing" >&2; exit 1; }
+          aar="${aar_files[0]}"
+          manifest="${manifest_files[0]}"
+          profile="$(jq -er '.profile' "$manifest")"
+          manifest_abi="$(jq -er '.abi' "$manifest")"
+          source_revision="$(jq -er '.sourceRevision' "$manifest")"
+          config_digest="$(jq -er '.configurationDigest' "$manifest")"
+          [[ "$profile" == "$R1_PROFILE" && "$manifest_abi" == "$ABI" ]] || {
+            echo "R1 identity mismatch: abi=$manifest_abi profile=$profile" >&2
+            exit 1
+          }
+          expected_source_revision="$(jq -er '.revision' geckoview/SOURCE_LOCK.json)"
+          [[ "$source_revision" == "$expected_source_revision" ]] || {
+            echo "Gecko revision mismatch: $source_revision != $expected_source_revision" >&2
+            exit 1
+          }
+          maven="${aar%.aar}.target.maven.zip"
+          [[ -f "$maven" ]] || { echo "Matching Maven archive is missing: $maven" >&2; exit 1; }
+          observed_manifest="$RUNNER_TEMP/r1-observed-aar-${ABI}.json"
+          ./geckoview/scripts/verify-aar.sh "$aar" "$ABI" "$R1_PROFILE" \
+            "$source_revision" "$config_digest" "$maven" "$manifest" "$observed_manifest"
+          echo "aar=$aar" >> "$GITHUB_OUTPUT"
+          echo "manifest=$observed_manifest" >> "$GITHUB_OUTPUT"
+          echo "maven=$maven" >> "$GITHUB_OUTPUT"
+
+      - name: Build Xtra debug APK with exact R1 AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:assembleDebug --max-workers=1 \
+            "-PxtraGeckoViewAar=${{ steps.artifact.outputs.aar }}"
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$apk"
+          unzip -Z1 "$apk" | grep -qx "lib/${{ matrix.abi }}/libxul.so" || {
+            echo "APK does not contain R1 libxul for ${{ matrix.abi }}" >&2
+            exit 1
+          }
+          stat -c 'R1 integration APK bytes=%s' "$apk"
+
+      - name: Create R1 ABI manifest
+        env:
+          ABI: ${{ matrix.abi }}
+          GECKO_RECIPE_VERSION_FILE: geckoview/COMPILE_RECIPE_VERSION
+        shell: bash
+        run: |
+          set -euo pipefail
+          export GECKO_SOURCE_GIT_REVISION="$(jq -er '.sourceGitRevision' geckoview/SOURCE_LOCK.json)"
+          python3 geckoview/scripts/create-r1-abi-manifest.py \
+            "${{ steps.artifact.outputs.manifest }}" \
+            app/build/outputs/apk/debug/app-debug.apk \
+            "$ABI" \
+            "r1-abi-manifest.json"
+
+      - name: Upload R1 ABI integration result
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-${{ matrix.abi }}-twitch-auth-radical-r1-integration
+          retention-days: 1
+          path: |
+            ${{ steps.artifact.outputs.aar }}
+            ${{ steps.artifact.outputs.maven }}
+            r1-abi-manifest.json
+            app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  r1-universal:
+    name: Qualify universal R1 GeckoView AAR
+    needs: [validate-recipe, r1-integration]
+    if: ${{ needs.validate-recipe.outputs.r1_release == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: temurin
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-provider: basic
+      - name: Download four ABI integrations
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          pattern: xtra-geckoview-*-twitch-auth-radical-r1-integration
+          path: r1-inputs
+          merge-multiple: false
+      - name: Build and verify universal AAR
+        id: universal
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t aars < <(python3 geckoview/scripts/collect-r1-aars.py r1-inputs)
+          [[ "${#aars[@]}" -eq 4 ]] || {
+            echo "expected four verified R1 AARs, found ${#aars[@]}" >&2
+            exit 1
+          }
+          mkdir -p universal
+          ./geckoview/scripts/combine-r1-aar.sh universal/xtra-geckoview-twitch-auth-r1-universal.aar "${aars[@]}"
+          ./geckoview/scripts/verify-fat-aar.sh universal/xtra-geckoview-twitch-auth-r1-universal.aar twitch-auth-radical-r1 unknown unknown arm64-v8a armeabi-v7a x86 x86_64
+          python3 - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          source = next(Path('r1-inputs').glob('*/r1-abi-manifest.json'))
+          data = json.loads(source.read_text())
+          aar = Path('universal/xtra-geckoview-twitch-auth-r1-universal.aar')
+          out = {k: data[k] for k in ('profile', 'sourceRevision', 'sourceGitRevision', 'xtraCommit', 'compileRecipeVersion')}
+          out['abis'] = ['arm64-v8a', 'armeabi-v7a', 'x86', 'x86_64']
+          out['universal'] = {'file': aar.name, 'sha256': hashlib.sha256(aar.read_bytes()).hexdigest(), 'size': aar.stat().st_size}
+          Path('universal/xtra-geckoview-twitch-auth-r1-universal.json').write_text(json.dumps(out, indent=2, sort_keys=True) + '\n')
+          PY
+      - name: Build Xtra against qualified universal AAR
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon :app:assembleDebug --max-workers=1 -PxtraGeckoViewAar="$PWD/universal/xtra-geckoview-twitch-auth-r1-universal.aar"
+          apk=app/build/outputs/apk/debug/app-debug.apk
+          test -f "$apk"
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            unzip -Z1 "$apk" | grep -qx "lib/$abi/libxul.so" || exit 1
+          done
+      - name: Upload qualified universal R1 artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-twitch-auth-r1-universal
+          path: |
+            universal/*.aar
+            universal/*.json
+            app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 1
+
+  publish-r1:
+    name: Publish immutable R1 ABI set
+    needs: [validate-recipe, r1-integration, r1-universal]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && needs.validate-recipe.outputs.r1_release == 'true' && inputs.release_tag != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download R1 ABI integration results
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          pattern: xtra-geckoview-*-twitch-auth-radical-r1-integration
+          path: r1-release-inputs
+          merge-multiple: false
+      - name: Download qualified universal R1 AAR
+        uses: actions/download-artifact@95815c38cf2ff2164869cbab79da8d1f422bc89e # v4.2.1
+        with:
+          name: xtra-geckoview-twitch-auth-r1-universal
+          path: r1-universal
+
+      - name: Create immutable R1 GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^geckoview-twitch-auth-r1-v[0-9]+(\.[0-9]+)*$ ]] || {
+            echo "release_tag must match geckoview-twitch-auth-r1-vX[.Y...]" >&2
+            exit 2
+          }
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists and is immutable: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Tag already exists and is immutable: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          mkdir -p release-assets
+          find_one() {
+            local root="$1" name="$2" description="$3"
+            mapfile -t matches < <(find "$root" -type f -name "$name" -print | sort)
+            [[ "${#matches[@]}" -eq 1 ]] || {
+              echo "expected exactly one $description; found ${#matches[@]}" >&2
+              printf '  %s\n' "${matches[@]}" >&2
+              exit 1
+            }
+            printf '%s\n' "${matches[0]}"
+          }
+          for abi in arm64-v8a armeabi-v7a x86 x86_64; do
+            input_dir="$(find r1-release-inputs -type d -name "*-${abi}-twitch-auth-radical-r1-integration" -print -quit)"
+            [[ -n "$input_dir" ]] || { echo "Missing integration result for $abi" >&2; exit 1; }
+            manifest="$(find_one "$input_dir" r1-abi-manifest.json "$abi R1 ABI manifest")"
+            aar_name="$(jq -er '.aar.file' "$manifest")"
+            maven_name="$(jq -er '.maven.file' "$manifest")"
+            aar="$(find_one "$input_dir" "$aar_name" "$abi AAR")"
+            maven="$(find_one "$input_dir" "$maven_name" "$abi Maven archive")"
+            [[ -f "$manifest" && -f "$aar" && -f "$maven" ]] || {
+              echo "Incomplete R1 inputs for $abi" >&2
+              exit 1
+            }
+            jq -e --arg abi "$abi" --arg commit "$GITHUB_SHA" \
+              '.abi == $abi and .profile == "twitch-auth-radical-r1" and .xtraCommit == $commit' \
+              "$manifest" >/dev/null || {
+              echo "R1 manifest provenance mismatch for $abi" >&2
+              exit 1
+            }
+            expected_manifest="$RUNNER_TEMP/expected-aar-$abi.json"
+            observed_manifest="$RUNNER_TEMP/observed-aar-$abi.json"
+            jq -n \
+              --arg artifact "$(jq -er '.aar.file' "$manifest")" \
+              --arg abi "$abi" \
+              --arg profile "twitch-auth-radical-r1" \
+              --arg source_revision "$(jq -er '.sourceRevision' "$manifest")" \
+              --arg config_digest "$(jq -er '.configurationDigest' "$manifest")" \
+              --arg sha256 "$(jq -er '.aar.sha256' "$manifest")" \
+              --arg libxul_build_id "$(jq -er '.aar.libxulBuildId' "$manifest")" \
+              --arg maven "$(jq -er '.maven.file' "$manifest")" \
+              --arg maven_sha256 "$(jq -er '.maven.sha256' "$manifest")" \
+              --argjson size "$(jq -er '.aar.size' "$manifest")" \
+              --argjson libxul_size "$(jq -er '.aar.libxulSize' "$manifest")" \
+              --argjson omni_size "$(jq -er '.aar.omniSize' "$manifest")" \
+              '{artifact:$artifact,abi:$abi,profile:$profile,sourceRevision:$source_revision,
+                configurationDigest:$config_digest,size:$size,sha256:$sha256,
+                libxulSize:$libxul_size,libxulBuildId:$libxul_build_id,omniSize:$omni_size,
+                mavenArchive:$maven,mavenArchiveSha256:$maven_sha256}' > "$expected_manifest"
+            ./geckoview/scripts/verify-aar.sh "$aar" "$abi" twitch-auth-radical-r1 \
+              "$(jq -er '.sourceRevision' "$manifest")" \
+              "$(jq -er '.configurationDigest' "$manifest")" \
+              "$maven" "$expected_manifest" "$observed_manifest"
+            cp "$aar" "release-assets/xtra-geckoview-twitch-auth-r1-${abi}.aar"
+            cp "$maven" "release-assets/xtra-geckoview-twitch-auth-r1-${abi}.target.maven.zip"
+            cp "$manifest" "release-assets/xtra-geckoview-twitch-auth-r1-${abi}.json"
+          done
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          assets = []
+          for abi in ("arm64-v8a", "armeabi-v7a", "x86", "x86_64"):
+              path = Path(f"release-assets/xtra-geckoview-twitch-auth-r1-{abi}.json")
+              assets.append(json.loads(path.read_text(encoding="utf-8")))
+          revisions = {item["sourceRevision"] for item in assets}
+          git_revisions = {item["sourceGitRevision"] for item in assets}
+          commits = {item["xtraCommit"] for item in assets}
+          recipes = {item["compileRecipeVersion"] for item in assets}
+          if not all(len(values) == 1 for values in (revisions, git_revisions, commits, recipes)):
+              raise SystemExit("R1 ABI manifests do not share one build identity")
+          aggregate = {
+              "profile": "twitch-auth-radical-r1",
+              "abis": [item["abi"] for item in assets],
+              "sourceRevision": assets[0]["sourceRevision"],
+              "sourceGitRevision": assets[0]["sourceGitRevision"],
+              "xtraCommit": assets[0]["xtraCommit"],
+              "compileRecipeVersion": assets[0]["compileRecipeVersion"],
+              "artifacts": assets,
+          }
+          Path("release-assets/xtra-geckoview-twitch-auth-r1-manifest.json").write_text(
+              json.dumps(aggregate, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+          )
+          PY
+          universal_aar="$(find r1-universal -type f -name '*.aar' -print -quit)"
+          universal_manifest="$(find r1-universal -type f -name '*universal.json' -print -quit)"
+          [[ -f "$universal_aar" && -f "$universal_manifest" ]] || { echo 'qualified universal R1 artifact is incomplete' >&2; exit 1; }
+          cp "$universal_aar" release-assets/
+          cp "$universal_manifest" release-assets/xtra-geckoview-twitch-auth-r1-universal.json
+          gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --latest=false \
+            --title "$RELEASE_TAG" \
+            --notes "Immutable GeckoView R1 ABI set for Twitch authentication." \
+            release-assets/*
+
+  preserve-r1:
+    name: Preserve qualified R1 artifacts
+    needs: [validate-recipe]
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.validate-recipe.outputs.r1_preserve == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Install verification tools
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install --yes binutils unzip jq
+      - name: Download and verify qualified R1 artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          RUNNER_TEMP: ${{ runner.temp }}
+          R1_SOURCE_RUN_ID: ${{ inputs.r1_source_run_id }}
+        shell: bash
+        run: bash geckoview/scripts/preserve-r1-release.sh "$R1_SOURCE_RUN_ID"
+      - name: Upload preserved ARM64 integration artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-r1-preserved-arm64-v8a-integration
+          path: r1-preserved/xtra-geckoview-r1-preserved-arm64-v8a-integration
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload preserved ARMv7 integration artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-r1-preserved-armeabi-v7a-integration
+          path: r1-preserved/xtra-geckoview-r1-preserved-armeabi-v7a-integration
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload preserved x86 integration artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-r1-preserved-x86-integration
+          path: r1-preserved/xtra-geckoview-r1-preserved-x86-integration
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload preserved x86_64 integration artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-r1-preserved-x86_64-integration
+          path: r1-preserved/xtra-geckoview-r1-preserved-x86_64-integration
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload preserved universal R1 artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: xtra-geckoview-r1-preserved-universal
+          path: r1-preserved/xtra-geckoview-r1-preserved-universal
+          if-no-files-found: error
+          retention-days: 90
+
+  publish-r1-promoted:
+    name: Promote immutable R1 ABI set
+    needs: [validate-recipe]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master' && needs.validate-recipe.outputs.r1_promote == 'true' && inputs.release_tag != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout Xtra configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          java-version: '21'
+          distribution: temurin
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
+        with:
+          cache-provider: basic
+      - name: Install verification tools
+        shell: bash
+        run: sudo apt-get update && sudo apt-get install --yes binutils unzip jq
+      - name: Promote verified R1 artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SHA: ${{ github.sha }}
+          RUNNER_TEMP: ${{ runner.temp }}
+          TWITCH_PUBLIC_CLIENT_ID: ${{ vars.TWITCH_PUBLIC_CLIENT_ID }}
+          R1_SOURCE_RUN_ID: ${{ inputs.r1_source_run_id }}
+          R1_PRESERVED_RUN_ID: ${{ inputs.r1_preserved_run_id }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        shell: bash
+        run: bash geckoview/scripts/promote-r1-release.sh "$R1_SOURCE_RUN_ID" "$RELEASE_TAG" "${R1_PRESERVED_RUN_ID:-$R1_SOURCE_RUN_ID}"
 
   integration:
     name: Xtra release with custom GeckoView
