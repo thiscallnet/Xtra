@@ -110,7 +110,6 @@ class StreamPreloadViewportController(
     private fun requestPublish() {
         if (!started) return
         updateScrollingState()
-        if (isScrolling()) return
         if (publishPosted) return
         publishPosted = true
         recyclerView.postOnAnimation(publishRunnable)
@@ -119,7 +118,6 @@ class StreamPreloadViewportController(
     private fun publish() {
         if (!started) return
         updateScrollingState()
-        if (isScrolling()) return
         if (!fragment.isAdded || fragment.view == null ||
             !fragment.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
             !recyclerView.isAttachedToWindow
@@ -182,25 +180,27 @@ class StreamPreloadViewportController(
                 add(VisibleCard(stream, visibleFraction, centerProximity, previewCandidate))
             }
         }
-        coordinator?.updateViewport(
-            viewportKey,
-            visibleCards.mapNotNull { card ->
-                val stream = card.stream ?: return@mapNotNull null
-                val channelLogin = stream.channelLogin?.trim().orEmpty()
-                channelLogin.takeIf { it.isNotEmpty() }?.let { login ->
-                    StreamPreloadCandidate(
-                        streamKey = streamKey(stream),
-                        channelLogin = login,
-                        visibleFraction = card.visibleFraction,
-                        centerProximity = card.centerProximity,
-                        title = stream.title,
-                        channelName = stream.channelName,
-                        channelLogo = stream.channelImage,
-                    )
-                }
-            },
-            scrolling = isScrolling(),
-        )
+        if (!isScrolling()) {
+            coordinator?.updateViewport(
+                viewportKey,
+                visibleCards.mapNotNull { card ->
+                    val stream = card.stream ?: return@mapNotNull null
+                    val channelLogin = stream.channelLogin?.trim().orEmpty()
+                    channelLogin.takeIf { it.isNotEmpty() }?.let { login ->
+                        StreamPreloadCandidate(
+                            streamKey = streamKey(stream),
+                            channelLogin = login,
+                            visibleFraction = card.visibleFraction,
+                            centerProximity = card.centerProximity,
+                            title = stream.title,
+                            channelName = stream.channelName,
+                            channelLogo = stream.channelImage,
+                        )
+                    }
+                },
+                scrolling = false,
+            )
+        }
         previewCoordinator.updateViewport(
             viewportKey,
             visibleCards.mapNotNull { it.previewCandidate },

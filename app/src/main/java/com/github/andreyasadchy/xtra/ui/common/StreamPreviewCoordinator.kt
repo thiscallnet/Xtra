@@ -101,7 +101,6 @@ class StreamPreviewCoordinator(
     private val failedUntil = mutableMapOf<String, Long>()
     private var selectionJob: Job? = null
     private var selectionPending = false
-    private var previewsPausedForScroll = false
     private var pagerScrolling = false
     private var pagerResumePending = false
     private var pagerResumeJob: Job? = null
@@ -191,18 +190,12 @@ class StreamPreviewCoordinator(
     /** Scrolling is a visibility update, not a release event. */
     fun onScrolling(viewportKey: String) {
         viewports[viewportKey] = viewports[viewportKey]?.copy(scrolling = true) ?: Viewport(emptyList(), true)
-        if (!previewsPausedForScroll) {
-            activePreviews.values.forEach { it.player.playWhenReady = false }
-            previewsPausedForScroll = true
-        }
-        previewLifecycle.onScrolling()
         scheduleSelection()
     }
 
     /**
-     * A pager moves complete preview surfaces horizontally. Keep the player state warm, but hide
-     * its TextureView while the page animation is running; TextureView draw synchronization can
-     * otherwise block the UI thread for multiple frames.
+     * A pager moves complete preview surfaces horizontally. Keep active previews attached and
+     * defer only new selection until the page animation settles.
      */
     fun onPagerScrollStateChanged(scrolling: Boolean) {
         if (pagerScrolling == scrolling) return
@@ -211,12 +204,6 @@ class StreamPreviewCoordinator(
             pagerResumeJob?.cancel()
             pagerResumeJob = null
             pagerResumePending = false
-            activePreviews.values.forEach { active ->
-                active.player.playWhenReady = false
-                suspendPreviewSurface(active)
-            }
-            previewsPausedForScroll = true
-            previewLifecycle.onScrolling()
             cancelPendingStarts()
         } else {
             pagerResumePending = true
@@ -355,18 +342,10 @@ class StreamPreviewCoordinator(
             .filter { it.visibleFraction >= StreamPreviewSelectionPolicy.STOP_VISIBLE_FRACTION }
             .mapNotNull { it.previewIdentity }
         val scrolling = pagerScrolling || viewports.values.any { it.scrolling }
-        if (pagerScrolling || pagerResumePending) {
-            cancelPendingStarts()
-            return
-        }
-        if (!scrolling && previewsPausedForScroll) {
-            activePreviews.values.forEach { it.player.playWhenReady = true }
-            previewsPausedForScroll = false
-        }
         if (scrolling) {
             // A gesture changes which cards are visible, not whether an existing
-            // preview should play. The lifecycle grace period handles cards that
-            // remain offscreen after the gesture settles.
+            // preview should play. Keep tracking geometry so a genuinely offscreen
+            // preview can still reach its grace-period expiry.
             cancelPendingStarts()
         }
         previewLifecycle.observeVisible(reasonablyVisible, now, scrolling = scrolling)
@@ -375,6 +354,8 @@ class StreamPreviewCoordinator(
         activePreviews.keys.toList()
             .filter { it !in previewLifecycle.activeIdentities() && it != handoffLogin }
             .forEach(::releasePreview)
+
+        if (scrolling || pagerResumePending) return
 
         val activeIdentities = activePreviews.keys.toSet()
         val selected = StreamPreviewSelectionPolicy.select(
@@ -691,7 +672,6 @@ class StreamPreviewCoordinator(
     private fun stopPreview() {
         cancelPendingStarts()
         lifecycleReconciler.cancel()
-        previewsPausedForScroll = false
         pagerScrolling = false
         pagerResumeJob?.cancel()
         pagerResumeJob = null
@@ -789,10 +769,6 @@ class StreamPreviewCoordinator(
         active.playerView.alpha = 0f
         active.playerView.visibility = View.GONE
         active.surface = null
-    }
-
-    private fun suspendPreviewSurface(active: ActivePreview) {
-        detachPreviewSurface(active)
     }
 
     private fun attachPreviewPlayer(active: ActivePreview) {

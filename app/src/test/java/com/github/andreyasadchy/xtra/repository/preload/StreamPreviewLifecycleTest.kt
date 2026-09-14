@@ -7,16 +7,6 @@ import org.junit.Test
 
 class StreamPreviewLifecycleTest {
     @Test
-    fun scrollingDoesNotAutomaticallyClearActivePreviews() {
-        val lifecycle = StreamPreviewLifecycle()
-        lifecycle.track("channel-a", nowMs = 0L)
-
-        lifecycle.onScrolling()
-
-        assertEquals(setOf("channel-a"), lifecycle.activeIdentities())
-    }
-
-    @Test
     fun brieflyOffscreenCardSurvivesGracePeriod() {
         val lifecycle = StreamPreviewLifecycle()
         lifecycle.track("channel-a", nowMs = 0L)
@@ -39,19 +29,26 @@ class StreamPreviewLifecycleTest {
     }
 
     @Test
-    fun scrollingDoesNotExpireAnOffscreenPreviewUntilScrollingStops() {
+    fun offscreenPreviewExpiresDuringScrollingAfterItsGracePeriod() {
         val lifecycle = StreamPreviewLifecycle()
         lifecycle.track("channel-a", nowMs = 0L)
 
         lifecycle.observeVisible(emptySet(), nowMs = 100L, scrolling = true)
         lifecycle.expire(nowMs = 100L + StreamPreviewLifecyclePolicy.OFFSCREEN_GRACE_MS + 1L)
 
-        assertTrue(lifecycle.activeIdentities().contains("channel-a"))
-
-        lifecycle.observeVisible(emptySet(), nowMs = 2_000L, scrolling = false)
-        lifecycle.expire(nowMs = 2_000L + StreamPreviewLifecyclePolicy.OFFSCREEN_GRACE_MS)
-
         assertFalse(lifecycle.activeIdentities().contains("channel-a"))
+    }
+
+    @Test
+    fun becomingVisibleAgainDuringScrollingCancelsPendingExpiry() {
+        val lifecycle = StreamPreviewLifecycle()
+        lifecycle.track("channel-a", nowMs = 0L)
+
+        lifecycle.observeVisible(emptySet(), nowMs = 100L, scrolling = true)
+        lifecycle.observeVisible(setOf("channel-a"), nowMs = 200L, scrolling = true)
+        lifecycle.expire(nowMs = 100L + StreamPreviewLifecyclePolicy.OFFSCREEN_GRACE_MS + 1L)
+
+        assertTrue(lifecycle.activeIdentities().contains("channel-a"))
     }
 
     @Test

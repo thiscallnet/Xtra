@@ -9,7 +9,6 @@ class StreamPreviewLifecycle(
     private val offscreenGraceMs: Long = StreamPreviewLifecyclePolicy.OFFSCREEN_GRACE_MS,
 ) {
     private val entries = linkedMapOf<String, Entry>()
-    private var scrolling = false
 
     fun track(identity: String, nowMs: Long) {
         val normalized = StreamPreviewSelectionPolicy.normalizeIdentity(identity)
@@ -19,16 +18,14 @@ class StreamPreviewLifecycle(
         }
     }
 
+    /** Visibility updates continue during gestures so offscreen previews can expire normally. */
     fun observeVisible(visibleIdentities: Collection<String>, nowMs: Long, scrolling: Boolean = false) {
-        this.scrolling = scrolling
         val visible = visibleIdentities
             .mapTo(mutableSetOf(), StreamPreviewSelectionPolicy::normalizeIdentity)
         entries.keys.toList().forEach { identity ->
             val entry = entries[identity] ?: return@forEach
             entries[identity] = if (identity in visible) {
                 entry.copy(lastVisibleAtMs = nowMs, offscreenSinceMs = null)
-            } else if (scrolling) {
-                entry.copy(offscreenSinceMs = null)
             } else {
                 entry.copy(offscreenSinceMs = entry.offscreenSinceMs ?: nowMs)
             }
@@ -36,7 +33,6 @@ class StreamPreviewLifecycle(
     }
 
     fun expire(nowMs: Long) {
-        if (scrolling) return
         entries.entries.toList().forEach { (identity, entry) ->
             if (entry.offscreenSinceMs?.let { nowMs - it >= offscreenGraceMs } == true) {
                 entries.remove(identity)
@@ -56,18 +52,10 @@ class StreamPreviewLifecycle(
         return nextExpiry
     }
 
-    fun onScrolling() {
-        scrolling = true
-    }
-
     fun markOffscreen(identity: String, nowMs: Long) {
         val normalized = StreamPreviewSelectionPolicy.normalizeIdentity(identity)
         val entry = entries[normalized] ?: return
-        entries[normalized] = if (scrolling) {
-            entry.copy(offscreenSinceMs = null)
-        } else {
-            entry.copy(offscreenSinceMs = entry.offscreenSinceMs ?: nowMs)
-        }
+        entries[normalized] = entry.copy(offscreenSinceMs = entry.offscreenSinceMs ?: nowMs)
     }
 
     fun failed(identity: String) {
@@ -80,7 +68,6 @@ class StreamPreviewLifecycle(
     }
 
     fun clear() {
-        scrolling = false
         entries.clear()
     }
 
