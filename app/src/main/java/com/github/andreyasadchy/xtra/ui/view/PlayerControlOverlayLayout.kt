@@ -32,6 +32,8 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
     private var prepared = false
     private var transportRoot: View? = null
     private var timelineViews: List<View> = emptyList()
+    private var metadataAnchor: String = "top_start"
+    private var metadataEnabled: Boolean = true
     private var relayoutPosted = false
 
     private val rowIds = listOf(
@@ -39,6 +41,7 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         R.id.topCenterLayout,
         R.id.topRightLayout,
         R.id.middleLeftLayout,
+        R.id.middleCenterLayout,
         R.id.middleRightLayout,
         R.id.bottomLeftLayout,
         R.id.bottomCenterLayout,
@@ -70,6 +73,12 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         requestLayout()
     }
 
+    fun setMetadataAnchor(anchor: String, enabled: Boolean) {
+        metadataAnchor = anchor
+        metadataEnabled = enabled
+        requestLayout()
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val measuredWidth = MeasureSpec.getSize(widthMeasureSpec)
         val measuredHeight = MeasureSpec.getSize(heightMeasureSpec)
@@ -84,10 +93,12 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         val availableWidth = (measuredWidth - inset * 2).coerceAtLeast(1)
         val transport = transportBounds() ?: estimatedTransportBounds(measuredWidth, measuredHeight)
         val metadata = findChild(R.id.topLeftLayout)
-        val metadataVisible = metadata?.let(::hasVisibleDescendant) == true
+        val metadataVisible = metadataEnabled && metadata?.let(::hasVisibleDescendant) == true
         val topStart = findChild(R.id.topStartLayout)
         val topEnd = findChild(R.id.topRightLayout)
         val topCenter = findChild(R.id.topCenterLayout)
+        val middleCenter = findChild(R.id.middleCenterLayout)
+        val metadataIsTop = metadataAnchor.startsWith("top_")
         val centerMinimum = dp(48)
         val sideWidth = ((availableWidth - centerMinimum - gap * 3) / 2)
             .coerceAtLeast(dp(48))
@@ -101,14 +112,16 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
             topCenter,
             centerAvailableWidth,
         )
-        val metadataWidth = if (metadataVisible) {
+        val metadataWidth = if (metadataVisible && metadataIsTop) {
             (availableWidth - max(topStart?.measuredWidth ?: 0, 0) -
                 max(topEnd?.measuredWidth ?: 0, 0) - max(topCenter?.measuredWidth ?: 0, 0) - gap * 3)
                 .coerceAtLeast(0)
+        } else if (metadataVisible) {
+            (availableWidth * 0.72f).roundToInt().coerceAtLeast(dp(120))
         } else {
             0
         }
-        metadata?.let { measureExactly(it, metadataWidth, topHeight) }
+        metadata?.let { measureExactly(it, metadataWidth, if (metadataIsTop) topHeight else measuredHeight) }
 
         val bottomStart = findChild(R.id.bottomLeftLayout)
         val bottomEnd = findChild(R.id.bottomRightLayout)
@@ -124,6 +137,7 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
 
         val middleStart = findChild(R.id.middleLeftLayout)
         val middleEnd = findChild(R.id.middleRightLayout)
+        measureControlRow(middleCenter, availableWidth)
         val middleStartWidth = (transport.left - inset - gap).coerceAtLeast(dp(48))
         val middleEndWidth = (measuredWidth - transport.right - inset - gap).coerceAtLeast(dp(48))
         measureControlRow(middleStart, middleStartWidth)
@@ -142,6 +156,7 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         val topCenter = findChild(R.id.topCenterLayout)
         val topEnd = findChild(R.id.topRightLayout)
         val middleStart = findChild(R.id.middleLeftLayout)
+        val middleCenter = findChild(R.id.middleCenterLayout)
         val middleEnd = findChild(R.id.middleRightLayout)
         val bottomStart = findChild(R.id.bottomLeftLayout)
         val bottomCenter = findChild(R.id.bottomCenterLayout)
@@ -150,14 +165,26 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         val startRight = inset + (topStart?.measuredWidth ?: 0)
         layoutChild(topStart, inset, inset)
         layoutChild(topEnd, width - inset - (topEnd?.measuredWidth ?: 0), inset)
+        val metadataIsTop = metadataAnchor.startsWith("top_")
         val metadataLeft = startRight + if (topStart?.measuredWidth ?: 0 > 0) gap else 0
-        layoutChild(
-            metadata,
-            metadataLeft
-                .coerceAtMost((width - inset - (metadata?.measuredWidth ?: 0)).coerceAtLeast(inset)),
-            inset,
-        )
-        val metadataRight = metadata?.let { metadataLeft + it.measuredWidth } ?: startRight
+        var metadataActualLeft = metadataLeft
+        if (metadataIsTop) {
+            val metadataLeftForAnchor = when {
+                metadataAnchor.endsWith("end") -> width - inset - (metadata?.measuredWidth ?: 0)
+                metadataAnchor.endsWith("center") -> (width - (metadata?.measuredWidth ?: 0)) / 2
+                else -> metadataLeft
+            }
+            metadataActualLeft = metadataLeftForAnchor.coerceIn(
+                inset,
+                (width - inset - (metadata?.measuredWidth ?: 0)).coerceAtLeast(inset),
+            )
+            layoutChild(
+                metadata,
+                metadataActualLeft,
+                inset,
+            )
+        }
+        val metadataRight = if (metadataIsTop) metadata?.let { metadataActualLeft + it.measuredWidth } ?: startRight else startRight
         val topCenterLeft = max(startRight, metadataRight) + gap
         val topCenterRight = width - inset - (topEnd?.measuredWidth ?: 0) - gap
         val topCenterRoom = topCenterRight - topCenterLeft
@@ -173,7 +200,7 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         val timeline = timelineBounds(height)
         val topRowsBottom = max(
             max(topStart?.bottom ?: 0, topEnd?.bottom ?: 0),
-            max(topCenter?.bottom ?: 0, metadata?.bottom ?: 0),
+            max(topCenter?.bottom ?: 0, if (metadataIsTop) metadata?.bottom ?: 0 else 0),
         )
         val bottomRowsHeight = max(
             max(bottomStart?.measuredHeight ?: 0, bottomEnd?.measuredHeight ?: 0),
@@ -203,6 +230,14 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
                     (middleBottom - (middleEnd?.measuredHeight ?: 0)).coerceAtLeast(middleTop),
                 ),
         )
+        val middleCenterHeight = middleCenter?.measuredHeight ?: 0
+        val middleCenterTop = ((middleTop + middleBottom - middleCenterHeight) / 2)
+            .coerceIn(middleTop, (middleBottom - middleCenterHeight).coerceAtLeast(middleTop))
+        layoutChild(
+            middleCenter,
+            (width - (middleCenter?.measuredWidth ?: 0)) / 2,
+            middleCenterTop,
+        )
 
         val bottomY = timeline?.top ?: (height - inset)
         layoutChild(bottomStart, inset, bottomY - gap - (bottomStart?.measuredHeight ?: 0))
@@ -217,6 +252,27 @@ class PlayerControlOverlayLayout @JvmOverloads constructor(
         }
         val bottomCenterTop = bottomY - gap - (bottomCenter?.measuredHeight ?: 0)
         layoutChild(bottomCenter, bottomCenterX, bottomCenterTop)
+
+        if (metadata != null && metadata.isShown && !metadataIsTop) {
+            val metadataWidth = metadata.measuredWidth
+            val metadataHeight = metadata.measuredHeight
+            val metadataLeftForAnchor = when {
+                metadataAnchor.endsWith("start") -> inset
+                metadataAnchor.endsWith("end") -> width - inset - metadataWidth
+                else -> (width - metadataWidth) / 2
+            }
+            val metadataTopForAnchor = when {
+                metadataAnchor.startsWith("bottom") ->
+                    (timeline?.top ?: (height - inset)) - gap - metadataHeight
+                metadataAnchor == "middle_center" -> {
+                    val above = middleCenterTop - gap - metadataHeight
+                    if (above >= middleTop) above else middleCenterTop + middleCenterHeight + gap
+                }
+                else -> ((middleTop + middleBottom - metadataHeight) / 2)
+                    .coerceIn(middleTop, (middleBottom - metadataHeight).coerceAtLeast(middleTop))
+            }
+            layoutChild(metadata, metadataLeftForAnchor, metadataTopForAnchor)
+        }
 
         // Fixed obstacles are laid out by the surrounding RelativeLayout. A
         // second pass picks up their final bounds after rotations and resizing.

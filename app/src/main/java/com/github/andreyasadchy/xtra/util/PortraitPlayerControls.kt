@@ -56,8 +56,29 @@ object PortraitPlayerControls {
         }
     }
 
-    private fun apply(binding: FragmentPlayerBinding, isPortrait: Boolean) {
-        val scale = controlScale(binding, isPortrait)
+    /** Applies the same measured player geometry to a Settings preview. */
+    fun applyForPreview(
+        binding: FragmentPlayerBinding,
+        isPortrait: Boolean,
+        controlScaleOverride: Float? = null,
+        metadataScaleOverride: Float? = null,
+    ) {
+        if (binding.playerLayout.width <= 0 || binding.playerLayout.height <= 0) return
+        apply(
+            binding = binding,
+            isPortrait = isPortrait,
+            controlScaleOverride = controlScaleOverride,
+            metadataScaleOverride = metadataScaleOverride,
+        )
+    }
+
+    private fun apply(
+        binding: FragmentPlayerBinding,
+        isPortrait: Boolean,
+        controlScaleOverride: Float? = null,
+        metadataScaleOverride: Float? = null,
+    ) {
+        val scale = controlScale(binding, isPortrait, controlScaleOverride)
         val quickControlPosition = quickControlPosition(binding)
         applyQuickControlPosition(binding, quickControlPosition)
         with(binding.playerControls) {
@@ -68,10 +89,10 @@ object PortraitPlayerControls {
             }
             val compositionContainers = listOf(
                 Triple(topStartLayout, HorizontalAnchor.START, VerticalAnchor.TOP),
-                Triple(topLeftLayout, HorizontalAnchor.START, VerticalAnchor.TOP),
                 Triple(topRightLayout, HorizontalAnchor.END, VerticalAnchor.TOP),
                 Triple(topCenterLayout, HorizontalAnchor.CENTER, VerticalAnchor.TOP),
                 Triple(middleLeftLayout, HorizontalAnchor.START, VerticalAnchor.CENTER),
+                Triple(middleCenterLayout, HorizontalAnchor.CENTER, VerticalAnchor.CENTER),
                 Triple(middleRightLayout, HorizontalAnchor.END, VerticalAnchor.CENTER),
                 Triple(bottomLeftLayout, HorizontalAnchor.START, quickVerticalAnchor),
                 Triple(bottomRightLayout, HorizontalAnchor.END, quickVerticalAnchor),
@@ -82,6 +103,10 @@ object PortraitPlayerControls {
                 resetDescendantTransforms(container)
                 scaleCompositionView(root, container, scale, isPortrait, horizontalAnchor, verticalAnchor)
             }
+            // Metadata is a direct overlay composition. Keep its container at the semantic
+            // anchor chosen by PlayerControlOverlayLayout and scale only its atomic children.
+            resetDescendantTransforms(topLeftLayout)
+            resetTransform(topLeftLayout)
             val metadataNeedsLayout = scaleMetadataComposition(
                 root,
                 topLeftLayout,
@@ -95,16 +120,15 @@ object PortraitPlayerControls {
                 } else {
                     infoLayout.top + infoLayout.height / 2f
                 },
-                scale = metadataScale(binding),
+                scale = metadataScale(binding, metadataScaleOverride),
             )
             if (metadataNeedsLayout) {
-                root.postOnAnimation { apply(binding, isPortrait) }
+                root.postOnAnimation {
+                    apply(binding, isPortrait, controlScaleOverride, metadataScaleOverride)
+                }
             }
 
             val rootControls = listOf(
-                Triple(playPause, HorizontalAnchor.CENTER, VerticalAnchor.CENTER),
-                Triple(rewind, HorizontalAnchor.CENTER, VerticalAnchor.CENTER),
-                Triple(fastForward, HorizontalAnchor.CENTER, VerticalAnchor.CENTER),
                 Triple(position, HorizontalAnchor.START, VerticalAnchor.BOTTOM),
                 Triple(duration, HorizontalAnchor.END, VerticalAnchor.BOTTOM),
             )
@@ -112,8 +136,26 @@ object PortraitPlayerControls {
                 resetTransform(view)
                 scaleCompositionView(root, view, scale, isPortrait, horizontalAnchor, verticalAnchor)
             }
+            if (isPortrait) {
+                resolveCenterBandCollision(
+                    root,
+                    middleCenterLayout,
+                    topObstacles = listOf(
+                    topStartLayout,
+                    topCenterLayout,
+                    topRightLayout,
+                    topLeftLayout,
+                    ),
+                    bottomObstacles = listOf(
+                    bottomLeftLayout,
+                    bottomCenterLayout,
+                    bottomRightLayout,
+                    ),
+                )
+            }
             val interactiveTargets = compositionContainers
                 .flatMap { (container, _, _) -> interactiveDescendants(container) }
+                .plus(interactiveDescendants(topLeftLayout))
                 .plus(rootControls.map { (view, _, _) -> view })
                 .filter(::isInteractiveControl)
                 .distinct()
@@ -220,7 +262,12 @@ object PortraitPlayerControls {
         return viewOffset.first + (childEdge - view.width / 2f) * scale + view.width / 2f
     }
 
-    private fun controlScale(binding: FragmentPlayerBinding, isPortrait: Boolean): Float {
+    private fun controlScale(
+        binding: FragmentPlayerBinding,
+        isPortrait: Boolean,
+        override: Float? = null,
+    ): Float {
+        override?.let { return it.coerceIn(MIN_SCALE, MAX_SCALE) }
         val density = binding.root.resources.displayMetrics.density
         val automaticScale = if (isPortrait) {
             automaticControlScale(binding.playerLayout.height, density)
@@ -241,12 +288,15 @@ object PortraitPlayerControls {
         }
     }
 
-    private fun metadataScale(binding: FragmentPlayerBinding): Float = binding.root.context.prefs()
+    private fun metadataScale(binding: FragmentPlayerBinding, override: Float? = null): Float {
+        override?.let { return it.coerceIn(MIN_SCALE, MAX_SCALE) }
+        return binding.root.context.prefs()
         .getString(C.PLAYER_CONTROL_METADATA_SCALE, "100")
         ?.toFloatOrNull()
         ?.div(100f)
         ?.coerceIn(MIN_SCALE, MAX_SCALE)
         ?: 1f
+    }
 
     /** Uses the same Auto calculation for the runtime player and its settings preview. */
     fun automaticControlScale(playerHeight: Int, density: Float): Float = if (playerHeight > 0) {
@@ -543,6 +593,41 @@ object PortraitPlayerControls {
         view.scaleY = 1f
         view.translationX = 0f
         view.translationY = 0f
+    }
+
+    /** Keep the centered transport group in its own band after portrait scaling and wrapping. */
+    private fun resolveCenterBandCollision(
+        root: View,
+        center: View,
+        topObstacles: List<View>,
+        bottomObstacles: List<View>,
+    ) {
+        if (!center.isShown || center.width <= 0 || center.height <= 0) return
+        val gap = (8 * root.resources.displayMetrics.density).roundToInt().toFloat()
+        val centerBounds = transformedBoundsInRoot(root, center)
+        fun overlapsHorizontally(bounds: RectF): Boolean =
+            bounds.left < centerBounds.right && bounds.right > centerBounds.left
+        val topObstacle = topObstacles
+            .filter { it !== center && it.isShown && it.width > 0 && it.height > 0 }
+            .map { transformedBoundsInRoot(root, it) }
+            .filter(::overlapsHorizontally)
+            .maxByOrNull { it.bottom }
+        val bottomObstacle = bottomObstacles
+            .filter { it !== center && it.isShown && it.width > 0 && it.height > 0 }
+            .map { transformedBoundsInRoot(root, it) }
+            .filter(::overlapsHorizontally)
+            .minByOrNull { it.top }
+        val moveUp = bottomObstacle?.let { centerBounds.bottom - (it.top - gap) }?.takeIf { it > 0f } ?: 0f
+        val moveDown = topObstacle?.let { (it.bottom + gap) - centerBounds.top }?.takeIf { it > 0f } ?: 0f
+        when {
+            moveUp > 0f && moveDown <= 0f -> center.translationY -= moveUp
+            moveDown > 0f && moveUp <= 0f -> center.translationY += moveDown
+            moveUp > 0f && moveDown > 0f -> {
+                // Keep the center group inside the larger available side when both bands
+                // are close in a very short portrait player.
+                if (moveUp <= moveDown) center.translationY -= moveUp else center.translationY += moveDown
+            }
+        }
     }
 
     private fun interactiveDescendants(container: ViewGroup): List<View> = buildList {

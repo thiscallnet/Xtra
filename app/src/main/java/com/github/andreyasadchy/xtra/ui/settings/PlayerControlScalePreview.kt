@@ -1,22 +1,18 @@
 package com.github.andreyasadchy.xtra.ui.settings
 
 import android.content.Context
-import android.content.res.ColorStateList
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.PointF
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.ImageButton
-import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.preference.Preference
 import androidx.preference.PreferenceViewHolder
+import androidx.core.content.ContextCompat
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.ui.view.ControlRowPlanner
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.PortraitPlayerControls
@@ -35,56 +31,41 @@ class PlayerControlScalePreviewPreference @JvmOverloads constructor(
 
     override fun onBindViewHolder(holder: PreferenceViewHolder) {
         super.onBindViewHolder(holder)
-        holder.itemView.findViewById<PlayerControlScalePreviewView>(R.id.playerControlScalePreview)
-            .setValues(
-                controlScale(context.prefs().getString(C.PLAYER_CONTROL_SCALE_PORTRAIT, "auto")),
-                controlScale(context.prefs().getString(C.PLAYER_CONTROL_SCALE_LANDSCAPE, "100")) ?: 1f,
-                context.prefs().getString(C.PLAYER_CONTROL_METADATA_SCALE, "100")
-                    ?.toFloatOrNull()
-                    ?.div(100f)
-                    ?.coerceIn(0.55f, 1.2f)
-                    ?: 1f,
-                scaleLabel(context, context.prefs().getString(C.PLAYER_CONTROL_SCALE_PORTRAIT, "auto")),
-                scaleLabel(context, context.prefs().getString(C.PLAYER_CONTROL_SCALE_LANDSCAPE, "100")),
-                scaleLabel(context, context.prefs().getString(C.PLAYER_CONTROL_METADATA_SCALE, "100")),
-            )
+        holder.itemView.findViewById<PlayerControlScalePreviewView>(R.id.playerControlScalePreview).setValues(
+            controlScale(context.prefs().getString(C.PLAYER_CONTROL_SCALE_PORTRAIT, "auto")),
+            controlScale(context.prefs().getString(C.PLAYER_CONTROL_SCALE_LANDSCAPE, "100")) ?: 1f,
+            context.prefs().getString(C.PLAYER_CONTROL_METADATA_SCALE, "100")?.toFloatOrNull()?.div(100f)?.coerceIn(0.55f, 1.2f) ?: 1f,
+            scaleLabel(context, context.prefs().getString(C.PLAYER_CONTROL_SCALE_PORTRAIT, "auto")),
+            scaleLabel(context, context.prefs().getString(C.PLAYER_CONTROL_SCALE_LANDSCAPE, "100")),
+            scaleLabel(context, context.prefs().getString(C.PLAYER_CONTROL_METADATA_SCALE, "100")),
+        )
     }
 
     fun refreshPreview() = notifyChanged()
 
-    private fun controlScale(value: String?): Float? = value
-        ?.takeUnless { it == "auto" }
-        ?.toFloatOrNull()
-        ?.div(100f)
-        ?.coerceIn(0.55f, 1.2f)
+    private fun controlScale(value: String?): Float? = value?.takeUnless { it == "auto" }?.toFloatOrNull()?.div(100f)?.coerceIn(0.55f, 1.2f)
 
-    private fun scaleLabel(context: Context, value: String?): String = if (value == "auto") {
-        context.getString(R.string.auto)
-    } else {
-        value?.toFloatOrNull()?.roundToInt()?.let { "$it%" }
-            ?: context.getString(R.string.auto)
-    }
+    private fun scaleLabel(context: Context, value: String?): String = if (value == "auto") context.getString(R.string.auto)
+    else value?.toFloatOrNull()?.roundToInt()?.let { "$it%" } ?: context.getString(R.string.auto)
 }
 
-/** A compact version of the real control-layout editor preview. */
+/** Shows the real player surface twice with the current portrait and landscape scales. */
 class PlayerControlScalePreviewView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-) : FrameLayout(context, attrs) {
+) : LinearLayout(context, attrs) {
 
-    private val gap = dp(12)
-    private val headerHeight = dp(38)
-    private val maxPanelWidth = dp(520)
-    private val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val panels = listOf(
-        PreviewPanel(context, R.string.settings_player_control_preview_vertical),
-        PreviewPanel(context, R.string.settings_player_control_preview_horizontal),
+        PreviewPanel(context, R.string.settings_player_control_preview_vertical, isPortrait = true),
+        PreviewPanel(context, R.string.settings_player_control_preview_horizontal, isPortrait = false),
     )
+    private var contentDescriptionText = ""
 
     init {
-        setWillNotDraw(false)
-        clipChildren = false
-        panels.forEach(::addView)
+        orientation = VERTICAL
+        gravity = Gravity.CENTER_HORIZONTAL
+        setPadding(0, dp(4), 0, dp(8))
+        panels.forEach { addView(it, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)) }
         contentDescription = context.getString(R.string.settings_player_control_preview_summary)
     }
 
@@ -96,484 +77,80 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
         horizontalLabel: String,
         metadataLabel: String,
     ) {
-        panels[0].setValues(vertical, metadata, verticalLabel, metadataLabel)
+        panels[0].setValues(vertical ?: automaticScale(), metadata, verticalLabel, metadataLabel)
         panels[1].setValues(horizontal, metadata, horizontalLabel, metadataLabel)
-        contentDescription = context.getString(
-            R.string.settings_player_control_preview_description,
-            verticalLabel,
-            horizontalLabel,
-            metadataLabel,
-        )
-        invalidate()
+        contentDescriptionText = context.getString(R.string.settings_player_control_preview_description, verticalLabel, horizontalLabel, metadataLabel)
+        contentDescription = contentDescriptionText
         requestLayout()
     }
 
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val width = MeasureSpec.getSize(widthMeasureSpec)
-        val panelWidth = width.coerceAtMost(maxPanelWidth).coerceAtLeast(0)
-        val panelHeight = (panelWidth * 9f / 16f).roundToInt()
-        val totalHeight = panelHeight * panels.size + gap + headerHeight * panels.size
-        setMeasuredDimension(resolveSize(width, widthMeasureSpec), resolveSize(totalHeight, heightMeasureSpec))
-        panels.forEach { panel ->
-            panel.measure(
-                MeasureSpec.makeMeasureSpec(panelWidth, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(panelHeight, MeasureSpec.EXACTLY),
+    private fun automaticScale(): Float = PortraitPlayerControls.automaticControlScale(
+        playerHeight = (resources.displayMetrics.widthPixels * 9f / 16f).roundToInt(),
+        density = resources.displayMetrics.density,
+    )
+
+    private inner class PreviewPanel(
+        context: Context,
+        private val labelRes: Int,
+        private val isPortrait: Boolean,
+    ) : FrameLayout(context) {
+        private val header = LinearLayout(context).apply {
+            orientation = VERTICAL
+            setPadding(dp(10), 0, dp(10), dp(6))
+        }
+        private val title = TextView(context).apply {
+            setText(labelRes)
+            setTextColor(themeColor(android.R.attr.textColorPrimary, Color.WHITE))
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        private val detail = TextView(context).apply {
+            setTextColor(themeColor(android.R.attr.textColorSecondary, Color.GRAY))
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
+        }
+        private val preview = PlayerControlPreviewView(context, dragEnabled = false)
+
+        init {
+            clipChildren = false
+            header.addView(title)
+            header.addView(detail)
+            addView(header)
+            addView(preview)
+        }
+
+        fun setValues(control: Float, metadata: Float, controlLabel: String, metadataLabel: String) {
+            detail.text = "$controlLabel - ${context.getString(R.string.settings_player_control_preview_info)} $metadataLabel"
+            preview.setVisualScale(control, metadata, isPortrait)
+            preview.setItems(
+                PlayerControlLayout.controlPlacements(
+                    context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
+                    SettingsMigration.defaultControlLayout(),
+                ),
             )
         }
-    }
 
-    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-        val panelWidth = width.coerceAtMost(maxPanelWidth).coerceAtLeast(0)
-        val panelHeight = (panelWidth * 9f / 16f).roundToInt()
-        val start = (width - panelWidth) / 2
-        panels.forEachIndexed { index, panel ->
-            val panelTop = index * (panelHeight + gap + headerHeight) + headerHeight
-            panel.layout(start, panelTop, start + panelWidth, panelTop + panelHeight)
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
+            val panelWidth = availableWidth.coerceAtMost(dp(520))
+            val headerHeightSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+            header.measure(MeasureSpec.makeMeasureSpec(panelWidth, MeasureSpec.EXACTLY), headerHeightSpec)
+            val previewHeight = (panelWidth * 9f / 16f).roundToInt()
+            preview.measure(MeasureSpec.makeMeasureSpec(panelWidth, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(previewHeight, MeasureSpec.EXACTLY))
+            setMeasuredDimension(availableWidth, header.measuredHeight + preview.measuredHeight)
         }
-    }
 
-    override fun onDraw(canvas: Canvas) {
-        super.onDraw(canvas)
-        val panelWidth = width.coerceAtMost(maxPanelWidth).coerceAtLeast(0)
-        val panelHeight = (panelWidth * 9f / 16f).roundToInt()
-        val start = (width - panelWidth) / 2f
-        val size = { value: Float -> value * resources.displayMetrics.density }
-
-        panels.forEachIndexed { index, panel ->
-            val panelTop = index * (panelHeight + gap + headerHeight) + headerHeight
-            val headerTop = panelTop - headerHeight
-            headerPaint.color = Color.WHITE
-            headerPaint.alpha = 220
-            headerPaint.typeface = Typeface.DEFAULT_BOLD
-            headerPaint.textSize = size(11f)
-            canvas.drawText(panel.headerLabel(), start + size(10f), headerTop + size(15f), headerPaint)
-            headerPaint.alpha = 150
-            headerPaint.typeface = Typeface.DEFAULT
-            headerPaint.textSize = size(8f)
-            canvas.drawText(panel.headerDetails(context), start + size(10f), headerTop + size(30f), headerPaint)
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            val panelLeft = (width - preview.measuredWidth) / 2
+            header.layout(panelLeft, 0, panelLeft + preview.measuredWidth, header.measuredHeight)
+            preview.layout(panelLeft, header.measuredHeight, panelLeft + preview.measuredWidth, header.measuredHeight + preview.measuredHeight)
         }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
-    private inner class PreviewPanel(
-        context: Context,
-        private val labelRes: Int,
-    ) : FrameLayout(context) {
-
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val chips = linkedMapOf<String, ImageButton>()
-        private var controlScale = 1f
-        private var controlScaleIsAutomatic = false
-        private var metadataScale = 1f
-        private var controlLabel = ""
-        private var metadataLabel = ""
-        private var items = emptyList<PlayerControlLayout.ControlPlacement>()
-        private val play = ImageView(context).apply {
-            setImageResource(R.drawable.baseline_play_arrow_black_48)
-            imageTintList = ColorStateList.valueOf(Color.WHITE)
-            alpha = 0.9f
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-        private val menu = ImageButton(context).apply {
-            setImageResource(R.drawable.baseline_more_vert_black_24)
-            imageTintList = ColorStateList.valueOf(Color.WHITE)
-            background = transparentBackground()
-            isClickable = false
-            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-        }
-
-        init {
-            setWillNotDraw(false)
-            clipChildren = true
-            background = panelBackground()
-            addView(play)
-            addView(menu)
-        }
-
-        fun setValues(scale: Float?, metadata: Float, scaleLabel: String, infoLabel: String) {
-            controlScaleIsAutomatic = scale == null
-            controlScale = scale ?: 0.55f
-            metadataScale = metadata
-            controlLabel = scaleLabel
-            metadataLabel = infoLabel
-            items = PlayerControlLayout.controlPlacements(
-                context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
-                SettingsMigration.defaultControlLayout(),
-            )
-            rebuildControls()
-            invalidate()
-        }
-
-        fun headerLabel(): String = context.getString(labelRes)
-
-        fun headerDetails(context: Context): String =
-            "$controlLabel · ${context.getString(R.string.settings_player_control_preview_info)} $metadataLabel"
-
-        override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
-            super.onSizeChanged(width, height, oldWidth, oldHeight)
-            if (width > 0 && height > 0) rebuildControls()
-        }
-
-        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-            super.onLayout(changed, left, top, right, bottom)
-            positionChildren()
-        }
-
-        override fun onDraw(canvas: Canvas) {
-            super.onDraw(canvas)
-            val unit = previewUnit()
-            if (unit <= 0f) return
-            val size = { value: Float -> value * unit }
-
-            paint.style = Paint.Style.FILL
-            paint.color = Color.argb(28, 255, 255, 255)
-            canvas.drawRect(
-                0f,
-                height - size(68f),
-                width.toFloat(),
-                height - size(67f),
-                paint,
-            )
-
-            // Reserve the top-start row before drawing metadata, just as the
-            // runtime ControlEdgeLayout does.
-            val topStartCount = items.count {
-                it.group == PlayerControlLayout.GROUP_QUICK &&
-                    it.anchor == PlayerControlLayout.ANCHOR_TOP_START
-            }
-            val topStartWidth = wrappedControlWidth(topStartCount)
-            drawMetadata(canvas, 12f + topStartWidth + if (topStartCount > 0) 6f else 0f, size)
-
-            paint.color = Color.argb(140, 255, 255, 255)
-            canvas.drawRoundRect(
-                size(44f), height - size(13f), width - size(44f), height - size(10f),
-                size(2f), size(2f), paint,
-            )
-            paint.color = Color.rgb(190, 90, 255)
-            canvas.drawRoundRect(
-                size(44f), height - size(13f), width * 0.38f, height - size(10f),
-                size(2f), size(2f), paint,
-            )
-
-            paint.color = Color.WHITE
-            paint.alpha = 170
-            paint.textSize = size(8f)
-            canvas.drawText("12:16", size(10f), height - size(20f), paint)
-            canvas.drawText("1:12:16", width - size(47f), height - size(20f), paint)
-            paint.textSize = size(8f)
-        }
-
-        private fun drawMetadata(canvas: Canvas, infoStart: Float, size: (Float) -> Float) {
-            val avatarX = size(infoStart + 16f)
-            val avatarY = size(48f)
-            val infoSlotStart = infoStart + 36f
-            val panelWidthDp = width / previewUnit()
-            val topEndCount = items.count {
-                it.group == PlayerControlLayout.GROUP_QUICK &&
-                    it.anchor == PlayerControlLayout.ANCHOR_TOP_END
-            }
-            val topEndWidth = topEndCount * 44f +
-                (topEndCount - 1).coerceAtLeast(0) * 6f
-            val infoSlotRight = panelWidthDp - 9f - 48f - topEndWidth
-            val metadataAvailableWidth = (infoSlotRight - infoSlotStart).coerceAtLeast(0f)
-            val metadataPivotX = size(
-                infoSlotStart + PortraitPlayerControls.METADATA_PIVOT_AFTER_INFO_START_DP,
-            )
-            val metadataPivotY = avatarY
-            val actualControlScale = actualControlScale()
-            val scaledPivotX = metadataPivotX * actualControlScale
-            val scaledPivotY = metadataPivotY * actualControlScale
-            val effectiveScale = actualControlScale * metadataScale
-            var metadataContentWidth = PortraitPlayerControls.metadataContentWidth(
-                metadataAvailableWidth,
-                metadataScale,
-            )
-            val point: (Float, Float) -> PointF = { x, y ->
-                val composedX = x * actualControlScale
-                val composedY = y * actualControlScale
-                PointF(
-                    scaledPivotX + (composedX - scaledPivotX) * metadataScale,
-                    scaledPivotY + (composedY - scaledPivotY) * metadataScale,
-                )
-            }
-            var avatarPoint = PointF(0f, 0f)
-            var titlePoint = PointF(0f, 0f)
-            var livePoint = PointF(0f, 0f)
-            var viewersPoint = PointF(0f, 0f)
-            var metadataBoundaryPoint = PointF(0f, 0f)
-            var metadataLeft = 0f
-            var metadataRightEdge = 0f
-            val rightBoundaryPoint = size(infoSlotRight) * actualControlScale
-            repeat(2) {
-                avatarPoint = point(avatarX, avatarY)
-                titlePoint = point(size(infoSlotStart), size(43f))
-                livePoint = point(size(infoSlotStart), size(54f))
-                viewersPoint = point(
-                    size(infoSlotStart + metadataContentWidth - 62f),
-                    size(64f),
-                )
-                metadataBoundaryPoint = point(size(infoSlotStart + metadataContentWidth), avatarY)
-                metadataLeft = minOf(
-                    avatarPoint.x - size(16f) * effectiveScale,
-                    titlePoint.x,
-                    livePoint.x,
-                    viewersPoint.x,
-                )
-                metadataRightEdge = maxOf(
-                    viewersPoint.x + size(62f) * effectiveScale,
-                    metadataBoundaryPoint.x,
-                )
-                val minimumDelta = -metadataLeft
-                val maximumDelta = rightBoundaryPoint - metadataRightEdge
-                if (minimumDelta > maximumDelta) {
-                    val reduction = (minimumDelta - maximumDelta) /
-                        (previewUnit() * actualControlScale * metadataScale)
-                    val newWidth = (metadataContentWidth - reduction).coerceAtLeast(1f)
-                    if (newWidth < metadataContentWidth) {
-                        metadataContentWidth = newWidth
-                    }
-                }
-            }
-            val minimumDelta = -metadataLeft
-            val maximumDelta = rightBoundaryPoint - metadataRightEdge
-            val compositionCorrectionX = when {
-                minimumDelta <= 0f && maximumDelta >= 0f -> 0f
-                minimumDelta > 0f -> minimumDelta
-                else -> maximumDelta
-            }
-            val correctedTitlePoint = PointF(titlePoint.x + compositionCorrectionX, titlePoint.y)
-            val correctedLivePoint = PointF(livePoint.x + compositionCorrectionX, livePoint.y)
-            val correctedViewersPoint = PointF(viewersPoint.x + compositionCorrectionX, viewersPoint.y)
-            val correctedAvatar = PointF(avatarPoint.x + compositionCorrectionX, avatarPoint.y)
-            canvas.save()
-            paint.style = Paint.Style.FILL
-            paint.color = Color.rgb(210, 220, 230)
-            canvas.drawCircle(
-                correctedAvatar.x,
-                correctedAvatar.y,
-                size(16f) * effectiveScale,
-                paint,
-            )
-            paint.color = Color.WHITE
-            canvas.drawRect(
-                correctedTitlePoint.x,
-                correctedTitlePoint.y - size(5f) * effectiveScale,
-                correctedTitlePoint.x + size(42f) * effectiveScale,
-                correctedTitlePoint.y - size(2f) * effectiveScale,
-                paint,
-            )
-            paint.alpha = 210
-            canvas.drawRect(
-                correctedLivePoint.x,
-                correctedLivePoint.y - size(4f) * effectiveScale,
-                correctedLivePoint.x + size(52f) * effectiveScale,
-                correctedLivePoint.y - size(2f) * effectiveScale,
-                paint,
-            )
-            canvas.drawRect(
-                correctedViewersPoint.x,
-                correctedViewersPoint.y - size(4f) * effectiveScale,
-                correctedViewersPoint.x + size(62f) * effectiveScale,
-                correctedViewersPoint.y - size(2f) * effectiveScale,
-                paint,
-            )
-            canvas.restore()
-        }
-
-        private fun rebuildControls() {
-            chips.values.toList().forEach(::removeView)
-            chips.clear()
-            val buttonSize = previewDp(44)
-            items.filter { it.group == PlayerControlLayout.GROUP_QUICK }.forEach { item ->
-                val chip = ImageButton(context).apply {
-                    setImageResource(iconFor(item.action))
-                    imageTintList = ColorStateList.valueOf(Color.WHITE)
-                    background = chipBackground()
-                    setPadding(previewDp(9), previewDp(9), previewDp(9), previewDp(9))
-                    isClickable = false
-                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-                }
-                chips[item.action] = chip
-                addView(chip, LayoutParams(buttonSize, buttonSize))
-            }
-            positionChildren()
-        }
-
-        private fun positionChildren() {
-            if (width <= 0 || height <= 0) return
-            val grouped = items.filter { it.group == PlayerControlLayout.GROUP_QUICK }.groupBy { it.anchor }
-            grouped.forEach { (anchor, group) ->
-                wrappedControlPoints(anchor, group.size).forEachIndexed { index, point ->
-                    val item = group[index]
-                    chips[item.action]?.let { chip ->
-                        placeScaled(chip, point, anchor)
-                    }
-                }
-            }
-            menu.layoutParams = LayoutParams(previewDp(42), previewDp(42))
-            menu.x = (width - previewDp(10) - menu.width).coerceAtLeast(0).toFloat()
-            menu.y = previewDp(4).toFloat()
-            play.layoutParams = LayoutParams(previewDp(48), previewDp(48))
-            play.x = (width - play.width) / 2f
-            play.y = (height - play.height) / 2f
-            placeScaled(play, PointF(width / 2f, height / 2f), null)
-        }
-
-        private fun placeScaled(view: View, point: PointF, anchor: String?) {
-            val actualControlScale = actualControlScale()
-            view.pivotX = view.width / 2f
-            view.pivotY = view.height / 2f
-            view.scaleX = actualControlScale
-            view.scaleY = actualControlScale
-            val viewCenterX = view.left + view.width / 2f
-            val viewCenterY = view.top + view.height / 2f
-            val scaledHalfWidth = view.width * actualControlScale / 2f
-            val scaledHalfHeight = view.height * actualControlScale / 2f
-            val scaledX = when (anchor) {
-                PlayerControlLayout.ANCHOR_TOP_START,
-                PlayerControlLayout.ANCHOR_MIDDLE_START,
-                PlayerControlLayout.ANCHOR_BOTTOM_START -> {
-                    val edge = previewDp(9).toFloat()
-                    edge + (point.x - edge) * actualControlScale
-                }
-                PlayerControlLayout.ANCHOR_TOP_END -> {
-                    val edge = width - previewDp(9) - previewDp(48)
-                    edge - (edge - point.x) * actualControlScale
-                }
-                PlayerControlLayout.ANCHOR_MIDDLE_END,
-                PlayerControlLayout.ANCHOR_BOTTOM_END -> {
-                    val edge = width - previewDp(9).toFloat()
-                    edge - (edge - point.x) * actualControlScale
-                }
-                else -> width / 2f + (point.x - width / 2f) * actualControlScale
-            }
-            val scaledY = when (anchor) {
-                PlayerControlLayout.ANCHOR_TOP_START,
-                PlayerControlLayout.ANCHOR_TOP_CENTER,
-                PlayerControlLayout.ANCHOR_TOP_END -> {
-                    val edge = previewDp(9).toFloat()
-                    edge + (point.y - edge) * actualControlScale
-                }
-                PlayerControlLayout.ANCHOR_BOTTOM_START,
-                PlayerControlLayout.ANCHOR_BOTTOM_CENTER,
-                PlayerControlLayout.ANCHOR_BOTTOM_END -> {
-                    val edge = height - previewDp(9) - previewDp(13)
-                    edge - (edge - point.y) * actualControlScale
-                }
-                else -> height / 2f + (point.y - height / 2f) * actualControlScale
-            }
-            val boundedX = scaledX
-                .coerceIn(
-                    scaledHalfWidth,
-                    (width - scaledHalfWidth).coerceAtLeast(scaledHalfWidth),
-                )
-            val boundedY = scaledY
-                .coerceIn(
-                    scaledHalfHeight,
-                    (height - scaledHalfHeight).coerceAtLeast(scaledHalfHeight),
-                )
-            view.translationX = boundedX - viewCenterX
-            view.translationY = boundedY - viewCenterY
-        }
-
-        private fun wrappedControlPoints(anchor: String, count: Int): List<PointF> {
-            val size = previewDp(44).toFloat()
-            val spacing = previewDp(6).toFloat()
-            val padding = previewDp(9).toFloat()
-            val menuReserve = if (anchor == PlayerControlLayout.ANCHOR_TOP_END) previewDp(48) else 0
-            val edgeWidth = ((width - padding * 2f) / 2f).roundToInt().coerceAtLeast(size.roundToInt())
-            val lines = ControlRowPlanner.lineBreak(edgeWidth, List(count) { size.toInt() }, spacing.toInt())
-            val rowHeight = lines.size * size
-            val rightEdge = width - padding - menuReserve
-            val top = when {
-                anchor.startsWith("top") -> padding
-                anchor.startsWith("bottom") -> height - padding - previewDp(13) - rowHeight
-                else -> ((height - rowHeight) / 2f).coerceAtLeast(padding)
-            }
-            return lines.flatMapIndexed { lineIndex, line ->
-                val lineWidth = line.size * size + (line.size - 1).coerceAtLeast(0) * spacing
-                val lineLeft = when {
-                    anchor.endsWith("start") -> padding
-                    anchor.endsWith("end") -> rightEdge - lineWidth
-                    else -> (width - lineWidth) / 2
-                }
-                line.mapIndexed { childIndex, _ ->
-                    PointF(
-                        (lineLeft + size / 2 + childIndex * (size + spacing))
-                            .coerceIn(size / 2f, (width - size / 2f).coerceAtLeast(size / 2f)),
-                        (top + size / 2 + lineIndex * size)
-                            .coerceIn(size / 2f, (height - size / 2f).coerceAtLeast(size / 2f)),
-                    )
-                }
-            }
-        }
-
-        private fun wrappedControlWidth(count: Int): Float {
-            if (count <= 0) return 0f
-            val size = previewDp(44)
-            val spacing = previewDp(6)
-            val padding = previewDp(9)
-            val edgeWidth = ((width - padding * 2f) / 2f).roundToInt().coerceAtLeast(size)
-            val lines = ControlRowPlanner.lineBreak(edgeWidth, List(count) { size }, spacing)
-            val maxWidth = lines.maxOfOrNull { line ->
-                line.size * size + (line.size - 1).coerceAtLeast(0) * spacing
-            } ?: 0
-            return maxWidth.toFloat() / previewUnit()
-        }
-
-        private fun previewUnit(): Float = if (width == 0) 0f else width / (360f * resources.displayMetrics.density)
-
-        private fun actualControlScale(): Float = if (controlScaleIsAutomatic) {
-            val unit = previewUnit()
-            val simulatedPlayerHeight = if (unit > 0f) (height / unit).roundToInt() else 0
-            PortraitPlayerControls.automaticControlScale(
-                simulatedPlayerHeight,
-                resources.displayMetrics.density,
-            )
-        } else {
-            controlScale
-        }
-
-        private fun previewDp(value: Int): Int = (value * resources.displayMetrics.density * previewUnit()).roundToInt().coerceAtLeast(1)
-
-        private fun panelBackground() = GradientDrawable().apply {
-            cornerRadius = dp(8).toFloat()
-            setColor(Color.rgb(12, 15, 21))
-        }
-
-        private fun chipBackground() = GradientDrawable().apply {
-            cornerRadius = previewDp(12).toFloat()
-            setColor(Color.argb(170, 35, 42, 52))
-            setStroke(previewDp(1), Color.argb(100, 255, 255, 255))
-        }
-
-        private fun transparentBackground() = GradientDrawable().apply {
-            setColor(Color.TRANSPARENT)
-        }
-
-        private fun iconFor(action: String): Int = when (action) {
-            "minimize" -> R.drawable.baseline_expand_more_black_48
-            "download" -> R.drawable.ic_file_download_black_24dp
-            "follow" -> R.drawable.baseline_favorite_border_black_24
-            "quality" -> R.drawable.baseline_settings_black_24
-            "speed" -> androidx.media3.ui.R.drawable.exo_ic_speed
-            "sleep" -> R.drawable.baseline_alarm_black_24
-            "aspect" -> R.drawable.baseline_aspect_ratio_black_24
-            "chapters" -> R.drawable.baseline_format_list_bulleted_black_24
-            "restart" -> R.drawable.baseline_replay_black_24
-            "live" -> androidx.media3.ui.R.drawable.exo_icon_fastforward
-            "live_captions" -> androidx.media3.ui.R.drawable.exo_ic_subtitle_off
-            "clip" -> R.drawable.ic_movie_clip_black_24
-            "volume" -> R.drawable.baseline_volume_up_black_24
-            "compressor" -> R.drawable.baseline_audio_compressor_off_24dp
-            "mode" -> R.drawable.baseline_audiotrack_black_24
-            "subtitles" -> androidx.media3.ui.R.drawable.exo_ic_subtitle_off
-            "chat_input" -> R.drawable.baseline_keyboard_black_24
-            "chat" -> R.drawable.baseline_speaker_notes_black_24
-            "fullscreen" -> R.drawable.baseline_fullscreen_black_24
-            else -> R.drawable.baseline_more_vert_black_24
-        }
+    private fun themeColor(attribute: Int, fallback: Int): Int {
+        val value = android.util.TypedValue()
+        if (!context.theme.resolveAttribute(attribute, value, true)) return fallback
+        return if (value.resourceId != 0) ContextCompat.getColor(context, value.resourceId) else value.data
     }
-
-    }
+}

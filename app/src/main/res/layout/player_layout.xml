@@ -399,6 +399,12 @@
     </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
 
     <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
+        android:id="@+id/middleCenterLayout"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:gravity="center" />
+
+    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
         android:id="@+id/middleRightLayout"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content" />

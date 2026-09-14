@@ -4,6 +4,7 @@ import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.databinding.PlayerLayoutBinding
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
 import com.github.andreyasadchy.xtra.ui.view.PlayerControlOverlayLayout
 import kotlin.math.roundToInt
@@ -18,6 +19,7 @@ object PlayerControlLayout {
     const val ANCHOR_TOP_CENTER = "top_center"
     const val ANCHOR_TOP_END = "top_end"
     const val ANCHOR_MIDDLE_START = "middle_start"
+    const val ANCHOR_MIDDLE_CENTER = "middle_center"
     const val ANCHOR_MIDDLE_END = "middle_end"
     const val ANCHOR_BOTTOM_START = "bottom_start"
     const val ANCHOR_BOTTOM_CENTER = "bottom_center"
@@ -28,6 +30,7 @@ object PlayerControlLayout {
         ANCHOR_TOP_CENTER,
         ANCHOR_TOP_END,
         ANCHOR_MIDDLE_START,
+        ANCHOR_MIDDLE_CENTER,
         ANCHOR_MIDDLE_END,
         ANCHOR_BOTTOM_START,
         ANCHOR_BOTTOM_CENTER,
@@ -41,6 +44,12 @@ object PlayerControlLayout {
      * Secondary actions remain available through the More menu where one exists.
      */
     private val tvPrimaryActions = setOf(
+        "metadata",
+        "timeline",
+        "play_pause",
+        "rewind",
+        "fast_forward",
+        "menu",
         "follow",
         "quality",
         "volume",
@@ -65,6 +74,12 @@ object PlayerControlLayout {
     )
 
     internal val controlDefinitions = listOf(
+        ControlDefinition("metadata", null, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("play_pause", null, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("rewind", null, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("fast_forward", null, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("timeline", null, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("interaction_lock", null, true, null, false, canQuick = true, canMenu = false),
         ControlDefinition("minimize", C.PLAYER_MINIMIZE, true, null, false, canQuick = true, canMenu = false),
         ControlDefinition("download", C.PLAYER_DOWNLOAD, false, C.PLAYER_MENU_DOWNLOAD, true, canQuick = true, canMenu = true),
         ControlDefinition("follow", C.PLAYER_FOLLOW, false, null, false, canQuick = true, canMenu = false),
@@ -82,6 +97,7 @@ object PlayerControlLayout {
         ControlDefinition("chat_input", C.PLAYER_CHAT_BAR_TOGGLE, false, C.PLAYER_MENU_CHAT_BAR, true, canQuick = true, canMenu = true),
         ControlDefinition("chat", C.PLAYER_CHAT_TOGGLE, true, C.PLAYER_MENU_CHAT_TOGGLE, false, canQuick = true, canMenu = true),
         ControlDefinition("fullscreen", C.PLAYER_FULLSCREEN, true, null, false, canQuick = true, canMenu = false),
+        ControlDefinition("menu", C.PLAYER_MENU, true, null, false, canQuick = true, canMenu = false),
         ControlDefinition("viewers", C.PLAYER_VIEWER_LIST, false, C.PLAYER_MENU_VIEWER_LIST, true, canQuick = false, canMenu = true),
         ControlDefinition("bookmark", null, false, C.PLAYER_MENU_BOOKMARK, true, canQuick = false, canMenu = true),
         ControlDefinition("share", null, false, C.PLAYER_MENU_SHARE, true, canQuick = false, canMenu = true),
@@ -93,67 +109,13 @@ object PlayerControlLayout {
         ControlDefinition("video_info", null, false, C.PLAYER_MENU_VIDEO_INFO, false, canQuick = false, canMenu = true),
     )
 
-    fun applyToPlayer(context: Context, binding: FragmentPlayerBinding) {
+    fun applyToPlayer(
+        context: Context,
+        binding: FragmentPlayerBinding,
+        placements: List<ControlPlacement>? = null,
+    ) {
         val focusedControl = binding.playerControls.root.findFocus()
-        val overlay = binding.playerControls.root.findViewById<PlayerControlOverlayLayout>(R.id.controlOverlay)
-        overlay?.prepare(binding.playerControls.root)
-        overlay?.setObstacles(
-            binding.playerControls.centerControls,
-            listOf(
-                binding.playerControls.bottomLayout,
-                binding.playerControls.position,
-                binding.playerControls.duration,
-            ),
-        )
-        val placements = controlPlacements(
-            context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
-            if (context.isTelevision()) tvControlLayout(context) else legacyControlLayout(context),
-        )
-        with(binding.playerControls) {
-            val containers = mapOf(
-                ANCHOR_TOP_START to topStartLayout,
-                ANCHOR_TOP_CENTER to topCenterLayout,
-                ANCHOR_TOP_END to topRightLayout,
-                ANCHOR_MIDDLE_START to middleLeftLayout,
-                ANCHOR_MIDDLE_END to middleRightLayout,
-                ANCHOR_BOTTOM_START to bottomLeftLayout,
-                ANCHOR_BOTTOM_CENTER to bottomCenterLayout,
-                ANCHOR_BOTTOM_END to bottomRightLayout,
-            )
-            val controls = playerControlViews(binding)
-            val placementByAction = placements.associateBy { it.action }
-            val quickOrderByAnchor = placements
-                .filter { it.group == GROUP_QUICK }
-                .groupBy { it.anchor }
-                .mapValues { (_, items) -> items.map { it.action } }
-
-            controls.forEach { (action, view) ->
-                val placement = placementByAction[action]
-                val container = containers[placement?.anchor] ?: containers.getValue(defaultAnchor(action))
-                if (view.parent !== container) {
-                    (view.parent as? ViewGroup)?.removeView(view)
-                    container.addView(view)
-                }
-                applyControlSpacing(view, context.resources.displayMetrics.density)
-                val allowedOnTv = !context.isTelevision() || action in tvPrimaryActions
-                view.visibility = if (allowedOnTv && placement?.group == GROUP_QUICK && view.hasOnClickListeners()) {
-                    View.VISIBLE
-                } else {
-                    View.GONE
-                }
-                if (!allowedOnTv) view.isFocusable = false
-            }
-            containers.forEach { (anchor, container) ->
-                reorderChildren(
-                    container,
-                    quickOrderByAnchor[anchor].orEmpty(),
-                    controls,
-                )
-            }
-
-        }
-
-        hideSecondaryActionsOnTelevision(context, binding)
+        applyToPlayerControls(context, binding.playerControls, placements)
 
         if (context.isTelevision() && focusedControl != null) {
             // Reparenting a focused control clears focus on some Android TV builds. Restore
@@ -173,6 +135,104 @@ object PlayerControlLayout {
                 }
             }
         }
+    }
+
+    /**
+     * Applies the runtime player hierarchy to either the live player or the inert settings
+     * preview. The view hierarchy is the source of truth; callers only provide the placement
+     * model when they need a temporary editor state.
+     */
+    fun applyToPlayerControls(
+        context: Context,
+        controls: PlayerLayoutBinding,
+        placements: List<ControlPlacement>? = null,
+    ) {
+        val overlay = controls.root.findViewById<PlayerControlOverlayLayout>(R.id.controlOverlay)
+        overlay?.prepare(controls.root)
+        val resolvedPlacements = placements ?: controlPlacements(
+            context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
+            if (context.isTelevision()) tvControlLayout(context) else legacyControlLayout(context),
+        )
+        val controlViews = playerControlViews(controls)
+        val placementByAction = resolvedPlacements.associateBy { it.action }
+        val quickOrderByAnchor = resolvedPlacements
+            .filter { it.group == GROUP_QUICK }
+            .groupBy { it.anchor }
+            .mapValues { (_, items) -> items.map { it.action } }
+        with(controls) {
+            val containers = mapOf(
+                ANCHOR_TOP_START to topStartLayout,
+                ANCHOR_TOP_CENTER to topCenterLayout,
+                ANCHOR_TOP_END to topRightLayout,
+                ANCHOR_MIDDLE_START to middleLeftLayout,
+                ANCHOR_MIDDLE_CENTER to middleCenterLayout,
+                ANCHOR_MIDDLE_END to middleRightLayout,
+                ANCHOR_BOTTOM_START to bottomLeftLayout,
+                ANCHOR_BOTTOM_CENTER to bottomCenterLayout,
+                ANCHOR_BOTTOM_END to bottomRightLayout,
+            )
+            controlViews.forEach { (action, view) ->
+                val placement = placementByAction[action]
+                val isMetadata = action == "metadata"
+                val isTimeline = action == "timeline"
+                // Metadata stays a direct overlay child so its weighted text block keeps the
+                // same measured width as the real player. Timeline's position, progress and
+                // duration remain direct root children and move as one constrained composition.
+                if (!isMetadata && !isTimeline) {
+                    val container = containers[placement?.anchor] ?: containers.getValue(defaultAnchor(action))
+                    if (view.parent !== container) {
+                        (view.parent as? ViewGroup)?.removeView(view)
+                        container.addView(view)
+                    }
+                }
+                if (action !in setOf("play_pause", "rewind", "fast_forward")) {
+                    applyControlSpacing(view, context.resources.displayMetrics.density)
+                }
+                val allowedOnTv = !context.isTelevision() || action in tvPrimaryActions
+                val visibleInRuntime = when (action) {
+                    // The metadata container is intentionally kept alive while stream data is
+                    // loading; its real children become visible when the player receives the
+                    // channel payload. Timeline visibility follows its actual child views.
+                    "metadata" -> true
+                    "timeline" -> hasVisibleContent(view)
+                    "rewind", "fast_forward" -> view.hasOnClickListeners() && view.visibility == View.VISIBLE
+                    else -> view.hasOnClickListeners()
+                }
+                view.visibility = if (allowedOnTv && placement?.group == GROUP_QUICK && visibleInRuntime) {
+                    View.VISIBLE
+                } else {
+                    View.GONE
+                }
+                if (!allowedOnTv) view.isFocusable = false
+            }
+            containers.forEach { (anchor, container) ->
+                reorderChildren(
+                    container,
+                    quickOrderByAnchor[anchor].orEmpty(),
+                    controlViews,
+                )
+            }
+            if (placementByAction["timeline"]?.group != GROUP_QUICK) {
+                position.visibility = View.GONE
+                duration.visibility = View.GONE
+            }
+
+        }
+
+        overlay?.setMetadataAnchor(
+            placementByAction["metadata"]?.anchor ?: defaultAnchor("metadata"),
+            placementByAction["metadata"]?.group == GROUP_QUICK,
+        )
+        overlay?.setObstacles(
+            controls.middleCenterLayout,
+            listOf(
+                controls.bottomLayout,
+                controls.position,
+                controls.duration,
+            ),
+        )
+
+        hideSecondaryActionsOnTelevision(context, controls)
     }
 
     fun controlPlacements(serialized: String?, fallback: String): List<ControlPlacement> {
@@ -205,16 +265,26 @@ object PlayerControlLayout {
      * A click listener is the player-specific signal that the control is currently eligible.
      */
     fun refreshAvailableControls(binding: FragmentPlayerBinding) {
-        playerControlViews(binding).values.forEach { view ->
-            view.visibility = if (view.hasOnClickListeners()) View.VISIBLE else View.GONE
-        }
+        applyToPlayerControls(
+            binding.root.context,
+            binding.playerControls,
+            controlPlacements(
+                binding.root.context.prefs().getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
+                SettingsMigration.defaultControlLayout(),
+            ),
+        )
         hideSecondaryActionsOnTelevision(binding.root.context, binding)
     }
 
     /** Keep phone quick-control preferences from crowding the TV player surface. */
     fun hideSecondaryActionsOnTelevision(context: Context, binding: FragmentPlayerBinding) {
+        hideSecondaryActionsOnTelevision(context, binding.playerControls)
+    }
+
+    /** Same TV visibility guard for the standalone player layout used by Settings previews. */
+    fun hideSecondaryActionsOnTelevision(context: Context, controls: PlayerLayoutBinding) {
         if (!context.isTelevision()) return
-        playerControlViews(binding).forEach { (action, view) ->
+        playerControlViews(controls).forEach { (action, view) ->
             if (action !in tvPrimaryActions) {
                 view.visibility = View.GONE
                 view.isFocusable = false
@@ -224,8 +294,15 @@ object PlayerControlLayout {
 
     internal fun isTvPrimaryAction(action: String): Boolean = action in tvPrimaryActions
 
-    private fun playerControlViews(binding: FragmentPlayerBinding): Map<String, View> = with(binding.playerControls) {
+    private fun playerControlViews(controls: PlayerLayoutBinding): Map<String, View> = with(controls) {
         mapOf(
+            "metadata" to topLeftLayout,
+            "play_pause" to playPause,
+            "rewind" to rewind,
+            "fast_forward" to fastForward,
+            "timeline" to bottomLayout,
+            "interaction_lock" to interactionLock,
+            "menu" to menu,
             "minimize" to minimize,
             "download" to download,
             "follow" to follow,
@@ -291,6 +368,11 @@ object PlayerControlLayout {
         ?.canMenu == true
 
     fun defaultAnchor(action: String): String = when (action) {
+        "metadata" -> ANCHOR_TOP_START
+        "play_pause", "rewind", "fast_forward" -> ANCHOR_MIDDLE_CENTER
+        "timeline" -> ANCHOR_BOTTOM_CENTER
+        "interaction_lock" -> ANCHOR_MIDDLE_START
+        "menu" -> ANCHOR_TOP_END
         "minimize" -> ANCHOR_TOP_START
         "download", "follow", "quality", "speed", "sleep", "aspect" -> ANCHOR_TOP_END
         "chapters", "restart", "live", "clip", "volume", "compressor", "mode" -> ANCHOR_BOTTOM_START
@@ -334,8 +416,22 @@ object PlayerControlLayout {
         return ControlPlacement(action, normalizedGroup(action, group), anchor)
     }
 
-    /** Every quick action can use any of the eight perimeter positions. */
-    internal fun validAnchors(action: String): Set<String> = anchors
+    /** Player compositions use semantic anchors; the timeline remains one bottom-centered bar. */
+    internal fun validAnchors(action: String): Set<String> = when (action) {
+        "timeline" -> setOf(ANCHOR_BOTTOM_CENTER)
+        else -> anchors
+    }
+
+    private fun hasVisibleDescendant(view: View): Boolean {
+        if (view.visibility != View.VISIBLE) return false
+        if (view !is ViewGroup) return true
+        return (0 until view.childCount).any { hasVisibleDescendant(view.getChildAt(it)) }
+    }
+
+    private fun hasVisibleContent(view: View): Boolean {
+        if (view !is ViewGroup) return view.visibility == View.VISIBLE
+        return (0 until view.childCount).any { hasVisibleDescendant(view.getChildAt(it)) }
+    }
 
     private fun normalizedAnchor(action: String, anchor: String): String = when {
         anchor in validAnchors(action) -> anchor

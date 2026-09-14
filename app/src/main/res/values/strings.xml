@@ -447,7 +447,7 @@
     <string name="settings_watch_history">Watch history</string>
     <string name="settings_clear_positions">Clear watch positions</string>
     <string name="settings_customize_controls">Customize controls</string>
-    <string name="settings_customize_controls_help">Drag visible controls to reposition them. Tap to select; use the action below to move a control to the player, More menu or hidden.</string>
+    <string name="settings_customize_controls_help">Drag any visible player control to reposition it. Transport, streamer information and the timeline stay grouped exactly as they are during playback.</string>
     <string name="settings_customize_controls_selected">Selected: %1$s</string>
     <string name="settings_customize_controls_selected_none">Select a control to see its current position.</string>
     <string name="settings_customize_controls_reset">Reset layout</string>
@@ -456,7 +456,7 @@
     <string name="settings_customize_controls_enable">Show %1$s on the player</string>
     <string name="settings_customize_controls_enable_menu">Show %1$s in More menu</string>
     <string name="settings_customize_controls_hide">Hide %1$s</string>
-    <string name="settings_customize_controls_preview_description">Fake player preview. Drag the visible control buttons to reposition them.</string>
+    <string name="settings_customize_controls_preview_description">Live player preview. Drag controls to the semantic anchor where they should appear during playback.</string>
     <string name="settings_customize_controls_snap_hint">Release to snap</string>
     <string name="settings_customize_controls_drag_action">Drag or select %1$s</string>
     <string name="settings_seek_controls">Seek controls</string>
@@ -2079,6 +2079,8 @@ Metadata text</string>
     <string name="settings_player_control_scale_landscape">Player UI size (horizontal)</string>
     <string name="settings_player_control_metadata_scale">Streamer info size</string>
     <string name="settings_player_control_position">Quick control position</string>
+    <string name="settings_player_control_metadata">Streamer information</string>
+    <string name="settings_player_control_timeline">Playback timeline</string>
     <string name="player_control_position_above">Above timeline</string>
     <string name="player_control_position_below">Below timeline</string>
     <string name="player_control_position_middle">Middle of player</string>
