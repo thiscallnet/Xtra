@@ -136,11 +136,15 @@ open class ChatMessageTextView private constructor(
     private var touchDownY = 0f
     /** True while TextView is dispatching a pointer gesture that belongs to a span. */
     private var touchStartedOnClickableSpan = false
+    private var touchStartedOnEmote: ChatEmoteInteraction? = null
     private var longPressRunnable: Runnable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var onMessageLongClick: ((ChatMessageId) -> Unit)? = null
     private var onMessageClick: ((ChatMessageId) -> Unit)? = null
     private var onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null
+    private var onEmoteLongClick: ((ChatEmoteInteraction) -> Unit)? = null
+    private var onEmoteMessageClick: ((ChatMessageId) -> Unit)? = null
+    private var onEmoteMessageLongClick: ((ChatMessageId) -> Unit)? = null
     private var onGifClick: ((ChatGifInteraction) -> Unit)? = null
     private var onClipPreviewClick: ((String) -> Unit)? = null
     private var boundRow: ChatRowUiModel? = null
@@ -174,10 +178,16 @@ open class ChatMessageTextView private constructor(
     fun setInteractionCallbacks(
         onMessageLongClick: ((ChatMessageId) -> Unit)?,
         onEmoteClick: ((ChatEmoteInteraction) -> Unit)?,
+        onEmoteLongClick: ((ChatEmoteInteraction) -> Unit)? = null,
+        onEmoteMessageClick: ((ChatMessageId) -> Unit)? = null,
+        onEmoteMessageLongClick: ((ChatMessageId) -> Unit)? = null,
         onGifClick: ((ChatGifInteraction) -> Unit)? = null,
     ) {
         this.onMessageLongClick = onMessageLongClick
         this.onEmoteClick = onEmoteClick
+        this.onEmoteLongClick = onEmoteLongClick
+        this.onEmoteMessageClick = onEmoteMessageClick
+        this.onEmoteMessageLongClick = onEmoteMessageLongClick
         this.onGifClick = onGifClick
     }
 
@@ -283,9 +293,14 @@ open class ChatMessageTextView private constructor(
         boundRow = row
         boundMessageId = row.id
         longPressConsumed = false
+        touchStartedOnClickableSpan = false
+        touchStartedOnEmote = null
+        touchMoved = false
+        touchDownX = 0f
+        touchDownY = 0f
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
-        isLongClickable = onMessageLongClick != null
+        isLongClickable = onMessageLongClick != null || onEmoteLongClick != null || onEmoteMessageLongClick != null
         val oldKeys = keys
         val oldClipPreviewSlugs = clipPreviewSlugs
         drawables.values.forEach(Drawable::disconnectAndStopIfNeeded)
@@ -932,9 +947,35 @@ open class ChatMessageTextView private constructor(
      * long press has already opened the user card.
      */
     override fun performLongClick(): Boolean {
+        if (longPressConsumed) return true
+        val emote = touchStartedOnEmote
+        val emoteCallback = onEmoteLongClick
+        if (emote != null) {
+            if (emoteCallback != null) {
+                longPressConsumed = true
+                emoteCallback(emote)
+                return true
+            }
+            val id = boundMessageId
+            val messageCallback = onEmoteMessageLongClick
+            if (id != null && messageCallback != null) {
+                longPressConsumed = true
+                messageCallback(id)
+                return true
+            }
+            // Keep the original direct-view contract for callers that only provide
+            // the legacy row callback and do not opt into an emote policy.
+            val legacyMessageCallback = onMessageLongClick
+            if (id != null && legacyMessageCallback != null) {
+                longPressConsumed = true
+                legacyMessageCallback(id)
+                return true
+            }
+            return super.performLongClick()
+        }
+        if (touchStartedOnClickableSpan) return super.performLongClick()
         val id = boundMessageId
         val callback = onMessageLongClick
-        if (longPressConsumed) return true
         if (id != null && callback != null) {
             longPressConsumed = true
             callback(id)
@@ -948,11 +989,13 @@ open class ChatMessageTextView private constructor(
             MotionEvent.ACTION_DOWN -> {
                 longPressConsumed = false
                 touchMoved = false
-                touchStartedOnClickableSpan = hasClickableSpanAt(event)
+                val spans = clickableSpansAt(event)
+                touchStartedOnClickableSpan = spans.isNotEmpty()
+                touchStartedOnEmote = spans.filterIsInstance<EmoteClickableSpan>().firstOrNull()?.interaction
                 touchDownX = event.x
                 touchDownY = event.y
                 longPressRunnable?.let(mainHandler::removeCallbacks)
-                if (onMessageLongClick != null && boundMessageId != null) {
+                if ((onMessageLongClick != null || onEmoteLongClick != null || onEmoteMessageLongClick != null) && boundMessageId != null) {
                     longPressRunnable = Runnable { performLongClick() }.also {
                         mainHandler.postDelayed(it, ViewConfiguration.getLongPressTimeout().toLong())
                     }
@@ -973,6 +1016,7 @@ open class ChatMessageTextView private constructor(
             MotionEvent.ACTION_CANCEL -> {
                 touchMoved = true
                 touchStartedOnClickableSpan = false
+                touchStartedOnEmote = null
                 longPressRunnable?.let(mainHandler::removeCallbacks)
                 longPressRunnable = null
             }
@@ -980,17 +1024,33 @@ open class ChatMessageTextView private constructor(
             MotionEvent.ACTION_UP -> {
                 // The layout can be unavailable at DOWN (for example during a rebound),
                 // so check UP as well before TextView gets a chance to call performClick.
-                touchStartedOnClickableSpan = touchStartedOnClickableSpan || hasClickableSpanAt(event)
+                if (!touchMoved) {
+                    val spans = clickableSpansAt(event)
+                    touchStartedOnClickableSpan = touchStartedOnClickableSpan || spans.isNotEmpty()
+                    touchStartedOnEmote = touchStartedOnEmote ?: spans.filterIsInstance<EmoteClickableSpan>().firstOrNull()?.interaction
+                }
                 hasClipPreviewAt(event)?.let { url ->
                     if (!touchMoved && !longPressConsumed) {
                         openClipUrl(url)
                         longPressRunnable?.let(mainHandler::removeCallbacks)
                         longPressRunnable = null
                         touchStartedOnClickableSpan = false
+                        touchStartedOnEmote = null
                         return true
                     }
                 }
                 val messageId = boundMessageId
+                val emote = touchStartedOnEmote
+                if (messageId != null && emote != null && onEmoteMessageClick != null &&
+                    !touchMoved && !longPressConsumed
+                ) {
+                    onEmoteMessageClick?.invoke(messageId)
+                    longPressRunnable?.let(mainHandler::removeCallbacks)
+                    longPressRunnable = null
+                    touchStartedOnClickableSpan = false
+                    touchStartedOnEmote = null
+                    return true
+                }
                 val shouldOpenProfile = messageId != null &&
                     onMessageClick != null &&
                     !touchMoved &&
@@ -1001,11 +1061,13 @@ open class ChatMessageTextView private constructor(
                 if (longPressConsumed) {
                     longPressConsumed = false
                     touchStartedOnClickableSpan = false
+                    touchStartedOnEmote = null
                     return true
                 }
                 if (shouldOpenProfile) {
                     performClick()
                     touchStartedOnClickableSpan = false
+                    touchStartedOnEmote = null
                     return true
                 }
             }
@@ -1013,12 +1075,14 @@ open class ChatMessageTextView private constructor(
         if (event.actionMasked == MotionEvent.ACTION_UP && longPressConsumed) {
             longPressConsumed = false
             touchStartedOnClickableSpan = false
+            touchStartedOnEmote = null
             return true
         }
         val handled = super.onTouchEvent(event)
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             longPressConsumed = false
             touchStartedOnClickableSpan = false
+            touchStartedOnEmote = null
         }
         return handled
     }
@@ -1129,16 +1193,35 @@ open class ChatMessageTextView private constructor(
         val body: String,
     )
 
-    private fun hasClickableSpanAt(event: MotionEvent): Boolean {
-        val content = text as? Spanned ?: return false
-        val textLayout = layout ?: return false
-        if (content.isEmpty()) return false
-        val x = (event.x - totalPaddingLeft + scrollX).coerceAtLeast(0f)
-        val y = (event.y - totalPaddingTop + scrollY).coerceAtLeast(0f)
+    private fun clickableSpansAt(event: MotionEvent): List<ClickableSpan> {
+        val content = text as? Spanned ?: return emptyList()
+        val textLayout = layout ?: return emptyList()
+        if (content.isEmpty()) return emptyList()
+        val x = event.x - totalPaddingLeft + scrollX
+        val y = event.y - totalPaddingTop + scrollY
+        if (x < 0f || y < 0f) return emptyList()
         val line = textLayout.getLineForVertical(y.toInt())
+        if (y < textLayout.getLineTop(line) || y > textLayout.getLineBottom(line)) return emptyList()
+        if (x < textLayout.getLineLeft(line) || x > textLayout.getLineRight(line)) return emptyList()
         val offset = textLayout.getOffsetForHorizontal(line, x)
         val end = (offset + 1).coerceAtMost(content.length)
-        return content.getSpans(offset.coerceAtMost(content.length - 1), end, ClickableSpan::class.java).isNotEmpty()
+        return content.getSpans(offset.coerceAtMost(content.length - 1), end, ClickableSpan::class.java).toList()
+    }
+
+    private class EmoteClickableSpan(
+        val interaction: ChatEmoteInteraction,
+        private val onClick: (ChatEmoteInteraction) -> Unit,
+    ) : ClickableSpan() {
+        override fun onClick(widget: View) = onClick(interaction)
+        override fun updateDrawState(ds: TextPaint) = Unit
+    }
+
+    private class GifClickableSpan(
+        private val interaction: ChatGifInteraction,
+        private val onClick: (ChatGifInteraction) -> Unit,
+    ) : ClickableSpan() {
+        override fun onClick(widget: View) = onClick(interaction)
+        override fun updateDrawState(ds: TextPaint) = Unit
     }
 
     private fun appendIcon(output: SpannableStringBuilder, piece: ChatPiece.Icon) {
@@ -1180,22 +1263,27 @@ open class ChatMessageTextView private constructor(
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
         )
         interaction?.let { value ->
-            output.setSpan(object : ClickableSpan() {
-                override fun onClick(widget: android.view.View) {
-                    onEmoteClick?.invoke(value)
+            val emoteClick: (ChatEmoteInteraction) -> Unit = { clicked ->
+                if (onEmoteClick != null) {
+                    onEmoteClick?.invoke(clicked)
+                } else {
+                    boundMessageId?.let { id -> onEmoteMessageClick?.invoke(id) }
                 }
-
-                override fun updateDrawState(ds: TextPaint) = Unit
-            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+            output.setSpan(
+                EmoteClickableSpan(value, emoteClick),
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
         gifInteraction?.let { value ->
-            output.setSpan(object : ClickableSpan() {
-                override fun onClick(widget: android.view.View) {
-                    onGifClick?.invoke(value)
-                }
-
-                override fun updateDrawState(ds: TextPaint) = Unit
-            }, start, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            output.setSpan(
+                GifClickableSpan(value) { onGifClick?.invoke(it) },
+                start,
+                end,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
         }
     }
 
@@ -1275,6 +1363,12 @@ open class ChatMessageTextView private constructor(
     fun recycle() {
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
+        longPressConsumed = false
+        touchStartedOnClickableSpan = false
+        touchStartedOnEmote = null
+        touchMoved = true
+        touchDownX = 0f
+        touchDownY = 0f
         clearStagedRow()
         assetObservers.keys.toList().forEach(::removeAssetObserver)
         stagedAssetObservers.keys.toList().forEach(::removeStagedAssetObserver)
@@ -1307,6 +1401,7 @@ open class ChatMessageTextView private constructor(
         boundMessageId = null
         boundRow = null
         touchStartedOnClickableSpan = false
+        touchStartedOnEmote = null
         alpha = 1f
     }
 
@@ -1396,6 +1491,12 @@ open class ChatMessageTextView private constructor(
             clipRelativeTimeRefresh = null
             longPressRunnable?.let(mainHandler::removeCallbacks)
             longPressRunnable = null
+            longPressConsumed = false
+            touchStartedOnClickableSpan = false
+            touchStartedOnEmote = null
+            touchMoved = true
+            touchDownX = 0f
+            touchDownY = 0f
         }
     }
 
@@ -1408,6 +1509,12 @@ open class ChatMessageTextView private constructor(
         // a detach/reattach cycle and still be applied when its assets finish loading.
         longPressRunnable?.let(mainHandler::removeCallbacks)
         longPressRunnable = null
+        longPressConsumed = false
+        touchStartedOnClickableSpan = false
+        touchStartedOnEmote = null
+        touchMoved = true
+        touchDownX = 0f
+        touchDownY = 0f
         assetObservers.keys.toList().forEach(::removeAssetObserver)
         stagedAssetObservers.keys.toList().forEach(::removeStagedAssetObserver)
         clipMetadataObservers.keys.toList().forEach(::removeClipMetadataObserver)

@@ -1004,6 +1004,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     val profilePopoutGesture = ChatProfilePopoutGesture.fromPreference(
                         requireContext().prefs().getString(C.CHAT_PROFILE_POPOUT_GESTURE, "tap"),
                     )
+                    val emotePopoutMode = ChatEmotePopoutMode.fromPreference(
+                        requireContext().prefs().getString(C.CHAT_EMOTE_POPOUT_MODE, "emote_details"),
+                    )
                     val chatSizing = ChatSizing(
                         textSizeSp = chatStyle.textSizeSp,
                         emoteHeightPx = chatStyle.emoteHeightPx,
@@ -1089,6 +1092,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             ImageClickedDialog.newInstance(url, name, format, isAnimated, source, thirdParty, emoteId).show(this@ChatFragment.childFragmentManager, "imageDialog")
                         },
                         profilePopoutGesture = profilePopoutGesture,
+                        emotePopoutMode = emotePopoutMode,
                     )
                     interactionAdapterFactory = ChatInteractionAdapterFactory(interactionConfiguration)
                     adapter = if (isLive) {
@@ -1177,6 +1181,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 btnDown.isVisible = state.followMode == com.github.andreyasadchy.xtra.ui.chat.v2.ui.FollowMode.USER_SCROLLED_UP
                             },
                             profilePopoutGesture = profilePopoutGesture,
+                            emotePopoutMode = emotePopoutMode,
                             rewardCatalog = viewModel.channelPoints.map { points ->
                                 val rewards = points?.rewards.orEmpty()
                                 com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog(

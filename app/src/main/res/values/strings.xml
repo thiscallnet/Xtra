@@ -878,6 +878,10 @@ Metadata text</string>
     <string name="chat_profile_popout_gesture_tap">Tap</string>
     <string name="chat_profile_popout_gesture_hold">Hold</string>
     <string name="chat_profile_popout_gesture_both">Tap or hold</string>
+    <string name="chat_emote_interaction">Emote interaction</string>
+    <string name="chat_emote_interaction_emote_details">Emote details</string>
+    <string name="chat_emote_interaction_emote_tap_profile_hold">Emote tap, profile hold</string>
+    <string name="chat_emote_interaction_profile_gesture">Follow profile gesture</string>
     <string name="chat_gif_display">GIF messages</string>
     <string name="chat_gif_display_large">Large images</string>
     <string name="chat_gif_display_emote">Emote size</string>

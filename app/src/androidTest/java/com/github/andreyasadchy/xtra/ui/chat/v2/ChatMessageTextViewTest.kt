@@ -1308,6 +1308,39 @@ class ChatMessageTextViewTest {
     }
 
     @Test
+    fun profileGestureAccessibilityActivationInvokesProfileCallback() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val interaction = ChatEmoteInteraction(
+            id = "accessibility-profile-emote",
+            name = "Accessible",
+            url = "https://cdn.example.test/accessibility-profile.webp",
+            animated = false,
+            provider = ChatAssetProvider.BTTV,
+            scope = ChatEmoteScope.CHANNEL,
+        )
+        var profileClicks = 0
+        try {
+            runOnMain {
+                view.setInteractionCallbacks(
+                    onMessageLongClick = null,
+                    onEmoteClick = null,
+                    onEmoteMessageClick = { profileClicks++ },
+                )
+                view.bind(row(ChatAssetSpec(ChatAssetKey("accessibility-profile"), 16, 16, 24), interaction = interaction))
+                val span = (view.text as Spanned).getSpans(0, view.text.length, ClickableSpan::class.java).single()
+                span.onClick(view)
+            }
+            assertEquals(1, profileClicks)
+        } finally {
+            runOnMain { view.recycle() }
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun animatedDrawableIsVerifiedAndFollowsAttachDetachLifecycle() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -1497,6 +1530,99 @@ class ChatMessageTextViewTest {
         }
         assertEquals(1, messageClicks)
         assertEquals(0, emoteClicks)
+        scope.cancel()
+    }
+
+    @Test
+    fun configuredEmoteLongPressInvokesOnlyEmoteLongCallback() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val interaction = ChatEmoteInteraction(
+            id = "configured-long-emote",
+            name = "ConfiguredLong",
+            url = "https://cdn.example.test/configured-long.webp",
+            animated = false,
+            provider = ChatAssetProvider.BTTV,
+            scope = ChatEmoteScope.CHANNEL,
+        )
+        var messageClicks = 0
+        var emoteClicks = 0
+        var emoteLongClicks = 0
+        runOnMain {
+            view.layoutParams = ViewGroup.LayoutParams(200, 80)
+            view.setInteractionCallbacks(
+                onMessageLongClick = { messageClicks++ },
+                onEmoteClick = { emoteClicks++ },
+                onEmoteLongClick = { emoteLongClicks++ },
+            )
+            view.bind(row(ChatAssetSpec(ChatAssetKey("configured-long"), 16, 16, 24), interaction = interaction))
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(80, View.MeasureSpec.EXACTLY),
+            )
+            view.layout(0, 0, 200, 80)
+            val span = (view.text as Spanned).getSpans(0, view.text.length, ClickableSpan::class.java).single()
+            val (x, y) = spanCenter(view, span)
+            val now = android.os.SystemClock.uptimeMillis()
+            view.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0))
+        }
+        Thread.sleep((ViewConfiguration.getLongPressTimeout() + 150).toLong())
+        runOnMain {
+            val now = android.os.SystemClock.uptimeMillis()
+            val span = (view.text as Spanned).getSpans(0, view.text.length, ClickableSpan::class.java).single()
+            val (x, y) = spanCenter(view, span)
+            view.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_UP, x, y, 0))
+        }
+        assertEquals(0, messageClicks)
+        assertEquals(0, emoteClicks)
+        assertEquals(1, emoteLongClicks)
+        scope.cancel()
+    }
+
+    @Test
+    fun profileTapOnlyLongPressDoesNotFallThroughToProfileTap() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val repository = ChatAssetRepository(scope, ChatAssetLoader { null })
+        val view = TestTextView(context, repository)
+        val interaction = ChatEmoteInteraction(
+            id = "profile-tap-only-emote",
+            name = "ProfileTapOnly",
+            url = "https://cdn.example.test/profile-tap-only.webp",
+            animated = false,
+            provider = ChatAssetProvider.BTTV,
+            scope = ChatEmoteScope.CHANNEL,
+        )
+        var profileClicks = 0
+        runOnMain {
+            view.layoutParams = ViewGroup.LayoutParams(200, 80)
+            view.setInteractionCallbacks(
+                onMessageLongClick = null,
+                onEmoteClick = null,
+                onEmoteMessageClick = { profileClicks++ },
+                onEmoteMessageLongClick = {},
+            )
+            view.bind(row(ChatAssetSpec(ChatAssetKey("profile-tap-only"), 16, 16, 24), interaction = interaction))
+            view.measure(
+                View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(80, View.MeasureSpec.EXACTLY),
+            )
+            view.layout(0, 0, 200, 80)
+            val span = (view.text as Spanned).getSpans(0, view.text.length, ClickableSpan::class.java).single()
+            val (x, y) = spanCenter(view, span)
+            val now = android.os.SystemClock.uptimeMillis()
+            view.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0))
+        }
+        Thread.sleep((ViewConfiguration.getLongPressTimeout() + 150).toLong())
+        runOnMain {
+            val now = android.os.SystemClock.uptimeMillis()
+            val span = (view.text as Spanned).getSpans(0, view.text.length, ClickableSpan::class.java).single()
+            val (x, y) = spanCenter(view, span)
+            view.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_UP, x, y, 0))
+        }
+        assertEquals(0, profileClicks)
         scope.cancel()
     }
 
@@ -1969,6 +2095,11 @@ class ChatMessageTextViewTest {
     }
 
     private fun dispatchTapOnSpan(view: ChatMessageTextView, span: ClickableSpan) {
+        val (x, y) = spanCenter(view, span)
+        dispatchTap(view, x, y)
+    }
+
+    private fun spanCenter(view: ChatMessageTextView, span: ClickableSpan): Pair<Float, Float> {
         val spanned = view.text as Spanned
         val textLayout = checkNotNull(view.layout)
         val start = spanned.getSpanStart(span)
@@ -1977,7 +2108,7 @@ class ChatMessageTextViewTest {
         val x = view.totalPaddingLeft +
             (textLayout.getPrimaryHorizontal(start) + textLayout.getPrimaryHorizontal(end)) / 2f
         val y = view.totalPaddingTop + (textLayout.getLineTop(line) + textLayout.getLineBottom(line)) / 2f
-        dispatchTap(view, x, y)
+        return x to y
     }
 
     private fun awaitPreDraw(view: View) {

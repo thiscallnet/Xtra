@@ -16,6 +16,9 @@ class ChatTimelineAdapter(
     private val onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
     private val onGifClick: ((ChatGifInteraction) -> Unit)? = null,
     private val onMessageClick: ((ChatMessageId) -> Unit)? = null,
+    private val onEmoteLongClick: ((ChatEmoteInteraction) -> Unit)? = null,
+    private val onEmoteMessageClick: ((ChatMessageId) -> Unit)? = null,
+    private val onEmoteMessageLongClick: ((ChatMessageId) -> Unit)? = null,
     private var messageTextColor: Int? = null,
 ) : RecyclerView.Adapter<ChatTimelineAdapter.Holder>() {
     private val rows = ArrayList<ChatRowUiModel>()
@@ -30,7 +33,14 @@ class ChatTimelineAdapter(
         ChatMessageTextView(parent.context, assets).also {
             it.setMessageTextSizeSp(textSizeSp)
             it.setAnimateGifs(animateGifs)
-            it.setInteractionCallbacks(onMessageLongClick, onEmoteClick, onGifClick)
+            it.setInteractionCallbacks(
+                onMessageLongClick = onMessageLongClick,
+                onEmoteClick = onEmoteClick,
+                onGifClick = onGifClick,
+                onEmoteLongClick = onEmoteLongClick,
+                onEmoteMessageClick = onEmoteMessageClick,
+                onEmoteMessageLongClick = onEmoteMessageLongClick,
+            )
             it.setMessageClickCallback(onMessageClick)
             messageTextColor?.let(it::setTextColor)
             it.layoutParams = ViewGroup.LayoutParams(-1, -2)

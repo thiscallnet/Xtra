@@ -29,6 +29,7 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.chat.ChatAdapterConfiguration
 import com.github.andreyasadchy.xtra.ui.chat.ChatInteractionAdapterFactory
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
+import com.github.andreyasadchy.xtra.ui.chat.ChatEmotePopoutMode
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
 import com.github.andreyasadchy.xtra.ui.chat.ImageClickedDialog
 import com.github.andreyasadchy.xtra.ui.chat.MessageClickedChatAdapter
@@ -40,6 +41,7 @@ import com.github.andreyasadchy.xtra.ui.multiview.chat.CombinedChatViewModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUserClearReason
@@ -465,13 +467,16 @@ private class CombinedChatAdapter(
     private val profilePopoutGesture = ChatProfilePopoutGesture.fromPreference(
         fragment.requireContext().prefs().getString(C.CHAT_PROFILE_POPOUT_GESTURE, "tap"),
     )
+    private val emotePopoutMode = ChatEmotePopoutMode.fromPreference(
+        fragment.requireContext().prefs().getString(C.CHAT_EMOTE_POPOUT_MODE, "emote_details"),
+    )
     private val renderers = mutableMapOf<String, SessionRenderer>()
 
     fun renderer(identity: String): SessionRenderer? {
         val active = viewModel.session(identity) ?: return null
         return renderers[identity]
             ?.takeIf { it.isFor(active) }
-            ?: SessionRenderer(fragment, active, identity, assets, viewModel::rewardCatalog, profilePopoutGesture).also {
+            ?: SessionRenderer(fragment, active, identity, assets, viewModel::rewardCatalog, profilePopoutGesture, emotePopoutMode).also {
                 renderers[identity] = it
             }
     }
@@ -495,7 +500,7 @@ private class CombinedChatAdapter(
         holder.binding.channelChip.text = item.channelName
         holder.binding.channelChip.contentDescription = item.channelName
         renderer(item.identity)?.let { renderer ->
-            holder.bind(item, renderer, profilePopoutGesture)
+            holder.bind(item, renderer, profilePopoutGesture, emotePopoutMode)
         } ?: holder.clear()
         holder.binding.root.contentDescription = fragment.getString(
             R.string.multiview_combined_message_description,
@@ -520,27 +525,51 @@ private class CombinedChatAdapter(
     }
 
     class ViewHolder(val binding: CombinedChatListItemBinding) : RecyclerView.ViewHolder(binding.root) {
-        fun bind(item: CombinedChatMessage, renderer: SessionRenderer, gesture: ChatProfilePopoutGesture) {
+        fun bind(
+            item: CombinedChatMessage,
+            renderer: SessionRenderer,
+            gesture: ChatProfilePopoutGesture,
+            emoteMode: ChatEmotePopoutMode,
+        ) {
             val openProfile = { _: ChatMessageId ->
                 renderer.fragment.openMessageInteraction(item.identity, item.message)
             }
+            val openEmote = { interaction: ChatEmoteInteraction ->
+                renderer.fragment.openImageInteraction(
+                    interaction.url,
+                    interaction.name,
+                    interaction.url?.substringAfterLast('.', "webp"),
+                    interaction.animated,
+                    null,
+                    interaction.provider != ChatAssetProvider.TWITCH,
+                    interaction.id.takeIf { interaction.provider == ChatAssetProvider.TWITCH },
+                )
+            }
             binding.messageText.setInteractionCallbacks(
                 onMessageLongClick = openProfile.takeIf { gesture.allowsHold },
-                onEmoteClick = { interaction ->
-                    renderer.fragment.openImageInteraction(
-                        interaction.url,
-                        interaction.name,
-                        interaction.url?.substringAfterLast('.', "webp"),
-                        interaction.animated,
-                        null,
-                        interaction.provider != ChatAssetProvider.TWITCH,
-                        interaction.id.takeIf { interaction.provider == ChatAssetProvider.TWITCH },
-                    )
-                },
+                onEmoteClick = openEmote.takeUnless { emoteMode == ChatEmotePopoutMode.PROFILE_GESTURE },
                 onGifClick = { interaction ->
                     ImageClickedDialog.newGifInstance(interaction.url, interaction.description)
                         .show(renderer.fragment.childFragmentManager, "combinedImageDialog")
                 },
+                onEmoteLongClick = when {
+                    emoteMode == ChatEmotePopoutMode.EMOTE_DETAILS -> openEmote
+                    else -> null
+                },
+                onEmoteMessageLongClick = if (
+                    emoteMode != ChatEmotePopoutMode.EMOTE_DETAILS
+                ) {
+                    { _: ChatMessageId ->
+                        if (emoteMode == ChatEmotePopoutMode.EMOTE_TAP_PROFILE_HOLD || gesture.allowsHold) {
+                            openProfile(item.message.id)
+                        }
+                    }
+                } else null,
+                onEmoteMessageClick = if (
+                    emoteMode == ChatEmotePopoutMode.PROFILE_GESTURE && gesture.allowsTap
+                ) {
+                    { _: ChatMessageId -> openProfile(item.message.id) }
+                } else null,
             )
             binding.messageText.setMessageClickCallback(openProfile.takeIf { gesture.allowsTap })
             binding.messageText.bind(renderer.compile(item.message))
@@ -561,6 +590,7 @@ private class CombinedChatAdapter(
         val assets: ChatAssetRepository,
         private val rewards: (String) -> com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog,
         private val profileGesture: ChatProfilePopoutGesture,
+        private val emotePopoutMode: ChatEmotePopoutMode,
     ) {
         private val context = fragment.requireContext()
         private val preferences = context.prefs()
@@ -780,6 +810,7 @@ private class CombinedChatAdapter(
                     fragment.openImageInteraction(url, name, format, animated, source, thirdParty, emoteId)
                 },
                 profilePopoutGesture = profileGesture,
+                emotePopoutMode = emotePopoutMode,
             ), initialMessages)
         }
     }

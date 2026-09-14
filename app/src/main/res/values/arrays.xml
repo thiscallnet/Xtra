@@ -498,6 +498,18 @@
         <item>both</item>
     </string-array>
 
+    <string-array name="chatEmoteInteractionEntries" translatable="false">
+        <item>@string/chat_emote_interaction_emote_details</item>
+        <item>@string/chat_emote_interaction_emote_tap_profile_hold</item>
+        <item>@string/chat_emote_interaction_profile_gesture</item>
+    </string-array>
+
+    <string-array name="chatEmoteInteractionValues" translatable="false">
+        <item>emote_details</item>
+        <item>emote_tap_profile_hold</item>
+        <item>profile_gesture</item>
+    </string-array>
+
     <string-array name="chatGifDisplayEntries" translatable="false">
         <item>@string/chat_gif_display_large</item>
         <item>@string/chat_gif_display_emote</item>

@@ -275,6 +275,12 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "twitch_emote_group_hype_train",
     "twitch_emote_group_subscriber",
     "twitch_emote_group_global",
+    # Emote interaction settings currently use the default English wording
+    # until their translations are reviewed by native speakers.
+    "chat_emote_interaction",
+    "chat_emote_interaction_emote_details",
+    "chat_emote_interaction_emote_tap_profile_hold",
+    "chat_emote_interaction_profile_gesture",
     # Moderation display options and their preview ship with the default
     # English resources until translations are reviewed by native speakers.
     "chat_moderation_display",

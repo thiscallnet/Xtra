@@ -15,6 +15,7 @@ import android.text.TextUtils
 import android.text.method.LinkMovementMethod
 import android.text.style.ForegroundColorSpan
 import android.text.style.ImageSpan
+import android.text.style.ClickableSpan
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -149,6 +150,7 @@ internal data class ChatAdapterConfiguration(
     val replyClickListener: (() -> Unit)?,
     val imageClickListener: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?,
     val profilePopoutGesture: ChatProfilePopoutGesture = ChatProfilePopoutGesture.TAP,
+    val emotePopoutMode: ChatEmotePopoutMode = ChatEmotePopoutMode.EMOTE_DETAILS,
 )
 
 internal fun <T> applyTerminalAppend(
@@ -241,6 +243,7 @@ class ChatAdapter(
     private val replyClickListener: (() -> Unit)?,
     private val imageClickListener: ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)?,
     private val profilePopoutGesture: ChatProfilePopoutGesture = ChatProfilePopoutGesture.TAP,
+    private val emotePopoutMode: ChatEmotePopoutMode = ChatEmotePopoutMode.EMOTE_DETAILS,
 ) : RecyclerView.Adapter<ChatAdapter.ViewHolder>() {
 
     internal constructor(
@@ -297,6 +300,7 @@ class ChatAdapter(
         replyClickListener = configuration.replyClickListener,
         imageClickListener = configuration.imageClickListener,
         profilePopoutGesture = configuration.profilePopoutGesture,
+        emotePopoutMode = configuration.emotePopoutMode,
     )
 
     internal var onMessagesPublished: ((ChatPublicationKind, Boolean) -> Unit)? = null
@@ -863,6 +867,7 @@ class ChatAdapter(
     }
 
     fun detachDirectViewHolder(holder: ViewHolder) {
+        holder.resetTouchState()
         if (animateGifs) setAnimations(holder.textView, start = false)
         holder.detachDrawables()
     }
@@ -963,6 +968,7 @@ class ChatAdapter(
 
     override fun onViewDetachedFromWindow(holder: ViewHolder) {
         super.onViewDetachedFromWindow(holder)
+        holder.resetTouchState()
         if (animateGifs) setAnimations(holder.textView, start = false)
         holder.detachDrawables()
     }
@@ -1189,6 +1195,14 @@ class ChatAdapter(
         private var boundRenderKey: RenderCacheKey? = null
         private var boundReplyMessage: Boolean? = null
         private var bindGeneration = 0
+        private var touchStartedOnClickableSpan = false
+        private var touchStartedOnClickable: ClickableSpan? = null
+        private var touchStartedOnImageSpan = false
+        private var longPressConsumed = false
+        private var suppressNextMessageClick = false
+        private var touchMoved = false
+        private var touchDownX = 0f
+        private var touchDownY = 0f
         private var catalogRefreshPosted = false
         private val boundDrawables = Collections.newSetFromMap(IdentityHashMap<Drawable, Boolean>())
         private val drawableCallback = object : Drawable.Callback {
@@ -1209,23 +1223,141 @@ class ChatAdapter(
 
         init {
             textView.textSize = messageTextSize
+            textView.setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    android.view.MotionEvent.ACTION_DOWN -> {
+                        touchStartedOnClickable = clickableSpanAt(event)
+                        touchStartedOnClickableSpan = touchStartedOnClickable != null
+                        touchStartedOnImageSpan = imageSpanAt(event)
+                        longPressConsumed = false
+                        suppressNextMessageClick = false
+                        touchMoved = false
+                        touchDownX = event.x
+                        touchDownY = event.y
+                    }
+                    android.view.MotionEvent.ACTION_MOVE -> {
+                        val slop = android.view.ViewConfiguration.get(textView.context).scaledTouchSlop
+                        if (kotlin.math.abs(event.x - touchDownX) > slop ||
+                            kotlin.math.abs(event.y - touchDownY) > slop
+                        ) {
+                            touchMoved = true
+                        }
+                    }
+                    android.view.MotionEvent.ACTION_UP -> {
+                        if (longPressConsumed) {
+                            touchStartedOnClickableSpan = false
+                            touchStartedOnClickable = null
+                            touchStartedOnImageSpan = false
+                            longPressConsumed = false
+                            suppressNextMessageClick = false
+                            touchMoved = false
+                            return@setOnTouchListener true
+                        }
+                        if (touchStartedOnImageSpan && !touchMoved) {
+                            when (emotePopoutMode) {
+                                ChatEmotePopoutMode.PROFILE_GESTURE ->
+                                    if (profilePopoutGesture.allowsTap) selectMessageForProfile()
+
+                                ChatEmotePopoutMode.EMOTE_DETAILS,
+                                ChatEmotePopoutMode.EMOTE_TAP_PROFILE_HOLD ->
+                                    touchStartedOnClickable?.onClick(textView)
+                            }
+                            touchStartedOnClickableSpan = false
+                            touchStartedOnClickable = null
+                            touchStartedOnImageSpan = false
+                            longPressConsumed = false
+                            suppressNextMessageClick = false
+                            touchMoved = false
+                            return@setOnTouchListener true
+                        }
+                        if (touchStartedOnClickableSpan) suppressNextMessageClick = true
+                        touchStartedOnClickableSpan = false
+                        touchStartedOnClickable = null
+                        touchStartedOnImageSpan = false
+                        longPressConsumed = false
+                        touchMoved = false
+                    }
+                    android.view.MotionEvent.ACTION_CANCEL -> {
+                        touchStartedOnClickableSpan = false
+                        touchStartedOnClickable = null
+                        touchStartedOnImageSpan = false
+                        longPressConsumed = false
+                        suppressNextMessageClick = false
+                        touchMoved = false
+                    }
+                }
+                false
+            }
             textView.setOnClickListener(if (profilePopoutGesture.allowsTap) {
                 View.OnClickListener {
+                    if (suppressNextMessageClick) {
+                        suppressNextMessageClick = false
+                        return@OnClickListener
+                    }
                     if (textView.selectionStart == -1 && textView.selectionEnd == -1) {
-                        val message = boundMessage ?: return@OnClickListener
-                        selectedMessage = if (message.type == ChatMessage.REPLY_MESSAGE) message.replyParent else message
-                        messageClickListener?.invoke(channelId)
+                        selectMessageForProfile()
                     }
                 }
             } else null)
-            textView.setOnLongClickListener(if (profilePopoutGesture.allowsHold) {
-                View.OnLongClickListener {
-                    val message = boundMessage ?: return@OnLongClickListener false
-                    selectedMessage = if (message.type == ChatMessage.REPLY_MESSAGE) message.replyParent else message
-                    messageClickListener?.invoke(channelId)
-                    true
+            textView.setOnLongClickListener(View.OnLongClickListener {
+                if (touchStartedOnImageSpan) {
+                    longPressConsumed = true
+                    when (emotePopoutMode) {
+                        ChatEmotePopoutMode.EMOTE_DETAILS -> {
+                            touchStartedOnClickable?.onClick(textView)
+                            return@OnLongClickListener true
+                        }
+                        ChatEmotePopoutMode.EMOTE_TAP_PROFILE_HOLD -> {
+                            selectMessageForProfile()
+                            return@OnLongClickListener true
+                        }
+                        ChatEmotePopoutMode.PROFILE_GESTURE -> if (profilePopoutGesture.allowsHold) {
+                            selectMessageForProfile()
+                            return@OnLongClickListener true
+                        } else {
+                            return@OnLongClickListener true
+                        }
+                    }
                 }
-            } else null)
+                if (!profilePopoutGesture.allowsHold) {
+                    longPressConsumed = true
+                    return@OnLongClickListener true
+                }
+                if (boundMessage == null) return@OnLongClickListener false
+                longPressConsumed = true
+                selectMessageForProfile()
+                true
+            })
+        }
+
+        private fun selectMessageForProfile() {
+            val message = boundMessage ?: return
+            selectedMessage = if (message.type == ChatMessage.REPLY_MESSAGE) message.replyParent else message
+            messageClickListener?.invoke(channelId)
+        }
+
+        private fun clickableSpanAt(event: android.view.MotionEvent): ClickableSpan? {
+            val content = textView.text as? Spanned ?: return null
+            val textLayout = textView.layout ?: return null
+            if (content.isEmpty()) return null
+            val x = event.x - textView.totalPaddingLeft + textView.scrollX
+            val y = event.y - textView.totalPaddingTop + textView.scrollY
+            if (x < 0f || y < 0f) return null
+            val line = textLayout.getLineForVertical(y.toInt())
+            if (y < textLayout.getLineTop(line) || y > textLayout.getLineBottom(line) ||
+                x < textLayout.getLineLeft(line) || x > textLayout.getLineRight(line)
+            ) return null
+            val offset = textLayout.getOffsetForHorizontal(line, x)
+            val end = (offset + 1).coerceAtMost(content.length)
+            return content.getSpans(offset.coerceAtMost(content.length - 1), end, ClickableSpan::class.java).firstOrNull()
+        }
+
+        private fun imageSpanAt(event: android.view.MotionEvent): Boolean {
+            val content = textView.text as? Spanned ?: return false
+            val clickable = clickableSpanAt(event) ?: return false
+            val start = content.getSpanStart(clickable)
+            val end = content.getSpanEnd(clickable)
+            return start >= 0 && end > start && content.getSpans(start, end, ImageSpan::class.java).isNotEmpty()
         }
         private val catalogRefreshRunnable = Runnable {
             catalogRefreshPosted = false
@@ -1235,6 +1367,7 @@ class ChatAdapter(
             }
         }
         fun beginBind(catalogRevision: Int): Int {
+            resetTouchState()
             if (animateGifs) setAnimations(textView, start = false)
             detachDrawables()
             imageRequests.cancel()
@@ -1253,12 +1386,24 @@ class ChatAdapter(
         fun canAnimate(generation: Int): Boolean = isCurrentBind(generation) && itemView.isAttachedToWindow && !animationsPaused
 
         fun cancelBind() {
+            resetTouchState()
             detachDrawables()
             itemView.removeCallbacks(catalogRefreshRunnable)
             catalogRefreshPosted = false
             bindGeneration++
             boundMessage = null
             boundRenderKey = null
+        }
+
+        fun resetTouchState() {
+            touchStartedOnClickableSpan = false
+            touchStartedOnClickable = null
+            touchStartedOnImageSpan = false
+            longPressConsumed = false
+            suppressNextMessageClick = false
+            touchMoved = true
+            touchDownX = 0f
+            touchDownY = 0f
         }
 
         fun postCatalogRefresh() {
@@ -1864,6 +2009,18 @@ class ChatAdapter(
         SupervisorJob() + Dispatchers.Default.limitedParallelism(MAX_RENDER_WORKERS),
     )
 
+    private fun legacyEmoteClick(chatMessage: ChatMessage): ((String?, String?, String?, Boolean?, Int?, Boolean?, String?) -> Unit)? = when {
+        emotePopoutMode == ChatEmotePopoutMode.PROFILE_GESTURE -> {
+            { _, _, _, _, _, _, _ ->
+                if (profilePopoutGesture.allowsTap) {
+                    selectedMessage = if (chatMessage.type == ChatMessage.REPLY_MESSAGE) chatMessage.replyParent else chatMessage
+                    messageClickListener?.invoke(channelId)
+                }
+            }
+        }
+        else -> imageClickListener
+    }
+
     private suspend fun prepareMessage(
         chatMessage: ChatMessage,
         context: android.content.Context,
@@ -1902,6 +2059,7 @@ class ChatAdapter(
             includeAccessibilityDescription = true,
             highlightSettings = highlightSettings,
             secondaryTextColor = metadataTextColor,
+            emoteClick = legacyEmoteClick(chatMessage),
         )
         val clipLinks = clipLinksOf(chatMessage.message)
         if (clipLinks.isNotEmpty()) {

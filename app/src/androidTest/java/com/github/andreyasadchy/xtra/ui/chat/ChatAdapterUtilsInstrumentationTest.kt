@@ -8,8 +8,14 @@ import android.graphics.Paint
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.text.SpannableStringBuilder
+import android.text.TextPaint
+import android.text.method.LinkMovementMethod
+import android.text.style.ClickableSpan
 import android.text.style.ForegroundColorSpan
 import android.content.Intent
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
 import android.widget.TextView
 import androidx.test.core.app.ApplicationProvider
 import androidx.core.text.getSpans
@@ -32,6 +38,93 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ChatAdapterUtilsInstrumentationTest {
+
+    @Test
+    fun legacyEmoteLongPressConsumesSpanActionUp() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val adapter = createDirectTestAdapter(androidx.fragment.app.Fragment())
+        val textView = TextView(context)
+        val holder = adapter.ViewHolder(textView)
+        var spanClicks = 0
+
+        instrumentation.runOnMainSync {
+            textView.layoutParams = ViewGroup.LayoutParams(200, 80)
+            textView.movementMethod = LinkMovementMethod.getInstance()
+            textView.textSize = 14f
+            textView.text = SpannableStringBuilder("\uFFFC").apply {
+                setSpan(CenteredImageSpan(SizedDrawable(24, 24), 24, 24), 0, 1, 0)
+                setSpan(object : ClickableSpan() {
+                    override fun onClick(widget: View) { spanClicks++ }
+                    override fun updateDrawState(ds: TextPaint) = Unit
+                }, 0, 1, 0)
+            }
+            textView.measure(
+                View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(80, View.MeasureSpec.EXACTLY),
+            )
+            textView.layout(0, 0, 200, 80)
+            val layout = checkNotNull(textView.layout)
+            val x = textView.totalPaddingLeft +
+                (layout.getPrimaryHorizontal(0) + layout.getPrimaryHorizontal(1)) / 2f
+            val y = textView.totalPaddingTop +
+                (layout.getLineTop(0) + layout.getLineBottom(0)) / 2f
+            val now = android.os.SystemClock.uptimeMillis()
+            textView.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0))
+        }
+        Thread.sleep((android.view.ViewConfiguration.getLongPressTimeout() + 150).toLong())
+        instrumentation.runOnMainSync {
+            val now = android.os.SystemClock.uptimeMillis()
+            textView.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_UP, 20f, 20f, 0))
+        }
+
+        assertEquals(1, spanClicks)
+        adapter.releaseDirectViewHolder(holder)
+    }
+
+    @Test
+    fun legacyReplyRowEmoteTapWorksWithoutLinkMovement() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val adapter = createDirectTestAdapter(androidx.fragment.app.Fragment())
+        val textView = TextView(context)
+        val holder = adapter.ViewHolder(textView)
+        var spanClicks = 0
+
+        instrumentation.runOnMainSync {
+            val replyRow = ChatMessage(type = ChatMessage.REPLY_MESSAGE)
+            textView.layoutParams = ViewGroup.LayoutParams(200, 80)
+            if (replyRow.type == ChatMessage.REPLY_MESSAGE) {
+                // Reply rows deliberately disable LinkMovementMethod and still need emote taps.
+                textView.movementMethod = null
+                textView.maxLines = 1
+            }
+            textView.textSize = 14f
+            textView.text = SpannableStringBuilder("\uFFFC").apply {
+                setSpan(CenteredImageSpan(SizedDrawable(24, 24), 24, 24), 0, 1, 0)
+                setSpan(object : ClickableSpan() {
+                    override fun onClick(widget: View) { spanClicks++ }
+                    override fun updateDrawState(ds: TextPaint) = Unit
+                }, 0, 1, 0)
+            }
+            textView.measure(
+                View.MeasureSpec.makeMeasureSpec(200, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(80, View.MeasureSpec.EXACTLY),
+            )
+            textView.layout(0, 0, 200, 80)
+            val layout = checkNotNull(textView.layout)
+            val x = textView.totalPaddingLeft +
+                (layout.getPrimaryHorizontal(0) + layout.getPrimaryHorizontal(1)) / 2f
+            val y = textView.totalPaddingTop +
+                (layout.getLineTop(0) + layout.getLineBottom(0)) / 2f
+            val now = android.os.SystemClock.uptimeMillis()
+            textView.dispatchTouchEvent(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0))
+            textView.dispatchTouchEvent(MotionEvent.obtain(now, now + 20, MotionEvent.ACTION_UP, x, y, 0))
+        }
+
+        assertEquals(1, spanClicks)
+        adapter.releaseDirectViewHolder(holder)
+    }
 
     @Test
     fun directHolderAttachmentStartsAnimatedDrawableAfterBindBeforeAttach() {

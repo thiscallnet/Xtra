@@ -149,7 +149,11 @@ class MessageClickedChatAdapter(
         val v2Row = v2Rows?.getOrNull(position)
         if (v2Row != null && holder.textView is ChatMessageTextView) {
             val v2View = holder.textView as ChatMessageTextView
-            v2View.setInteractionCallbacks(null, v2EmoteClick, v2GifClick)
+            v2View.setInteractionCallbacks(
+                onMessageLongClick = null,
+                onEmoteClick = v2EmoteClick,
+                onGifClick = v2GifClick,
+            )
             v2View.bind(v2Row)
             bindSelectionClick(holder.textView, chatMessage)
             if (isSelected(chatMessage)) setChatMessageBackground(holder.textView, R.color.chatMessageSelected)
