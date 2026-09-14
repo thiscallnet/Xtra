@@ -123,7 +123,7 @@ class TwitchNotificationsFragment : Fragment() {
                 putString("gameName", action.name)
             })
             is TwitchNotificationAction.Drops -> findNavController().navigate(
-                R.id.action_global_dropsFragment,
+                R.id.action_global_dropsDetailFragment,
                 Bundle().apply { putString("campaignId", action.campaignId) },
                 NavOptions.Builder().setLaunchSingleTop(true).build(),
             )

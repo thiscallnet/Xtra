@@ -105,23 +105,10 @@ class KeepStateFragmentNavigator(
 
         val incoming = requireNotNull(outgoing)
         val incomingDestinationId = entries.last().destination.id
-        // Navigation can recover with a stale non-tab fragment still attached when the
-        // navigator's bookkeeping was interrupted by a process/lifecycle transition. The
-        // current-entry cleanup above is not sufficient in that case: remove or hide every
-        // other attached fragment before committing the new primary destination so global
-        // routes (for example Notifications -> Drops) cannot render on top of each other.
-        fragmentManager.fragments
-            .filter { it.isAdded && it !== incoming }
-            .forEach { fragment ->
-                val destinationId = fragment.tag?.let(destinationByTag::get)
-                if (fragment in preservedFragments.values || destinationId?.let(::isTabDestination) == true) {
-                    transaction.hide(fragment)
-                    transaction.setMaxLifecycle(fragment, Lifecycle.State.CREATED)
-                } else {
-                    transaction.remove(fragment)
-                    forget(fragment)
-                }
-            }
+        // A tab can be reached through a global action as well as through the bottom bar. Keep
+        // the two cases separate in the graph, but still enforce the invariant here that only the
+        // incoming fragment is visible after every transaction.
+        hideOrRemoveOtherFragments(transaction, incoming)
         evictLeastRecentlyUsedTabIfNeeded(
             transaction = transaction,
             incomingDestinationId = incomingDestinationId,
@@ -161,14 +148,42 @@ class KeepStateFragmentNavigator(
 
         val currentEntry = state.backStack.value.lastOrNull()
         val currentFragment = currentEntry?.let(::findFragment)
-        if (currentFragment != null &&
-            currentEntry.destination.id == backStackEntry.destination.id &&
-            isTabDestination(backStackEntry.destination.id)
-        ) {
-            entryFragments[backStackEntry.id] = currentFragment
+        if (currentEntry?.destination?.id == backStackEntry.destination.id) {
+            val transaction = fragmentManager.beginTransaction().setReorderingAllowed(true)
+            val incoming = if (currentFragment != null) {
+                if (isTabDestination(backStackEntry.destination.id)) {
+                    transaction.show(currentFragment)
+                } else {
+                    transaction.remove(currentFragment)
+                }
+                currentFragment.takeIf { isTabDestination(backStackEntry.destination.id) }
+                    ?: createFragment(backStackEntry).also { replacement ->
+                        registerNewFragment(backStackEntry, replacement)
+                        transaction.add(hostContainerId, replacement, backStackEntry.id)
+                    }
+            } else {
+                createFragment(backStackEntry).also { replacement ->
+                    registerNewFragment(backStackEntry, replacement)
+                    transaction.add(hostContainerId, replacement, backStackEntry.id)
+                }
+            }
+            hideOrRemoveOtherFragments(
+                transaction = transaction,
+                incoming = incoming,
+                excluded = currentFragment?.takeUnless { incoming === it }?.let(::setOf).orEmpty(),
+            )
+            currentFragment?.takeUnless { incoming === it }?.let(::forget)
+            transaction.setPrimaryNavigationFragment(incoming)
+            transaction.setMaxLifecycle(incoming, Lifecycle.State.RESUMED)
+            transaction.runOnCommit {
+                pendingFragments.remove(backStackEntry.id)
+                onNavigationTransactionCommitted?.invoke(backStackEntry.destination.id)
+            }
+            transaction.commit()
+            entryFragments[backStackEntry.id] = incoming
             destinationByTag[backStackEntry.id] = backStackEntry.destination.id
             if (isTabDestination(backStackEntry.destination.id)) {
-                preservedFragments[backStackEntry.destination.id] = currentFragment
+                preservedFragments[backStackEntry.destination.id] = incoming
                 markTabUsed(backStackEntry.destination.id)
             }
             state.onLaunchSingleTop(backStackEntry)
@@ -197,6 +212,7 @@ class KeepStateFragmentNavigator(
         val incomingEntry = backStack.getOrNull(popUpToIndex - 1)
         val transaction = fragmentManager.beginTransaction().setReorderingAllowed(true)
         val addedInThisTransaction = mutableSetOf<Fragment>()
+        val removedFragments = mutableSetOf<Fragment>()
 
         poppedEntries.asReversed().forEach { entry ->
             val fragment = findFragment(entry) ?: return@forEach
@@ -206,6 +222,7 @@ class KeepStateFragmentNavigator(
             } else {
                 transaction.remove(fragment)
                 forget(fragment)
+                removedFragments += fragment
                 if (isTabDestination(entry.destination.id)) {
                     preservedFragments.remove(entry.destination.id)
                     lastUsedTabAt.remove(entry.destination.id)
@@ -229,6 +246,18 @@ class KeepStateFragmentNavigator(
             }
             transaction.setMaxLifecycle(fragment, Lifecycle.State.RESUMED)
             transaction.setPrimaryNavigationFragment(fragment)
+        }
+
+        val incomingFragment = incomingEntry?.let(::findFragment)
+        hideOrRemoveOtherFragments(
+            transaction = transaction,
+            incoming = incomingFragment,
+            excluded = removedFragments,
+        )
+        incomingFragment?.let {
+            transaction.show(it)
+            transaction.setPrimaryNavigationFragment(it)
+            transaction.setMaxLifecycle(it, Lifecycle.State.RESUMED)
         }
 
         transaction.runOnCommit {
@@ -292,6 +321,26 @@ class KeepStateFragmentNavigator(
     }
 
     private fun isPending(fragment: Fragment): Boolean = pendingFragments.values.any { it === fragment }
+
+    /** Keep FragmentManager's attached fragments in sync with the navigation destination. */
+    private fun hideOrRemoveOtherFragments(
+        transaction: FragmentTransaction,
+        incoming: Fragment?,
+        excluded: Set<Fragment> = emptySet(),
+    ) {
+        fragmentManager.fragments
+            .filter { it.isAdded && it !== incoming && it !in excluded }
+            .forEach { fragment ->
+                val destinationId = fragment.tag?.let(destinationByTag::get)
+                if (fragment in preservedFragments.values || destinationId?.let(::isTabDestination) == true) {
+                    transaction.hide(fragment)
+                    transaction.setMaxLifecycle(fragment, Lifecycle.State.CREATED)
+                } else {
+                    transaction.remove(fragment)
+                    forget(fragment)
+                }
+            }
+    }
 
     private fun forget(fragment: Fragment) {
         entryFragments.filterValues { it === fragment }.keys.forEach(entryFragments::remove)

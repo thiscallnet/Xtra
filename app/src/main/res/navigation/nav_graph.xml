@@ -248,6 +248,19 @@
         android:id="@+id/action_global_dropsFragment"
         app:destination="@id/dropsFragment" />
     <fragment
+        android:id="@+id/dropsDetailFragment"
+        android:name="com.github.andreyasadchy.xtra.ui.drops.DropsFragment"
+        android:label="@string/drops">
+        <argument
+            android:name="campaignId"
+            app:argType="string"
+            app:nullable="true"
+            android:defaultValue="@null" />
+    </fragment>
+    <action
+        android:id="@+id/action_global_dropsDetailFragment"
+        app:destination="@id/dropsDetailFragment" />
+    <fragment
         android:id="@+id/whispersFragment"
         android:name="com.github.andreyasadchy.xtra.ui.whispers.WhispersFragment"
         android:label="@string/whispers" />

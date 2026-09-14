@@ -55,7 +55,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.withStarted
 import androidx.navigation.NavController
-import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
 import androidx.navigation.ui.NavigationUI
 import androidx.navigation.ui.setupWithNavController
@@ -1080,11 +1079,11 @@ class MainActivity : AppCompatActivity() {
             INTENT_OPEN_DROPS -> {
                 intent.action = null
                 if (navController.currentDestination?.id != R.id.dropsFragment) {
-                    navController.navigate(
-                        R.id.action_global_dropsFragment,
-                        null,
-                        NavOptions.Builder().setLaunchSingleTop(true).build(),
-                    )
+                    // Drops is a bottom tab. Route notification intents through the same tab
+                    // switch as a user tap so a global action cannot leave a second Drops entry
+                    // above the preserved tab.
+                    pendingBottomNavigationItemId = R.id.dropsFragment
+                    drainBottomNavigation()
                 }
             }
             Intent.ACTION_VIEW -> {

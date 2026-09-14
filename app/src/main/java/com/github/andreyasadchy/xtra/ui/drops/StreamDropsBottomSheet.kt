@@ -271,7 +271,7 @@ class StreamDropsBottomSheet : BottomSheetDialogFragment() {
             )
         dismiss()
         findNavController().navigate(
-            R.id.action_global_dropsFragment,
+            R.id.action_global_dropsDetailFragment,
             Bundle().apply { putString("campaignId", campaignId) },
         )
     }

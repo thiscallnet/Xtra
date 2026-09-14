@@ -3242,7 +3242,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 viewModel.claimDrop(drop)
             } else {
                 findNavController().navigate(
-                    R.id.action_global_dropsFragment,
+                    R.id.action_global_dropsDetailFragment,
                     null,
                     NavOptions.Builder().setLaunchSingleTop(true).build(),
                 )
