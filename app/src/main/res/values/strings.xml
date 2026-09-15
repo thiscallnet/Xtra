@@ -264,6 +264,9 @@
     <string name="settings_live_rewind">Live stream rewind</string>
     <string name="settings_live_rewind_summary">Rewind live streams using their recording</string>
     <string name="player_live" translatable="false">LIVE</string>
+    <string name="player_live_status">● LIVE</string>
+    <string name="player_live_ended">ENDED</string>
+    <string name="player_return_to_live">Return to live</string>
     <string name="settings_player_behavior">Player behavior</string>
     <string name="network_filter_warning" translatable="false">Some Twitch requests failed to resolve. A DNS filter, VPN, proxy, or network issue may be blocking Twitch.</string>
     <string name="settings_buffer_limits">Buffer limits</string>
