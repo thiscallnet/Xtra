@@ -2092,7 +2092,6 @@ Metadata text</string>
     <string name="player_control_position_above">Above timeline</string>
     <string name="player_control_position_below">Below timeline</string>
     <string name="player_control_position_middle">Middle of player</string>
-    <string name="settings_layout_preview">Preview</string>
     <string name="settings_player_control_preview_summary">See how control and streamer info sizes compare</string>
     <string name="settings_player_control_preview_description">Preview. Vertical controls %1$s, horizontal controls %2$s, streamer info %3$s.</string>
     <string name="settings_player_control_preview_vertical">Vertical</string>
