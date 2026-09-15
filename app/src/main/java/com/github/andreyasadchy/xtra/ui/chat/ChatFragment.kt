@@ -570,14 +570,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             is ChatViewModel.ChatMutation.Append -> {
                 mutation.messages.forEach { message ->
                     chatMessageListener?.invoke(message)
-                    if (message.type == ChatMessage.USER_MESSAGE || message.type == ChatMessage.REPLY_MESSAGE) {
-                        (requireContext().applicationContext as XtraApp).xtraModule.chatBubbleManager.recordMessage(
-                            requireArguments().getString(KEY_CHANNEL_ID),
-                            message.userName ?: message.userLogin,
-                            message.message,
-                            message.id,
-                        )
-                    }
                     messageDialog?.newMessage(message)
                     replyDialog?.newMessage(message)
                 }
@@ -817,7 +809,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         dropCalloutMinimized = savedInstanceState?.getBoolean(KEY_DROP_CALLOUT_MINIMIZED) ?: false
         setupEmotePickerSizing()
         setupDropCallout()
-        val chatBubbleManager = (requireContext().applicationContext as XtraApp).xtraModule.chatBubbleManager
         val chatSessionManager = (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager
         if (!sharedSessionOnly) {
             viewLifecycleOwner.lifecycleScope.launch {
@@ -831,32 +822,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     )
                 }
             }
-        }
-        binding.chatBubbleButton.isVisible = chatBubbleManager.isSupported() &&
-            requireContext().prefs().getBoolean(C.CHAT_BUBBLE_ENABLED, false)
-        binding.chatBubbleButton.setOnClickListener {
-            val args = requireArguments()
-            if (!chatBubbleManager.areBubblesAllowed()) {
-                Snackbar.make(binding.root, R.string.chat_bubble_system_disabled, Snackbar.LENGTH_LONG)
-                    .setAction(R.string.chat_bubble_open_settings) {
-                        runCatching {
-                            startActivity(android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS).apply {
-                                putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, requireContext().packageName)
-                            })
-                        }
-                    }
-                    .show()
-                return@setOnClickListener
-            }
-            val opened = chatBubbleManager.toggle(
-                args.getString(KEY_CHANNEL_ID),
-                args.getString(KEY_CHANNEL_LOGIN),
-                args.getString(KEY_CHANNEL_NAME),
-                args.getString(KEY_STREAM_ID),
-            )
-            binding.chatBubbleButton.contentDescription = getString(
-                if (opened) R.string.chat_bubble_close else R.string.chat_bubble_open,
-            )
         }
         binding.chatTopOverlays.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             updatePinnedMessageOverlayWidth()
@@ -3591,21 +3556,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     ) {
         val previousIds = v2KnownMessageIds
         val currentIds = messages.mapNotNull { it.id.value }.toSet()
-        if (previousIds != null) {
-            val bubbleManager = (requireContext().applicationContext as XtraApp).xtraModule.chatBubbleManager
-            messages.asSequence()
-                .filter { it.id.value !in previousIds }
-                .map(::v2MessageToLegacy)
-                .filter { it.type == ChatMessage.USER_MESSAGE || it.type == ChatMessage.REPLY_MESSAGE }
-                .forEach { message ->
-                    bubbleManager.recordMessage(
-                        requireArguments().getString(KEY_CHANNEL_ID),
-                        message.userName ?: message.userLogin,
-                        message.message,
-                        message.id,
-                    )
-                }
-        }
         v2KnownMessageIds = currentIds
         if (selectedV2Message != null) {
             messageDialog?.updateV2Messages(messages.map(::v2MessageToLegacy), rows)
@@ -4031,11 +3981,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onStop() {
         chatIdentityPopup?.dismiss()
-        if (activity !is com.github.andreyasadchy.xtra.ui.main.ChatBubbleActivity &&
-            !requireContext().prefs().getBoolean(C.CHAT_BUBBLE_KEEP_OPEN, true)
-        ) {
-            (requireContext().applicationContext as XtraApp).xtraModule.chatBubbleManager.close()
-        }
         super.onStop()
         if (!useChatV2 && (!requireArguments().getBoolean(KEY_IS_LIVE) || !requireContext().prefs().getBoolean(C.PLAYER_KEEP_CHAT_OPEN, false))) {
             viewModel.stopLiveChat()

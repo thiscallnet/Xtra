@@ -60,17 +60,6 @@
                     android:gravity="end"
                     android:orientation="vertical">
 
-                    <ImageButton
-                        android:id="@+id/chatBubbleButton"
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
-                        android:background="?android:selectableItemBackgroundBorderless"
-                        android:contentDescription="@string/chat_bubble_open"
-                        android:padding="12dp"
-                        android:src="@drawable/ic_chat_bubble"
-                        android:visibility="gone"
-                        app:tint="?attr/colorOnSurfaceVariant" />
-
                 <include layout="@layout/view_pinned_chat_message" />
 
                 <com.github.andreyasadchy.xtra.ui.chat.HappeningNowView

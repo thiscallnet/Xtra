@@ -78,6 +78,8 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         }
         MainLooperStallWatchdog.start()
         xtraModule = XtraModule(this)
+        // Chat notification bubbles are temporarily disabled. Clear state left by older builds.
+        xtraModule.chatBubbleManager.retire()
         // Restore persisted Live Update notifications as soon as the process starts. The
         // managers only consume existing state here; they do not create a new network source.
         xtraModule.predictionLiveUpdateManager

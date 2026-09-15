@@ -58,6 +58,4 @@
     <action android:id="@+id/action_global_predictionLiveUpdateSettingsFragment" app:destination="@id/predictionLiveUpdateSettingsFragment" />
     <fragment android:id="@+id/dropsLiveUpdateSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/drops_live_updates" tools:layout="@xml/drops_live_update_preferences"><argument android:name="settings_screen" android:defaultValue="drops_live_updates" app:argType="string" /></fragment>
     <action android:id="@+id/action_global_dropsLiveUpdateSettingsFragment" app:destination="@id/dropsLiveUpdateSettingsFragment" />
-    <fragment android:id="@+id/chatBubbleSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/chat_bubble" tools:layout="@xml/chat_bubble_preferences"><argument android:name="settings_screen" android:defaultValue="chat_bubble" app:argType="string" /></fragment>
-    <action android:id="@+id/action_global_chatBubbleSettingsFragment" app:destination="@id/chatBubbleSettingsFragment" />
 </navigation>

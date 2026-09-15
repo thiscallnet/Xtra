@@ -1100,18 +1100,6 @@ class SettingsActivity : AppCompatActivity() {
             }.onFailure { fallback() }
         }
 
-        private fun openBubbleSettings(fallback: () -> Unit) {
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-                fallback()
-                return
-            }
-            runCatching {
-                startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_BUBBLE_SETTINGS).apply {
-                    putExtra(Settings.EXTRA_APP_PACKAGE, requireContext().packageName)
-                })
-            }.onFailure { fallback() }
-        }
-
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             if (settingsScreen == SCREEN_LIVE_NOTIFICATIONS) {
                 LiveNotificationScheduler.migrateMode(requireContext())
@@ -1127,7 +1115,6 @@ class SettingsActivity : AppCompatActivity() {
                     SCREEN_SYSTEM_MEDIA -> R.xml.system_media_notification_preferences
                     SCREEN_PREDICTION_LIVE_UPDATES -> R.xml.prediction_live_update_preferences
                     SCREEN_DROPS_LIVE_UPDATES -> R.xml.drops_live_update_preferences
-                    SCREEN_CHAT_BUBBLE -> R.xml.chat_bubble_preferences
                     SCREEN_ACCOUNT -> R.xml.account_preferences
                     SCREEN_LANGUAGE -> R.xml.language_preferences
                     SCREEN_BACKUP -> R.xml.backup_preferences
@@ -1490,7 +1477,6 @@ class SettingsActivity : AppCompatActivity() {
             if (settingsScreen == SCREEN_PREDICTION_LIVE_UPDATES || settingsScreen == SCREEN_DROPS_LIVE_UPDATES) {
                 configureLiveUpdateSettings()
             }
-            if (settingsScreen == SCREEN_CHAT_BUBBLE) configureChatBubbleSettings()
             findPreference<Preference>("prediction_live_updates_page")?.setOnPreferenceClickListener {
                 findNavController().navigate(R.id.action_global_predictionLiveUpdateSettingsFragment)
                 true
@@ -1551,43 +1537,6 @@ class SettingsActivity : AppCompatActivity() {
                     if (settingsScreen == SCREEN_PREDICTION_LIVE_UPDATES) R.string.notification_prediction_results_channel_id
                     else R.string.notification_drops_results_channel_id,
                 )
-                true
-            }
-        }
-
-        private fun configureChatBubbleSettings() {
-            val manager = (requireContext().applicationContext as XtraApp).xtraModule.chatBubbleManager
-            val supported = manager.isSupported()
-            findPreference<SwitchPreferenceCompat>(C.CHAT_BUBBLE_ENABLED)?.apply {
-                isEnabled = supported
-                setOnPreferenceChangeListener { _, value ->
-                    if (value as Boolean && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-                        ActivityCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-                    ) {
-                        openNotificationSettings()
-                        return@setOnPreferenceChangeListener false
-                    }
-                    if (!value) {
-                        (requireContext().applicationContext as XtraApp).xtraModule.chatBubbleManager.close()
-                    }
-                    true
-                }
-            }
-            findPreference<Preference>("chat_bubble_status")?.apply {
-                summary = getString(
-                    when {
-                        !supported -> R.string.chat_bubble_status_android
-                        !manager.areBubblesAllowed() -> R.string.chat_bubble_status_disabled
-                        else -> R.string.chat_bubble_status_available
-                    },
-                )
-                setOnPreferenceClickListener {
-                    openBubbleSettings(::openNotificationSettings)
-                    true
-                }
-            }
-            findPreference<Preference>(C.CHAT_BUBBLE_NOTIFICATION_SETTINGS)?.setOnPreferenceClickListener {
-                openBubbleSettings(::openNotificationSettings)
                 true
             }
         }
@@ -1992,7 +1941,6 @@ class SettingsActivity : AppCompatActivity() {
             const val SCREEN_SYSTEM_MEDIA = "system_media"
             const val SCREEN_PREDICTION_LIVE_UPDATES = "prediction_live_updates"
             const val SCREEN_DROPS_LIVE_UPDATES = "drops_live_updates"
-            const val SCREEN_CHAT_BUBBLE = "chat_bubble"
         }
     }
 
@@ -2655,8 +2603,6 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<Preference>("chat_username_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatUsernameFragment); true }
             findPreference<Preference>("chat_emotes_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatEmotesFragment); true }
             findPreference<Preference>("chat_features_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatFeaturesFragment); true }
-            findPreference<Preference>("chat_bubble_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.action_global_chatBubbleSettingsFragment); true }
-            findPreference<Preference>("chat_bubble_page")?.isVisible = !requireContext().isTelevision()
             findPreference<Preference>("chat_history_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatHistoryFragment); true }
             findPreference<Preference>("chat_translation_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatTranslationFragment); true }
             findPreference<Preference>("chat_visibility_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatVisibilityFragment); true }
@@ -3404,11 +3350,6 @@ class SettingsActivity : AppCompatActivity() {
                 titleRes = R.string.settings_debug_trigger_drops,
                 summaryRes = R.string.settings_debug_trigger_drops_summary,
             ) { module, stream -> triggerDrops(module, stream) }
-            addNotificationFixturePreference(
-                key = "debug_trigger_chat_bubble",
-                titleRes = R.string.settings_debug_trigger_chat_bubble,
-                summaryRes = R.string.settings_debug_trigger_chat_bubble_summary,
-            ) { module, stream -> triggerChatBubble(module, stream) }
         }
 
         private fun addNotificationFixturePreference(
@@ -3576,38 +3517,6 @@ class SettingsActivity : AppCompatActivity() {
             return FixtureActionResult(label, true)
         }
 
-        private fun triggerChatBubble(
-            module: com.github.andreyasadchy.xtra.XtraModule,
-            stream: Stream,
-        ): FixtureActionResult {
-            val context = requireContext().applicationContext
-            val label = getString(R.string.settings_debug_chat_bubble_label)
-            val manager = module.chatBubbleManager
-            if (!manager.areBubblesAllowed()) {
-                return FixtureActionResult(
-                    label = label,
-                    triggered = false,
-                    message = getString(R.string.settings_debug_chat_bubbles_blocked),
-                )
-            }
-            val preferences = context.prefs()
-            val wasEnabled = preferences.getBoolean(C.CHAT_BUBBLE_ENABLED, false)
-            if (!wasEnabled) preferences.edit { putBoolean(C.CHAT_BUBBLE_ENABLED, true) }
-            val opened = manager.open(
-                channelId = stream.channelId,
-                channelLogin = stream.channelLogin,
-                channelName = stream.channelName,
-                streamId = stream.id,
-            )
-            if (opened) {
-                manager.recordMessage(stream.channelId, "Test viewer", "This is a test chat message.", "debug-chat-1")
-                manager.recordMessage(stream.channelId, "Another viewer", "The bubble notification is working.", "debug-chat-2")
-                manager.recordMessage(stream.channelId, "Test viewer", "You can dismiss this fixture when done.", "debug-chat-3")
-            }
-            if (!wasEnabled) preferences.edit { putBoolean(C.CHAT_BUBBLE_ENABLED, false) }
-            return FixtureActionResult(label, opened)
-        }
-
         private data class FixtureActionResult(
             val label: String,
             val triggered: Boolean,
@@ -3698,7 +3607,6 @@ class SettingsActivity : AppCompatActivity() {
                     Triple(R.xml.system_media_notification_preferences, SettingsNavDirections(R.id.systemMediaNotificationSettingsFragment), getString(R.string.settings_system_media_controls)),
                     Triple(R.xml.prediction_live_update_preferences, SettingsNavDirections(R.id.predictionLiveUpdateSettingsFragment), getString(R.string.prediction_live_updates)),
                     Triple(R.xml.drops_live_update_preferences, SettingsNavDirections(R.id.dropsLiveUpdateSettingsFragment), getString(R.string.drops_live_updates)),
-                    Triple(R.xml.chat_bubble_preferences, SettingsNavDirections(R.id.chatBubbleSettingsFragment), getString(R.string.chat_bubble)),
                     Triple(R.xml.account_preferences, SettingsNavDirections(R.id.accountSettingsFragment), getString(R.string.settings_home_account_network)),
                     Triple(R.xml.update_search_preferences, SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment(), getString(R.string.settings_general_updates)),
                     Triple(R.xml.language_preferences, SettingsNavDirections(R.id.languageSettingsFragment), "App › Language"),

@@ -45,6 +45,29 @@ class ChatBubbleManager(
 
     fun isOpen(): Boolean = !preferences.getString(C.CHAT_BUBBLE_ACTIVE_CHANNEL_ID, null).isNullOrBlank()
 
+    /**
+     * Retires the temporary chat bubble feature and removes any shortcuts or notification
+     * state created by older builds.
+     */
+    fun retire() {
+        runCatching {
+            val ids = ShortcutManagerCompat.getShortcuts(
+                context,
+                ShortcutManagerCompat.FLAG_MATCH_DYNAMIC or
+                    ShortcutManagerCompat.FLAG_MATCH_PINNED or
+                    ShortcutManagerCompat.FLAG_MATCH_CACHED,
+            ).mapNotNull { shortcut ->
+                shortcut.id.takeIf { it.startsWith(SHORTCUT_ID_PREFIX) }
+            }
+            if (ids.isNotEmpty()) {
+                ShortcutManagerCompat.disableShortcuts(context, ids, null)
+                ShortcutManagerCompat.removeLongLivedShortcuts(context, ids)
+                ShortcutManagerCompat.removeDynamicShortcuts(context, ids)
+            }
+        }
+        close()
+    }
+
     fun open(channelId: String?, channelLogin: String?, channelName: String?, streamId: String?): Boolean {
         if (!areBubblesAllowed() || !preferences.getBoolean(C.CHAT_BUBBLE_ENABLED, false)) return false
         val id = channelId?.takeIf(String::isNotBlank) ?: return false
@@ -237,12 +260,13 @@ class ChatBubbleManager(
     private fun bubblePendingIntentFlags(): Int =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0
 
-    private fun shortcutId(channelId: String): String = "xtra_chat_$channelId"
+    private fun shortcutId(channelId: String): String = "$SHORTCUT_ID_PREFIX$channelId"
     private val channelIdForBubbles get() = context.getString(R.string.notification_chat_bubbles_channel_id)
 
     private data class ChatBubblePreview(val sender: String, val message: String)
 
     private companion object {
+        const val SHORTCUT_ID_PREFIX = "xtra_chat_"
         const val NOTIFICATION_ID = 6301
         const val MAX_SEEN_MESSAGE_KEYS = 512
     }
