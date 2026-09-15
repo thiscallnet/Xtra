@@ -246,6 +246,12 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "player_playing",
     "player_move_chat",
     # Player-control editor labels are currently English-only until translated.
+    "settings_home_controls",
+    "settings_home_controls_summary",
+    "settings_layout_preview",
+    "settings_customize_hud",
+    "settings_customize_hud_summary",
+    "settings_preview_empty",
     "settings_player_control_metadata",
     "settings_player_control_timeline",
     "settings_customize_controls_position",

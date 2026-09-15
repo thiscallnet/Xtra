@@ -208,23 +208,6 @@ class SettingsMigrationTest {
     }
 
     @Test
-    fun `current schema migrates the removed middle quick control position`() {
-        val preferences = MemoryPreferences(
-            mutableMapOf(
-                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION,
-                C.PLAYER_CONTROL_POSITION to C.PLAYER_CONTROL_POSITION_MIDDLE,
-            ),
-        )
-
-        SettingsMigration.migratePreferences(preferences, freshInstall = false)
-
-        assertEquals(
-            C.PLAYER_CONTROL_POSITION_BELOW,
-            preferences.getString(C.PLAYER_CONTROL_POSITION, null),
-        )
-    }
-
-    @Test
     fun `schema 25 migration keeps moved following content reachable`() {
         val preferences = MemoryPreferences(
             mutableMapOf(
@@ -348,7 +331,7 @@ class SettingsMigrationTest {
                 C.SETTINGS_PROFILE_PICTURE_STYLE to "rounded_square",
                 C.SETTINGS_CHAT_ENABLED to true,
                 C.SETTINGS_BACKGROUND_PLAYBACK to true,
-                C.SETTINGS_PLAYER_CONTROL_LAYOUT to SettingsMigration.defaultControlLayout(),
+                "player_control_layout" to "legacy-value",
                 C.SETTINGS_PLAYER_SPEED_OPTIONS to "0.5:1,1.0:0,2.0:1",
                 C.CHAT_TIMESTAMP_FORMAT to "3",
                 C.SETTINGS_TIMESTAMP_FORMAT_VERSION to 1,
@@ -361,86 +344,6 @@ class SettingsMigrationTest {
         assertEquals("rounded_square", preferences.getString(C.SETTINGS_PROFILE_PICTURE_STYLE, null))
         assertEquals("3", preferences.getString(C.CHAT_TIMESTAMP_FORMAT, null))
         assertEquals(1, preferences.getInt(C.SETTINGS_TIMESTAMP_FORMAT_VERSION, 0))
-    }
-
-    @Test
-    fun `fresh control layout preserves production visibility defaults`() {
-        val layout = SettingsMigration.defaultControlLayout()
-
-        assertEquals("quick", layout.substringAfter("minimize:").substringBefore(','))
-        assertEquals("menu", layout.substringAfter("download:").substringBefore(','))
-        assertEquals("quick", layout.substringAfter("quality:").substringBefore(','))
-        assertEquals("hidden", layout.substringAfter("follow:").substringBefore(','))
-    }
-
-    @Test
-    fun `legacy control layout restores the clip action when it was added later`() {
-        val preferences = MemoryPreferences(
-            mutableMapOf(
-                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION - 1,
-                C.SETTINGS_PLAYER_CONTROL_LAYOUT to "minimize:quick,download:menu",
-            ),
-        )
-
-        SettingsMigration.migratePreferences(preferences, freshInstall = false)
-
-        val layout = preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null).orEmpty()
-        assertTrue(layout.split(',').contains("clip:quick"))
-        assertTrue(preferences.getBoolean(C.PLAYER_CLIP_BUTTON, false))
-    }
-
-    @Test
-    fun `control group prefers quick controls when both legacy locations are enabled`() {
-        assertEquals("quick", SettingsMigration.controlGroup(quickEnabled = true, menuEnabled = true))
-        assertEquals("menu", SettingsMigration.controlGroup(quickEnabled = false, menuEnabled = true))
-        assertEquals("hidden", SettingsMigration.controlGroup(quickEnabled = false, menuEnabled = false))
-    }
-
-    @Test
-    fun `new anchored control layout keeps legacy visibility groups in sync`() {
-        val preferences = MemoryPreferences(
-            mutableMapOf(
-                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION - 1,
-                C.SETTINGS_PLAYER_CONTROL_LAYOUT to "minimize:quick:top_start,quality:menu:top_end,bookmark:menu:top_end",
-                C.PLAYER_MINIMIZE to false,
-                C.PLAYER_SETTINGS to true,
-                C.PLAYER_MENU_QUALITY to false,
-                C.PLAYER_MENU_BOOKMARK to false,
-            ),
-        )
-
-        SettingsMigration.migratePreferences(preferences, freshInstall = false)
-
-        assertTrue(preferences.getBoolean(C.PLAYER_MINIMIZE, false))
-        assertFalse(preferences.getBoolean(C.PLAYER_SETTINGS, true))
-        assertTrue(preferences.getBoolean(C.PLAYER_MENU_QUALITY, false))
-        assertTrue(preferences.getBoolean(C.PLAYER_MENU_BOOKMARK, false))
-    }
-
-    @Test
-    fun `empty migrated control layout is repaired to production defaults`() {
-        assertEquals(
-            SettingsMigration.defaultControlLayout(),
-            SettingsMigration.migratedControlLayout(
-                existing = "",
-                legacyControlsAllDisabled = true,
-                legacyLayout = "minimize:hidden",
-            ),
-        )
-    }
-
-    @Test
-    fun `an existing all-hidden control layout is not overwritten`() {
-        val allHidden = "minimize:hidden,download:hidden,clip:hidden"
-
-        assertEquals(
-            allHidden,
-            SettingsMigration.migratedControlLayout(
-                existing = allHidden,
-                legacyControlsAllDisabled = true,
-                legacyLayout = SettingsMigration.defaultControlLayout(),
-            ),
-        )
     }
 
     @Test

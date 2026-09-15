@@ -95,7 +95,7 @@ class SettingsLayoutPreview(
         val enabled = items.filter { it.enabled }
         if (enabled.isEmpty()) {
             previewFrame.addView(TextView(context).apply {
-                text = context.getString(R.string.settings_customize_controls_empty)
+                text = context.getString(R.string.settings_preview_empty)
                 gravity = Gravity.CENTER
                 setTextColor(themeColor(android.R.attr.textColorSecondary, Color.GRAY))
             }, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -189,7 +189,7 @@ class SettingsLayoutPreview(
         }
         if (visibleItems.isEmpty()) {
             row.addView(TextView(context).apply {
-                text = context.getString(R.string.settings_customize_controls_empty)
+                text = context.getString(R.string.settings_preview_empty)
                 setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f)
                 setTextColor(Color.argb(150, 255, 255, 255))
                 gravity = Gravity.CENTER_VERTICAL

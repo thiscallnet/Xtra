@@ -19,6 +19,8 @@
     <action android:id="@+id/action_global_playerSettingsFragment" app:destination="@id/playerSettingsFragment" />
     <fragment android:id="@+id/playerButtonSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$PlayerButtonSettingsFragment" android:label="@string/settings_home_controls" />
     <action android:id="@+id/action_global_playerButtonSettingsFragment" app:destination="@id/playerButtonSettingsFragment" />
+    <fragment android:id="@+id/playerHudEditorFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.hud.PlayerHudEditorFragment" android:label="@string/settings_customize_hud" />
+    <action android:id="@+id/action_global_playerHudEditorFragment" app:destination="@id/playerHudEditorFragment" />
     <fragment android:id="@+id/clipSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$SettingsFragment" android:label="@string/settings_clip_capture"><argument android:name="settings_screen" android:defaultValue="clip" app:argType="string" /></fragment>
     <fragment android:id="@+id/downloadSettingsFragment" android:name="com.github.andreyasadchy.xtra.ui.settings.SettingsActivity$DownloadSettingsFragment" android:label="@string/settings_section_downloads" />
     <action android:id="@+id/action_global_downloadSettingsFragment" app:destination="@id/downloadSettingsFragment" />

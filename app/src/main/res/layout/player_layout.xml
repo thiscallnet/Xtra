@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
@@ -9,141 +9,58 @@
     tools:alpha="1"
     tools:visibility="visible">
 
-    <View
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudScrimView
+        android:id="@+id/hudScrim"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:alpha="0.4"
-        android:background="@android:color/black" />
+        android:layout_height="match_parent" />
 
-    <androidx.constraintlayout.widget.ConstraintLayout
-        android:id="@+id/centerControls"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent">
-
-        <ImageButton
-            android:id="@+id/playPause"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_play"
-            android:src="@drawable/baseline_play_arrow_black_48"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:tint="@android:color/white" />
-
-        <Button
-            android:id="@+id/rewind"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_marginEnd="24dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_rewind"
-            android:foreground="@drawable/exo_styled_controls_rewind"
-            android:gravity="center|bottom"
-            android:insetBottom="0dp"
-            android:paddingLeft="0dp"
-            android:paddingRight="0dp"
-            android:paddingBottom="20dp"
-            android:textColor="@android:color/white"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            app:backgroundTint="@android:color/white"
-            app:layout_constraintBottom_toBottomOf="@id/playPause"
-            app:layout_constraintEnd_toStartOf="@id/playPause"
-            app:layout_constraintTop_toTopOf="@id/playPause"
-            app:tint="@android:color/white"
-            tools:text="10" />
-
-        <Button
-            android:id="@+id/fastForward"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_marginStart="24dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_fast_forward"
-            android:foreground="@drawable/exo_styled_controls_fastforward"
-            android:gravity="center|bottom"
-            android:insetBottom="0dp"
-            android:paddingLeft="0dp"
-            android:paddingRight="0dp"
-            android:paddingBottom="20dp"
-            android:textColor="@android:color/white"
-            android:textSize="10sp"
-            android:textStyle="bold"
-            app:backgroundTint="@android:color/white"
-            app:layout_constraintBottom_toBottomOf="@id/playPause"
-            app:layout_constraintStart_toEndOf="@id/playPause"
-            app:layout_constraintTop_toTopOf="@id/playPause"
-            app:tint="@android:color/white"
-            tools:text="10" />
-    </androidx.constraintlayout.widget.ConstraintLayout>
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout
-        android:id="@+id/topControlLayout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentTop="true"
-        android:layout_marginTop="5dp"
-        android:paddingStart="10dp"
-        android:paddingEnd="10dp">
-
-    <LinearLayout
-        android:id="@+id/topLeftLayout"
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:gravity="top"
-        android:orientation="horizontal">
-
-        <ImageView
-            android:id="@+id/channelAvatar"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:layout_marginEnd="10dp"
-            android:importantForAccessibility="no"
-            android:scaleType="centerCrop"
-            android:visibility="gone"
-            tools:visibility="visible" />
-
+        android:tag="STREAM_INFO">
         <LinearLayout
-            android:id="@+id/infoLayout"
-            android:layout_width="0dp"
+            android:id="@+id/topLeftLayout"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
+            android:gravity="top"
+            android:orientation="horizontal">
+            <ImageView
+                android:id="@+id/channelAvatar"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="10dp"
+                android:importantForAccessibility="no"
+                android:scaleType="centerCrop"
+                android:visibility="gone"
+                tools:visibility="visible" />
             <LinearLayout
-                android:id="@+id/metadataContentLayout"
-                android:layout_width="match_parent"
+                android:id="@+id/infoLayout"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
-
                 <TextView
                     android:id="@+id/channel"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:ellipsize="end"
                     android:gravity="center_vertical|start"
                     android:maxLines="1"
                     android:textColor="@android:color/white"
-                    android:textSize="18sp"
+                    android:textSize="15sp"
                     android:textStyle="bold"
                     android:visibility="gone"
                     tools:text="channel"
                     tools:visibility="visible" />
-
                 <LinearLayout
                     android:id="@+id/titleAndViewersLayout"
-                    android:layout_width="match_parent"
+                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
                     android:gravity="start"
                     android:orientation="vertical">
-
                     <TextView
                         android:id="@+id/title"
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:ellipsize="end"
                         android:gravity="center_vertical|start"
@@ -151,16 +68,17 @@
                         android:textColor="@android:color/white"
                         android:textSize="15sp"
                         android:visibility="gone"
-                        tools:text="title"
+                        app:autoSizeTextType="uniform"
+                        app:autoSizeMinTextSize="12sp"
+                        app:autoSizeMaxTextSize="15sp"
+                        app:autoSizeStepGranularity="1sp"
+                        tools:text="A sample stream title"
                         tools:visibility="visible" />
-
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/streamDetailsLayout"
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="2dp"
-                        tools:visibility="visible">
-
+                        android:layout_marginTop="2dp">
                         <TextView
                             android:id="@+id/playingLabel"
                             android:layout_width="wrap_content"
@@ -178,7 +96,6 @@
                             app:layout_constraintStart_toStartOf="parent"
                             app:layout_constraintTop_toTopOf="parent"
                             tools:visibility="visible" />
-
                         <TextView
                             android:id="@+id/category"
                             android:layout_width="wrap_content"
@@ -197,17 +114,14 @@
                             app:layout_constraintHorizontal_bias="0"
                             app:layout_constraintStart_toEndOf="@id/playingLabel"
                             app:layout_constraintTop_toTopOf="parent"
-                            tools:text="game"
+                            tools:text="Just Chatting"
                             tools:visibility="visible" />
-
                         <LinearLayout
                             android:id="@+id/viewersLayout"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:foreground="?attr/selectableItemBackgroundBorderless"
                             android:gravity="center_vertical|start"
-                            android:minWidth="48dp"
-                            android:minHeight="48dp"
                             android:orientation="horizontal"
                             android:visibility="gone"
                             app:layout_constraintBottom_toBottomOf="parent"
@@ -216,7 +130,6 @@
                             app:layout_constraintStart_toEndOf="@id/category"
                             app:layout_constraintTop_toTopOf="parent"
                             tools:visibility="visible">
-
                             <TextView
                                 android:id="@+id/viewersText"
                                 android:layout_width="wrap_content"
@@ -224,455 +137,175 @@
                                 android:ellipsize="end"
                                 android:maxLines="1"
                                 android:textColor="@android:color/white"
-                                tools:text="for 35 viewers" />
-
+                                tools:text="for 12,345 viewers" />
                         </LinearLayout>
                     </androidx.constraintlayout.widget.ConstraintLayout>
-
                 </LinearLayout>
-
             </LinearLayout>
-
         </LinearLayout>
+    </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 
-    </LinearLayout>
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/topStartLayout"
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:tag="TIMELINE">
+        <com.github.andreyasadchy.xtra.ui.player.hud.HudTimelineContent
+            android:id="@+id/timelineContent"
+            android:layout_width="match_parent"
+            android:layout_height="48dp">
+            <TextView
+                android:id="@+id/position"
+                android:layout_width="72dp"
+                android:layout_height="48dp"
+                android:gravity="center"
+                android:textColor="@android:color/white"
+                android:visibility="gone"
+                tools:text="12:16" />
+            <LinearLayout
+                android:id="@+id/bottomLayout"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:gravity="center_vertical">
+                <androidx.media3.ui.DefaultTimeBar
+                    android:id="@+id/progressBar"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:layout_marginEnd="5dp"
+                    android:layout_weight="1"
+                    app:bar_height="4dp"
+                    app:buffered_color="#66FFFFFF"
+                    app:played_color="#FFB388FF"
+                    app:scrubber_color="#FFB388FF"
+                    app:scrubber_enabled_size="14dp"
+                    app:unplayed_color="#66FFFFFF" />
+                <Button
+                    android:id="@+id/liveButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="48dp"
+                    android:background="@android:color/transparent"
+                    android:contentDescription="@string/player_live"
+                    android:minWidth="0dp"
+                    android:minHeight="0dp"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:text="@string/player_live"
+                    android:textColor="@android:color/white"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </LinearLayout>
+            <TextView
+                android:id="@+id/duration"
+                android:layout_width="72dp"
+                android:layout_height="48dp"
+                android:gravity="center"
+                android:textColor="@android:color/white"
+                android:visibility="gone"
+                tools:text="1:12:16" />
+        </com.github.andreyasadchy.xtra.ui.player.hud.HudTimelineContent>
+    </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 
-        <ImageButton
-            android:id="@+id/minimize"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="SEEK_BACK">
+        <Button
+            android:id="@+id/rewind"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="@android:color/transparent"
-            android:contentDescription="@string/player_minimize"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_expand_more_black_48"
-            android:visibility="gone"
+            android:contentDescription="@string/player_rewind"
+            android:foreground="@drawable/exo_styled_controls_rewind"
+            android:gravity="center|bottom"
+            android:insetBottom="0dp"
+            android:paddingBottom="12dp"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:backgroundTint="@android:color/transparent"
             app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/topRightLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="end">
-
+            tools:text="10" />
+    </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="PLAY_PAUSE">
         <ImageButton
-            android:id="@+id/download"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:id="@+id/playPause"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
             android:background="@android:color/transparent"
-            android:contentDescription="@string/player_download"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/ic_file_download_black_24dp"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/follow"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
+            android:contentDescription="@string/player_play"
+            android:src="@drawable/baseline_play_arrow_black_48"
+            app:tint="@android:color/white" />
+    </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="SEEK_FORWARD">
+        <Button
+            android:id="@+id/fastForward"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="@android:color/transparent"
-            android:contentDescription="@string/player_follow"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_favorite_border_black_24"
-            android:visibility="gone"
+            android:contentDescription="@string/player_fast_forward"
+            android:foreground="@drawable/exo_styled_controls_fastforward"
+            android:gravity="center|bottom"
+            android:insetBottom="0dp"
+            android:paddingBottom="12dp"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:backgroundTint="@android:color/transparent"
             app:tint="@android:color/white"
-            tools:visibility="visible" />
+            tools:text="10" />
+    </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 
-        <ImageButton
-            android:id="@+id/sleepTimer"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_sleep_timer"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_alarm_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/aspectRatio"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_aspect_ratio"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_aspect_ratio_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/speed"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_playback_speed"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/exo_ic_speed"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="FOLLOW"><ImageButton android:id="@+id/follow" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_follow" android:src="@drawable/baseline_favorite_border_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="QUALITY">
         <com.google.android.material.button.MaterialButton
             android:id="@+id/quality"
-            android:layout_width="wrap_content"
-            android:layout_height="40dp"
+            android:layout_width="88dp"
+            android:layout_height="36dp"
             android:ellipsize="end"
             android:contentDescription="@string/player_quality"
             android:gravity="center"
             android:insetTop="0dp"
             android:insetBottom="0dp"
             android:maxLines="1"
-            android:maxWidth="120dp"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="8dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="5dp"
+            android:paddingEnd="5dp"
             android:textAllCaps="false"
             android:text="@string/auto"
             android:textColor="@android:color/white"
             android:textSize="12sp"
             android:textStyle="bold"
-            android:visibility="gone"
             app:backgroundTint="@color/chatStatusDark"
             app:cornerRadius="8dp"
             app:icon="@drawable/baseline_settings_black_24"
             app:iconGravity="textStart"
-            app:iconPadding="4dp"
-            app:iconTint="@android:color/white"
-            tools:visibility="visible" />
+            app:iconPadding="0dp"
+            app:iconTint="@android:color/white" />
+    </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="ASPECT_RATIO"><ImageButton android:id="@+id/aspectRatio" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_aspect_ratio" android:src="@drawable/baseline_aspect_ratio_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="VOLUME"><ImageButton android:id="@+id/volume" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_volume" android:src="@drawable/baseline_volume_up_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="CLIP"><ImageButton android:id="@+id/clip" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_clip" android:src="@drawable/ic_movie_clip_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="CHAT"><ImageButton android:id="@+id/toggleChat" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_show_chat" android:src="@drawable/baseline_speaker_notes_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="FULLSCREEN"><ImageButton android:id="@+id/fullscreen" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_enter_fullscreen" android:src="@drawable/baseline_fullscreen_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="MORE"><ImageButton android:id="@+id/menu" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_more_options" android:src="@drawable/baseline_more_vert_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 
-        <ImageButton
-            android:id="@+id/menu"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_more_options"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_more_vert_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
-
-    </com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout>
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/topCenterLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/middleLeftLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content">
-
-        <ImageButton
-            android:id="@+id/interactionLock"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_lock_controls"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_lock_black_24"
-            app:tint="@android:color/white" />
-
-    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/middleCenterLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="center" />
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/middleRightLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
-
-    <View
-        android:id="@+id/quickControlsBottomAnchor"
-        android:layout_width="1dp"
-        android:layout_height="53dp"
-        android:layout_alignParentBottom="true"
-        android:importantForAccessibility="no"
-        android:visibility="invisible" />
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout
-        android:id="@+id/bottomControlLayout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_above="@id/bottomLayout"
-        android:layout_marginBottom="5dp"
-        android:paddingStart="10dp"
-        android:paddingEnd="10dp">
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/bottomLeftLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content">
-
-        <ImageButton
-            android:id="@+id/restart"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_restart"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_replay_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/seekLive"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_seek_live"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/exo_icon_fastforward"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/clip"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_clip"
-            android:enabled="false"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/ic_movie_clip_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/vodGames"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_vod_games"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_format_list_bulleted_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/volume"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_volume"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_volume_up_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/audioCompressor"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_audio_compressor"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_audio_compressor_off_24dp"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/audioOnly"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_audio_only"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_audiotrack_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/bottomRightLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:gravity="end">
-
-        <ImageButton
-            android:id="@+id/liveCaptions"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_live_captions"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/exo_ic_subtitle_off"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/subtitles"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_subtitles"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/exo_ic_subtitle_off"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/toggleChatInput"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_chat_input"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_keyboard_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/toggleChat"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_show_chat"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_speaker_notes_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-        <ImageButton
-            android:id="@+id/fullscreen"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_enter_fullscreen"
-            android:minWidth="48dp"
-            android:minHeight="48dp"
-            android:src="@drawable/baseline_fullscreen_black_24"
-            android:visibility="gone"
-            app:tint="@android:color/white"
-            tools:visibility="visible" />
-
-    </com.github.andreyasadchy.xtra.ui.view.ControlRowLayout>
-
-    </com.github.andreyasadchy.xtra.ui.view.ControlEdgeLayout>
-
-    <com.github.andreyasadchy.xtra.ui.view.ControlRowLayout
-        android:id="@+id/bottomCenterLayout"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
-
-    <TextView
-        android:id="@+id/position"
-        android:layout_width="72dp"
-        android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:layout_marginStart="7dp"
-        android:layout_marginBottom="10dp"
-        android:background="@android:color/transparent"
-        android:gravity="center"
-        android:textColor="@android:color/white"
-        tools:text="12:16" />
-
-    <LinearLayout
-        android:id="@+id/bottomLayout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
-        android:layout_toStartOf="@id/duration"
-        android:layout_toEndOf="@id/position">
-
-        <androidx.media3.ui.DefaultTimeBar
-            android:id="@+id/progressBar"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center_vertical"
-            android:layout_weight="1"
-            android:layout_marginEnd="5dp"
-            android:layout_marginBottom="5dp" />
-
-        <Button
-            android:id="@+id/liveButton"
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="INTERACTION_LOCK"><ImageButton android:id="@+id/interactionLock" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_lock_controls" android:src="@drawable/baseline_lock_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="MINIMIZE"><ImageButton android:id="@+id/minimize" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_minimize" android:src="@drawable/baseline_expand_more_black_48" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="DOWNLOAD"><ImageButton android:id="@+id/download" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_download" android:src="@drawable/ic_file_download_black_24dp" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="SPEED"><ImageButton android:id="@+id/speed" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_playback_speed" android:src="@drawable/exo_ic_speed" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="CHAPTERS"><ImageButton android:id="@+id/vodGames" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_vod_games" android:src="@drawable/baseline_format_list_bulleted_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="RESTART"><ImageButton android:id="@+id/restart" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_restart" android:src="@drawable/baseline_replay_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="GO_LIVE"><ImageButton android:id="@+id/seekLive" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_seek_live" android:src="@drawable/exo_icon_fastforward" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="AUDIO_MODE"><ImageButton android:id="@+id/audioOnly" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_audio_only" android:src="@drawable/baseline_audiotrack_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="AUDIO_COMPRESSOR"><ImageButton android:id="@+id/audioCompressor" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_audio_compressor" android:src="@drawable/baseline_audio_compressor_off_24dp" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="CHAT_INPUT"><ImageButton android:id="@+id/toggleChatInput" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_chat_input" android:src="@drawable/baseline_keyboard_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="SLEEP_TIMER"><ImageButton android:id="@+id/sleepTimer" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_sleep_timer" android:src="@drawable/baseline_alarm_black_24" app:tint="@android:color/white" /></com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="CAPTIONS">
+        <FrameLayout
+            android:id="@+id/captionsContent"
             android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_gravity="center_vertical"
-            android:layout_marginEnd="5dp"
-            android:background="@android:color/transparent"
-            android:contentDescription="@string/player_live"
-            android:minWidth="0dp"
-            android:minHeight="48dp"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp"
-            android:text="@string/player_live"
-            android:textColor="@android:color/white"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
-
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/duration"
-        android:layout_width="72dp"
-        android:layout_height="wrap_content"
-        android:layout_alignParentEnd="true"
-        android:layout_alignParentBottom="true"
-        android:layout_marginEnd="10dp"
-        android:layout_marginBottom="10dp"
-        android:gravity="center"
-        android:textColor="@android:color/white"
-        tools:text="1:12:16" />
-
-    <com.github.andreyasadchy.xtra.ui.view.PlayerControlOverlayLayout
-        android:id="@+id/controlOverlay"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_alignParentTop="true"
-        android:layout_alignParentBottom="true"
-        android:layout_alignParentStart="true"
-        android:layout_alignParentEnd="true" />
-
-</RelativeLayout>
+            android:layout_height="wrap_content">
+            <ImageButton android:id="@+id/liveCaptions" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_live_captions" android:src="@drawable/exo_ic_subtitle_off" android:visibility="gone" app:tint="@android:color/white" />
+            <ImageButton android:id="@+id/subtitles" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_subtitles" android:src="@drawable/exo_ic_subtitle_off" android:visibility="gone" app:tint="@android:color/white" />
+        </FrameLayout>
+    </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+</com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudLayout>

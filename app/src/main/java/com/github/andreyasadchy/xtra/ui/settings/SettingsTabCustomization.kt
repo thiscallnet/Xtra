@@ -11,6 +11,7 @@ internal const val EXTRA_SETTINGS_SCREEN = "settings_screen"
 internal const val EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE = "settings_highlight_preference"
 internal const val SETTINGS_SCREEN_TABS = "tabs"
 internal const val SETTINGS_SCREEN_PLAYER_CONTROLS = "player_controls"
+internal const val SETTINGS_SCREEN_PLAYER_HUD = "player_hud"
 internal const val SETTINGS_SCREEN_PLAYER = "player"
 internal const val SETTINGS_SCREEN_CHAT = "chat"
 
