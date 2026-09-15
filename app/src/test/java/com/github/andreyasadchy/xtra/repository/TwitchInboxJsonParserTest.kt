@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.repository
 
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationAction
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxException
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotification
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationPage
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
@@ -10,6 +11,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 class TwitchInboxJsonParserTest {
     private val json = Json { ignoreUnknownKeys = true }
@@ -26,6 +28,39 @@ class TwitchInboxJsonParserTest {
         assertEquals(TwitchNotificationAction.Channel("channel-1", "channel_login", "Channel Name", "https://static-cdn.jtvnw.net/channel.png"), page.notifications[2].action)
         assertTrue(page.hasNextPage)
         assertEquals("notification-cursor-3", page.nextCursor)
+    }
+
+    @Test
+    fun classifiesCapturedWatchStreakRecoveryNotification() {
+        val notification = parseNotificationPage(
+            json.parseToJsonElement(fixture("twitch_gql/watch_streak_recovery_notification.json")).jsonObject,
+        ).notifications.single()
+
+        assertTrue(notification.isWatchStreakRecoveryCandidate())
+        assertEquals(
+            TwitchNotificationAction.Channel("channel-1", "example_channel", "Example Channel", "https://static-cdn.jtvnw.net/channel.png"),
+            notification.action,
+        )
+        assertEquals("https://static-cdn.jtvnw.net/channel.png", notification.imageUrl)
+    }
+
+    @Test
+    fun doesNotClassifyUnverifiedWatchStreakText() {
+        val candidate = TwitchNotification(
+            id = "streak-1",
+            type = "WATCH_STREAK_RECOVERY_WARNING",
+            title = null,
+            body = "Texto localizado sobre uma racha em risco",
+            createdAt = Instant.EPOCH,
+            imageUrl = null,
+            isUnread = true,
+            canDismiss = false,
+            action = TwitchNotificationAction.None,
+        )
+        val bodyOnly = candidate.copy(type = "OTHER", body = "Watch streak at risk")
+
+        assertFalse(candidate.isWatchStreakRecoveryCandidate())
+        assertFalse(bodyOnly.isWatchStreakRecoveryCandidate())
     }
 
     @Test

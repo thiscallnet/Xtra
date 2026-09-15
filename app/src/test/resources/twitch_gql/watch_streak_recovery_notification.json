@@ -1,0 +1,37 @@
+{
+  "data": {
+    "currentUser": {
+      "notifications": {
+        "edges": [
+          {
+            "cursor": "watch-streak-cursor-1",
+            "node": {
+              "id": "watch-streak-notification-1",
+              "type": "recovering_watch_streaks_recovered_streak_new",
+              "body": "Your 2-stream streak on Example Channel broke! Watch a clip, VOD or stream in the next 24h to save it.",
+              "thumbnailURL": "https://static-cdn.jtvnw.net/channel.png",
+              "createdAt": "2026-09-15T18:55:40.981980160Z",
+              "isRead": false,
+              "extra": {
+                "__typename": "User",
+                "id": "channel-1",
+                "login": "example_channel",
+                "displayName": "Example Channel",
+                "profileImageURL": "https://static-cdn.jtvnw.net/channel.png"
+              },
+              "actions": [
+                {
+                  "id": "watch-streak-action-1",
+                  "type": "channel"
+                }
+              ]
+            }
+          }
+        ],
+        "pageInfo": {
+          "hasNextPage": false
+        }
+      }
+    }
+  }
+}

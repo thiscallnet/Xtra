@@ -28,6 +28,7 @@ class LiveNotificationMonitor(context: Context) {
 
     private val context = context.applicationContext
     private val notifier = LiveNotificationNotifier(this.context)
+    private val watchStreakNotifier = WatchStreakReminderNotifier(this.context)
     private val xtraApp = this.context as XtraApp
 
     suspend fun poll(
@@ -36,63 +37,92 @@ class LiveNotificationMonitor(context: Context) {
     ): PollResult = mutex.withLock {
         val prefs = context.prefs()
         val repository = xtraApp.xtraModule.notificationsRepository
-        if (!prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) || !notifier.canPostNotifications()) {
+        val liveNotificationsEnabled = prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)
+        val watchStreakProtectionEnabled = prefs.getBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false)
+        if (!liveNotificationsEnabled && !watchStreakProtectionEnabled) {
             repository.clearPendingNotificationEvents()
             notifier.cancelLiveNotifications()
             return@withLock PollResult(0, 0, "notifications_disabled")
+        }
+        val liveNotificationsAllowed = liveNotificationsEnabled && notifier.canPostNotifications()
+        val watchStreakProtectionAllowed = watchStreakProtectionEnabled && watchStreakNotifier.canPostNotifications()
+        if (!liveNotificationsAllowed && !watchStreakProtectionAllowed) {
+            if (liveNotificationsEnabled) {
+                repository.clearPendingNotificationEvents()
+                notifier.cancelLiveNotifications()
+            }
+            return@withLock PollResult(0, 0, "notifications_blocked")
         }
 
         val networkLibrary = prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val gqlHeaders = TwitchApiHelper.getGQLHeaders(context, true)
         val helixHeaders = TwitchApiHelper.getHelixHeaders(context)
-        val useLocalFollows = (prefs.getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0) != 0
+        var delivered = 0
+        var channelCount = 0
+        var apiUsed = "none"
 
-        if (!useLocalFollows && shouldSyncNotificationUsers()) {
-            prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_ATTEMPT, System.currentTimeMillis()) }
-            try {
-                val syncResult = repository.syncNotificationUsers(
-                    networkLibrary = networkLibrary,
-                    gqlHeaders = gqlHeaders,
-                    helixHeaders = helixHeaders,
-                    userId = context.tokenPrefs().getString(C.USER_ID, null),
-                )
-                if (syncResult == NotificationUserSyncResult.SUCCESS) {
-                    prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis()) }
-                } else {
-                    Log.w(TAG, "Notification preference enrichment was transient; retained previous channel IDs")
+        if (liveNotificationsAllowed) {
+            val useLocalFollows = (prefs.getString(C.UI_FOLLOW_BUTTON, "0")?.toIntOrNull() ?: 0) != 0
+            if (!useLocalFollows && shouldSyncNotificationUsers()) {
+                prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_ATTEMPT, System.currentTimeMillis()) }
+                try {
+                    val syncResult = repository.syncNotificationUsers(
+                        networkLibrary = networkLibrary,
+                        gqlHeaders = gqlHeaders,
+                        helixHeaders = helixHeaders,
+                        userId = context.tokenPrefs().getString(C.USER_ID, null),
+                    )
+                    if (syncResult == NotificationUserSyncResult.SUCCESS) {
+                        prefs.edit { putLong(C.LIVE_NOTIFICATION_LAST_SYNC_SUCCESS, System.currentTimeMillis()) }
+                    } else {
+                        Log.w(TAG, "Notification preference enrichment was transient; retained previous channel IDs")
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "Notification preference sync failed; retaining the previous channel IDs", e)
                 }
+            }
+
+            val effectiveBaselineOnly = baselineOnly &&
+                !prefs.getBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, false)
+            repository.getNewStreams(
+                networkLibrary = networkLibrary,
+                gqlHeaders = gqlHeaders,
+                helixHeaders = helixHeaders,
+                includeFollowedStreams = false,
+                preferHelix = gqlHeaders[C.HEADER_TOKEN].isNullOrBlank(),
+                enqueueNotificationEvents = !effectiveBaselineOnly,
+                onHelixRateLimit = onHelixRateLimit,
+                onApiUsed = { apiUsed = it },
+            )
+            if (!prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) || !notifier.canPostNotifications()) {
+                repository.clearPendingNotificationEvents()
+                notifier.cancelLiveNotifications()
+            } else {
+                delivered = notifier.deliverPending(repository)
+                if (effectiveBaselineOnly) {
+                    prefs.edit { putBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, true) }
+                }
+            }
+            channelCount = repository.getNotificationUserIds().size
+            prefs.edit { putInt(C.LIVE_NOTIFICATION_CACHED_CHANNEL_COUNT, channelCount) }
+        }
+
+        var streakDelivered = 0
+        if (watchStreakProtectionAllowed) {
+            val minimumStreak = prefs.getString(C.WATCH_STREAK_MINIMUM, null)?.toIntOrNull()
+                ?: runCatching { prefs.getInt(C.WATCH_STREAK_MINIMUM, 1) }.getOrDefault(1)
+            try {
+                val reminders = xtraApp.xtraModule.watchStreakReminderRepository.poll(minimumStreak)
+                streakDelivered = watchStreakNotifier.deliver(reminders.reminders)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.w(TAG, "Notification preference sync failed; retaining the previous channel IDs", e)
+                Log.w(TAG, "Watch streak protection poll failed; live notifications remain available", e)
             }
         }
-
-        val effectiveBaselineOnly = baselineOnly &&
-            !prefs.getBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, false)
-        var apiUsed = "none"
-        repository.getNewStreams(
-            networkLibrary = networkLibrary,
-            gqlHeaders = gqlHeaders,
-            helixHeaders = helixHeaders,
-            includeFollowedStreams = false,
-            preferHelix = gqlHeaders[C.HEADER_TOKEN].isNullOrBlank(),
-            enqueueNotificationEvents = !effectiveBaselineOnly,
-            onHelixRateLimit = onHelixRateLimit,
-            onApiUsed = { apiUsed = it },
-        )
-        if (!prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) || !notifier.canPostNotifications()) {
-            repository.clearPendingNotificationEvents()
-            notifier.cancelLiveNotifications()
-            return@withLock PollResult(0, 0, "notifications_disabled")
-        }
-        val delivered = notifier.deliverPending(repository)
-        if (effectiveBaselineOnly) {
-            prefs.edit { putBoolean(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED, true) }
-        }
-        val channelCount = repository.getNotificationUserIds().size
-        prefs.edit { putInt(C.LIVE_NOTIFICATION_CACHED_CHANNEL_COUNT, channelCount) }
-        PollResult(delivered, channelCount, apiUsed)
+        PollResult(delivered, channelCount, apiUsed, streakDelivered)
     }
 
     internal fun nextNotificationUserSyncDelayMs(now: Long = System.currentTimeMillis()): Long {
@@ -119,6 +149,7 @@ class LiveNotificationMonitor(context: Context) {
         val delivered: Int,
         val channelCount: Int,
         val api: String,
+        val streakDelivered: Int = 0,
     )
 
     companion object {

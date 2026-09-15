@@ -1996,13 +1996,18 @@ class GraphQLRepository(
         sendPersistedQuery(networkLibrary, headers, body)
     }
 
-    suspend fun loadWatchStreak(networkLibrary: String?, headers: Map<String, String>, channelId: String): WatchStreakResponse = withContext(Dispatchers.IO) {
+    suspend fun loadWatchStreak(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        channelId: String,
+        includeAllSuspendedStreaks: Boolean = false,
+    ): WatchStreakResponse = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             put("operationName", "RewardList")
             put("query", watchStreakQuery)
             putJsonObject("variables") {
                 put("channelID", channelId)
-                put("shouldIncludeAllSuspendedStreaks", false)
+                put("shouldIncludeAllSuspendedStreaks", includeAllSuspendedStreaks)
             }
         }.toString()
         json.decodeFromString<WatchStreakResponse>(sendPersistedQuery(networkLibrary, headers, body))

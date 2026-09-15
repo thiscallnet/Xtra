@@ -31,6 +31,8 @@ import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.TwitchNotificationsRepository
 import com.github.andreyasadchy.xtra.repository.TwitchPrivateGqlClient
+import com.github.andreyasadchy.xtra.repository.WatchStreakReminderRepository
+import com.github.andreyasadchy.xtra.repository.WatchStreakReminderStateStore
 import com.github.andreyasadchy.xtra.repository.WhispersRepository
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
@@ -677,6 +679,20 @@ class XtraModule(application: Application) {
 
     val notificationsRepository by lazy {
         NotificationsRepository(database.shownNotifications(), database.notificationUsers(), database.notificationEvents(), graphQLRepository, helixRepository)
+    }
+
+    val watchStreakReminderStateStore by lazy {
+        WatchStreakReminderStateStore(application)
+    }
+
+    val watchStreakReminderRepository by lazy {
+        WatchStreakReminderRepository(
+            context = application,
+            twitchNotificationsRepository = twitchNotificationsRepository,
+            notificationsRepository = notificationsRepository,
+            graphQLRepository = graphQLRepository,
+            stateStore = watchStreakReminderStateStore,
+        )
     }
 
     val offlineVideosRepository by lazy {
