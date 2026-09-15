@@ -245,6 +245,10 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # Player accessibility status is currently English-only until translated.
     "player_playing",
     "player_move_chat",
+    # Player-control editor labels are currently English-only until translated.
+    "settings_player_control_metadata",
+    "settings_player_control_timeline",
+    "settings_customize_controls_position",
     "third_party_emotes_loading",
     "third_party_emotes_empty",
     "third_party_emotes_error",

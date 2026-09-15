@@ -42,7 +42,7 @@ class StreamPreloadViewportController(
         }
 
         override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-            if (!isScrolling()) requestPublish()
+            requestPublish()
         }
     }
     private val scrollChangedListener = ViewTreeObserver.OnScrollChangedListener { requestPublish() }

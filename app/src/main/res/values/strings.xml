@@ -451,6 +451,7 @@
     <string name="settings_customize_controls_selected">Selected: %1$s</string>
     <string name="settings_customize_controls_selected_none">Select a control to see its current position.</string>
     <string name="settings_customize_controls_reset">Reset layout</string>
+    <string name="settings_customize_controls_position">Set position</string>
     <string name="settings_customize_controls_save">Save changes</string>
     <string name="settings_customize_controls_empty">Nothing here</string>
     <string name="settings_customize_controls_enable">Show %1$s on the player</string>

@@ -236,6 +236,7 @@ class StreamPreviewCoordinator(
         // video over the new player's opaque handoff cover. Releasing every preview also avoids
         // decoding and composing muted browsing video while the user is watching the stream.
         stopPreview()
+        releaseSharedPreviewPlayer()
         hideViewportSurfaces()
     }
 
@@ -344,13 +345,19 @@ class StreamPreviewCoordinator(
         val scrolling = pagerScrolling || viewports.values.any { it.scrolling }
         if (scrolling) {
             // A gesture changes which cards are visible, not whether an existing
-            // preview should play. Keep tracking geometry so a genuinely offscreen
-            // preview can still reach its grace-period expiry.
+            // preview should play. Keep tracking geometry, but defer grace-period
+            // expiry until the viewport settles.
             cancelPendingStarts()
         }
         previewLifecycle.observeVisible(reasonablyVisible, now, scrolling = scrolling)
-        previewLifecycle.expire(now)
-        lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
+        if (scrolling) {
+            // Keep an active player reusable while a card is moving. Surface recycling still
+            // calls detachSurface(), which invalidates the target and releases its binding.
+            lifecycleReconciler.cancel()
+        } else {
+            previewLifecycle.expire(now)
+            lifecycleReconciler.reconcile(now, additionalDeadlines = failedUntil.values)
+        }
         activePreviews.keys.toList()
             .filter { it !in previewLifecycle.activeIdentities() && it != handoffLogin }
             .forEach(::releasePreview)

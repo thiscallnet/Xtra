@@ -39,6 +39,7 @@ class PlayerControlPreviewView @JvmOverloads constructor(
     context: Context,
     private val dragEnabled: Boolean = false,
     private val labelFor: (String) -> String = { it },
+    private val playbackEnabled: Boolean = true,
 ) : FrameLayout(context) {
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -126,12 +127,17 @@ class PlayerControlPreviewView @JvmOverloads constructor(
             cornerRadius = dp(10).toFloat()
             setColor(Color.rgb(14, 17, 23))
         }
+        if (!playbackEnabled) {
+            background = staticPreviewBackground()
+            // playerLayout has its own opaque black background in the runtime XML.
+            playerLayout.background = staticPreviewBackground()
+        }
         clipToOutline = true
 
         (playerLayout.parent as? ViewGroup)?.removeView(playerLayout)
         playerLayout.visibility = View.VISIBLE
         playerLayout.alpha = 1f
-        runtimeBinding.playerTextureView.visibility = View.VISIBLE
+        runtimeBinding.playerTextureView.visibility = if (playbackEnabled) View.VISIBLE else View.GONE
         runtimeBinding.playerSurface.visibility = View.GONE
         runtimeBinding.aspectRatioFrameLayout.setAspectRatio(16f / 9f)
         controls.root.visibility = View.VISIBLE
@@ -152,7 +158,7 @@ class PlayerControlPreviewView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
-        startPreviewPlayer()
+        if (playbackEnabled) startPreviewPlayer()
     }
 
     override fun onDetachedFromWindow() {
@@ -162,6 +168,7 @@ class PlayerControlPreviewView @JvmOverloads constructor(
 
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
+        if (!playbackEnabled) return
         if (hasWindowFocus) {
             startPreviewPlayer()
         } else {
@@ -282,15 +289,21 @@ class PlayerControlPreviewView @JvmOverloads constructor(
         controls.menu.setOnClickListener { }
         actionViews
             .filterKeys { it !in setOf("metadata", "timeline", "play_pause", "rewind", "fast_forward") }
-            .values
-            .forEach { view ->
-            // Actions stay local to the preview. The editor intercepts their touch events and
-            // persists only semantic placement changes, never runtime actions or network work.
-            view.setOnClickListener { }
-            view.isClickable = !dragEnabled
-            view.isFocusable = false
-            if (dragEnabled) view.setOnTouchListener { _, event -> handleDrag(event) }
-        }
+            .forEach { (action, view) ->
+                // Actions stay local to the preview. The editor intercepts their touch events and
+                // persists only semantic placement changes, never runtime actions or network work.
+                view.setOnClickListener {
+                    if (dragEnabled) {
+                        selectedAction = action
+                        onSelectionChanged?.invoke(action)
+                        dragOverlay.invalidate()
+                    }
+                }
+                view.isClickable = true
+                view.isFocusable = dragEnabled
+                view.contentDescription = labelFor(action)
+                if (dragEnabled) view.setOnTouchListener { _, event -> handleDrag(event) }
+            }
         controls.progressBar.addListener(object : androidx.media3.ui.TimeBar.OnScrubListener {
             override fun onScrubStart(timeBar: androidx.media3.ui.TimeBar, position: Long) = Unit
             override fun onScrubMove(timeBar: androidx.media3.ui.TimeBar, position: Long) {
@@ -301,6 +314,15 @@ class PlayerControlPreviewView @JvmOverloads constructor(
             }
         })
     }
+
+    private fun staticPreviewBackground() = GradientDrawable(
+        GradientDrawable.Orientation.TL_BR,
+        intArrayOf(
+            Color.rgb(22, 35, 58),
+            Color.rgb(17, 24, 37),
+            Color.rgb(54, 28, 58),
+        ),
+    ).apply { cornerRadius = dp(10).toFloat() }
 
     private fun startPreviewPlayer() {
         if (previewPlayer != null || !isAttachedToWindow) return

@@ -32,7 +32,8 @@ class StreamPreviewLifecycle(
         }
     }
 
-    fun expire(nowMs: Long) {
+    fun expire(nowMs: Long, scrolling: Boolean = false) {
+        if (scrolling) return
         entries.entries.toList().forEach { (identity, entry) ->
             if (entry.offscreenSinceMs?.let { nowMs - it >= offscreenGraceMs } == true) {
                 entries.remove(identity)

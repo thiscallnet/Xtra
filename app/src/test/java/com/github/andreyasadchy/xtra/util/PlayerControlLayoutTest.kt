@@ -68,6 +68,14 @@ class PlayerControlLayoutTest {
     }
 
     @Test
+    fun `metadata uses the safe top start anchor`() {
+        assertEquals(
+            setOf(PlayerControlLayout.ANCHOR_TOP_START),
+            PlayerControlLayout.validAnchors("metadata"),
+        )
+    }
+
+    @Test
     fun `live captions is included in the customizable quick controls`() {
         val placements = PlayerControlLayout.controlPlacements(
             null,

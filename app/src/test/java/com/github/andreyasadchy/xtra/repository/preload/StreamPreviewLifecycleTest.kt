@@ -29,11 +29,18 @@ class StreamPreviewLifecycleTest {
     }
 
     @Test
-    fun offscreenPreviewExpiresDuringScrollingAfterItsGracePeriod() {
+    fun offscreenPreviewIsRetainedDuringScrollingAndExpiresWhenIdle() {
         val lifecycle = StreamPreviewLifecycle()
         lifecycle.track("channel-a", nowMs = 0L)
 
         lifecycle.observeVisible(emptySet(), nowMs = 100L, scrolling = true)
+        lifecycle.expire(
+            nowMs = 100L + StreamPreviewLifecyclePolicy.OFFSCREEN_GRACE_MS + 1L,
+            scrolling = true,
+        )
+
+        assertTrue(lifecycle.activeIdentities().contains("channel-a"))
+
         lifecycle.expire(nowMs = 100L + StreamPreviewLifecyclePolicy.OFFSCREEN_GRACE_MS + 1L)
 
         assertFalse(lifecycle.activeIdentities().contains("channel-a"))

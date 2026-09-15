@@ -693,7 +693,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 !liveRewindStreamOffline &&
                 !liveRewindSwitching &&
                 !liveRewindReturningLive
-            fun doubleTapGestureEnabled() = chatDoubleTapEnabled || liveTapSeekGestureEnabled()
+            fun doubleTapGestureEnabled() = liveTapSeekGestureEnabled() || (chatDoubleTapEnabled && !isPortrait)
             var controlTouchActive = false
             var lockedTouchActive = false
             var lockedTouchX = 0f
@@ -1552,10 +1552,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         }
         val edgeMs = currentLiveEdgeMs()
         val vod = liveRewindVod ?: return
-        if (requestedTarget.atLiveEdge) {
+        val targetMs = requestedTarget.positionMs.coerceIn(0L, edgeMs)
+        if (requestedTarget.atLiveEdge || shouldReturnToLive(targetMs, edgeMs)) {
             goLive()
         } else {
-            playRecordingVodAt(vod, requestedTarget.positionMs.coerceIn(0L, edgeMs))
+            playRecordingVodAt(vod, targetMs)
         }
         scheduleControllerHideAfterScrub()
     }

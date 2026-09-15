@@ -587,7 +587,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 !liveRewindStreamOffline &&
                 !liveRewindSwitching &&
                 !liveRewindReturningLive
-            fun doubleTapGestureEnabled() = chatDoubleTapEnabled || liveTapSeekGestureEnabled()
+            fun doubleTapGestureEnabled() = liveTapSeekGestureEnabled() || (chatDoubleTapEnabled && !isPortrait)
             var controlTouchActive = false
             val controllerTapDetector = GestureDetector(
                 requireContext(),
@@ -3200,10 +3200,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
         val edgeMs = currentLiveEdgeMs()
         val vod = liveRewindVod ?: return
-        if (requestedTarget.atLiveEdge) {
+        val targetMs = requestedTarget.positionMs.coerceIn(0L, edgeMs)
+        if (requestedTarget.atLiveEdge || shouldReturnToLive(targetMs, edgeMs)) {
             goLive()
         } else {
-            playRecordingVodAt(vod, requestedTarget.positionMs.coerceIn(0L, edgeMs))
+            playRecordingVodAt(vod, targetMs)
         }
         scheduleControllerHideAfterScrub()
     }

@@ -18,6 +18,7 @@ import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.PortraitPlayerControls
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlin.math.min
 import kotlin.math.roundToInt
 
 class PlayerControlScalePreviewPreference @JvmOverloads constructor(
@@ -85,7 +86,7 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
     }
 
     private fun automaticScale(): Float = PortraitPlayerControls.automaticControlScale(
-        playerHeight = (resources.displayMetrics.widthPixels * 9f / 16f).roundToInt(),
+        playerHeight = (min(resources.displayMetrics.widthPixels, resources.displayMetrics.heightPixels) * 9f / 16f).roundToInt(),
         density = resources.displayMetrics.density,
     )
 
@@ -108,7 +109,9 @@ class PlayerControlScalePreviewView @JvmOverloads constructor(
             setTextColor(themeColor(android.R.attr.textColorSecondary, Color.GRAY))
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12f)
         }
-        private val preview = PlayerControlPreviewView(context, dragEnabled = false)
+        // The scale comparison is static chrome; two independent decoders would add needless
+        // codec and TextureView pressure every time this preference is opened.
+        private val preview = PlayerControlPreviewView(context, dragEnabled = false, playbackEnabled = false)
 
         init {
             clipChildren = false

@@ -195,7 +195,7 @@ object PlayerControlLayout {
                     // channel payload. Timeline visibility follows its actual child views.
                     "metadata" -> true
                     "timeline" -> hasVisibleContent(view)
-                    "rewind", "fast_forward" -> view.hasOnClickListeners() && view.visibility == View.VISIBLE
+                    "rewind", "fast_forward" -> view.hasOnClickListeners()
                     else -> view.hasOnClickListeners()
                 }
                 view.visibility = if (allowedOnTv && placement?.group == GROUP_QUICK && visibleInRuntime) {
@@ -416,8 +416,9 @@ object PlayerControlLayout {
         return ControlPlacement(action, normalizedGroup(action, group), anchor)
     }
 
-    /** Player compositions use semantic anchors; the timeline remains one bottom-centered bar. */
+    /** Fixed compositions cannot safely reserve space for metadata at every shared anchor. */
     internal fun validAnchors(action: String): Set<String> = when (action) {
+        "metadata" -> setOf(ANCHOR_TOP_START)
         "timeline" -> setOf(ANCHOR_BOTTOM_CENTER)
         else -> anchors
     }

@@ -43,6 +43,15 @@ class PlayerControlLayoutEditor(
         visibility = View.GONE
         setOnClickListener { selectedAction?.let(::cycleGroup) }
     }
+    private val positionSelectedButton = MaterialButton(context).apply {
+        text = context.getString(R.string.settings_customize_controls_position)
+        contentDescription = text
+        isAllCaps = false
+        minHeight = dp(40)
+        minimumHeight = dp(40)
+        visibility = View.GONE
+        setOnClickListener { selectedAction?.let(::chooseAnchor) }
+    }
     private var selectedAction: String? = null
 
     companion object {
@@ -146,6 +155,9 @@ class PlayerControlLayoutEditor(
         content.addView(selectionRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(8)
         })
+        content.addView(positionSelectedButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(8)
+        })
         content.addView(moveSelectedButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
             bottomMargin = dp(8)
         })
@@ -182,6 +194,39 @@ class PlayerControlLayoutEditor(
         refresh()
     }
 
+    private fun chooseAnchor(action: String) {
+        val item = items.firstOrNull { it.action == action } ?: return
+        val anchors = PlayerControlLayout.validAnchors(action).toList()
+        if (anchors.size <= 1) return
+        val labels = anchors.map(::anchorLabel).toTypedArray()
+        context.getAlertDialogBuilder()
+            .setTitle(R.string.settings_customize_controls_position)
+            .setSingleChoiceItems(labels, anchors.indexOf(item.anchor)) { dialog, which ->
+                anchors.getOrNull(which)?.let { anchor ->
+                    item.anchor = anchor
+                    selectedAction = action
+                    refresh()
+                }
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun anchorLabel(anchor: String): String = context.getString(
+        when (anchor) {
+            PlayerControlLayout.ANCHOR_TOP_START -> R.string.settings_tv_chat_anchor_top_left
+            PlayerControlLayout.ANCHOR_TOP_CENTER -> R.string.settings_tv_chat_anchor_top_center
+            PlayerControlLayout.ANCHOR_TOP_END -> R.string.settings_tv_chat_anchor_top_right
+            PlayerControlLayout.ANCHOR_MIDDLE_START -> R.string.settings_tv_chat_anchor_center_left
+            PlayerControlLayout.ANCHOR_MIDDLE_CENTER -> R.string.settings_tv_chat_anchor_center
+            PlayerControlLayout.ANCHOR_MIDDLE_END -> R.string.settings_tv_chat_anchor_center_right
+            PlayerControlLayout.ANCHOR_BOTTOM_START -> R.string.settings_tv_chat_anchor_bottom_left
+            PlayerControlLayout.ANCHOR_BOTTOM_CENTER -> R.string.settings_tv_chat_anchor_bottom_center
+            PlayerControlLayout.ANCHOR_BOTTOM_END -> R.string.settings_tv_chat_anchor_bottom_right
+            else -> R.string.settings_tv_chat_anchor_top_left
+        },
+    )
+
     private fun refresh() {
         preview.setItems(items, selectedAction) { updated ->
             items.clear()
@@ -203,6 +248,11 @@ class PlayerControlLayoutEditor(
             ?: context.getString(R.string.settings_customize_controls_selected_none)
         val selectedItem = selectedAction?.let { action -> items.firstOrNull { it.action == action } }
         moveSelectedButton.visibility = if (selectedItem == null) View.GONE else View.VISIBLE
+        positionSelectedButton.visibility = if (selectedItem != null && PlayerControlLayout.validAnchors(selectedItem.action).size > 1) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
         selectedItem?.let { item ->
             val destination = when {
                 item.group == PlayerControlLayout.GROUP_QUICK && PlayerControlLayout.canMenu(item.action) -> R.string.settings_customize_controls_enable_menu

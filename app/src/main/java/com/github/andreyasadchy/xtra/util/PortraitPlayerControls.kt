@@ -6,6 +6,7 @@ import android.view.MotionEvent
 import android.view.TouchDelegate
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
 import android.widget.LinearLayout
 import android.widget.RelativeLayout
 import androidx.core.view.doOnLayout
@@ -647,6 +648,10 @@ object PortraitPlayerControls {
     ) : TouchDelegate(Rect(), host) {
 
         private var targetedView: View? = null
+        private var downX = 0f
+        private var downY = 0f
+        private var cancelBounds = RectF()
+        private val touchSlop = ViewConfiguration.get(host.context).scaledTouchSlop.toFloat()
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) {
@@ -662,30 +667,51 @@ object PortraitPlayerControls {
                         val dy = event.y - bounds.centerY()
                         dx * dx + dy * dy
                     }
+                targetedView?.let { target ->
+                    downX = event.x
+                    downY = event.y
+                    cancelBounds = touchBounds(target).apply {
+                        inset(-touchSlop, -touchSlop)
+                    }
+                }
             }
 
             val target = targetedView ?: return false
-            val delegatedEvent = MotionEvent.obtain(event)
-            val handled = if (target is TimeBar) {
-                val visualBounds = visualBounds(target)
-                val x = if (visualBounds.width() > 0f) {
-                    ((event.x - visualBounds.left) / visualBounds.width() * target.width)
-                        .coerceIn(0f, (target.width - 1).coerceAtLeast(0).toFloat())
-                } else {
-                    target.width / 2f
-                }
-                delegatedEvent.setLocation(x, target.height / 2f)
-                target.dispatchTouchEvent(delegatedEvent)
-            } else {
-                delegatedEvent.setLocation(target.width / 2f, target.height / 2f)
-                target.dispatchTouchEvent(delegatedEvent)
+            if (event.actionMasked == MotionEvent.ACTION_MOVE &&
+                (event.x - downX) * (event.x - downX) + (event.y - downY) * (event.y - downY) > touchSlop * touchSlop &&
+                !cancelBounds.contains(event.x, event.y)
+            ) {
+                val cancel = MotionEvent.obtain(event)
+                cancel.action = MotionEvent.ACTION_CANCEL
+                dispatchToTarget(target, cancel)
+                cancel.recycle()
+                targetedView = null
+                return true
             }
+            val delegatedEvent = MotionEvent.obtain(event)
+            val handled = dispatchToTarget(target, delegatedEvent)
             delegatedEvent.recycle()
 
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
                 targetedView = null
             }
             return handled || targetedView != null
+        }
+
+        private fun dispatchToTarget(target: View, event: MotionEvent): Boolean {
+            val bounds = touchBounds(target)
+            val x = if (bounds.width() > 0f) {
+                (event.x - bounds.left) / bounds.width() * target.width
+            } else {
+                target.width / 2f
+            }
+            val y = if (bounds.height() > 0f) {
+                (event.y - bounds.top) / bounds.height() * target.height
+            } else {
+                target.height / 2f
+            }
+            event.setLocation(x, y)
+            return target.dispatchTouchEvent(event)
         }
 
         private fun touchBounds(target: View): RectF {
