@@ -153,13 +153,17 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                     clearAccountScopedState(
                         disableScheduler = { LiveNotificationScheduler.disable(this@XtraApp) },
                         disableNotifications = {
-                            prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
+                            prefs().edit {
+                                putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)
+                                putBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false)
+                            }
                         },
                         clearNotificationState = { xtraModule.notificationsRepository.clearNotificationState() },
                         clearTwitchInboxState = {
                             xtraModule.twitchNotificationsRepository.clearAccountState()
                             xtraModule.whispersRepository.clearAccountState()
                         },
+                        clearWatchStreakState = { xtraModule.watchStreakReminderStateStore.clear() },
                         clearAccountMetadata = {},
                     )
                 }.isSuccess

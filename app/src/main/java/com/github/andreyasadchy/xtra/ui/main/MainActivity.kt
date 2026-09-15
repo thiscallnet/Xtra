@@ -725,11 +725,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun runDeferredStartupTasks() {
-        if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && LiveNotificationScheduler.canPostNotifications(this)) {
+        val liveNotificationsEnabled = prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)
+        val watchStreakProtectionEnabled = prefs.getBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false)
+        val canPostConfiguredNotifications =
+            (liveNotificationsEnabled && LiveNotificationScheduler.canPostNotifications(this)) ||
+                (watchStreakProtectionEnabled && LiveNotificationScheduler.canPostWatchStreakNotifications(this))
+        if ((liveNotificationsEnabled || watchStreakProtectionEnabled) && canPostConfiguredNotifications) {
             LiveNotificationScheduler.enable(this, baselineOnly = false)
         } else {
-            if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)) {
+            if (liveNotificationsEnabled && !LiveNotificationScheduler.canPostNotifications(this)) {
                 prefs.edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
+            }
+            if (watchStreakProtectionEnabled && !LiveNotificationScheduler.canPostWatchStreakNotifications(this)) {
+                prefs.edit { putBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false) }
             }
             LiveNotificationScheduler.disable(this)
         }
@@ -921,7 +929,13 @@ class MainActivity : AppCompatActivity() {
         }
         if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && !LiveNotificationScheduler.canPostNotifications(this)) {
             prefs.edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
-            LiveNotificationScheduler.disable(this)
+            LiveNotificationScheduler.refresh(this)
+        }
+        if (prefs.getBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false) &&
+            !LiveNotificationScheduler.canPostWatchStreakNotifications(this)
+        ) {
+            prefs.edit { putBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false) }
+            LiveNotificationScheduler.refresh(this)
         }
         updateRepository.resumePendingInstall()
         if (startupTasksReady) {

@@ -15,10 +15,12 @@ class LiveNotificationBootReceiver : BroadcastReceiver() {
             return
         }
         val prefs = context.prefs()
-        if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) &&
-            LiveNotificationScheduler.canPostNotifications(context)
-        ) {
-            if (LiveNotificationScheduler.mode(context) == C.LIVE_NOTIFICATIONS_MODE_PERSISTENT) {
+        val liveEnabled = prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)
+        val watchStreakEnabled = prefs.getBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false)
+        val canPost = (liveEnabled && LiveNotificationScheduler.canPostNotifications(context)) ||
+            (watchStreakEnabled && LiveNotificationScheduler.canPostWatchStreakNotifications(context))
+        if ((liveEnabled || watchStreakEnabled) && canPost) {
+            if (liveEnabled && LiveNotificationScheduler.mode(context) == C.LIVE_NOTIFICATIONS_MODE_PERSISTENT) {
                 LiveNotificationScheduler.applyMode(context)
             } else {
                 LiveNotificationScheduler.restoreFallbacks(context)

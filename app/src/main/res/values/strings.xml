@@ -2078,6 +2078,16 @@ Metadata text</string>
     <string name="settings_download_start_wait_summary">Minutes to wait for a queued live download to start.</string>
     <string name="settings_download_restart_wait_summary">Keep waiting briefly after a stream ends so a quick restart can continue the capture.</string>
     <string name="live_notifications_following_summary">Automatically enable live alerts for channels you follow through Xtra. Twitch notification preferences are used when an authenticated web session is available.</string>
+    <string name="watch_streak_protection_category">Watch streak protection</string>
+    <string name="watch_streak_protection">Protect watch streaks</string>
+    <string name="watch_streak_protection_summary">Remind me when Twitch says an active watch streak may be lost.</string>
+    <string name="watch_streak_protection_permission_required">Allow notifications in Android settings to receive watch streak reminders.</string>
+    <string name="watch_streak_protection_blocked">Watch streak reminders are blocked in Android settings.</string>
+    <string name="watch_streak_minimum_title">Minimum watch streak</string>
+    <string name="watch_streak_minimum_summary">Protect streaks of %s or more. Twitch may only offer recovery for longer streaks.</string>
+    <string name="watch_streak_notification_title">Watch streak at risk</string>
+    <string name="notification_watch_streak_channel_title">Watch streak recovery</string>
+    <string name="notification_watch_streak_channel_description">Reminders about Twitch watch streaks that may be lost.</string>
     <string name="settings_customize_controls_summary">Quick controls, More menu and Hidden</string>
     <string name="settings_player_control_scale_portrait">Player UI size (vertical)</string>
     <string name="settings_player_control_scale_landscape">Player UI size (horizontal)</string>

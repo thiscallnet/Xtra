@@ -82,7 +82,7 @@ class SettingsViewModel(
     fun resetNotificationState() {
         viewModelScope.launch(Dispatchers.IO) {
             notificationsRepository.clearPendingNotificationEvents()
-            LiveNotificationScheduler.disable(applicationContext)
+            LiveNotificationScheduler.refresh(applicationContext)
         }
     }
 
@@ -556,7 +556,7 @@ class SettingsViewModel(
             if (!enabled) {
                 applicationContext.prefs().edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
                 notificationsRepository.clearPendingNotificationEvents()
-                LiveNotificationScheduler.disable(applicationContext)
+                LiveNotificationScheduler.refresh(applicationContext)
                 liveNotificationResult.emit(LiveNotificationResult(enabled = false))
                 return@launch
             }
@@ -741,7 +741,7 @@ class SettingsViewModel(
     }
 
     private fun disableSchedulerAfterEnableFailure() {
-        runCatching { LiveNotificationScheduler.disable(applicationContext) }
+        runCatching { LiveNotificationScheduler.refresh(applicationContext) }
             .onFailure { Log.w(TAG, "Unable to roll back live notification scheduler after setup failure", it) }
     }
 

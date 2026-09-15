@@ -94,8 +94,27 @@ internal fun parseNotification(node: JsonObject): TwitchNotification? {
         // hidden until that capability is qualified rather than showing a guaranteed-to-fail X.
         canDismiss = false,
         action = action,
+        category = node.string("category"),
+        destinationType = node.string("destinationType"),
+        actionUrl = actionUrl?.takeIf(::isSafeTwitchUrl),
     )
 }
+
+internal fun TwitchNotification.isWatchStreakRecoveryCandidate(): Boolean =
+    listOf(type, category, destinationType)
+        .mapNotNull(::normalizeStructuredNotificationValue)
+        .any(WATCH_STREAK_RECOVERY_VALUES::contains)
+
+private fun normalizeStructuredNotificationValue(value: String?): String? = value
+    ?.trim()
+    ?.uppercase(Locale.ROOT)
+    ?.replace(Regex("[^A-Z0-9]+"), "_")
+    ?.trim('_')
+    ?.takeIf { it.isNotBlank() }
+
+// Twitch's onsite notification schema is private. Fail closed until a captured recovery payload
+// establishes one exact structured value; body text and guessed values must not trigger alerts.
+private val WATCH_STREAK_RECOVERY_VALUES: Set<String> = emptySet()
 
 private fun mapNotificationExtraAction(extra: JsonObject?): TwitchNotificationAction? = when (extra?.string("__typename")) {
     "User" -> TwitchNotificationAction.Channel(
