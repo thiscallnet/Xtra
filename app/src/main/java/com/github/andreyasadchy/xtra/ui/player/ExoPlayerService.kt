@@ -51,7 +51,6 @@ import androidx.media3.common.util.Util
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -81,6 +80,7 @@ import com.github.andreyasadchy.xtra.ui.player.clip.HlsClipSnapshotMapper
 import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.readBytesLimited
@@ -188,7 +188,9 @@ class ExoPlayerService : BasePlaybackService() {
     private fun twitchHlsPlaylistParserFactory(): TwitchHlsPlaylistParserFactory =
         TwitchHlsPlaylistParserFactory(
             lowLatencyEnabled = type == STREAM &&
-                prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                LivePlaybackPolicies.forLowLatency(
+                    prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                ).lowLatency,
             diagnostics = TwitchHlsDiagnosticsSink { hlsDiagnostics, parsed ->
                 if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
                     diagnostics.recordTwitchHlsPlaylist(hlsDiagnostics, parsed)
@@ -651,14 +653,9 @@ class ExoPlayerService : BasePlaybackService() {
                     ),
                 )
                 setLoadControl(
-                    DefaultLoadControl.Builder().apply {
-                        setBufferDurationsMs(
-                            15000,
-                            50000,
-                            2000,
-                            2000
-                        )
-                    }.build()
+                    LivePlaybackPolicies.forLowLatency(
+                        prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                    ).buffers.buildLoadControl()
                 )
                 setAudioAttributes(AudioAttributes.DEFAULT, prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false))
                 setHandleAudioBecomingNoisy(true)
@@ -1414,11 +1411,9 @@ class ExoPlayerService : BasePlaybackService() {
                                 setMimeType(MimeTypes.APPLICATION_M3U8)
                                 setLiveConfiguration(MediaItem.LiveConfiguration.Builder().apply {
                                     setTargetOffsetMs(
-                                        if (prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY)) {
-                                            C.LOW_LATENCY_TARGET_OFFSET_MS
-                                        } else {
-                                            C.NORMAL_LATENCY_TARGET_OFFSET_MS
-                                        }
+                                        LivePlaybackPolicies.forLowLatency(
+                                            prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                                        ).targetOffsetMs,
                                     )
                                 }.build())
                             }.build()

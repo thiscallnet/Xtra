@@ -161,7 +161,7 @@
     <string name="settings_search_empty" translatable="false">Enter a setting name to search.</string>
     <string name="settings_search_no_results" translatable="false">No matching settings.</string>
     <string name="settings_home_browsing">Browsing &amp; tabs</string>
-    <string name="settings_home_controls">Player controls &amp; UI size</string>
+    <string name="settings_home_controls">Player controls</string>
     <string name="settings_home_account_network">Account &amp; network</string>
     <string name="settings_home_general_summary">Language, backup &amp; app info</string>
     <string name="settings_home_notifications_summary">Live alerts and notification timing</string>
@@ -169,7 +169,7 @@
     <string name="settings_home_appearance_summary">Theme, colors &amp; layout</string>
     <string name="settings_home_browsing_summary">Tabs, lists, content &amp; search</string>
     <string name="settings_home_playback_summary">Quality, background playback &amp; playback sources</string>
-    <string name="settings_home_controls_summary">Customize player buttons, layout, UI size &amp; information</string>
+    <string name="settings_home_controls_summary">Customize the player HUD, seek, gestures, and information</string>
     <string name="settings_home_chat_summary">Messages, emotes &amp; Twitch features</string>
     <string name="settings_home_downloads_summary">Download behavior, live streams &amp; imports</string>
     <string name="settings_home_account_network_summary">Login, tokens, proxies &amp; connection</string>
@@ -259,11 +259,15 @@
     <string name="settings_player_menu_actions">Stream actions</string>
     <string name="settings_player_menu_chat">Chat &amp; tools</string>
     <string name="settings_player_quality">Quality &amp; latency</string>
-    <string name="settings_low_latency">Low-latency live playback</string>
-    <string name="settings_low_latency_summary">Reduce the delay to the broadcaster. May buffer more often on unstable connections.</string>
+    <string name="settings_low_latency">Low latency</string>
+    <string name="settings_low_latency_summary">Stay closer to live with a smaller buffer. Restart live playback after changing it.</string>
     <string name="settings_live_rewind">Live stream rewind</string>
     <string name="settings_live_rewind_summary">Rewind live streams using their recording</string>
+    <string name="settings_live_rewind_time_position">Live rewind time position</string>
+    <string name="settings_live_rewind_time_left">Left</string>
+    <string name="settings_live_rewind_time_right">Right</string>
     <string name="player_live" translatable="false">LIVE</string>
+    <string name="player_return_to_live">Return to live</string>
     <string name="settings_player_behavior">Player behavior</string>
     <string name="network_filter_warning" translatable="false">Some Twitch requests failed to resolve. A DNS filter, VPN, proxy, or network issue may be blocking Twitch.</string>
     <string name="settings_buffer_limits">Buffer limits</string>
@@ -446,20 +450,10 @@
     <string name="settings_remember_position_summary">Continue videos where you left off.</string>
     <string name="settings_watch_history">Watch history</string>
     <string name="settings_clear_positions">Clear watch positions</string>
-    <string name="settings_customize_controls">Customize controls</string>
-    <string name="settings_customize_controls_help">Drag any visible player control to reposition it. Transport, streamer information and the timeline stay grouped exactly as they are during playback.</string>
-    <string name="settings_customize_controls_selected">Selected: %1$s</string>
-    <string name="settings_customize_controls_selected_none">Select a control to see its current position.</string>
-    <string name="settings_customize_controls_reset">Reset layout</string>
-    <string name="settings_customize_controls_position">Set position</string>
-    <string name="settings_customize_controls_save">Save changes</string>
-    <string name="settings_customize_controls_empty">Nothing here</string>
-    <string name="settings_customize_controls_enable">Show %1$s on the player</string>
-    <string name="settings_customize_controls_enable_menu">Show %1$s in More menu</string>
-    <string name="settings_customize_controls_hide">Hide %1$s</string>
-    <string name="settings_customize_controls_preview_description">Live player preview. Drag controls to the semantic anchor where they should appear during playback.</string>
-    <string name="settings_customize_controls_snap_hint">Release to snap</string>
-    <string name="settings_customize_controls_drag_action">Drag or select %1$s</string>
+    <string name="settings_layout_preview">Preview</string>
+    <string name="settings_customize_hud">Customize player HUD</string>
+    <string name="settings_customize_hud_summary">Move, resize, and show player controls</string>
+    <string name="settings_preview_empty">Nothing here</string>
     <string name="settings_seek_controls">Seek controls</string>
     <string name="settings_gestures">Gestures</string>
     <string name="settings_clip_capture">Local clips</string>

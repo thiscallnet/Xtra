@@ -9,6 +9,7 @@ import kotlin.math.max
 import kotlin.time.Instant
 
 const val LIVE_EDGE_THRESHOLD_MS = 15_000L
+const val LIVE_REWIND_DURATION_QUANTUM_MS = 10_000L
 const val LIVE_REWIND_MAX_CREATED_AT_DELTA_MS = 3 * 60 * 1000L
 const val LIVE_TAP_SEEK_STEP_MS = 10_000L
 const val LIVE_TAP_SEEK_DEBOUNCE_MS = 450L
@@ -371,8 +372,16 @@ data class LiveRewindSourceState(
     fun canGoLive(): Boolean = !offline
 }
 
+/**
+ * A recording VOD exposes the live edge in ten-second chunks while it is
+ * still being written. Do not display or seek into the incomplete tail.
+ * Once the stream has ended, keep its exact frozen endpoint because the final
+ * recording may be shorter than the last ten-second chunk.
+ */
 fun freezeLiveEdge(predictedEdgeMs: Long, frozenEdgeMs: Long?): Long =
-    frozenEdgeMs ?: predictedEdgeMs
+    frozenEdgeMs?.coerceAtLeast(0L)
+        ?: (predictedEdgeMs.coerceAtLeast(0L) / LIVE_REWIND_DURATION_QUANTUM_MS) *
+        LIVE_REWIND_DURATION_QUANTUM_MS
 
 fun selectCurrentRecordingVod(
     candidates: List<LiveRewindVodCandidate>,
@@ -462,13 +471,4 @@ suspend fun GraphQLRepository.findCurrentRecordingVod(
         sampledAtElapsedRealtimeMs = SystemClock.elapsedRealtime(),
         createdAt = candidate.createdAt,
     )
-}
-
-fun formatBehindLive(targetMs: Long, edgeMs: Long): String {
-    val behindMs = (edgeMs - targetMs).coerceAtLeast(0L)
-    return if (behindMs <= LIVE_EDGE_THRESHOLD_MS) {
-        "LIVE"
-    } else {
-        "-${android.text.format.DateUtils.formatElapsedTime(behindMs / 1000L)}"
-    }
 }

@@ -14,9 +14,9 @@ import androidx.core.view.isVisible
 import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
-import com.github.andreyasadchy.xtra.ui.settings.PlayerControlLayoutEditor
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER_CONTROLS
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER_HUD
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_CHAT
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
@@ -25,8 +25,6 @@ import com.github.andreyasadchy.xtra.ui.tv.TvChatMode
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.tv.tvChatMode
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.PlayerControlLayout
-import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
@@ -72,13 +70,12 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         val type = arguments.getString(TYPE)
         val isTv = requireContext().isTelevision()
         with(binding) {
-            menuCustomizeControls.isVisible = !isTv
-            if (menuCustomizeControls.isVisible) {
-                menuCustomizeControls.setOnClickListener {
-                    showControlLayoutEditor()
+            menuCustomizeHud.isVisible = !isTv
+            if (menuCustomizeHud.isVisible) {
+                menuCustomizeHud.setOnClickListener {
+                    showHudEditor()
                 }
             }
-            setupPlayerControlScale()
             menuPlayerControlSettings.setOnClickListener {
                 dismiss()
                 val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
@@ -342,7 +339,6 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 }
             }
         }
-        reorderMenuItems()
         setMenuTextColor(view)
 
         if (requireContext().isTelevision()) {
@@ -357,95 +353,13 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         }
     }
 
-    private fun setupPlayerControlScale() {
-        val isPortrait = resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
-        val scaleKey = if (isPortrait) C.PLAYER_CONTROL_SCALE_PORTRAIT else C.PLAYER_CONTROL_SCALE_LANDSCAPE
-        val defaultValue = if (isPortrait) "auto" else "100"
-        val scaleValues = resources.getStringArray(R.array.playerControlScaleValues)
-        val scaleEntries = resources.getStringArray(R.array.playerControlScaleEntries)
-        val title = getString(
-            if (isPortrait) R.string.settings_player_control_scale_portrait
-            else R.string.settings_player_control_scale_landscape,
-        )
-
-        fun currentIndex(): Int = scaleValues.indexOf(
-            requireContext().prefs().getString(scaleKey, defaultValue),
-        ).takeIf { it >= 0 } ?: scaleValues.indexOf(defaultValue).coerceAtLeast(0)
-
-        fun updateLabel() {
-            val value = scaleEntries.getOrElse(currentIndex()) { scaleEntries.firstOrNull().orEmpty() }
-            binding.menuPlayerControlScale.text = "$title: $value"
-            binding.menuPlayerControlScale.contentDescription = "$title: $value"
-        }
-
-        updateLabel()
-        binding.menuPlayerControlScale.setOnClickListener {
-            val context = requireContext()
-            context.getAlertDialogBuilder()
-                .setTitle(title)
-                .setSingleChoiceItems(scaleEntries, currentIndex()) { dialog, which ->
-                    val value = scaleValues.getOrNull(which) ?: return@setSingleChoiceItems
-                    context.prefs().edit { putString(scaleKey, value) }
-                    updateLabel()
-                    (parentFragment as? Media3PlayerFragment)?.refreshPlayerControlScale()
-                        ?: (parentFragment as? PlayerFragment)?.refreshPlayerControlScale()
-                    dialog.dismiss()
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
-        }
-    }
-
-    private fun showControlLayoutEditor() {
-        val host = parentFragment
-        val hostContext = host?.context ?: requireContext()
+    private fun showHudEditor() {
         dismiss()
-
-        val show = {
-            if (host == null || host.isAdded) {
-                PlayerControlLayoutEditor.showDialog(hostContext) {
-                    when (host) {
-                        is Media3PlayerFragment -> host.applyControlLayoutFromEditor()
-                        is PlayerFragment -> host.applyControlLayoutFromEditor()
-                    }
-                }
-            }
+        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER_HUD)
         }
-        host?.view?.post(show) ?: show()
-    }
-
-    private fun reorderMenuItems() {
-        val preferences = requireContext().prefs()
-        val order = PlayerControlLayout.orderedActions(
-            preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
-            SettingsMigration.defaultControlLayout(),
-        )
-        with(binding) {
-            PlayerControlLayout.reorderChildren(
-                menuContainer,
-                order,
-                mapOf(
-                    "quality" to menuQuality,
-                    "speed" to menuSpeed,
-                    "viewers" to menuViewerList,
-                    "chapters" to menuVodGames,
-                    "download" to menuDownload,
-                    "bookmark" to menuBookmark,
-                    "share" to menuShare,
-                    "find_vod" to menuFindVod,
-                    "sleep" to menuTimer,
-                    "aspect" to menuRatio,
-                    "volume" to menuVolume,
-                    "subtitles" to menuSubtitles,
-                    "restart" to menuRestart,
-                    "chat_input" to menuChatBar,
-                    "chat" to menuChatToggle,
-                    "reload_emotes" to menuReloadEmotes,
-                    "disconnect_chat" to menuChatDisconnect,
-                    "video_info" to menuVideoInfo,
-                ),
-            )
-        }
+        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+            ?: startActivity(intent)
     }
 
     private fun setMenuTextColor(view: View) {

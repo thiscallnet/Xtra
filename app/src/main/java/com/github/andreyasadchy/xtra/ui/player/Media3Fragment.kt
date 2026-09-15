@@ -52,7 +52,6 @@ import com.github.andreyasadchy.xtra.ui.common.logVideoTracks
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
@@ -1201,7 +1200,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 subtitles.visibility = View.GONE
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setSubtitles(textTracks)
-            PlayerControlLayout.applyToPlayer(requireContext(), binding)
+            binding.playerControls.root.refreshAvailability()
         }
     }
 

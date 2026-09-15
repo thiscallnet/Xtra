@@ -189,58 +189,6 @@
         <item>48</item>
     </string-array>
 
-    <string-array name="playerControlScaleEntries" translatable="false">
-        <item>@string/auto</item>
-        <item>55%</item>
-        <item>65%</item>
-        <item>75%</item>
-        <item>85%</item>
-        <item>100%</item>
-        <item>110%</item>
-        <item>120%</item>
-    </string-array>
-
-    <string-array name="playerControlScaleValues" translatable="false">
-        <item>auto</item>
-        <item>55</item>
-        <item>65</item>
-        <item>75</item>
-        <item>85</item>
-        <item>100</item>
-        <item>110</item>
-        <item>120</item>
-    </string-array>
-
-    <string-array name="playerControlMetadataScaleEntries" translatable="false">
-        <item>55%</item>
-        <item>65%</item>
-        <item>75%</item>
-        <item>85%</item>
-        <item>100%</item>
-        <item>110%</item>
-        <item>120%</item>
-    </string-array>
-
-    <string-array name="playerControlMetadataScaleValues" translatable="false">
-        <item>55</item>
-        <item>65</item>
-        <item>75</item>
-        <item>85</item>
-        <item>100</item>
-        <item>110</item>
-        <item>120</item>
-    </string-array>
-
-    <string-array name="playerControlPositionEntries">
-        <item>@string/player_control_position_above</item>
-        <item>@string/player_control_position_below</item>
-    </string-array>
-
-    <string-array name="playerControlPositionValues" translatable="false">
-        <item>above</item>
-        <item>below</item>
-    </string-array>
-
     <string-array name="nameDisplayEntries" translatable="false">
         <item>@string/name_display_entry1</item>
         <item>@string/name_display_entry2</item>
@@ -766,6 +714,16 @@
         <item>150</item>
         <item>250</item>
         <item>400</item>
+    </string-array>
+
+    <string-array name="liveRewindTimePositionEntries" translatable="false">
+        <item>@string/settings_live_rewind_time_left</item>
+        <item>@string/settings_live_rewind_time_right</item>
+    </string-array>
+
+    <string-array name="liveRewindTimePositionValues" translatable="false">
+        <item>left</item>
+        <item>right</item>
     </string-array>
 
     <string-array name="settingsProfilePictureEntries">

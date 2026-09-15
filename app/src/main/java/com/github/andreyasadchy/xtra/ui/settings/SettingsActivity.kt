@@ -47,6 +47,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.appcompat.widget.SearchView
 import androidx.appcompat.widget.PopupMenu
+import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.edit
@@ -55,6 +56,7 @@ import androidx.core.os.LocaleListCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
@@ -277,6 +279,7 @@ class SettingsActivity : AppCompatActivity() {
             when (intent.getStringExtra(EXTRA_SETTINGS_SCREEN)) {
                 SETTINGS_SCREEN_TABS -> navController.navigate(R.id.browsingTabsFragment)
                 SETTINGS_SCREEN_PLAYER_CONTROLS -> navController.navigate(R.id.playerButtonSettingsFragment)
+                SETTINGS_SCREEN_PLAYER_HUD -> navController.navigate(R.id.playerHudEditorFragment)
                 SETTINGS_SCREEN_PLAYER -> navController.navigate(R.id.playerSettingsFragment)
                 SETTINGS_SCREEN_CHAT -> navController.navigate(R.id.chatSettingsFragment)
             }
@@ -306,6 +309,18 @@ class SettingsActivity : AppCompatActivity() {
 
     internal fun consumeSettingsHighlightPreference(): String? {
         return settingsHighlightPreference?.also { settingsHighlightPreference = null }
+    }
+
+    internal fun setSettingsChromeVisible(visible: Boolean) {
+        if (!::binding.isInitialized) return
+        binding.appBar.isVisible = visible
+        // The editor supplies its own app bar. Remove the scrolling behavior
+        // while the settings chrome is hidden so the editor really occupies
+        // the full window instead of retaining an invisible 88dp top inset.
+        binding.navHostFragment.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            behavior = if (visible) AppBarLayout.ScrollingViewBehavior() else null
+        }
+        binding.navHostFragment.requestLayout()
     }
 
     fun isAccountConnected(): Boolean {
@@ -493,6 +508,11 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    internal fun setHudResult() {
+        setResult(RESULT_OK, Intent().putExtra(EXTRA_HUD_CHANGED, true))
+        finish()
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(KEY_CHANGED, changed)
         super.onSaveInstanceState(outState)
@@ -500,6 +520,7 @@ class SettingsActivity : AppCompatActivity() {
 
     companion object {
         const val KEY_CHANGED = "changed"
+        const val EXTRA_HUD_CHANGED = "hud_changed"
     }
 
     class SettingsHomeFragment : Fragment() {
@@ -3187,30 +3208,20 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
-        private var scalePreview: PlayerControlScalePreviewPreference? = null
-
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.player_controls_preferences, rootKey)
-            scalePreview = findPreference("player_control_scale_preview")
-            listOf(
-                C.PLAYER_CONTROL_SCALE_PORTRAIT,
-                C.PLAYER_CONTROL_SCALE_LANDSCAPE,
-                C.PLAYER_CONTROL_METADATA_SCALE,
-            ).forEach { key ->
-                findPreference<ListPreference>(key)?.setOnPreferenceChangeListener { _, _ ->
-                    Handler(Looper.getMainLooper()).post { scalePreview?.refreshPreview() }
-                    true
-                }
-            }
             findPreference<Preference>("player_seek_controls")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerSeekFragment); true }
             findPreference<Preference>("player_gestures")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerGesturesFragment); true }
             findPreference<Preference>("player_information")?.setOnPreferenceClickListener { findNavController().navigate(R.id.playerInformationFragment); true }
             findPreference<Preference>("clip_settings")?.setOnPreferenceClickListener { findNavController().navigate(R.id.clipSettingsFragment); true }
             findPreference<Preference>("player_speed_options")?.setOnPreferenceClickListener { showSpeedOptionsDialog(); true }
-            findPreference<Preference>("customize_controls")?.let { preference ->
+            findPreference<Preference>("customize_hud")?.let { preference ->
                 preference.isVisible = !requireContext().isTelevision()
                 if (preference.isVisible) {
-                    preference.setOnPreferenceClickListener { showControlLayoutDialog(); true }
+                    preference.setOnPreferenceClickListener {
+                        findNavController().navigate(R.id.playerHudEditorFragment)
+                        true
+                    }
                 }
             }
         }
@@ -3313,10 +3324,6 @@ class SettingsActivity : AppCompatActivity() {
                 putString(C.SETTINGS_PLAYER_SPEED_OPTIONS, serializeSpeedOptions(items))
                 putString(C.PLAYER_SPEED_LIST, items.filter { it.enabled }.joinToString("\n") { it.key })
             }
-        }
-
-        private fun showControlLayoutDialog() {
-            PlayerControlLayoutEditor.showDialog(requireContext())
         }
 
     }

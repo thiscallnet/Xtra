@@ -100,8 +100,8 @@ import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.isKeyboardShown
 import com.github.andreyasadchy.xtra.util.isChatEnabled
-import com.github.andreyasadchy.xtra.util.PlayerControlLayout
-import com.github.andreyasadchy.xtra.util.PortraitPlayerControls
+import com.github.andreyasadchy.xtra.ui.player.hud.HudOrientation
+import com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudVisibilityController
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -158,17 +158,18 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var isAnimating = false
     private var moveAnimation: ViewPropertyAnimator? = null
     protected var useController = true
-    private val controllerVisibility = ControllerVisibilityState()
-    protected var controllerAutoHide = true
-        set(value) {
-            field = value
-            controllerVisibility.setAutoHideEnabled(value)
-        }
-    private var controllerHideOnTouch = true
-    private val controllerHideAction = Runnable { if (view != null) hideController() }
-    private var controllerIsAnimating = false
-    private var controllerAnimation: ViewPropertyAnimator? = null
-    private var controllerAnimationGeneration = 0L
+    private val hudVisibility = PlayerHudVisibilityController(
+        rootProvider = { _binding?.playerControls?.root },
+        televisionProvider = { _binding?.root?.context?.isTelevision() == true },
+    )
+    protected var controllerAutoHide: Boolean
+        get() = hudVisibility.autoHideEnabled
+        set(value) { hudVisibility.autoHideEnabled = value }
+    private var controllerHideOnTouch: Boolean
+        get() = hudVisibility.hideOnTouch
+        set(value) { hudVisibility.hideOnTouch = value }
+    private val controllerHideAction = hudVisibility.hideRunnable()
+    private val controllerIsAnimating: Boolean get() = hudVisibility.isAnimating
     private var backgroundColor: Int? = null
     private var backgroundVisible = false
     private var pipPlaying = false
@@ -203,11 +204,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private data class LiveRewindRenderState(
         val edgeMs: Long,
         val progressPositionMs: Long?,
-        val positionText: String,
-        val positionDescription: String,
-        val durationText: String,
-        val durationDescription: String,
-        val liveButtonVisible: Boolean,
+        val timeText: String,
+        val timeDescription: String,
+        val timeActionable: Boolean,
     )
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
@@ -234,9 +233,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 event.keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
                 event.keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER
             if (isTvFocusRecoveryKey && !hasTvFocusInside(binding.playerControls.root)) {
-                val preferred = lastTvFocusedControl
-                    ?.takeIf { it.isAttachedToWindow && it.visibility == View.VISIBLE && it.isEnabled }
-                    ?: binding.playerControls.playPause
+                val preferred = lastTvFocusedControl?.let(::activeTvControl)
+                    ?: activeTvControl(binding.playerControls.playPause)
+                if (preferred == null) {
+                    if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
+                        binding.dragView.requestFocus()
+                    }
+                    return true
+                }
                 if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
                     preferred.requestFocus()
                     lastTvFocusedControl = preferred
@@ -262,7 +266,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
             if (promotesPrimary) {
                 if (event.action == android.view.KeyEvent.ACTION_DOWN && event.repeatCount == 0) {
-                    binding.playerControls.playPause.requestFocus()
+                    activeTvControl(binding.playerControls.playPause)?.requestFocus()
+                        ?: binding.dragView.requestFocus()
                 }
                 return true
             }
@@ -277,6 +282,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             TvPlayerCommand.ShowControls -> { showController(force = true); requestTvControlFocus(binding.playerControls.playPause) }
         }
         return true
+    }
+
+    private fun activeTvControl(control: View): View? = control.takeIf {
+        it.isAttachedToWindow && it.isShown && it.isEnabled && binding.playerControls.root.isElementActive(it)
     }
 
     private fun requestTvControlFocus(control: View) {
@@ -294,7 +303,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 // controller-visibility workaround.
                 if (lastTvFocusedControl !== control) return
                 if (root.findFocus() != null && root.findFocus() !== control) return
-                if (control.isShown && control.isEnabled) {
+                if (control.isShown && control.isEnabled && binding.playerControls.root.isElementActive(control)) {
                     configureTvPlayerActionFocus()
                     control.requestFocus()
                 }
@@ -316,7 +325,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     private fun routeTvDirectionalKey(event: android.view.KeyEvent, focusOverride: View? = null): Boolean {
         val visible: (View) -> Boolean = { view ->
-            if (view.visibility == View.VISIBLE && view.isEnabled) {
+            if (view.visibility == View.VISIBLE && view.isEnabled && binding.playerControls.root.isElementActive(view)) {
                 TvFocusHelper.install(view)
                 view.isFocusable = true
                 view.isFocusableInTouchMode = false
@@ -325,7 +334,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 false
             }
         }
-        val candidates = listOf(
+        val liveTimeGroup = binding.playerControls.liveTimeGroup.takeIf {
+            it.isClickable && it.isFocusable && it.visibility == View.VISIBLE
+        }
+        val candidates = (listOf(
             binding.playerControls.rewind,
             binding.playerControls.playPause,
             binding.playerControls.fastForward,
@@ -348,15 +360,18 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             binding.playerControls.toggleChatInput,
             binding.playerControls.toggleChat,
             binding.playerControls.fullscreen,
-            binding.playerControls.liveButton,
-        ).filter(visible)
+        ) + listOfNotNull(liveTimeGroup)).filter(visible)
+        if (candidates.isEmpty()) {
+            if (event.action == android.view.KeyEvent.ACTION_DOWN) binding.dragView.requestFocus()
+            return true
+        }
         return TvFocusHelper.routeDirectionalFocus(
             event,
             binding.playerControls.root,
             candidates,
             focusedOverride = focusOverride ?: requireActivity().currentFocus,
-            fallback = lastTvFocusedControl?.takeIf { it.isAttachedToWindow }
-                ?: binding.playerControls.playPause,
+            fallback = lastTvFocusedControl?.let(::activeTvControl)
+                ?: candidates.firstOrNull(),
             onMoved = { lastTvFocusedControl = it },
         )
     }
@@ -479,6 +494,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
         isPortrait = !requireContext().isTelevision() &&
             resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
+        hudVisibility.bindDialogLifecycle(childFragmentManager)
         requireActivity().onBackPressedDispatcher.addCallback(this, backPressedCallback)
         WindowCompat.getInsetsController(
             requireActivity().window,
@@ -489,6 +505,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentPlayerBinding.inflate(inflater, container, false)
         return binding.root
+    }
+
+    override fun onDestroy() {
+        hudVisibility.unbindDialogLifecycle()
+        super.onDestroy()
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -991,7 +1012,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     object : TimeBar.OnScrubListener {
                         override fun onScrubStart(timeBar: TimeBar, position: Long) {
                             cancelLiveTapSeek()
-                            controllerVisibility.onScrubStart()
+                            hudVisibility.onScrubStart()
                             binding.playerControls.root.removeCallbacks(controllerHideAction)
                             if (isLiveRewindAvailable()) {
                                 liveRewindScrubPositionMs = position
@@ -1020,7 +1041,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         }
 
                         override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
-                            controllerVisibility.onScrubStop()
+                            hudVisibility.onScrubStop()
                             if (isLiveRewindAvailable()) {
                                 liveRewindScrubPositionMs = null
                                 hideLiveRewindPreview()
@@ -1217,6 +1238,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                     // a category change is never sent to the
                                     // Media3 recorder source.
                                     updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
+                                    if (isLiveRewindEnabled() &&
+                                        videoType == BasePlaybackService.STREAM &&
+                                        liveRewindStreamCreatedAt.isNullOrBlank() &&
+                                        !stream.createdAt.isNullOrBlank()
+                                    ) {
+                                        // The player can start before stream metadata is
+                                        // loaded. Start the first recording lookup as soon as the
+                                        // stream's creation time becomes available.
+                                        prepareLiveRewind(stream.id, stream.createdAt)
+                                        return@collectLatest
+                                    }
                                     if (isLiveRewindEnabled() &&
                                         videoType == BasePlaybackService.STREAM &&
                                         hasLiveStreamSessionChanged(
@@ -1569,28 +1601,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 chatFragment = fragment
             }
             refreshPlayerControls()
-            PlayerControlLayout.applyToPlayer(requireContext(), binding)
+            binding.playerControls.root.refreshAvailability()
             hideTvSecondaryActions()
-            schedulePortraitControlScale()
+            refreshHudLayout()
             dismissPlayer.setOnClickListener {
                 (activity as? MainActivity)?.closePlayer() ?: close()
             }
         }
-    }
-
-    fun applyControlLayoutFromEditor() {
-        if (!isAdded || _binding == null) return
-        initLayout()
-        refreshPlayerControls()
-        PlayerControlLayout.applyToPlayer(requireContext(), binding)
-        hideTvSecondaryActions()
-        schedulePortraitControlScale()
-        showController(force = true)
-    }
-
-    fun refreshPlayerControlScale() {
-        if (!isAdded || _binding == null) return
-        schedulePortraitControlScale()
     }
 
     private fun refreshPlayerControls() {
@@ -1603,7 +1620,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             binding.playerControls.vodGames.setOnClickListener(null)
             binding.playerControls.vodGames.visibility = View.GONE
         }
-        PlayerControlLayout.refreshAvailableControls(binding)
+        binding.playerControls.root.refreshAvailability()
     }
 
     private fun initLayout() {
@@ -1816,7 +1833,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private fun configureTvPlayerActionFocus() {
         hideTvSecondaryActions()
         val visible: (View) -> Boolean = { view ->
-            if (view.visibility == View.VISIBLE && view.isEnabled) {
+            if (view.visibility == View.VISIBLE && view.isEnabled && binding.playerControls.root.isElementActive(view)) {
                 TvFocusHelper.install(view)
                 view.isFocusable = true
                 view.isFocusableInTouchMode = false
@@ -1825,7 +1842,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 false
             }
         }
-        val candidates = listOf(
+        val liveTimeGroup = binding.playerControls.liveTimeGroup.takeIf {
+            it.isClickable && it.isFocusable && it.visibility == View.VISIBLE
+        }
+        val candidates = (listOf(
             binding.playerControls.rewind,
             binding.playerControls.playPause,
             binding.playerControls.fastForward,
@@ -1848,17 +1868,26 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             binding.playerControls.toggleChatInput,
             binding.playerControls.toggleChat,
             binding.playerControls.fullscreen,
-            binding.playerControls.liveButton,
-        ).filter(visible)
+        ) + listOfNotNull(liveTimeGroup)).filter(visible)
         TvFocusHelper.linkVisualFocus(binding.playerControls.root, candidates)
     }
 
-    private fun schedulePortraitControlScale() {
-        PortraitPlayerControls.schedule(binding, isPortrait)
+    private fun refreshHudLayout() {
+        binding.playerControls.root.setHudOrientation(
+            if (isPortrait) HudOrientation.PORTRAIT else HudOrientation.LANDSCAPE,
+        )
+        binding.playerControls.root.refreshAvailability()
+    }
+
+    fun reloadHudLayoutFromSettings() {
+        if (!isAdded || view == null) return
+        binding.playerControls.root.reloadProfile()
+        binding.playerControls.root.refreshAvailability()
+        binding.playerControls.root.requestLayout()
     }
 
     private fun hideTvSecondaryActions() {
-        PlayerControlLayout.hideSecondaryActionsOnTelevision(requireContext(), binding)
+        binding.playerControls.root.refreshAvailability()
     }
 
     fun setResizeMode() {
@@ -2148,12 +2177,20 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun compactQualityLabel(label: String?): String {
-        return label
+        val compact = label
             ?.removeSuffix(" H.264")
             ?.removeSuffix(" H.265")
             ?.removeSuffix(" AV1")
             ?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.auto)
+            ?: return getString(R.string.auto)
+        // Keep the resolution/fps visible in the fixed-width HUD pill. The
+        // full codec/source label remains available in contentDescription and
+        // in the quality dialog.
+        return if (compact.firstOrNull()?.isDigit() == true && 'p' in compact) {
+            compact.substringBefore(' ')
+        } else {
+            compact
+        }
     }
 
     private fun isVaftActive(): Boolean {
@@ -2199,6 +2236,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 ) View.VISIBLE else View.GONE
             }
         }
+        binding.playerControls.root.refreshAvailabilityIfChanged()
     }
 
     private fun updateChannelAvatar(url: String?) {
@@ -2207,10 +2245,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             loadedChannelAvatarUrl = null
             binding.playerControls.channelAvatar.setImageDrawable(null)
             binding.playerControls.channelAvatar.visibility = View.GONE
+            binding.playerControls.root.refreshAvailabilityIfChanged()
             return
         }
 
         binding.playerControls.channelAvatar.visibility = View.VISIBLE
+        binding.playerControls.root.refreshAvailabilityIfChanged()
         if (loadedChannelAvatarUrl == normalized) return
 
         loadedChannelAvatarUrl = normalized
@@ -2291,8 +2331,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.playerControls.titleAndViewersLayout.visibility = if (
             binding.playerControls.title.visibility == View.VISIBLE ||
                 binding.playerControls.category.visibility == View.VISIBLE ||
-                binding.playerControls.viewersLayout.visibility == View.VISIBLE
+            binding.playerControls.viewersLayout.visibility == View.VISIBLE
         ) View.VISIBLE else View.GONE
+        binding.playerControls.root.refreshAvailability()
     }
 
     protected open fun onViewingMetadataChanged(
@@ -2497,10 +2538,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun changePlayerMode() {
         with(binding) {
             if (canEnterPictureInPicture()) {
-                if (!controllerHideOnTouch && !controllerIsAnimating && controllerAutoHide && !binding.playerControls.progressBar.isPressed) {
-                    playerControls.root.postDelayed(controllerHideAction, 3000)
-                }
+                val resumeAutoHide = !controllerHideOnTouch && !controllerIsAnimating && controllerAutoHide && !binding.playerControls.progressBar.isPressed
                 controllerHideOnTouch = true
+                if (resumeAutoHide) hudVisibility.scheduleHide()
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
                     requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
                     requireContext().prefs().getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)
@@ -2544,10 +2584,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     private fun toggleController() {
         if (requireContext().isTelevision() || !controllerHideOnTouch) {
-            controllerVisibility.show()
+            hudVisibility.show(force = true)
             showController(force = true)
             updateProgress()
-        } else if (controllerVisibility.toggle(hideOnTouch = true)) {
+        } else if (hudVisibility.toggle()) {
             showController()
             updateProgress()
         } else {
@@ -2556,16 +2596,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun scheduleControllerHide() {
-        binding.playerControls.root.removeCallbacks(controllerHideAction)
-        if (controllerVisibility.shouldScheduleHide(
-                hideOnTouch = controllerHideOnTouch,
-                interactionLocked = false,
-                progressPressed = binding.playerControls.progressBar.isPressed,
-                rootVisible = binding.playerControls.root.isVisible,
-            )
-        ) {
-            binding.playerControls.root.postDelayed(controllerHideAction, CONTROLLER_AUTO_HIDE_DELAY_MS)
-        }
+        hudVisibility.scheduleHide()
     }
 
     private fun scheduleControllerHideAfterScrub() {
@@ -2576,14 +2607,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
-    private fun cancelControllerAnimation() {
-        controllerAnimationGeneration++
-        controllerAnimation?.setListener(null)
-        controllerAnimation?.cancel()
-        controllerAnimation = null
-        controllerIsAnimating = false
-    }
-
     protected fun showController(show: Boolean = true, force: Boolean = false) {
         if (!useController) return
 
@@ -2591,84 +2614,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             scheduleControllerHide()
             return
         }
-        controllerVisibility.show()
-        binding.playerControls.root.removeCallbacks(controllerHideAction)
-        cancelControllerAnimation()
-        if (force) {
-            binding.playerControls.root.alpha = 1f
-            binding.playerControls.root.visibility = View.VISIBLE
-            scheduleControllerHide()
-            return
-        }
-        if (binding.playerControls.root.isVisible) {
-            binding.playerControls.root.alpha = 1f
-            scheduleControllerHide()
-            return
-        }
-
-        val animationGeneration = controllerAnimationGeneration
-        binding.playerControls.root.alpha = 0f
-        binding.playerControls.root.visibility = View.VISIBLE
-        controllerIsAnimating = true
-        controllerAnimation = binding.playerControls.root.animate().apply {
-            alpha(1f)
-            setDuration(CONTROLLER_ANIMATION_DURATION_MS)
-            setListener(
-                object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        if (animationGeneration != controllerAnimationGeneration) return
-                        controllerIsAnimating = false
-                        controllerAnimation = null
-                        setListener(null)
-                        if (view != null) {
-                            scheduleControllerHide()
-                        }
-                    }
-                }
-            )
-            start()
-        }
+        hudVisibility.show(force)
     }
 
     private fun hideController(force: Boolean = false) {
         if (requireContext().isTelevision() && !force) return
 
-        binding.playerControls.root.removeCallbacks(controllerHideAction)
-        controllerVisibility.hide()
-        cancelControllerAnimation()
-        if (!binding.playerControls.root.isVisible) {
-            if (force) {
-                binding.playerControls.root.alpha = 0f
-                binding.playerControls.root.visibility = View.GONE
-            }
-            return
-        }
-        if (force) {
-            binding.playerControls.root.alpha = 0f
-            binding.playerControls.root.visibility = View.GONE
-            return
-        }
-
-        val animationGeneration = controllerAnimationGeneration
-        controllerIsAnimating = true
-        controllerAnimation = binding.playerControls.root.animate().apply {
-            alpha(0f)
-            setDuration(CONTROLLER_ANIMATION_DURATION_MS)
-            setListener(
-                object : AnimatorListenerAdapter() {
-                    override fun onAnimationEnd(animation: Animator) {
-                        if (animationGeneration != controllerAnimationGeneration) return
-                        controllerIsAnimating = false
-                        controllerAnimation = null
-                        setListener(null)
-                        if (view != null) {
-                            binding.playerControls.root.visibility = View.GONE
-                        }
-                    }
-                }
-            )
-            start()
-        }
+        hudVisibility.hide(force)
     }
 
     private fun showStatusBar() {
@@ -2849,6 +2801,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     override fun onResume() {
         super.onResume()
+        binding.playerControls.root.reloadProfile()
         if (requireContext().isTelevision() && !isPortrait) {
             applyTvChatPresentation(binding.chatLayout, binding.playerLayout, binding.slidingLayout, isChatOpen)
         } else if (!isPortrait) {
@@ -3003,7 +2956,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (!isLiveRewindAvailable() || view == null) {
             renderedLiveRewindState = null
             binding.playerControls.progressBar.visibility = View.GONE
-            binding.playerControls.liveButton.visibility = View.GONE
+            binding.playerControls.position.visibility = View.GONE
+            binding.playerControls.duration.visibility = View.GONE
+            binding.playerControls.liveTimeGroup.visibility = View.GONE
+            binding.playerControls.liveTimeGroup.setOnClickListener(null)
+            binding.playerControls.liveTimeGroup.isClickable = false
+            binding.playerControls.liveTimeGroup.isFocusable = false
+            binding.playerControls.duration.setOnClickListener(null)
+            binding.playerControls.duration.isClickable = false
+            binding.playerControls.duration.isFocusable = false
             return
         }
         val currentStream = viewModel.stream.value
@@ -3052,25 +3013,27 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             scrubPositionMs = liveRewindScrubPositionMs,
         )
         val isRewound = livePlaybackMode is LivePlaybackMode.Rewound
-        val positionText = DateUtils.formatElapsedTime(0)
-        val positionDescription = getString(
-            R.string.player_position,
-            positionText,
-        )
-        val durationText = DateUtils.formatElapsedTime(displayedPositionMs / 1000L)
-        val durationDescription = getString(
-            if (isRewound) R.string.player_position else R.string.player_duration,
-            durationText,
-        )
-        val liveButtonVisible = isRewound && !liveRewindStreamOffline
+        val positionTimeText = if (isRewound) {
+            DateUtils.formatElapsedTime(displayedPositionMs / 1000L)
+        } else {
+            getString(R.string.player_live)
+        }
+        val durationText = DateUtils.formatElapsedTime(edgeMs / 1000L)
+        val timeText = "$positionTimeText / $durationText"
+        val timeActionable = isRewound && !liveRewindStreamOffline
+        val timeDescription = if (timeActionable) {
+            getString(R.string.player_return_to_live)
+        } else if (isRewound) {
+            getString(R.string.player_position, timeText)
+        } else {
+            getString(R.string.player_live)
+        }
         val next = LiveRewindRenderState(
             edgeMs = edgeMs,
             progressPositionMs = progressPositionMs,
-            positionText = positionText,
-            positionDescription = positionDescription,
-            durationText = durationText,
-            durationDescription = durationDescription,
-            liveButtonVisible = liveButtonVisible,
+            timeText = timeText,
+            timeDescription = timeDescription,
+            timeActionable = timeActionable,
         )
         if (next == renderedLiveRewindState) {
             return
@@ -3083,32 +3046,28 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (next.progressPositionMs != null && previous?.progressPositionMs != next.progressPositionMs) {
             binding.playerControls.progressBar.setPosition(next.progressPositionMs)
         }
-        if (previous == null) {
-            binding.playerControls.position.visibility = View.VISIBLE
-            binding.playerControls.duration.visibility = View.VISIBLE
+        binding.playerControls.position.visibility = View.GONE
+        binding.playerControls.duration.visibility = View.GONE
+        binding.playerControls.liveTimeGroup.visibility = View.VISIBLE
+        if (previous?.timeText != next.timeText) {
+            binding.playerControls.liveTimeGroup.text = next.timeText
         }
-        if (previous?.positionText != next.positionText) {
-            binding.playerControls.position.text = next.positionText
+        if (previous?.timeDescription != next.timeDescription) {
+            binding.playerControls.liveTimeGroup.contentDescription = next.timeDescription
         }
-        if (previous?.positionDescription != next.positionDescription) {
-            binding.playerControls.position.contentDescription = next.positionDescription
-        }
-        if (previous?.durationText != next.durationText) {
-            binding.playerControls.duration.text = next.durationText
-        }
-        if (previous?.durationDescription != next.durationDescription) {
-            binding.playerControls.duration.contentDescription = next.durationDescription
-        }
-        if (previous == null) {
-            binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
-        }
-        if (previous?.liveButtonVisible != next.liveButtonVisible) {
-            binding.playerControls.liveButton.visibility =
-                if (next.liveButtonVisible) {
-                    View.VISIBLE
+        if (previous?.timeActionable != next.timeActionable) {
+            binding.playerControls.liveTimeGroup.setOnClickListener(
+                if (next.timeActionable) {
+                    View.OnClickListener {
+                        showController(force = true)
+                        goLive()
+                    }
                 } else {
-                    View.GONE
-                }
+                    null
+                },
+            )
+            binding.playerControls.liveTimeGroup.isClickable = next.timeActionable
+            binding.playerControls.liveTimeGroup.isFocusable = next.timeActionable
         }
     }
 
@@ -3117,16 +3076,21 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             cancelLiveTapSeek()
             renderedLiveRewindState = null
             setLiveRewindTimelineLayout(false)
-            schedulePortraitControlScale()
             binding.playerControls.progressBar.visibility = View.GONE
-            binding.playerControls.liveButton.visibility = View.GONE
             binding.playerControls.position.visibility = View.GONE
             binding.playerControls.duration.visibility = View.GONE
+            binding.playerControls.liveTimeGroup.visibility = View.GONE
+            binding.playerControls.liveTimeGroup.setOnClickListener(null)
+            binding.playerControls.liveTimeGroup.isClickable = false
+            binding.playerControls.liveTimeGroup.isFocusable = false
+            binding.playerControls.duration.setOnClickListener(null)
+            binding.playerControls.duration.isClickable = false
+            binding.playerControls.duration.isFocusable = false
             binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
+            refreshHudLayout()
             return
         }
         setLiveRewindTimelineLayout(true)
-        schedulePortraitControlScale()
         binding.playerControls.progressBar.visibility = View.VISIBLE
         binding.playerControls.progressBar.setPlayedColor(
             requireContext().getColor(R.color.channel_points_reward_default),
@@ -3134,29 +3098,34 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.playerControls.progressBar.setScrubberColor(
             requireContext().getColor(R.color.channel_points_reward_default),
         )
-        binding.playerControls.liveButton.setOnClickListener {
-            showController(force = true)
-            goLive()
-        }
         updateLiveRewindProgress()
+        refreshHudLayout()
     }
 
     private fun showLiveRewindPreview(positionMs: Long) {
         renderedLiveRewindState = null
         val edgeMs = currentLiveEdgeMs()
-        binding.playerControls.position.visibility = View.VISIBLE
-        binding.playerControls.position.text = formatBehindLive(positionMs, edgeMs)
-        binding.playerControls.position.contentDescription = getString(
+        val previewPositionMs = positionMs.coerceIn(0L, edgeMs)
+        val previewPositionTimeText = if (previewPositionMs >= edgeMs) {
+            getString(R.string.player_live)
+        } else {
+            DateUtils.formatElapsedTime(previewPositionMs / 1000L)
+        }
+        val durationText = DateUtils.formatElapsedTime(edgeMs / 1000L)
+        val timeText = "$previewPositionTimeText / $durationText"
+        binding.playerControls.position.visibility = View.GONE
+        binding.playerControls.duration.visibility = View.GONE
+        binding.playerControls.liveTimeGroup.visibility = View.VISIBLE
+        binding.playerControls.liveTimeGroup.text = timeText
+        binding.playerControls.liveTimeGroup.contentDescription = getString(
             R.string.player_position,
-            binding.playerControls.position.text,
+            timeText,
         )
-        binding.playerControls.duration.visibility = View.VISIBLE
-        binding.playerControls.duration.text = DateUtils.formatElapsedTime(positionMs.coerceIn(0L, edgeMs) / 1000L)
-        binding.playerControls.duration.contentDescription = getString(
-            R.string.player_position,
-            binding.playerControls.duration.text,
+        binding.playerControls.timelineContent.setLiveRewindPreview(
+            text = timeText,
+            fraction = if (edgeMs > 0L) previewPositionMs.toFloat() / edgeMs else 1f,
         )
-        binding.playerControls.progressBar.setPosition(positionMs.coerceIn(0L, edgeMs))
+        binding.playerControls.progressBar.setPosition(previewPositionMs)
     }
 
     private fun liveTapSeekZoneForEvent(event: MotionEvent): LiveTapSeekZone? {
@@ -3379,6 +3348,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     private fun hideLiveRewindPreview() {
         binding.playerControls.position.visibility = View.GONE
+        binding.playerControls.duration.visibility = View.GONE
+        binding.playerControls.liveTimeGroup.visibility = View.GONE
+        binding.playerControls.timelineContent.clearLiveRewindPreview()
     }
 
     private fun onLiveStreamWentOffline() {
@@ -3394,56 +3366,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun setLiveRewindTimelineLayout(enabled: Boolean) {
-        val bottom = binding.playerControls.bottomLayout
-        val bottomParams = bottom.layoutParams as? RelativeLayout.LayoutParams ?: return
-        val bottomControls = binding.playerControls.bottomControlLayout
-        val bottomControlsParams = bottomControls.layoutParams as? RelativeLayout.LayoutParams ?: return
-        val position = binding.playerControls.position
-        val positionParams = position.layoutParams as? RelativeLayout.LayoutParams ?: return
-        val duration = binding.playerControls.duration
-        val durationParams = duration.layoutParams as? RelativeLayout.LayoutParams ?: return
-        val progress = binding.playerControls.progressBar
-        val progressParams = progress.layoutParams as? LinearLayout.LayoutParams ?: return
-        val density = resources.displayMetrics.density
-        val timelineRowHeight = (48 * density).toInt()
-        val normalTimeLabelBottomMargin = (10 * density).toInt()
-        val normalProgressBottomMargin = (5 * density).toInt()
-        if (enabled) {
-            bottomParams.height = timelineRowHeight
-            progressParams.bottomMargin = 0
-            positionParams.height = timelineRowHeight
-            positionParams.bottomMargin = 0
-            durationParams.height = timelineRowHeight
-            durationParams.bottomMargin = 0
-            bottomParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            bottomParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
-            bottomControlsParams.removeRule(RelativeLayout.ABOVE)
-            bottomControlsParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            positionParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            positionParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
-            durationParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            durationParams.addRule(RelativeLayout.ABOVE, R.id.quickControlsBottomAnchor)
-        } else {
-            bottomParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
-            progressParams.bottomMargin = normalProgressBottomMargin
-            positionParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
-            positionParams.bottomMargin = normalTimeLabelBottomMargin
-            durationParams.height = ViewGroup.LayoutParams.WRAP_CONTENT
-            durationParams.bottomMargin = normalTimeLabelBottomMargin
-            bottomParams.removeRule(RelativeLayout.ABOVE)
-            bottomParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            bottomControlsParams.removeRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            bottomControlsParams.addRule(RelativeLayout.ABOVE, R.id.bottomLayout)
-            positionParams.removeRule(RelativeLayout.ABOVE)
-            positionParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-            durationParams.removeRule(RelativeLayout.ABOVE)
-            durationParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM)
-        }
-        bottom.layoutParams = bottomParams
-        bottomControls.layoutParams = bottomControlsParams
-        progress.layoutParams = progressParams
-        position.layoutParams = positionParams
-        duration.layoutParams = durationParams
+        binding.playerControls.root.setLiveRewindEnabled(enabled)
     }
 
     private fun onLiveStreamSessionChanged(newStreamId: String?, newCreatedAt: String?) {
@@ -3661,9 +3584,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 chatLayout.clearFocus()
                 initLayout()
                 refreshPlayerControls()
-                PlayerControlLayout.applyToPlayer(requireContext(), binding)
+                binding.playerControls.root.refreshAvailability()
                 hideTvSecondaryActions()
-                schedulePortraitControlScale()
+                refreshHudLayout()
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.dismiss()
         }
@@ -3707,7 +3630,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun onStop() {
         super.onStop()
         _binding?.let {
-            controllerVisibility.onScrubStop()
+            hudVisibility.onScrubStop()
             it.playerControls.root.removeCallbacks(controllerHideAction)
             hideController(force = true)
         }

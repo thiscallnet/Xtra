@@ -267,7 +267,11 @@ class MainActivity : AppCompatActivity() {
         }
         settingsResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                recreate()
+                if (result.data?.getBooleanExtra(com.github.andreyasadchy.xtra.ui.settings.SettingsActivity.EXTRA_HUD_CHANGED, false) == true) {
+                    reloadActivePlayerHud()
+                } else {
+                    recreate()
+                }
             }
         }
         loginResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -1313,6 +1317,13 @@ class MainActivity : AppCompatActivity() {
         startPlayer(fragment)
         if (openChat) binding.root.postDelayed({ (playerFragment as? PlayerFragment)?.showChat() }, 500L)
         if (audioOnly) requestAudioOnlyPlayback()
+    }
+
+    private fun reloadActivePlayerHud() {
+        when (val fragment = playerFragment) {
+            is Media3PlayerFragment -> fragment.reloadHudLayoutFromSettings()
+            is PlayerFragment -> fragment.reloadHudLayoutFromSettings()
+        }
     }
 
     private fun requestAudioOnlyPlayback() {

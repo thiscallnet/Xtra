@@ -44,7 +44,7 @@ object SettingsMigration {
         C.SETTINGS_CHAT_ENABLED,
         C.SETTINGS_BACKGROUND_PLAYBACK,
         C.SETTINGS_HTTP_PROXY_ENABLED,
-        C.SETTINGS_PLAYER_CONTROL_LAYOUT,
+        C.PLAYER_HUD_LAYOUT_V2,
         C.SETTINGS_PLAYER_SPEED_OPTIONS,
         C.SETTINGS_DEVELOPER_UNLOCKED,
         C.SETTINGS_DEVELOPER_ENABLED,
@@ -454,7 +454,6 @@ object SettingsMigration {
         // marker already says current; AndroidX ListPreference requires a
         // String and reads the raw SharedPreferences value directly.
         normalizeCaptionIntervalPreference(preferences)
-        normalizeQuickControlPositionPreference(preferences)
         if (!preferences.contains(C.CHAT_RECENT)) {
             // chat_history_preferences.xml enables recent history by default. Seed the
             // key here because this app does not initialize PreferenceManager defaults.
@@ -592,17 +591,6 @@ object SettingsMigration {
                 putString(C.UI_NAVIGATION_TAB_LIST, C.DEFAULT_NAVIGATION_TAB_LIST)
             }
 
-            val legacyControlsAllDisabled = legacyControlPreferencesAllDisabled(preferences)
-            val serializedControlLayout = migratedControlLayout(
-                existing = preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null),
-                legacyControlsAllDisabled = legacyControlsAllDisabled,
-                legacyLayout = controlLayout(preferences),
-            )
-            if (preferences.getString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, null) != serializedControlLayout) {
-                putString(C.SETTINGS_PLAYER_CONTROL_LAYOUT, serializedControlLayout)
-            }
-            syncLegacyControlVisibility(serializedControlLayout)
-
             // The old startup toggle was a second default-page mechanism. Fold its
             // intent into the navigation editor only when no edited tab layout exists.
             val oldStartupValue = preferences.getString(C.UI_START_ON_FOLLOWED, null)
@@ -681,14 +669,6 @@ object SettingsMigration {
                     C.PLAYER_LIVE_CAPTION_PARTIAL_INTERVAL_MS,
                     storedValue.toInt().toString(),
                 )
-            }
-        }
-    }
-
-    private fun normalizeQuickControlPositionPreference(preferences: SharedPreferences) {
-        if (preferences.getString(C.PLAYER_CONTROL_POSITION, null) == C.PLAYER_CONTROL_POSITION_MIDDLE) {
-            preferences.edit {
-                putString(C.PLAYER_CONTROL_POSITION, C.PLAYER_CONTROL_POSITION_BELOW)
             }
         }
     }
@@ -858,71 +838,4 @@ object SettingsMigration {
         }
     }
 
-    private val controlSources = PlayerControlLayout.controlDefinitions
-
-    internal fun controlGroup(quickEnabled: Boolean, menuEnabled: Boolean): String = when {
-        quickEnabled -> "quick"
-        menuEnabled -> "menu"
-        else -> "hidden"
-    }
-
-    internal fun migratedControlLayout(
-        existing: String?,
-        legacyControlsAllDisabled: Boolean,
-        legacyLayout: String,
-    ): String = when {
-        existing == null && legacyControlsAllDisabled -> defaultControlLayout()
-        existing == null -> legacyLayout
-        existing.isBlank() -> defaultControlLayout()
-        else -> existing.addMissingClipAction()
-    }
-
-    /** New controls must be added to saved layouts without changing existing choices. */
-    private fun String.addMissingClipAction(): String =
-        if (split(',').any { it.substringBefore(':') == "clip" }) this else "$this,clip:quick"
-
-    internal fun defaultControlLayout(): String = controlSources.joinToString(",") {
-        "${it.action}:${controlGroup(it.canQuick && it.quickDefault, it.menuDefault)}"
-    }
-
-    private fun controlLayout(preferences: SharedPreferences): String = controlSources.joinToString(",") { source ->
-        val quick = source.canQuick && (source.quickKey?.let {
-            preferences.getBoolean(it, source.quickDefault)
-        } ?: source.quickDefault)
-        val menu = source.menuKey?.let { preferences.getBoolean(it, source.menuDefault) } ?: false
-        "${source.action}:${controlGroup(quick, menu)}"
-    }
-
-    /**
-     * The first redesign migration could persist every old visibility key as false when
-     * there was no previous preference value. Treat that unusable all-hidden state as a
-     * migration artifact, while retaining deliberate partial customizations.
-     */
-    private fun legacyControlPreferencesAllDisabled(preferences: SharedPreferences): Boolean = controlSources.all { source ->
-        val quickDisabled = source.quickKey?.let { preferences.contains(it) && !preferences.getBoolean(it, false) } ?: true
-        val menuDisabled = source.menuKey?.let { preferences.contains(it) && !preferences.getBoolean(it, false) } ?: true
-        quickDisabled && menuDisabled
-    }
-
-    private fun SharedPreferences.Editor.syncLegacyControlVisibility(serializedLayout: String) {
-        val groups = serializedLayout.split(',').mapNotNull { item ->
-            PlayerControlLayout.parseControlPlacement(item)?.let { placement ->
-                placement.action to placement.group
-            }
-        }.toMap()
-        controlSources.forEach { source ->
-            val group = groups[source.action] ?: "hidden"
-            source.quickKey?.let { putBoolean(it, group == "quick") }
-            source.menuKey?.let { putBoolean(it, group == "menu") }
-        }
-        // The More menu always contains the control customizer, so removing every
-        // other menu action must not remove the only in-player route back to it.
-        putBoolean(C.PLAYER_MENU, true)
-    }
-
-    internal fun syncLegacyControlVisibility(preferences: SharedPreferences, serializedLayout: String) {
-        preferences.edit {
-            syncLegacyControlVisibility(serializedLayout)
-        }
-    }
 }

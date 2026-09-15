@@ -48,7 +48,6 @@ import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorDialogFragment
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipEditorRestorationState
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.PlayerControlLayout
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isTelevision
@@ -990,7 +989,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                 subtitles.visibility = View.GONE
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setSubtitles(textTracks)
-            PlayerControlLayout.applyToPlayer(requireContext(), binding)
+            binding.playerControls.root.refreshAvailability()
             configureLiveCaptionsButton()
         }
     }
