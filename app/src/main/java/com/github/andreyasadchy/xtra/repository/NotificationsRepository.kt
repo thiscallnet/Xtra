@@ -240,6 +240,34 @@ class NotificationsRepository(
         }
     }
 
+    suspend fun loadFollowedChannelIds(
+        networkLibrary: String?,
+        gqlHeaders: Map<String, String>,
+        helixHeaders: Map<String, String>,
+        userId: String?,
+    ): Set<String> = withContext(Dispatchers.IO) {
+        if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            return@withContext loadGraphQlFollowedChannels(networkLibrary, gqlHeaders).followedIds
+        }
+        if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !userId.isNullOrBlank()) {
+            val followedIds = mutableSetOf<String>()
+            var offset: String? = null
+            do {
+                val response = helixRepository.getUserFollows(
+                    networkLibrary = networkLibrary,
+                    headers = helixHeaders,
+                    userId = userId,
+                    limit = 100,
+                    offset = offset,
+                )
+                followedIds.addAll(response.data.mapNotNull { it.id })
+                offset = response.pagination?.cursor
+            } while (!offset.isNullOrBlank())
+            return@withContext followedIds
+        }
+        throw MissingAuthenticationException("channels/followed watch streak protection")
+    }
+
     private suspend fun loadGraphQlFollowedChannels(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,

@@ -12,6 +12,9 @@ data class TwitchNotification(
     val isUnread: Boolean,
     val canDismiss: Boolean,
     val action: TwitchNotificationAction?,
+    val category: String? = null,
+    val destinationType: String? = null,
+    val actionUrl: String? = null,
 )
 
 data class TwitchNotificationPage(

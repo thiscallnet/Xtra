@@ -108,6 +108,8 @@ import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationNotifier
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationService
+import com.github.andreyasadchy.xtra.ui.main.WatchStreakReminderNotifier
+import com.github.andreyasadchy.xtra.repository.WatchStreakReminderStateStore
 import com.github.andreyasadchy.xtra.ui.player.PhoneChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.player.persistPhoneChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.player.phoneChatOverlayConfig
@@ -669,6 +671,12 @@ class SettingsActivity : AppCompatActivity() {
         private var restoreResultLauncher: ActivityResultLauncher<Intent>? = null
         private var backgroundPhotoLauncher: ActivityResultLauncher<Array<String>>? = null
         private lateinit var notificationPermissionLauncher: ActivityResultLauncher<String>
+        private var pendingNotificationPermission: NotificationPermissionRequester? = null
+
+        private enum class NotificationPermissionRequester {
+            LIVE,
+            WATCH_STREAK,
+        }
 
         override fun onCreate(savedInstanceState: Bundle?) {
             super.onCreate(savedInstanceState)
@@ -701,15 +709,27 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
             notificationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-                if (granted) {
-                    findPreference<SwitchPreferenceCompat>("live_notifications_enabled")?.let {
-                        it.isChecked = true
-                        toggleLiveNotifications(true)
+                when (pendingNotificationPermission) {
+                    null -> Unit
+                    NotificationPermissionRequester.LIVE -> if (granted) {
+                        findPreference<SwitchPreferenceCompat>("live_notifications_enabled")?.let {
+                            it.isChecked = true
+                            toggleLiveNotifications(true)
+                        }
+                    } else {
+                        findPreference<SwitchPreferenceCompat>("live_notifications_enabled")?.isChecked = false
+                        viewModel.reportLiveNotificationPermissionDenied()
                     }
-                } else {
-                    findPreference<SwitchPreferenceCompat>("live_notifications_enabled")?.isChecked = false
-                    viewModel.reportLiveNotificationPermissionDenied()
+                    NotificationPermissionRequester.WATCH_STREAK -> {
+                        findPreference<SwitchPreferenceCompat>(C.WATCH_STREAK_PROTECTION_ENABLED)?.isChecked = granted
+                        requireContext().prefs().edit { putBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, granted) }
+                        if (!granted) {
+                            WatchStreakReminderStateStore(requireContext()).clear()
+                        }
+                        LiveNotificationScheduler.refresh(requireContext())
+                    }
                 }
+                pendingNotificationPermission = null
                 updateLiveNotificationsSummary()
             }
             backgroundPhotoLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -969,6 +989,25 @@ class SettingsActivity : AppCompatActivity() {
             updateLiveNotificationsBatteryOptimization()
             updateLiveNotificationServiceNotification()
             updateLiveNotificationTroubleshooting()
+            updateWatchStreakProtectionSummary()
+        }
+
+        private fun updateWatchStreakProtectionSummary() {
+            val preference = findPreference<SwitchPreferenceCompat>(C.WATCH_STREAK_PROTECTION_ENABLED) ?: return
+            val permissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ActivityCompat.checkSelfPermission(requireActivity(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            preference.summary = when {
+                !permissionGranted -> getString(R.string.watch_streak_protection_permission_required)
+                !LiveNotificationScheduler.canPostWatchStreakNotifications(requireContext()) -> getString(R.string.watch_streak_protection_blocked)
+                else -> getString(R.string.watch_streak_protection_summary)
+            }
+            findPreference<EditTextPreference>(C.WATCH_STREAK_MINIMUM)?.let { threshold ->
+                val value = threshold.text?.toIntOrNull()?.takeIf { it >= 1 }
+                    ?: runCatching { requireContext().prefs().getInt(C.WATCH_STREAK_MINIMUM, 1) }
+                        .getOrDefault(1)
+                        .coerceAtLeast(1)
+                threshold.summary = getString(R.string.watch_streak_minimum_summary, value)
+            }
         }
 
         private fun updateLiveNotificationTroubleshooting() {
@@ -1196,6 +1235,7 @@ class SettingsActivity : AppCompatActivity() {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                         ActivityCompat.checkSelfPermission(requireActivity(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
                     ) {
+                        pendingNotificationPermission = NotificationPermissionRequester.LIVE
                         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         false
                     } else if (!LiveNotificationScheduler.canPostNotifications(requireContext())) {
@@ -1696,6 +1736,43 @@ class SettingsActivity : AppCompatActivity() {
                     }
                 }
             }
+            findPreference<SwitchPreferenceCompat>(C.WATCH_STREAK_PROTECTION_ENABLED)?.setOnPreferenceChangeListener { _, newValue ->
+                val enabled = newValue as Boolean
+                if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    ActivityCompat.checkSelfPermission(requireActivity(), Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    pendingNotificationPermission = NotificationPermissionRequester.WATCH_STREAK
+                    notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    false
+                } else if (enabled && !LiveNotificationScheduler.canPostWatchStreakNotifications(requireContext())) {
+                    false
+                } else {
+                    requireContext().prefs().edit { putBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, enabled) }
+                    if (!enabled) {
+                        WatchStreakReminderStateStore(requireContext()).clear()
+                        WatchStreakReminderNotifier(requireContext()).cancelWatchStreakNotifications()
+                    }
+                    LiveNotificationScheduler.refresh(requireContext())
+                    updateWatchStreakProtectionSummary()
+                    true
+                }
+            }
+            findPreference<EditTextPreference>(C.WATCH_STREAK_MINIMUM)?.apply {
+                val initial = text?.toIntOrNull()?.takeIf { it >= 1 } ?: 1
+                if (text != initial.toString()) text = initial.toString()
+                setOnBindEditTextListener {
+                    it.inputType = InputType.TYPE_CLASS_NUMBER
+                    it.selectAll()
+                }
+                setOnPreferenceChangeListener { _, value ->
+                    val valid = value.toString().trim().toIntOrNull()?.let { it >= 1 } == true
+                    if (valid) {
+                        updateWatchStreakProtectionSummary()
+                        (requireActivity() as? SettingsActivity)?.setResult()
+                    }
+                    valid
+                }
+            }
             findPreference<SwitchPreferenceCompat>(C.CHAT_SHOW_BADGES)?.onPreferenceChangeListener = chatAppearanceChangeListener
             findPreference<SeekBarPreference>(C.CHAT_WIDTH_PERCENT)?.apply {
                 if (SettingsMigration.synchronizeLandscapeChatWidth(requireContext(), value)) {
@@ -1871,6 +1948,13 @@ class SettingsActivity : AppCompatActivity() {
             if (preference?.isChecked == true && !LiveNotificationScheduler.canPostNotifications(requireContext())) {
                 preference.isChecked = false
                 toggleLiveNotifications(false)
+            }
+            val watchStreakPreference = findPreference<SwitchPreferenceCompat>(C.WATCH_STREAK_PROTECTION_ENABLED)
+            if (watchStreakPreference?.isChecked == true && !LiveNotificationScheduler.canPostWatchStreakNotifications(requireContext())) {
+                watchStreakPreference.isChecked = false
+                requireContext().prefs().edit { putBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false) }
+                WatchStreakReminderStateStore(requireContext()).clear()
+                LiveNotificationScheduler.refresh(requireContext())
             }
             updateLiveNotificationsSummary()
         }

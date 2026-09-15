@@ -45,6 +45,18 @@ ARRAY_REFERENCE = re.compile(r"^@string/([A-Za-z0-9_]+)$")
 # Android falls back to values/ for these keys; keeping the allowlist explicit
 # prevents this policy from hiding missing translations elsewhere in the app.
 INTENTIONAL_FALLBACK_RESOURCES = {
+    # Watch streak protection is shipped with the default English wording until
+    # the new notification settings are translated.
+    "watch_streak_protection_category",
+    "watch_streak_protection",
+    "watch_streak_protection_summary",
+    "watch_streak_protection_permission_required",
+    "watch_streak_protection_blocked",
+    "watch_streak_minimum_title",
+    "watch_streak_minimum_summary",
+    "watch_streak_notification_title",
+    "notification_watch_streak_channel_title",
+    "notification_watch_streak_channel_description",
     # Emoji picker labels currently use the default English wording until
     # the picker is translated consistently across locales.
     "emoji",

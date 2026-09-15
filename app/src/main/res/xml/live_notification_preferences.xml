@@ -13,6 +13,28 @@
         app:iconSpaceReserved="false"
         app:singleLineTitle="false" />
 
+    <PreferenceCategory
+        android:title="@string/watch_streak_protection_category"
+        app:iconSpaceReserved="false" />
+
+    <SwitchPreferenceCompat
+        android:defaultValue="false"
+        android:key="watch_streak_protection_enabled"
+        android:title="@string/watch_streak_protection"
+        android:summary="@string/watch_streak_protection_summary"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
+    <EditTextPreference
+        android:defaultValue="1"
+        android:dependency="watch_streak_protection_enabled"
+        android:dialogTitle="@string/watch_streak_minimum_title"
+        android:key="watch_streak_minimum"
+        android:title="@string/watch_streak_minimum_title"
+        android:summary="@string/watch_streak_minimum_summary"
+        app:iconSpaceReserved="false"
+        app:singleLineTitle="false" />
+
     <Preference
         android:key="live_notifications_troubleshooting"
         android:title="@string/live_notifications_troubleshooting_title"

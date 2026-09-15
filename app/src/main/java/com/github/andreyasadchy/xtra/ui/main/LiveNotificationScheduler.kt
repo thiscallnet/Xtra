@@ -49,7 +49,7 @@ object LiveNotificationScheduler {
 
     fun refresh(context: Context) {
         clearLegacyConnectionNotification(context)
-        if (context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && canPostNotifications(context)) {
+        if (hasEnabledFeature(context) && canPostEnabledFeature(context)) {
             applyMode(context, baselineOnly = false)
         } else {
             disable(context)
@@ -64,47 +64,56 @@ object LiveNotificationScheduler {
 
     private fun applyModeLocked(context: Context, baselineOnly: Boolean): LiveNotificationSchedulerResult {
         return try {
-            if (!context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)) {
+            if (!hasEnabledFeature(context)) {
                 bestEffortDisableLocked(context)
                 return LiveNotificationSchedulerResult.NotEnabled
             }
-            val initialBlockReason = LiveNotificationNotifier(context).notificationBlockReason()
+            val initialBlockReason = enabledFeatureBlockReason(context)
             if (initialBlockReason != null) {
                 bestEffortDisableLocked(context)
                 return LiveNotificationSchedulerResult.Blocked(initialBlockReason)
             }
             migrateMode(context)
             schedulePeriodicFallback(context)
-            scheduleWatchdogAlarm(context)
-            when (mode(context)) {
-                C.LIVE_NOTIFICATIONS_MODE_FAST -> {
-                    LiveNotificationService.stop(context)
-                    if (!LiveNotificationService.isRunning()) {
-                        LiveNotificationRealtimeEngine.start(context, LiveNotificationProcessOwner.FAST)
+            val liveMonitoringAllowed = context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) &&
+                canPostNotifications(context)
+            if (liveMonitoringAllowed) {
+                scheduleWatchdogAlarm(context)
+                when (mode(context)) {
+                    C.LIVE_NOTIFICATIONS_MODE_FAST -> {
+                        LiveNotificationService.stop(context)
+                        if (!LiveNotificationService.isRunning()) {
+                            LiveNotificationRealtimeEngine.start(context, LiveNotificationProcessOwner.FAST)
+                        }
+                        cancelImmediateWork(context)
                     }
-                    cancelImmediateWork(context)
-                }
-                C.LIVE_NOTIFICATIONS_MODE_PERSISTENT -> {
-                    LiveNotificationRealtimeEngine.stop()
-                    if (!LiveNotificationService.start(context)) {
-                        // A background-start restriction should not leave the user
-                        // with no fast path. Keep the selected mode and use the
-                        // process runner until the next foreground opportunity.
-                        LiveNotificationRealtimeEngine.start(
-                            context,
-                            LiveNotificationProcessOwner.PERSISTENT_FALLBACK,
-                        )
+                    C.LIVE_NOTIFICATIONS_MODE_PERSISTENT -> {
+                        LiveNotificationRealtimeEngine.stop()
+                        if (!LiveNotificationService.start(context)) {
+                            // A background-start restriction should not leave the user
+                            // with no fast path. Keep the selected mode and use the
+                            // process runner until the next foreground opportunity.
+                            LiveNotificationRealtimeEngine.start(
+                                context,
+                                LiveNotificationProcessOwner.PERSISTENT_FALLBACK,
+                            )
+                        }
+                        cancelImmediateWork(context)
                     }
-                    cancelImmediateWork(context)
+                    else -> {
+                        LiveNotificationRealtimeEngine.stop()
+                        LiveNotificationService.stop(context)
+                        enqueueImmediateWork(context, baselineOnly)
+                    }
                 }
-                else -> {
-                    LiveNotificationRealtimeEngine.stop()
-                    LiveNotificationService.stop(context)
-                    enqueueImmediateWork(context, baselineOnly)
-                }
+            } else {
+                cancelWatchdogAlarm(context)
+                LiveNotificationRealtimeEngine.stop()
+                LiveNotificationService.stop(context)
+                enqueueImmediateWork(context, baselineOnly)
             }
             clearLegacyConnectionNotification(context)
-            val finalBlockReason = LiveNotificationNotifier(context).notificationBlockReason()
+            val finalBlockReason = enabledFeatureBlockReason(context)
             if (finalBlockReason != null) {
                 bestEffortDisableLocked(context)
                 return LiveNotificationSchedulerResult.Blocked(finalBlockReason)
@@ -140,9 +149,7 @@ object LiveNotificationScheduler {
     /** Restores process-independent fallback scheduling after a reboot or app update. */
     fun restoreFallbacks(context: Context) {
         synchronized(transitionLock) {
-            if (!context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) ||
-                !canPostNotifications(context)
-            ) {
+            if (!hasEnabledFeature(context) || !canPostEnabledFeature(context)) {
                 return
             }
             migrateMode(context)
@@ -185,6 +192,9 @@ object LiveNotificationScheduler {
 
     fun canPostNotifications(context: Context): Boolean = LiveNotificationNotifier(context).canPostNotifications()
 
+    fun canPostWatchStreakNotifications(context: Context): Boolean =
+        WatchStreakReminderNotifier(context).canPostNotifications()
+
     internal fun hasHealthyRealtimeOwner(context: Context): Boolean = synchronized(transitionLock) {
         if (!context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) ||
             mode(context) == C.LIVE_NOTIFICATIONS_MODE_BATTERY
@@ -199,9 +209,7 @@ object LiveNotificationScheduler {
     /** Wakes the current realtime owner, or uses the existing WorkManager fallback when needed. */
     fun requestImmediateReconciliation(context: Context, reason: String): Boolean =
         synchronized(transitionLock) {
-            if (!context.prefs().getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) ||
-                !canPostNotifications(context)
-            ) {
+            if (!hasEnabledFeature(context) || !canPostEnabledFeature(context)) {
                 return false
             }
             val mode = mode(context)
@@ -300,7 +308,30 @@ object LiveNotificationScheduler {
         LiveNotificationService.stop(context)
         context.prefs().edit { remove(C.LIVE_NOTIFICATION_BASELINE_INITIALIZED) }
         LiveNotificationNotifier(context).cancelLiveNotifications()
+        WatchStreakReminderNotifier(context).cancelWatchStreakNotifications()
         clearLegacyConnectionNotification(context)
+    }
+
+    private fun hasEnabledFeature(context: Context): Boolean = context.prefs().let {
+        it.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) ||
+            it.getBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false)
+    }
+
+    private fun canPostEnabledFeature(context: Context): Boolean =
+        enabledFeatureBlockReason(context) == null
+
+    private fun enabledFeatureBlockReason(context: Context): NotificationBlockReason? {
+        val preferences = context.prefs()
+        val liveEnabled = preferences.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false)
+        val watchStreakEnabled = preferences.getBoolean(C.WATCH_STREAK_PROTECTION_ENABLED, false)
+        val liveReason = if (liveEnabled) LiveNotificationNotifier(context).notificationBlockReason() else null
+        val watchStreakReason = if (watchStreakEnabled) WatchStreakReminderNotifier(context).notificationBlockReason() else null
+        return when {
+            liveEnabled && watchStreakEnabled -> if (liveReason == null || watchStreakReason == null) null else liveReason
+            liveEnabled -> liveReason
+            watchStreakEnabled -> watchStreakReason
+            else -> null
+        }
     }
 
     private fun bestEffortDisableLocked(context: Context) {
