@@ -19,7 +19,6 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsMediaSource
@@ -39,6 +38,7 @@ import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
 import com.github.andreyasadchy.xtra.ui.player.TwitchAdController
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
@@ -289,14 +289,9 @@ class MultiviewPlaybackCoordinator(
     private fun createSlot(identity: String, stream: Stream): MultiviewPlayerSlot {
         val player = ExoPlayer.Builder(applicationContext).apply {
             setLoadControl(
-                DefaultLoadControl.Builder().apply {
-                    setBufferDurationsMs(
-                        15000,
-                        50000,
-                        2000,
-                        2000,
-                    )
-                }.build()
+                LivePlaybackPolicies.forLowLatency(
+                    applicationContext.prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                ).buffers.buildLoadControl()
             )
             setAudioAttributes(
                 AudioAttributes.DEFAULT,
@@ -452,11 +447,12 @@ class MultiviewPlaybackCoordinator(
                     .setLiveConfiguration(
                         MediaItem.LiveConfiguration.Builder().apply {
                             setTargetOffsetMs(
-                                if (applicationContext.prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY)) {
-                                    C.LOW_LATENCY_TARGET_OFFSET_MS
-                                } else {
-                                    C.NORMAL_LATENCY_TARGET_OFFSET_MS
-                                }
+                                LivePlaybackPolicies.forLowLatency(
+                                    applicationContext.prefs().getBoolean(
+                                        C.PLAYER_LOW_LATENCY,
+                                        C.DEFAULT_PLAYER_LOW_LATENCY,
+                                    ),
+                                ).targetOffsetMs,
                             )
                         }.build()
                     )
@@ -465,10 +461,12 @@ class MultiviewPlaybackCoordinator(
                 val source = HlsMediaSource.Factory(createDataSourceFactory(slot))
                     .setPlaylistParserFactory(
                         TwitchHlsPlaylistParserFactory(
-                            lowLatencyEnabled = applicationContext.prefs().getBoolean(
-                                C.PLAYER_LOW_LATENCY,
-                                C.DEFAULT_PLAYER_LOW_LATENCY,
-                            ),
+                            lowLatencyEnabled = LivePlaybackPolicies.forLowLatency(
+                                applicationContext.prefs().getBoolean(
+                                    C.PLAYER_LOW_LATENCY,
+                                    C.DEFAULT_PLAYER_LOW_LATENCY,
+                                ),
+                            ).lowLatency,
                         ),
                     )
                     .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(6))

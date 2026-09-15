@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfiguration
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MEDIA_PLAYLIST_REGEX
@@ -126,8 +127,7 @@ class StreamHlsMediaSourceFactory(
         .setLiveConfiguration(
             MediaItem.LiveConfiguration.Builder()
                 .setTargetOffsetMs(
-                    if (configuration.lowLatency) C.LOW_LATENCY_TARGET_OFFSET_MS
-                    else C.NORMAL_LATENCY_TARGET_OFFSET_MS
+                    LivePlaybackPolicies.forLowLatency(configuration.lowLatency).targetOffsetMs,
                 )
                 .build()
         )

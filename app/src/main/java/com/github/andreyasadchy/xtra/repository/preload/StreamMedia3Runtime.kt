@@ -8,7 +8,6 @@ import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.PlayerId
 import androidx.media3.exoplayer.source.MediaSource
@@ -23,6 +22,7 @@ import com.github.andreyasadchy.xtra.ui.player.StreamHlsMediaSourceFactory
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import java.security.MessageDigest
@@ -342,12 +342,10 @@ class StreamMedia3Runtime(
         val generation = ensureGeneration()
         return ExoPlayer.Builder(playerContext, generation.hlsFactory).apply {
             setLoadControl(
-                DefaultLoadControl.Builder()
-                    .setBufferDurationsMs(1_500, 6_000, 250, 500)
-                    .setTargetBufferBytes(4 * 1024 * 1024)
-                    .setPrioritizeTimeOverSizeThresholds(true)
-                    .setBackBuffer(0, false)
-                    .build(),
+                LivePlaybackPolicies.LOW_LATENCY.buffers.buildLoadControl {
+                    setTargetBufferBytes(4 * 1024 * 1024)
+                    setBackBuffer(0, false)
+                },
             )
             setAudioAttributes(AudioAttributes.DEFAULT, false)
             setHandleAudioBecomingNoisy(false)
@@ -410,10 +408,11 @@ class StreamMedia3Runtime(
             }
         }
         currentGeneration = null
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15_000, 50_000, 2_000, 2_000)
-            .setPlayerTargetBufferBytes(PlayerId.PRELOAD.name, PRELOAD_TARGET_BYTES)
-            .build()
+        val loadControl = LivePlaybackPolicies.forLowLatency(configuration.lowLatency)
+            .buffers
+            .buildLoadControl {
+                setPlayerTargetBufferBytes(PlayerId.PRELOAD.name, PRELOAD_TARGET_BYTES)
+            }
         val statusControl = TargetPreloadStatusControl<Int, DefaultPreloadManager.PreloadStatus> { rank ->
             when (rank) {
                 0 -> DefaultPreloadManager.PreloadStatus.specifiedRangeLoaded(SAMPLE_PRELOAD_DURATION_MS)

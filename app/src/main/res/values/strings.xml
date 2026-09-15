@@ -259,8 +259,8 @@
     <string name="settings_player_menu_actions">Stream actions</string>
     <string name="settings_player_menu_chat">Chat &amp; tools</string>
     <string name="settings_player_quality">Quality &amp; latency</string>
-    <string name="settings_low_latency">Low-latency live playback</string>
-    <string name="settings_low_latency_summary">Reduce the delay to the broadcaster. May buffer more often on unstable connections.</string>
+    <string name="settings_low_latency">Low latency</string>
+    <string name="settings_low_latency_summary">Stay closer to live with a smaller buffer. Restart live playback after changing it.</string>
     <string name="settings_live_rewind">Live stream rewind</string>
     <string name="settings_live_rewind_summary">Rewind live streams using their recording</string>
     <string name="player_live" translatable="false">LIVE</string>
