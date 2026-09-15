@@ -206,9 +206,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val progressPositionMs: Long?,
         val positionText: String,
         val positionDescription: String,
-        val durationText: String,
-        val durationDescription: String,
+        val positionVisible: Boolean,
         val liveButtonVisible: Boolean,
+        val liveButtonActionable: Boolean,
+        val liveButtonText: String,
+        val liveButtonContentDescription: String,
     )
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
@@ -1238,6 +1240,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                     // a category change is never sent to the
                                     // Media3 recorder source.
                                     updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
+                                    if (isLiveRewindEnabled() &&
+                                        videoType == BasePlaybackService.STREAM &&
+                                        liveRewindStreamCreatedAt.isNullOrBlank() &&
+                                        !stream.createdAt.isNullOrBlank()
+                                    ) {
+                                        // The player can start before stream metadata is
+                                        // loaded. Start the first recording lookup as soon as the
+                                        // stream's creation time becomes available.
+                                        prepareLiveRewind(stream.id, stream.createdAt)
+                                        return@collectLatest
+                                    }
                                     if (isLiveRewindEnabled() &&
                                         videoType == BasePlaybackService.STREAM &&
                                         hasLiveStreamSessionChanged(
@@ -2944,6 +2957,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             renderedLiveRewindState = null
             binding.playerControls.progressBar.visibility = View.GONE
             binding.playerControls.liveButton.visibility = View.GONE
+            binding.playerControls.liveButton.setOnClickListener(null)
+            binding.playerControls.liveButton.isClickable = false
+            binding.playerControls.liveButton.isFocusable = false
             return
         }
         val currentStream = viewModel.stream.value
@@ -2992,25 +3008,36 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             scrubPositionMs = liveRewindScrubPositionMs,
         )
         val isRewound = livePlaybackMode is LivePlaybackMode.Rewound
-        val positionText = DateUtils.formatElapsedTime(0)
+        val positionText = formatBehindLive(displayedPositionMs, edgeMs)
         val positionDescription = getString(
             R.string.player_position,
             positionText,
         )
-        val durationText = DateUtils.formatElapsedTime(displayedPositionMs / 1000L)
-        val durationDescription = getString(
-            if (isRewound) R.string.player_position else R.string.player_duration,
-            durationText,
-        )
-        val liveButtonVisible = isRewound && !liveRewindStreamOffline
+        val positionVisible = edgeMs - displayedPositionMs > LIVE_EDGE_THRESHOLD_MS
+        val liveButtonVisible = true
+        val liveButtonActionable = isRewound && !liveRewindStreamOffline
+        val liveButtonText = if (liveRewindStreamOffline) {
+            getString(R.string.player_live_ended)
+        } else {
+            getString(R.string.player_live_status)
+        }
+        val liveButtonContentDescription = if (liveButtonActionable) {
+            getString(R.string.player_return_to_live)
+        } else if (liveRewindStreamOffline) {
+            getString(R.string.player_live_ended)
+        } else {
+            getString(R.string.player_live)
+        }
         val next = LiveRewindRenderState(
             edgeMs = edgeMs,
             progressPositionMs = progressPositionMs,
             positionText = positionText,
             positionDescription = positionDescription,
-            durationText = durationText,
-            durationDescription = durationDescription,
+            positionVisible = positionVisible,
             liveButtonVisible = liveButtonVisible,
+            liveButtonActionable = liveButtonActionable,
+            liveButtonText = liveButtonText,
+            liveButtonContentDescription = liveButtonContentDescription,
         )
         if (next == renderedLiveRewindState) {
             return
@@ -3023,9 +3050,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (next.progressPositionMs != null && previous?.progressPositionMs != next.progressPositionMs) {
             binding.playerControls.progressBar.setPosition(next.progressPositionMs)
         }
-        if (previous == null) {
-            binding.playerControls.position.visibility = View.VISIBLE
-            binding.playerControls.duration.visibility = View.VISIBLE
+        if (previous?.positionVisible != next.positionVisible) {
+            binding.playerControls.position.visibility =
+                if (next.positionVisible) View.VISIBLE else View.GONE
         }
         if (previous?.positionText != next.positionText) {
             binding.playerControls.position.text = next.positionText
@@ -3033,13 +3060,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (previous?.positionDescription != next.positionDescription) {
             binding.playerControls.position.contentDescription = next.positionDescription
         }
-        if (previous?.durationText != next.durationText) {
-            binding.playerControls.duration.text = next.durationText
-        }
-        if (previous?.durationDescription != next.durationDescription) {
-            binding.playerControls.duration.contentDescription = next.durationDescription
-        }
         if (previous == null) {
+            binding.playerControls.duration.visibility = View.GONE
             binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
         }
         if (previous?.liveButtonVisible != next.liveButtonVisible) {
@@ -3050,6 +3072,26 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     View.GONE
                 }
         }
+        if (previous?.liveButtonText != next.liveButtonText) {
+            binding.playerControls.liveButton.text = next.liveButtonText
+        }
+        if (previous?.liveButtonContentDescription != next.liveButtonContentDescription) {
+            binding.playerControls.liveButton.contentDescription = next.liveButtonContentDescription
+        }
+        if (previous?.liveButtonActionable != next.liveButtonActionable) {
+            binding.playerControls.liveButton.setOnClickListener(
+                if (next.liveButtonActionable) {
+                    View.OnClickListener {
+                        showController(force = true)
+                        goLive()
+                    }
+                } else {
+                    null
+                },
+            )
+            binding.playerControls.liveButton.isClickable = next.liveButtonActionable
+            binding.playerControls.liveButton.isFocusable = next.liveButtonActionable
+        }
     }
 
     private fun updateLiveRewindUi() {
@@ -3059,6 +3101,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             setLiveRewindTimelineLayout(false)
             binding.playerControls.progressBar.visibility = View.GONE
             binding.playerControls.liveButton.visibility = View.GONE
+            binding.playerControls.liveButton.setOnClickListener(null)
+            binding.playerControls.liveButton.isClickable = false
+            binding.playerControls.liveButton.isFocusable = false
             binding.playerControls.position.visibility = View.GONE
             binding.playerControls.duration.visibility = View.GONE
             binding.playerControls.duration.setCompoundDrawablesRelativeWithIntrinsicBounds(null, null, null, null)
@@ -3073,10 +3118,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.playerControls.progressBar.setScrubberColor(
             requireContext().getColor(R.color.channel_points_reward_default),
         )
-        binding.playerControls.liveButton.setOnClickListener {
-            showController(force = true)
-            goLive()
-        }
         updateLiveRewindProgress()
         refreshHudLayout()
     }
@@ -3084,19 +3125,20 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private fun showLiveRewindPreview(positionMs: Long) {
         renderedLiveRewindState = null
         val edgeMs = currentLiveEdgeMs()
-        binding.playerControls.position.visibility = View.VISIBLE
-        binding.playerControls.position.text = formatBehindLive(positionMs, edgeMs)
+        val previewPositionMs = positionMs.coerceIn(0L, edgeMs)
+        binding.playerControls.position.visibility =
+            if (edgeMs - previewPositionMs > LIVE_EDGE_THRESHOLD_MS) View.VISIBLE else View.GONE
+        binding.playerControls.position.text = formatBehindLive(previewPositionMs, edgeMs)
         binding.playerControls.position.contentDescription = getString(
             R.string.player_position,
             binding.playerControls.position.text,
         )
-        binding.playerControls.duration.visibility = View.VISIBLE
-        binding.playerControls.duration.text = DateUtils.formatElapsedTime(positionMs.coerceIn(0L, edgeMs) / 1000L)
-        binding.playerControls.duration.contentDescription = getString(
-            R.string.player_position,
-            binding.playerControls.duration.text,
+        binding.playerControls.duration.visibility = View.GONE
+        binding.playerControls.timelineContent.setLiveRewindPreview(
+            text = "${DateUtils.formatElapsedTime(previewPositionMs / 1000L)} / ${DateUtils.formatElapsedTime(edgeMs / 1000L)}",
+            fraction = if (edgeMs > 0L) previewPositionMs.toFloat() / edgeMs else 1f,
         )
-        binding.playerControls.progressBar.setPosition(positionMs.coerceIn(0L, edgeMs))
+        binding.playerControls.progressBar.setPosition(previewPositionMs)
     }
 
     private fun liveTapSeekZoneForEvent(event: MotionEvent): LiveTapSeekZone? {
@@ -3319,6 +3361,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     private fun hideLiveRewindPreview() {
         binding.playerControls.position.visibility = View.GONE
+        binding.playerControls.duration.visibility = View.GONE
+        binding.playerControls.timelineContent.clearLiveRewindPreview()
     }
 
     private fun onLiveStreamWentOffline() {

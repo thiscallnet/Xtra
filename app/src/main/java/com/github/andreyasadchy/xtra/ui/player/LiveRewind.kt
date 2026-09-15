@@ -469,6 +469,6 @@ fun formatBehindLive(targetMs: Long, edgeMs: Long): String {
     return if (behindMs <= LIVE_EDGE_THRESHOLD_MS) {
         "LIVE"
     } else {
-        "-${android.text.format.DateUtils.formatElapsedTime(behindMs / 1000L)}"
+        "−${android.text.format.DateUtils.formatElapsedTime(behindMs / 1000L)}"
     }
 }
