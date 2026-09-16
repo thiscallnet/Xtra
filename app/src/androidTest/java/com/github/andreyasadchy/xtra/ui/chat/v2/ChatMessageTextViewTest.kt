@@ -418,6 +418,49 @@ class ChatMessageTextViewTest {
     }
 
     @Test
+    fun readyEmoteRecoversAfterItsDrawableIsEvicted() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val attempts = AtomicInteger()
+        val key = ChatAssetKey("evicted-emote")
+        val repository = ChatAssetRepository(scope, ChatAssetLoader {
+            if (attempts.incrementAndGet() == 1) {
+                ChatImageHandle { null }
+            } else {
+                ChatImageHandle { SolidDrawable(Color.GREEN) }
+            }
+        })
+        val attached = attachView(repository)
+        try {
+            val spec = ChatAssetSpec(key, 16, 16, 24)
+            runOnMain { attached.view.bind(row(spec, animated = false)) }
+            awaitSettled(repository, listOf(key))
+
+            // The first READY handle cannot create a drawable, matching a decoded image that
+            // was evicted from Coil's cache before the TextView drew it. Drawing the span must
+            // trigger a reload rather than leave the emote permanently represented by a space.
+            runOnMain {
+                val spanned = attached.view.text as Spanned
+                val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+                draw(span, spanned, Paint.FontMetricsInt())
+            }
+            awaitSettled(repository, listOf(key))
+            awaitPreDraw(attached.view)
+
+            val bitmap = runOnMainResult {
+                val spanned = attached.view.text as Spanned
+                val span = spanned.getSpans(0, spanned.length, ReplacementSpan::class.java).single()
+                draw(span, spanned, Paint.FontMetricsInt())
+            }
+            assertTrue(containsColor(bitmap, Color.GREEN))
+            assertEquals(2, attempts.get())
+        } finally {
+            attached.close()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun sameIdRebindStagesComposedOverlayUntilTheOverlayIsReady() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

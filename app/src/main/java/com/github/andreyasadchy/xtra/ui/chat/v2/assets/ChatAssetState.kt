@@ -17,9 +17,9 @@ sealed interface ChatAssetState {
 
 /**
  * Lightweight reference to an image owned by the image loader. Shareable implementations must
- * not retain the decoded image themselves. A drawable is created per consumer where the image
- * format provides an independent drawable factory; Coil's non-shareable animated fallback is
- * the documented exception because Coil does not cache that decoded value.
+ * not retain a mutable Drawable themselves. A drawable is created per consumer where the image
+ * format provides an independent drawable factory. Handles may retain the decoded image when the
+ * upstream image cache is not a sufficient lifetime guarantee for a Ready entry.
  */
 fun interface ChatImageHandle {
     fun newDrawable(): Drawable?
@@ -27,7 +27,7 @@ fun interface ChatImageHandle {
     /** Stable decoded dimensions, independent from the current animation frame. */
     fun intrinsicDimensions(): ChatAssetDimensions? = null
 
-    /** True only for Coil formats which cannot be recreated from Coil's decoded memory cache. */
+    /** True when this handle retains a decoded image that should be released with its last observer. */
     fun holdsDecodedImage(): Boolean = false
 }
 

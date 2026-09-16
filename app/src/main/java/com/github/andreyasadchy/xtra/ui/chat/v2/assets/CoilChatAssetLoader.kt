@@ -6,7 +6,6 @@ import coil3.Image
 import coil3.ImageLoader
 import coil3.asDrawable
 import coil3.imageLoader
-import coil3.memory.MemoryCache
 import coil3.network.HttpException
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
@@ -58,15 +57,15 @@ class CoilChatAssetLoader(
                     if (width > 0 && height > 0) ChatAssetDimensions(width, height) else null
                 }
                 if (image.shareable) {
-                    // Shareable images are retained by Coil. The repository keeps only this
-                    // cache key, and each bound TextView creates its own drawable instance.
+                    // A Ready repository entry can outlive Coil's memory-cache entry, especially
+                    // while a large emote-spam row is being laid out. Keep the decoded Image as
+                    // the handle's fallback instead of turning a cache eviction into a blank
+                    // ReplacementSpan. Each bound TextView still creates its own drawable.
                     object : ChatImageHandle {
-                        override fun newDrawable() = imageLoader.memoryCache
-                                ?.get(MemoryCache.Key(memoryCacheKey(url)))
-                                ?.image
-                                ?.let(::newIndependentDrawable)
+                        override fun newDrawable() = newIndependentDrawable(image)
 
                         override fun intrinsicDimensions() = dimensions
+                        override fun holdsDecodedImage() = true
                     }
                 } else {
                     // Coil deliberately does not put non-shareable animated DrawableImages in
