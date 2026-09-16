@@ -159,7 +159,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                     binding.playerControls.playPause.visibility = View.VISIBLE
                 } else {
                     binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true)) {
                         binding.playerControls.playPause.visibility = View.GONE
                     }
                 }
@@ -185,7 +185,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                     binding.playerControls.playPause.visibility = View.VISIBLE
                 } else {
                     binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true)) {
                         binding.playerControls.playPause.visibility = View.GONE
                     }
                 }
@@ -207,7 +207,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                     binding.playerControls.playPause.visibility = View.VISIBLE
                 } else {
                     binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                    if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true)) {
                         binding.playerControls.playPause.visibility = View.GONE
                     }
                 }
@@ -478,7 +478,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                                 binding.playerControls.playPause.visibility = View.VISIBLE
                             } else {
                                 binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
-                                if (connectedService.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                                if (connectedService.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true)) {
                                     binding.playerControls.playPause.visibility = View.GONE
                                 }
                             }
@@ -967,8 +967,11 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
     override fun setSubtitlesButton() {
         with(binding.playerControls) {
             val textTracks = playbackService?.player?.currentTracks?.groups?.find { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }
-            if (textTracks != null) {
+            if (textTracks != null && !isLiveCaptionsAvailable()) {
                 subtitles.visibility = View.VISIBLE
+                subtitles.contentDescription = getString(
+                    if (textTracks.isSelected) R.string.hide_subtitles else R.string.show_subtitles,
+                )
                 if (textTracks.isSelected) {
                     subtitles.setImageResource(androidx.media3.ui.R.drawable.exo_ic_subtitle_on)
                     subtitles.setOnClickListener {
@@ -984,8 +987,14 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                         requireContext().prefs().edit { putBoolean(C.PLAYER_SUBTITLES_ENABLED, true) }
                     }
                 }
+                subtitles.setOnLongClickListener {
+                    showController(force = true)
+                    openCaptionSettings()
+                    true
+                }
             } else {
                 subtitles.setOnClickListener(null)
+                subtitles.setOnLongClickListener(null)
                 subtitles.visibility = View.GONE
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setSubtitles(textTracks)

@@ -10,6 +10,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.core.content.edit
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
@@ -24,6 +26,7 @@ import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.tv.TvChatMode
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.tv.tvChatMode
+import com.github.andreyasadchy.xtra.ui.player.hud.HudElementId
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -63,6 +66,20 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        val menuBottomPadding = binding.menuContainer.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(view) { _, insets ->
+            val bottomInset = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+            ).bottom
+            binding.menuContainer.setPadding(
+                binding.menuContainer.paddingLeft,
+                binding.menuContainer.paddingTop,
+                binding.menuContainer.paddingRight,
+                menuBottomPadding + bottomInset,
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(view)
         val behavior = BottomSheetBehavior.from(view.parent as View)
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
@@ -119,7 +136,9 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 }
             }
             if (type != BasePlaybackService.STREAM &&
-                (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_SPEED, false))
+                (isTv ||
+                    requireContext().prefs().getBoolean(C.PLAYER_MENU_SPEED, false) ||
+                    canShowHudActionInOverflow(HudElementId.SPEED))
             ) {
                 menuSpeed.visibility = View.VISIBLE
                 menuSpeed.setOnClickListener {
@@ -129,7 +148,9 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 }
                 setSpeed(arguments.getString(SPEED))
             }
-            if (requireContext().prefs().getBoolean(C.PLAYER_MENU_QUALITY, false)) {
+            if (requireContext().prefs().getBoolean(C.PLAYER_MENU_QUALITY, false) ||
+                canShowHudActionInOverflow(HudElementId.QUALITY)
+            ) {
                 menuQuality.visibility = View.VISIBLE
                 // Quality may not have a label yet while the controller/HLS
                 // playlist is starting. Always route the tap through the
@@ -139,6 +160,41 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 }
                 (parentFragment as? Media3PlayerFragment)?.setQualityText() ?:
                 (parentFragment as? PlayerFragment)?.setQualityText()
+            }
+            listOf(
+                HudElementId.FOLLOW to menuFollow,
+                HudElementId.CLIP to menuClip,
+                HudElementId.GO_LIVE to menuGoLive,
+                HudElementId.AUDIO_MODE to menuAudioMode,
+                HudElementId.AUDIO_COMPRESSOR to menuAudioCompressor,
+                HudElementId.INTERACTION_LOCK to menuInteractionLock,
+                HudElementId.MINIMIZE to menuMinimize,
+            ).forEach { (id, menuItem) ->
+                if (canShowHudActionInOverflow(id)) {
+                    menuItem.visibility = View.VISIBLE
+                    hudActionContentDescription(id)?.let { description ->
+                        menuItem.text = description
+                        menuItem.contentDescription = description
+                    }
+                    menuItem.isEnabled = isHudActionEnabled(id)
+                    if (id == HudElementId.AUDIO_COMPRESSOR) {
+                        ViewCompat.setStateDescription(
+                            menuItem,
+                            getString(
+                                if (requireContext().prefs().getBoolean(C.PLAYER_AUDIO_COMPRESSOR, false)) {
+                                    R.string.enabled_setting
+                                } else {
+                                    R.string.disabled_setting
+                                },
+                            ),
+                        )
+                    }
+                    menuItem.setOnClickListener {
+                        if (!isHudActionEnabled(id)) return@setOnClickListener
+                        performHudAction(id)
+                        dismiss()
+                    }
+                }
             }
             val videoInfoParent = parentFragment as? PlaybackVideoInfoHost
             if (videoInfoParent != null &&
@@ -152,15 +208,13 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             }
             if (type == BasePlaybackService.STREAM) {
                 val media3Parent = parentFragment as? Media3PlayerFragment
-                if (media3Parent != null) {
+                val legacyParent = parentFragment as? PlayerFragment
+                if (media3Parent != null || legacyParent?.isLiveCaptionsAvailable() == true) {
                     menuLiveCaptionSettings.visibility = View.VISIBLE
                     menuLiveCaptionSettings.setOnClickListener {
-                        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
-                            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
-                        }
                         dismiss()
-                        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
-                            ?: startActivity(intent)
+                        media3Parent?.openLiveCaptionSettings()
+                            ?: legacyParent?.openLiveCaptionSettings()
                     }
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_MENU_VIEWER_LIST, true)) {
@@ -171,14 +225,19 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                         dismiss()
                     }
                 }
-                if (requireContext().prefs().getBoolean(C.PLAYER_MENU_FIND_VOD, true)) {
+                if (parentFragment is PlayerFragment &&
+                    requireContext().prefs().getBoolean(C.PLAYER_MENU_FIND_VOD, true)
+                ) {
                     menuFindVod.visibility = View.VISIBLE
                     menuFindVod.setOnClickListener {
-                        (parentFragment as? PlayerFragment)?.findVideoUrl()
+                        (parentFragment as PlayerFragment).findVideoUrl()
                         dismiss()
                     }
                 }
-                if (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_RESTART, false)) {
+                if (isTv ||
+                    requireContext().prefs().getBoolean(C.PLAYER_MENU_RESTART, false) ||
+                    canShowHudActionInOverflow(HudElementId.RESTART)
+                ) {
                     menuRestart.visibility = View.VISIBLE
                     menuRestart.setOnClickListener {
                         (parentFragment as? Media3PlayerFragment)?.restartPlayer() ?:
@@ -190,7 +249,10 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     val isLoggedIn = !requireContext().tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
                             (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                                     !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
-                    if (isLoggedIn && requireContext().prefs().getBoolean(C.PLAYER_MENU_CHAT_BAR, true)) {
+                    if (isLoggedIn &&
+                        (requireContext().prefs().getBoolean(C.PLAYER_MENU_CHAT_BAR, true) ||
+                            canShowHudActionInOverflow(HudElementId.CHAT_INPUT))
+                    ) {
                         menuChatBar.visibility = View.VISIBLE
                         if (requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true)) {
                             menuChatBar.text = getString(R.string.hide_chat_bar)
@@ -246,7 +308,10 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     (parentFragment as? PlayerFragment)?.checkBookmark()
                 }
             }
-            if (type != BasePlaybackService.OFFLINE_VIDEO && requireContext().prefs().getBoolean(C.PLAYER_MENU_DOWNLOAD, true)) {
+            if (type != BasePlaybackService.OFFLINE_VIDEO &&
+                (requireContext().prefs().getBoolean(C.PLAYER_MENU_DOWNLOAD, true) ||
+                    canShowHudActionInOverflow(HudElementId.DOWNLOAD))
+            ) {
                 menuDownload.visibility = View.VISIBLE
                 menuDownload.setOnClickListener {
                     (parentFragment as? Media3PlayerFragment)?.showDownloadDialog() ?:
@@ -262,7 +327,10 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     dismiss()
                 }
             }
-            if (type != BasePlaybackService.CLIP && requireContext().prefs().getBoolean(C.PLAYER_MENU_SLEEP, true)) {
+            if (type != BasePlaybackService.CLIP &&
+                (requireContext().prefs().getBoolean(C.PLAYER_MENU_SLEEP, true) ||
+                    canShowHudActionInOverflow(HudElementId.SLEEP_TIMER))
+            ) {
                 menuTimer.visibility = View.VISIBLE
                 menuTimer.setOnClickListener {
                     (parentFragment as? Media3PlayerFragment)?.showSleepTimerDialog() ?:
@@ -271,7 +339,10 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 }
             }
             if (((parentFragment as? Media3PlayerFragment)?.getIsPortrait() ?: (parentFragment as? PlayerFragment)?.getIsPortrait()) == false) {
-                if (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_ASPECT, false)) {
+                if (isTv ||
+                    requireContext().prefs().getBoolean(C.PLAYER_MENU_ASPECT, false) ||
+                    canShowHudActionInOverflow(HudElementId.ASPECT_RATIO)
+                ) {
                     menuRatio.visibility = View.VISIBLE
                     menuRatio.setOnClickListener {
                         (parentFragment as? Media3PlayerFragment)?.setResizeMode() ?:
@@ -279,26 +350,36 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                         dismiss()
                     }
                 }
-                if (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_CHAT_TOGGLE, false)) {
-                    menuChatToggle.visibility = View.VISIBLE
-                    if (requireContext().prefs().getBoolean(C.KEY_CHAT_OPENED, true)) {
-                        menuChatToggle.text = getString(R.string.hide_chat)
-                        menuChatToggle.setOnClickListener {
-                            (parentFragment as? Media3PlayerFragment)?.hideChat() ?:
-                            (parentFragment as? PlayerFragment)?.hideChat()
-                            dismiss()
-                        }
-                    } else {
-                        menuChatToggle.text = getString(R.string.show_chat)
-                        menuChatToggle.setOnClickListener {
-                            (parentFragment as? Media3PlayerFragment)?.showChat() ?:
-                            (parentFragment as? PlayerFragment)?.showChat()
-                            dismiss()
-                        }
+            }
+            // The compact portrait layout deliberately keeps chat out of the
+            // video when it is too narrow, but that must not remove the action
+            // from More.
+            if (requireContext().prefs().isChatEnabled() &&
+                (isTv ||
+                    requireContext().prefs().getBoolean(C.PLAYER_MENU_CHAT_TOGGLE, false) ||
+                    canShowHudActionInOverflow(HudElementId.CHAT))
+            ) {
+                menuChatToggle.visibility = View.VISIBLE
+                if (requireContext().prefs().getBoolean(C.KEY_CHAT_OPENED, true)) {
+                    menuChatToggle.text = getString(R.string.hide_chat)
+                    menuChatToggle.setOnClickListener {
+                        (parentFragment as? Media3PlayerFragment)?.hideChat() ?:
+                        (parentFragment as? PlayerFragment)?.hideChat()
+                        dismiss()
+                    }
+                } else {
+                    menuChatToggle.text = getString(R.string.show_chat)
+                    menuChatToggle.setOnClickListener {
+                        (parentFragment as? Media3PlayerFragment)?.showChat() ?:
+                        (parentFragment as? PlayerFragment)?.showChat()
+                        dismiss()
                     }
                 }
             }
-            if (isTv || requireContext().prefs().getBoolean(C.PLAYER_MENU_VOLUME, false)) {
+            if (isTv ||
+                requireContext().prefs().getBoolean(C.PLAYER_MENU_VOLUME, false) ||
+                canShowHudActionInOverflow(HudElementId.VOLUME)
+            ) {
                 menuVolume.visibility = View.VISIBLE
                 menuVolume.setOnClickListener {
                     (parentFragment as? Media3PlayerFragment)?.showVolumeDialog() ?:
@@ -353,6 +434,25 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         }
     }
 
+    private fun canShowHudActionInOverflow(id: HudElementId): Boolean =
+        (parentFragment as? Media3PlayerFragment)?.canShowHudActionInOverflow(id)
+            ?: (parentFragment as? PlayerFragment)?.canShowHudActionInOverflow(id)
+            ?: false
+
+    private fun hudActionContentDescription(id: HudElementId): CharSequence? =
+        (parentFragment as? Media3PlayerFragment)?.hudActionContentDescription(id)
+            ?: (parentFragment as? PlayerFragment)?.hudActionContentDescription(id)
+
+    private fun isHudActionEnabled(id: HudElementId): Boolean =
+        (parentFragment as? Media3PlayerFragment)?.isHudActionEnabled(id)
+            ?: (parentFragment as? PlayerFragment)?.isHudActionEnabled(id)
+            ?: false
+
+    private fun performHudAction(id: HudElementId) {
+        (parentFragment as? Media3PlayerFragment)?.performHudAction(id)
+            ?: (parentFragment as? PlayerFragment)?.performHudAction(id)
+    }
+
     private fun showHudEditor() {
         dismiss()
         val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
@@ -404,7 +504,10 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
 
     fun setVodGames() {
         with(binding) {
-            if (requireContext().isTelevision() || requireContext().prefs().getBoolean(C.PLAYER_MENU_GAMES, false)) {
+            if (requireContext().isTelevision() ||
+                requireContext().prefs().getBoolean(C.PLAYER_MENU_GAMES, false) ||
+                canShowHudActionInOverflow(HudElementId.CHAPTERS)
+            ) {
                 menuVodGames.visibility = View.VISIBLE
                 menuVodGames.setOnClickListener {
                     (parentFragment as? Media3PlayerFragment)?.showVodGames() ?:
@@ -430,7 +533,9 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
     fun setSubtitles(subtitles: Tracks.Group? = null) {
         with(binding) {
             if (subtitles != null &&
-                (requireContext().isTelevision() || requireContext().prefs().getBoolean(C.PLAYER_MENU_SUBTITLES, true))
+                (requireContext().isTelevision() ||
+                    requireContext().prefs().getBoolean(C.PLAYER_MENU_SUBTITLES, true) ||
+                    canShowHudActionInOverflow(HudElementId.CAPTIONS))
             ) {
                 menuSubtitles.visibility = View.VISIBLE
                 if (subtitles.isSelected) {

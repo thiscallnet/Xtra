@@ -64,15 +64,29 @@ class HudLayoutEngine(
         availability: Set<HudElementId>,
     ): Float {
         val maxWidth = (if (orientation == HudOrientation.PORTRAIT) 280f else 420f) * density
-        if (profile.mode != HudProfileMode.DEFAULT) return maxWidth.coerceAtMost(safeRect.width)
+        // A sparse CUSTOM profile still inherits the current responsive
+        // placement for metadata. Only a profile that explicitly moved or
+        // resized metadata may opt out of the top-end reservation; otherwise
+        // migrated users could get the old wide title block overlapping the
+        // packed Quality/Captions/More row.
+        val metadataExplicitlyCustomized = profile.mode == HudProfileMode.CUSTOM &&
+            HudElementId.STREAM_INFO in profile.placements
+        if (metadataExplicitlyCustomized) return maxWidth.coerceAtMost(safeRect.width)
 
         val compact = safeRect.height < 260f * density
-        val edge = if (television) televisionEdgePadding else HudDefaultLayout.NORMAL_EDGE_PADDING * density
+        val edge = if (television) {
+            televisionEdgePadding
+        } else if (compact) {
+            HudDefaultLayout.COMPACT_HORIZONTAL_PADDING * density
+        } else {
+            HudDefaultLayout.NORMAL_EDGE_PADDING * density
+        }
         val gap = HudDefaultLayout.SPACING * density
         val topEnd = HudDefaultLayout.topEndElements(
             orientation,
             safeRect.width / density.coerceAtLeast(0.001f),
             profile.defaultPolicyVersion,
+            compact,
         ).filter { id ->
             id in availability && HudDefaultLayout.enabledByDefault(
                 id,
@@ -89,12 +103,18 @@ class HudLayoutEngine(
                 profile.globalScale,
                 spec.clampScale(profile.placements[id]?.scale ?: 1f),
             )
-            maxOf(visual.width * density * scale, spec.minimumHitSize.width * density)
+            // The metadata column shares the visible top row. Hit targets are
+            // deliberately larger than the icons and may overlap; reserving
+            // them here would recreate the old sparse, truncated layout.
+            visual.width * density * scale
                 .toDouble()
         }.toFloat() + (topEnd.size.coerceAtLeast(1) - 1) * gap
-        return maxWidth.coerceAtMost(
-            (safeRect.width - 2f * edge - topEndWidth - gap).coerceAtLeast(0f),
-        ).coerceAtMost(safeRect.width)
+        // Keep the metadata's visible rectangle one visual gap away from the
+        // nearest visible top-end control. The enlarged hit rectangles are
+        // allowed to overlap this gap and are resolved by child order.
+        val widthBudget = (safeRect.width - 2f * edge - topEndWidth - gap)
+            .coerceAtLeast(0f)
+        return maxWidth.coerceAtMost(widthBudget).coerceAtMost(safeRect.width)
     }
 
     fun resolve(
@@ -149,14 +169,14 @@ class HudLayoutEngine(
         val resolvedPlacements = if (profile.mode == HudProfileMode.DEFAULT) {
             defaultPlacements
         } else {
-            defaultPlacements + profile.placements
+            defaultPlacements + profile.placements.filterKeys { HudElementRegistry.get(it).isMovable }
         }
         val ordered = HudElementId.entries
         return ordered.mapNotNull { id ->
             val spec = HudElementRegistry.get(id)
             val placement = resolvedPlacements[id] ?: return@mapNotNull null
             if (!placement.enabled || id !in availability) return@mapNotNull null
-            val elementScale = spec.clampScale(placement.scale)
+            val elementScale = if (spec.isMovable) spec.clampScale(placement.scale) else 1f
             val measuredSize = if (id == HudElementId.STREAM_INFO || id == HudElementId.TIMELINE) {
                 measuredSizes[id] ?: spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
             } else {

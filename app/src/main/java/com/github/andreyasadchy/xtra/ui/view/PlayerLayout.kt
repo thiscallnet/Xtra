@@ -6,6 +6,7 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import kotlin.math.roundToInt
 
 class PlayerLayout : FrameLayout {
 
@@ -72,6 +73,19 @@ class PlayerLayout : FrameLayout {
 
         unlockView.getDrawingRect(unlockHitRect)
         offsetDescendantRectToMyCoords(unlockView, unlockHitRect)
+        val minimumTarget = (48f * resources.displayMetrics.density).roundToInt()
+        if (unlockHitRect.width() < minimumTarget || unlockHitRect.height() < minimumTarget) {
+            val centerX = unlockHitRect.centerX()
+            val centerY = unlockHitRect.centerY()
+            val width = maxOf(unlockHitRect.width(), minimumTarget)
+            val height = maxOf(unlockHitRect.height(), minimumTarget)
+            unlockHitRect.set(
+                centerX - width / 2,
+                centerY - height / 2,
+                centerX + (width + 1) / 2,
+                centerY + (height + 1) / 2,
+            )
+        }
 
         return unlockHitRect.contains(
             event.x.toInt(),

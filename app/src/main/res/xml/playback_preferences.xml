@@ -4,7 +4,7 @@
     <ListPreference android:defaultValue="saved" android:entries="@array/playerQualityEntries" android:entryValues="@array/playerQualityValues" android:key="player_default_cellular_quality" android:summary="%s" android:title="@string/settings_mobile_data_quality" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_low_latency" android:summary="@string/settings_low_latency_summary" android:title="@string/settings_low_latency" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_live_rewind" android:summary="@string/settings_live_rewind_summary" android:title="@string/settings_live_rewind" app:iconSpaceReserved="false" />
-    <ListPreference android:defaultValue="right" android:entries="@array/liveRewindTimePositionEntries" android:entryValues="@array/liveRewindTimePositionValues" android:key="player_live_rewind_time_side" android:summary="%s" android:title="@string/settings_live_rewind_time_position" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="left" android:entries="@array/liveRewindTimePositionEntries" android:entryValues="@array/liveRewindTimePositionValues" android:key="player_live_rewind_time_side" android:summary="%s" android:title="@string/settings_live_rewind_time_position" app:iconSpaceReserved="false" />
 
     <PreferenceCategory android:key="live_caption_settings" android:title="@string/live_caption_settings" app:iconSpaceReserved="false">
         <Preference android:selectable="false" android:summary="@string/live_caption_settings_summary" app:iconSpaceReserved="false" />

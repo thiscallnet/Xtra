@@ -267,6 +267,7 @@
     <string name="settings_live_rewind_time_left">Left</string>
     <string name="settings_live_rewind_time_right">Right</string>
     <string name="player_live" translatable="false">LIVE</string>
+    <string name="player_live_position">%1$s · %2$s</string>
     <string name="player_return_to_live">Return to live</string>
     <string name="settings_player_behavior">Player behavior</string>
     <string name="network_filter_warning" translatable="false">Some Twitch requests failed to resolve. A DNS filter, VPN, proxy, or network issue may be blocking Twitch.</string>
@@ -465,6 +466,8 @@
     <string name="settings_hud_paste_setup_message">This replaces both portrait and landscape layouts. You can undo it in the editor.</string>
     <string name="settings_hud_setup_invalid_title">Setup not recognized</string>
     <string name="settings_hud_setup_invalid_message">The clipboard does not contain a valid Xtra HUD setup.</string>
+    <string name="settings_hud_playback_timeline">Playback timeline</string>
+    <string name="settings_hud_playback_timeline_fixed">Always pinned to the bottom of the video</string>
     <string name="settings_preview_empty">Nothing here</string>
     <string name="settings_seek_controls">Seek controls</string>
     <string name="settings_gestures">Gestures</string>

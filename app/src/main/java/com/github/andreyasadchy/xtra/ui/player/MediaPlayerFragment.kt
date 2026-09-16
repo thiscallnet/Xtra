@@ -245,7 +245,7 @@ class MediaPlayerFragment : PlayerFragment() {
                         } else {
                             binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
                             binding.playerControls.playPause.contentDescription = getString(R.string.player_pause_action)
-                            if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                            if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true)) {
                                 binding.playerControls.playPause.visibility = View.GONE
                             }
                         }
@@ -292,7 +292,7 @@ class MediaPlayerFragment : PlayerFragment() {
             } else {
                 binding.playerControls.playPause.setImageResource(R.drawable.baseline_pause_black_48)
                 binding.playerControls.playPause.contentDescription = getString(R.string.player_pause_action)
-                if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false)) {
+                if (playbackService?.type == BasePlaybackService.STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true)) {
                     binding.playerControls.playPause.visibility = View.GONE
                 }
             }

@@ -38,6 +38,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerLayoutBinding
 import com.github.andreyasadchy.xtra.ui.player.hud.HudDefaultLayout
 import com.github.andreyasadchy.xtra.ui.player.hud.HudConfigShareCodec
+import com.github.andreyasadchy.xtra.ui.player.hud.HudConfigMigration
 import com.github.andreyasadchy.xtra.ui.player.hud.HudElementId
 import com.github.andreyasadchy.xtra.ui.player.hud.HudElementRegistry
 import com.github.andreyasadchy.xtra.ui.player.hud.HudOrientation
@@ -420,7 +421,10 @@ class PlayerHudEditorFragment : Fragment() {
             orientation = LinearLayout.VERTICAL
             background = roundedBackground(0xFF29242F.toInt())
         }
-        HudElementId.entries.forEach { id -> addElementRow(id) }
+        HudElementId.entries
+            .filter { HudElementRegistry.get(it).isMovable }
+            .forEach { id -> addElementRow(id) }
+        addFixedTimelineRow()
         content.addView(elementList, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val shareSection = LinearLayout(requireContext()).apply {
@@ -734,6 +738,40 @@ class PlayerHudEditorFragment : Fragment() {
         elementRows[id] = row
         row.addView(toggle, LinearLayout.LayoutParams(dp(56), dp(48)))
         elementList.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
+    }
+
+    private fun addFixedTimelineRow() {
+        val row = LinearLayout(requireContext()).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(64)
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            contentDescription = getString(R.string.settings_hud_playback_timeline_fixed)
+        }
+        val labels = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        labels.addView(TextView(requireContext()).apply {
+            text = getString(R.string.settings_hud_playback_timeline)
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        labels.addView(TextView(requireContext()).apply {
+            text = getString(R.string.settings_hud_playback_timeline_fixed)
+            textSize = 12f
+            setTextColor(0xFFB8B0C2.toInt())
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        row.addView(labels, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        row.addView(TextView(requireContext()).apply {
+            text = "Fixed"
+            textSize = 12f
+            setTextColor(0xFFD0C2FF.toInt())
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        elementList.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64)))
     }
 
     private fun selectOrientation(value: HudOrientation) {
@@ -1053,7 +1091,7 @@ class PlayerHudEditorFragment : Fragment() {
                 ?.toString()
                 ?.trim()
         }.getOrNull().orEmpty()
-        val imported = HudConfigShareCodec.decode(raw)
+        val imported = HudConfigShareCodec.decode(raw)?.let(HudConfigMigration::apply)
         if (imported == null) {
             MaterialAlertDialogBuilder(requireContext())
                 .setTitle(R.string.settings_hud_setup_invalid_title)

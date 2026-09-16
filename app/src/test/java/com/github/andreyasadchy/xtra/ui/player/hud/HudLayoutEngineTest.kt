@@ -26,21 +26,34 @@ class HudLayoutEngineTest {
                 val result = engine().resolve(safe, orientation, defaultProfile(), sizes(width, height))
 
                 result.forEach { element ->
-                    assertTrue("${width}x$height ${element.id} left", element.hitRect.left >= safe.left - .01f)
-                    assertTrue("${width}x$height ${element.id} top", element.hitRect.top >= safe.top - .01f)
-                    assertTrue("${width}x$height ${element.id} right", element.hitRect.right <= safe.right + .01f)
-                    assertTrue("${width}x$height ${element.id} bottom", element.hitRect.bottom <= safe.bottom + .01f)
+                    assertTrue("${width}x$height ${element.id} visual left", element.visualRect.left >= safe.left - .01f)
+                    assertTrue("${width}x$height ${element.id} visual top", element.visualRect.top >= safe.top - .01f)
+                    assertTrue("${width}x$height ${element.id} visual right", element.visualRect.right <= safe.right + .01f)
+                    assertTrue("${width}x$height ${element.id} visual bottom", element.visualRect.bottom <= safe.bottom + .01f)
+                    assertTrue("${width}x$height ${element.id} hit left", element.hitRect.left >= safe.left - .01f)
+                    assertTrue("${width}x$height ${element.id} hit top", element.hitRect.top >= safe.top - .01f)
+                    assertTrue("${width}x$height ${element.id} hit right", element.hitRect.right <= safe.right + .01f)
+                    assertTrue("${width}x$height ${element.id} hit bottom", element.hitRect.bottom <= safe.bottom + .01f)
                     val spec = HudElementRegistry.get(element.id)
                     if (spec.isInteractive) {
                         assertTrue(element.hitRect.width >= spec.minimumHitSize.width - .01f)
                         assertTrue(element.hitRect.height >= spec.minimumHitSize.height - .01f)
                     }
+                    assertTrue(
+                        "${width}x$height ${element.id} visible center is actionable",
+                        element.hitRect.contains(element.visualRect.centerX, element.visualRect.centerY),
+                    )
                 }
-                result.forEachIndexed { index, element ->
-                    result.drop(index + 1).forEach { other ->
+                // TIMELINE.visualRect is the full-height Media3 touch host;
+                // its actual painted bar is the 3dp bottom strip. It is
+                // intentionally allowed to share the host with edge actions.
+                result.filterNot { it.id == HudElementId.TIMELINE }
+                    .forEachIndexed { index, element ->
+                    result.filterNot { it.id == HudElementId.TIMELINE }
+                        .drop(index + 1).forEach { other ->
                         assertTrue(
                             "${width}x$height $orientation overlap: ${element.id}/${other.id}",
-                            !element.hitRect.overlaps(other.hitRect),
+                            !element.visualRect.overlaps(other.visualRect),
                         )
                     }
                 }
@@ -49,19 +62,67 @@ class HudLayoutEngineTest {
     }
 
     @Test
-    fun `compact phone defaults keep only the useful top controls`() {
+    fun `responsive defaults restore legacy actions when the viewport allows them`() {
         val portraitNarrow = engine().resolve(HudRect(0f, 0f, 320f, 203f), HudOrientation.PORTRAIT, defaultProfile(), sizes(320f, 203f))
         val portraitWide = engine().resolve(HudRect(0f, 0f, 360f, 203f), HudOrientation.PORTRAIT, defaultProfile(), sizes(360f, 203f))
         val landscapeNarrow = engine().resolve(HudRect(0f, 0f, 568f, 320f), HudOrientation.LANDSCAPE, defaultProfile(), sizes(568f, 320f))
         val landscapeWide = engine().resolve(HudRect(0f, 0f, 640f, 360f), HudOrientation.LANDSCAPE, defaultProfile(), sizes(640f, 360f))
 
-        listOf(portraitNarrow, portraitWide, landscapeNarrow, landscapeWide).forEach { result ->
+        listOf(portraitNarrow, portraitWide).forEach { result ->
             assertTrue(result.any { it.id == HudElementId.QUALITY })
+            assertTrue(result.any { it.id == HudElementId.CAPTIONS })
             assertTrue(result.any { it.id == HudElementId.FULLSCREEN })
-            assertTrue(result.none { it.id == HudElementId.FOLLOW })
+            assertTrue(result.any { it.id == HudElementId.MORE })
             assertTrue(result.none { it.id == HudElementId.VOLUME })
             assertTrue(result.none { it.id == HudElementId.ASPECT_RATIO })
         }
+        listOf(
+            HudElementId.FOLLOW,
+            HudElementId.QUALITY,
+            HudElementId.VOLUME,
+            HudElementId.CLIP,
+            HudElementId.CAPTIONS,
+            HudElementId.CHAT,
+            HudElementId.FULLSCREEN,
+            HudElementId.MORE,
+        ).forEach { id ->
+            assertTrue("568x320 missing $id", landscapeNarrow.any { it.id == id })
+        }
+        assertTrue(landscapeNarrow.none { it.id == HudElementId.ASPECT_RATIO })
+        listOf(
+            HudElementId.FOLLOW,
+            HudElementId.QUALITY,
+            HudElementId.ASPECT_RATIO,
+            HudElementId.INTERACTION_LOCK,
+            HudElementId.VOLUME,
+            HudElementId.CLIP,
+            HudElementId.CAPTIONS,
+            HudElementId.CHAT,
+            HudElementId.FULLSCREEN,
+            HudElementId.MORE,
+        ).forEach { id ->
+            assertTrue("640x360 missing $id", landscapeWide.any { it.id == id })
+        }
+    }
+
+    @Test
+    fun `compact top controls keep overflow on the outside edge`() {
+        val safe = HudRect(0f, 0f, 360f, 203f)
+        val result = engine().resolve(
+            safe,
+            HudOrientation.PORTRAIT,
+            defaultProfile(),
+            sizes(360f, 203f),
+        ).associateBy { it.id }
+
+        assertTrue(
+            result.getValue(HudElementId.QUALITY).visualRect.centerX <
+                result.getValue(HudElementId.CAPTIONS).visualRect.centerX,
+        )
+        assertTrue(
+            result.getValue(HudElementId.CAPTIONS).visualRect.centerX <
+                result.getValue(HudElementId.MORE).visualRect.centerX,
+        )
     }
 
     @Test
@@ -151,15 +212,17 @@ class HudLayoutEngineTest {
     }
 
     @Test
-    fun `default timeline reserves its resolved 48dp visual band`() {
+    fun `default timeline is fixed to the safe bottom above bottom actions`() {
         val safe = HudRect(0f, 0f, 800f, 360f)
         val result = engine().resolve(safe, HudOrientation.LANDSCAPE, defaultProfile(), sizes(800f, 360f))
             .associateBy { it.id }
 
         assertEquals(48f, result.getValue(HudElementId.TIMELINE).visualRect.height, .01f)
+        assertEquals(safe.bottom, result.getValue(HudElementId.TIMELINE).visualRect.bottom, .01f)
+        assertEquals(safe.bottom, result.getValue(HudElementId.TIMELINE).hitRect.bottom, .01f)
         assertTrue(
-            result.getValue(HudElementId.TIMELINE).visualRect.bottom <=
-                result.getValue(HudElementId.CHAT).hitRect.top - HudDefaultLayout.SPACING + .01f,
+            result.getValue(HudElementId.CHAT).hitRect.bottom <=
+                result.getValue(HudElementId.TIMELINE).hitRect.top - HudDefaultLayout.SPACING + .01f,
         )
     }
 
@@ -242,11 +305,13 @@ class HudLayoutEngineTest {
                     defaultProfile(),
                     sizes(safe.width, safe.height),
                 )
-                result.forEachIndexed { index, element ->
-                    result.drop(index + 1).forEach { other ->
+                result.filterNot { it.id == HudElementId.TIMELINE }
+                    .forEachIndexed { index, element ->
+                    result.filterNot { it.id == HudElementId.TIMELINE }
+                        .drop(index + 1).forEach { other ->
                         assertTrue(
                             "${safe.width} compact rtl=$rtl overlap: ${element.id}/${other.id}",
-                            !element.hitRect.overlaps(other.hitRect),
+                            !element.visualRect.overlaps(other.visualRect),
                         )
                     }
                 }
@@ -274,6 +339,76 @@ class HudLayoutEngineTest {
 
         assertTrue(metadata.visualRect.width <= budget + .01f)
         assertEquals(budget, layout.metadataWidthBudget(safe, HudOrientation.LANDSCAPE, profile, HudElementId.entries.toSet()), .01f)
+    }
+
+    @Test
+    fun `compact metadata stays clear of packed top end visuals in both directions`() {
+        val safe = HudRect(0f, 0f, 360f, 203f)
+        val measured = sizes(safe.width, safe.height) +
+            (HudElementId.STREAM_INFO to HudSize(700f, 60f))
+
+        listOf(false, true).forEach { rtl ->
+            val result = engine(rtl = rtl)
+                .resolve(safe, HudOrientation.PORTRAIT, defaultProfile(), measured)
+                .associateBy { it.id }
+            val metadata = result.getValue(HudElementId.STREAM_INFO).visualRect
+            val topEnd = listOf(
+                HudElementId.QUALITY,
+                HudElementId.CAPTIONS,
+                HudElementId.MORE,
+            ).map { result.getValue(it).visualRect }
+
+            if (rtl) {
+                val nearest = topEnd.maxBy { it.right }
+                assertTrue(metadata.left >= nearest.right + HudDefaultLayout.SPACING - .01f)
+            } else {
+                val nearest = topEnd.minBy { it.left }
+                assertTrue(metadata.right <= nearest.left - HudDefaultLayout.SPACING + .01f)
+            }
+        }
+    }
+
+    @Test
+    fun `migrated sparse custom metadata stays clear of packed top end visuals`() {
+        val safe = HudRect(0f, 0f, 360f, 203f)
+        val measured = sizes(safe.width, safe.height) +
+            (HudElementId.STREAM_INFO to HudSize(700f, 60f))
+        val legacyCustom = HudProfile(
+            mode = HudProfileMode.CUSTOM,
+            globalScale = 1f,
+            placements = mapOf(
+                HudElementId.PLAY_PAUSE to HudPlacement(true, .5f, .5f, 1f),
+            ),
+            defaultPolicyVersion = HudDefaultPolicy.LEGACY_V2,
+        )
+        val migrated = HudConfigMigration.apply(
+            PlayerHudConfig(
+                portrait = legacyCustom,
+                landscape = legacyCustom,
+                migrationVersion = HudConfigMigration.INITIAL,
+            ),
+        ).portrait
+
+        assertEquals(HudDefaultPolicy.CURRENT, migrated.defaultPolicyVersion)
+        listOf(false, true).forEach { rtl ->
+            val result = engine(rtl = rtl)
+                .resolve(safe, HudOrientation.PORTRAIT, migrated, measured)
+                .associateBy { it.id }
+            val metadata = result.getValue(HudElementId.STREAM_INFO).visualRect
+            val topEnd = listOf(
+                HudElementId.QUALITY,
+                HudElementId.CAPTIONS,
+                HudElementId.MORE,
+            ).map { result.getValue(it).visualRect }
+
+            if (rtl) {
+                val nearest = topEnd.maxBy { it.right }
+                assertTrue(metadata.left >= nearest.right + HudDefaultLayout.SPACING - .01f)
+            } else {
+                val nearest = topEnd.minBy { it.left }
+                assertTrue(metadata.right <= nearest.left - HudDefaultLayout.SPACING + .01f)
+            }
+        }
     }
 
     @Test
@@ -306,7 +441,12 @@ class HudLayoutEngineTest {
             .associateBy { it.id }
         val metadataTop = result.getValue(HudElementId.STREAM_INFO).visualRect.top
 
-        listOf(HudElementId.QUALITY, HudElementId.FULLSCREEN).forEach { id ->
+        listOf(
+            HudElementId.FOLLOW,
+            HudElementId.QUALITY,
+            HudElementId.ASPECT_RATIO,
+            HudElementId.INTERACTION_LOCK,
+        ).forEach { id ->
             assertEquals(metadataTop, result.getValue(id).visualRect.top, .01f)
         }
     }
@@ -317,12 +457,14 @@ class HudLayoutEngineTest {
         val profile = HudProfile(
             HudProfileMode.CUSTOM,
             1.30f,
-            mapOf(HudElementId.TIMELINE to HudPlacement(true, .5f, 1f, 1f)),
+            mapOf(HudElementId.TIMELINE to HudPlacement(false, .2f, .2f, 2f)),
         )
         val timeline = engine().resolve(safe, HudOrientation.LANDSCAPE, profile, sizes(800f, 360f))
             .single { it.id == HudElementId.TIMELINE }
 
         assertEquals(safe.width, timeline.visualRect.width, .01f)
+        assertEquals(safe.bottom, timeline.visualRect.bottom, .01f)
+        assertTrue(timeline.hitRect.bottom <= safe.bottom + .01f)
         assertTrue(timeline.visualRect.left >= safe.left - .01f)
         assertTrue(timeline.visualRect.right <= safe.right + .01f)
     }
@@ -349,10 +491,14 @@ class HudLayoutEngineTest {
             1f,
             mapOf(HudElementId.QUALITY to HudPlacement(true, .2f, .3f, 1f)),
         )
+        val staleDefault = PlayerHudDefaults.config().landscape.copy(
+            defaultPolicyVersion = HudDefaultPolicy.COMPACT_PHONE_V3,
+        )
         val raw = JSONObject(HudConfigJson.encode(PlayerHudConfig(
             portrait = custom,
-            landscape = PlayerHudDefaults.config().landscape,
+            landscape = staleDefault,
         ))).apply {
+            remove("migrationVersion")
             getJSONObject("portrait").remove("defaultPolicyVersion")
         }.toString()
 
@@ -360,6 +506,13 @@ class HudLayoutEngineTest {
 
         assertEquals(HudDefaultPolicy.LEGACY_V2, decoded?.portrait?.defaultPolicyVersion)
         assertEquals(HudDefaultPolicy.CURRENT, decoded?.landscape?.defaultPolicyVersion)
+        assertEquals(HudConfigMigration.INITIAL, decoded?.migrationVersion)
+
+        val migrated = decoded?.let(HudConfigMigration::apply)
+        assertEquals(HudDefaultPolicy.CURRENT, migrated?.portrait?.defaultPolicyVersion)
+        assertEquals(custom.placements, migrated?.portrait?.placements)
+        assertEquals(HudConfigMigration.CURRENT, migrated?.migrationVersion)
+        assertEquals(migrated, migrated?.let(HudConfigMigration::apply))
     }
 
     @Test

@@ -19,10 +19,13 @@ class HudElementFrame @JvmOverloads constructor(
 ) : FrameLayout(context, attrs) {
     private var geometry: ResolvedHudElement? = null
     private var active = false
+    private var interactionBlocked = false
     private var touchTarget: View? = null
     private var touchDownX = 0f
     private var touchDownY = 0f
     private var touchMoved = false
+    private var longPressTriggered = false
+    private var longPressTarget: View? = null
     private var expandedTouchTarget: View? = null
     private val baselineMetrics = IdentityHashMap<View, PresentationMetrics>()
     private val canonicalMetrics = IdentityHashMap<View, PresentationMetrics>()
@@ -47,14 +50,27 @@ class HudElementFrame @JvmOverloads constructor(
     fun setActive(value: Boolean) {
         active = value
         alpha = if (value) 1f else 0f
-        importantForAccessibility = if (value) IMPORTANT_FOR_ACCESSIBILITY_AUTO else IMPORTANT_FOR_ACCESSIBILITY_NO
+        updateAccessibilityImportance()
         // The frame owns hit geometry, but focus belongs to the actionable child.
         // Keeping the frame unfocusable also prevents Android's default focus
         // highlight from drawing a stray shape at the frame origin.
         isFocusable = false
+        if (!value) {
+            removeCallbacks(longPressAction)
+            longPressTarget = null
+            longPressTriggered = false
+            touchTarget = null
+            expandedTouchTarget = null
+        }
     }
 
     fun isActive(): Boolean = active
+
+    /** Hides every actionable descendant while the player interaction lock is on. */
+    fun setInteractionBlocked(value: Boolean) {
+        interactionBlocked = value
+        updateAccessibilityImportance()
+    }
 
     fun setGeometry(value: ResolvedHudElement?) {
         if (geometry == value) return
@@ -179,6 +195,12 @@ class HudElementFrame @JvmOverloads constructor(
                 touchDownX = event.x
                 touchDownY = event.y
                 touchMoved = false
+                longPressTriggered = false
+                longPressTarget = child
+                removeCallbacks(longPressAction)
+                if (child.hasOnLongClickListeners()) {
+                    postDelayed(longPressAction, ViewConfiguration.getLongPressTimeout().toLong())
+                }
                 return true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -188,26 +210,70 @@ class HudElementFrame @JvmOverloads constructor(
                     (event.y - touchDownY) * (event.y - touchDownY) > slop * slop
                 ) {
                     touchMoved = true
+                    removeCallbacks(longPressAction)
                 }
                 return true
             }
             MotionEvent.ACTION_UP -> {
+                removeCallbacks(longPressAction)
                 val shouldClick = !touchMoved &&
+                    !longPressTriggered &&
                     event.x >= 0f && event.x <= width &&
                     event.y >= 0f && event.y <= height &&
                     child.isEnabled && child.isShown
                 touchTarget = null
+                longPressTarget = null
                 touchMoved = false
+                longPressTriggered = false
                 if (shouldClick) child.performClick()
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
+                removeCallbacks(longPressAction)
                 touchTarget = null
+                longPressTarget = null
                 touchMoved = false
+                longPressTriggered = false
                 return true
             }
         }
         return false
+    }
+
+    /** Invokes the actionable child when a control is reached from overflow. */
+    fun performAction(): Boolean {
+        if (interactionBlocked) return false
+        return actionTarget()?.performClick() == true
+    }
+
+    fun actionContentDescription(): CharSequence? = clickableChildren()
+        .firstOrNull()
+        ?.contentDescription
+
+    fun isActionEnabled(): Boolean = !interactionBlocked && actionTarget() != null
+
+    private fun updateAccessibilityImportance() {
+        importantForAccessibility = if (!active || interactionBlocked) {
+            IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        } else {
+            // The frame is only geometry. Its actionable child remains in the
+            // accessibility tree and owns the label/action semantics.
+            IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+    }
+
+    private fun actionTarget(): View? = clickableChildren()
+        .firstOrNull { it.isEnabled && it.isShown }
+
+    private val longPressAction = Runnable {
+        val target = longPressTarget
+        if (active && !touchMoved && target != null && target.isEnabled && target.isShown) {
+            longPressTriggered = target.performLongClick()
+        }
+    }
+
+    private fun clickableChildren(): List<View> = buildList {
+        collectClickableChildren(getChildAt(0), this)
     }
 
     private fun getSingleClickableChild(view: View?): View? {

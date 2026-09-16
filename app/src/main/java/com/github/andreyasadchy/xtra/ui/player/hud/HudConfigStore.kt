@@ -11,7 +11,10 @@ class HudConfigStore(private val context: Context) {
         val raw = context.rawPrefs()
             .getString(KEY, null)
             ?: return PlayerHudDefaults.config()
-        return HudConfigJson.decode(raw) ?: PlayerHudDefaults.config()
+        val decoded = HudConfigJson.decode(raw) ?: return PlayerHudDefaults.config()
+        val migrated = HudConfigMigration.apply(decoded)
+        if (migrated != decoded) save(migrated)
+        return migrated
     }
 
     fun save(config: PlayerHudConfig) {
@@ -46,6 +49,8 @@ internal object HudConfigJson {
             version = CURRENT_VERSION,
             portrait = readProfile(json.optJSONObject("portrait"), HudOrientation.PORTRAIT),
             landscape = readProfile(json.optJSONObject("landscape"), HudOrientation.LANDSCAPE),
+            migrationVersion = json.optInt("migrationVersion", HudConfigMigration.INITIAL)
+                .coerceAtLeast(HudConfigMigration.INITIAL),
         )
     }.getOrNull()
 
@@ -75,7 +80,10 @@ internal object HudConfigJson {
             policyFallback,
         )
         if (mode == HudProfileMode.DEFAULT) {
-            return HudProfile(mode, globalScale, emptyMap(), defaultPolicyVersion)
+            // DEFAULT has no user-authored placements, so it should always
+            // receive the latest shipped responsive policy. A CUSTOM profile
+            // keeps its explicit policy below for backwards compatibility.
+            return HudProfile(mode, globalScale, emptyMap(), HudDefaultPolicy.CURRENT)
         }
         val elements = json.optJSONObject("elements")
         val placements = buildMap {
@@ -100,6 +108,7 @@ internal object HudConfigJson {
 
     private fun encodeConfig(config: PlayerHudConfig): JSONObject = JSONObject().apply {
         put("version", CURRENT_VERSION)
+        put("migrationVersion", config.migrationVersion.coerceAtLeast(HudConfigMigration.INITIAL))
         put("portrait", encodeProfile(config.portrait))
         put("landscape", encodeProfile(config.landscape))
     }

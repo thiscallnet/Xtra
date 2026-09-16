@@ -9,6 +9,7 @@ data class HudElementSpec(
     val minimumScale: Float = HudScale.ELEMENT_MIN,
     val maximumScale: Float = HudScale.ELEMENT_MAX,
     val isInteractive: Boolean = true,
+    val isMovable: Boolean = true,
 ) {
     fun visualSize(compactHeight: Boolean): HudSize =
         if (compactHeight) compactVisualSize else normalVisualSize
@@ -25,7 +26,14 @@ object HudElementRegistry {
 
     val all: List<HudElementSpec> = listOf(
         HudElementSpec(HudElementId.STREAM_INFO, HudPivot.TOP_START, HudSize(280f, 76f), HudSize(240f, 60f), HudSize(0f, 0f), isInteractive = false),
-        HudElementSpec(HudElementId.TIMELINE, HudPivot.BOTTOM_CENTER, HudSize(0f, 48f), HudSize(0f, 48f), HudSize(0f, 24f)),
+        HudElementSpec(
+            HudElementId.TIMELINE,
+            HudPivot.BOTTOM_CENTER,
+            HudSize(0f, 48f),
+            HudSize(0f, 48f),
+            HudSize(0f, 24f),
+            isMovable = false,
+        ),
         HudElementSpec(HudElementId.SEEK_BACK, normalVisualSize = HudSize(48f, 48f), compactVisualSize = HudSize(44f, 44f), minimumHitSize = HudSize(56f, 56f)),
         HudElementSpec(HudElementId.PLAY_PAUSE, normalVisualSize = HudSize(60f, 60f), compactVisualSize = HudSize(56f, 56f), minimumHitSize = HudSize(72f, 72f)),
         HudElementSpec(HudElementId.SEEK_FORWARD, normalVisualSize = HudSize(48f, 48f), compactVisualSize = HudSize(44f, 44f), minimumHitSize = HudSize(56f, 56f)),

@@ -9,13 +9,16 @@
     <FrameLayout
         android:id="@+id/slidingLayout"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:clipChildren="false">
 
         <com.github.andreyasadchy.xtra.ui.view.PlayerLayout
             android:id="@+id/playerLayout"
             android:layout_width="0dp"
             android:layout_height="0dp"
-            android:background="@android:color/black">
+            android:background="@android:color/black"
+            android:clipChildren="false"
+            android:translationZ="1dp">
 
             <androidx.media3.ui.AspectRatioFrameLayout
                 android:id="@+id/aspectRatioFrameLayout"

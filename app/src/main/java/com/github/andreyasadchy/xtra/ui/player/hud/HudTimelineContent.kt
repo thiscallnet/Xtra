@@ -25,10 +25,15 @@ class HudTimelineContent @JvmOverloads constructor(
     private val compactLiveTimeGroupGap = (6f * density).roundToInt()
     private val compactTimelineInset = (8f * density).roundToInt()
     private val previewGap = (4f * density).roundToInt()
+    // The whole 48dp timeline is the touch target. Media3 places the visible
+    // bar at the bottom of that view; keeping the view full-height prevents
+    // the old translated 18dp lane from lifting the purple line off the edge.
+    private val compactLeadingActionReservation = (52f * density).roundToInt()
     private var presentationScale = 1f
     private var liveRewindEnabled = false
-    private var liveRewindTimePosition = HudTimelineTimePosition.RIGHT
+    private var liveRewindTimePosition = HudTimelineTimePosition.LEFT
     private var liveRewindPreviewFraction: Float? = null
+    private var leadingActionPresent = false
     private var scrubPreview: TextView? = null
 
     init {
@@ -94,6 +99,13 @@ class HudTimelineContent @JvmOverloads constructor(
         requestLayout()
     }
 
+    /** Leaves room for the compact chat action before the live time label. */
+    fun setLeadingActionPresent(present: Boolean) {
+        if (leadingActionPresent == present) return
+        leadingActionPresent = present
+        if (liveRewindEnabled) requestLayout()
+    }
+
     private data class LiveLayoutMetrics(
         val groupWidth: Int,
         val groupGap: Int,
@@ -103,36 +115,43 @@ class HudTimelineContent @JvmOverloads constructor(
 
     private fun liveLayoutMetrics(width: Int): LiveLayoutMetrics {
         val compact = width / presentationScale < 600f * density
-        val requestedInset = if (compact) scaled(compactTimelineInset) else 0
-        val available = (width - requestedInset * 2).coerceAtLeast(0)
+        val requestedLeftInset = if (compact) {
+            scaled(compactTimelineInset + if (leadingActionPresent) {
+                compactLeadingActionReservation
+            } else {
+                0
+            })
+        } else {
+            0
+        }
+        val requestedRightInset = if (compact) scaled(compactTimelineInset) else 0
+        val available = (width - requestedLeftInset - requestedRightInset).coerceAtLeast(0)
         val requestedGroup = scaled(if (compact) compactLiveTimeGroupWidth else liveTimeGroupWidth)
         val groupWidth = requestedGroup.coerceAtMost(available)
         val requestedGap = scaled(if (compact) compactLiveTimeGroupGap else liveTimeGroupGap)
         val groupGap = requestedGap.coerceAtMost((available - groupWidth).coerceAtLeast(0))
-        val inset = requestedInset.coerceAtMost(width / 2)
         return LiveLayoutMetrics(
             groupWidth = groupWidth,
             groupGap = groupGap,
-            leftInset = inset,
-            rightInset = inset,
+            leftInset = requestedLeftInset.coerceAtMost(width),
+            rightInset = requestedRightInset.coerceAtMost(width),
         )
     }
 
-    private fun configureLiveTimeGroup(view: View?) {
+    private fun configureLiveTimeGroup(view: View?, compact: Boolean) {
         (view as? TextView)?.apply {
-            gravity = Gravity.CENTER_VERTICAL or when (liveRewindTimePosition) {
-                HudTimelineTimePosition.RIGHT -> Gravity.START
-                HudTimelineTimePosition.LEFT -> Gravity.END
-            }
+            gravity = Gravity.BOTTOM or Gravity.START
             val edgePadding = scaled((4f * density).roundToInt())
             setPadding(
-                if (liveRewindTimePosition == HudTimelineTimePosition.RIGHT) edgePadding else 0,
+                edgePadding,
                 0,
-                if (liveRewindTimePosition == HudTimelineTimePosition.LEFT) edgePadding else 0,
                 0,
+                scaled(((if (compact) 10f else 8f) * density).roundToInt()),
             )
             maxLines = 1
             isSingleLine = true
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            includeFontPadding = false
         }
     }
 
@@ -168,13 +187,20 @@ class HudTimelineContent @JvmOverloads constructor(
         val duration = findViewById<View>(com.github.andreyasadchy.xtra.R.id.duration)
         val bottom = findViewById<View>(com.github.andreyasadchy.xtra.R.id.bottomLayout)
         val preview = scrubPreview
+        // Labels and the time bar share the complete touch-height view. The
+        // time bar itself owns the bottom drawable position through Media3's
+        // bar_gravity attribute.
+        val labelHeight = height
 
         if (liveRewindEnabled) {
             val metrics = liveLayoutMetrics(width)
-            configureLiveTimeGroup(liveTimeGroup)
+            configureLiveTimeGroup(
+                liveTimeGroup,
+                compact = width / presentationScale < 600f * density,
+            )
             liveTimeGroup?.measure(
                 MeasureSpec.makeMeasureSpec(metrics.groupWidth, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(labelHeight, MeasureSpec.EXACTLY),
             )
             position?.measure(
                 MeasureSpec.makeMeasureSpec(0, MeasureSpec.EXACTLY),
@@ -185,11 +211,7 @@ class HudTimelineContent @JvmOverloads constructor(
                 MeasureSpec.makeMeasureSpec(0, MeasureSpec.EXACTLY),
             )
             bottom?.measure(
-                MeasureSpec.makeMeasureSpec(
-                    (width - metrics.leftInset - metrics.rightInset - metrics.groupWidth - metrics.groupGap)
-                        .coerceAtLeast(0),
-                    MeasureSpec.EXACTLY,
-                ),
+                MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
             )
         } else {
@@ -199,7 +221,7 @@ class HudTimelineContent @JvmOverloads constructor(
             val labelSlotWidth = if (showLabels) scaled(labelWidth) else 0
             position?.measure(
                 MeasureSpec.makeMeasureSpec(labelSlotWidth, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(labelHeight, MeasureSpec.EXACTLY),
             )
             liveTimeGroup?.measure(
                 MeasureSpec.makeMeasureSpec(0, MeasureSpec.EXACTLY),
@@ -207,13 +229,10 @@ class HudTimelineContent @JvmOverloads constructor(
             )
             duration?.measure(
                 MeasureSpec.makeMeasureSpec(labelSlotWidth, MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(labelHeight, MeasureSpec.EXACTLY),
             )
             bottom?.measure(
-                MeasureSpec.makeMeasureSpec(
-                    (width - 2 * labelSlotWidth).coerceAtLeast(1),
-                    MeasureSpec.EXACTLY,
-                ),
+                MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY),
             )
         }
@@ -246,30 +265,23 @@ class HudTimelineContent @JvmOverloads constructor(
         if (liveRewindEnabled) {
             val metrics = liveLayoutMetrics(width)
             val groupWidth = liveTimeGroup?.measuredWidth ?: metrics.groupWidth
-            val trackLeft: Int
-            val trackRight: Int
             val groupLeft: Int
             if (liveRewindTimePosition == HudTimelineTimePosition.RIGHT) {
-                trackLeft = metrics.leftInset
-                trackRight = (width - metrics.rightInset - groupWidth - metrics.groupGap).coerceAtLeast(trackLeft)
                 groupLeft = width - metrics.rightInset - groupWidth
             } else {
                 groupLeft = metrics.leftInset
-                trackLeft = (metrics.leftInset + groupWidth + metrics.groupGap).coerceAtMost(width - metrics.rightInset)
-                trackRight = width - metrics.rightInset
             }
-            timeline?.layout(trackLeft, 0, trackRight, timeline.measuredHeight)
-            liveTimeGroup?.layout(groupLeft, 0, groupLeft + groupWidth, liveTimeGroup.measuredHeight)
+            timeline?.layout(0, 0, width, height)
+            liveTimeGroup?.layout(groupLeft, 0, groupLeft + groupWidth, height)
             position?.layout(0, 0, 0, 0)
             duration?.layout(0, 0, 0, 0)
             preview?.let { bubble ->
                 val fraction = liveRewindPreviewFraction ?: 0.5f
-                val trackSpan = (trackRight - trackLeft).coerceAtLeast(0)
-                val bubbleCenter = trackLeft + trackSpan * fraction
+                val bubbleCenter = width * fraction
                 val bubbleLeft = (bubbleCenter - bubble.measuredWidth / 2f)
                     .roundToInt()
-                    .coerceIn(trackLeft, (trackRight - bubble.measuredWidth).coerceAtLeast(trackLeft))
-                val bubbleTop = bubble.measuredHeight * -1 - scaled(previewGap)
+                    .coerceIn(0, (width - bubble.measuredWidth).coerceAtLeast(0))
+                val bubbleTop = height - bubble.measuredHeight - scaled(previewGap)
                 bubble.layout(
                     bubbleLeft,
                     bubbleTop,
@@ -278,15 +290,10 @@ class HudTimelineContent @JvmOverloads constructor(
                 )
             }
         } else {
-            position?.layout(0, 0, position.measuredWidth, position.measuredHeight)
+            position?.layout(0, 0, position.measuredWidth, height)
             liveTimeGroup?.layout(0, 0, 0, 0)
-            duration?.layout(width - duration.measuredWidth, 0, width, duration.measuredHeight)
-            timeline?.layout(
-                position?.measuredWidth ?: 0,
-                0,
-                width - (duration?.measuredWidth ?: 0),
-                timeline.measuredHeight,
-            )
+            duration?.layout(width - duration.measuredWidth, 0, width, height)
+            timeline?.layout(0, 0, width, height)
             preview?.layout(0, 0, 0, 0)
         }
         for (index in 0 until childCount) {

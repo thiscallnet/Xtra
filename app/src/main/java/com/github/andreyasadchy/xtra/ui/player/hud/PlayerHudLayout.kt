@@ -5,7 +5,6 @@ import android.content.res.Configuration
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
-import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -26,7 +25,7 @@ class PlayerHudLayout @JvmOverloads constructor(
     attrs: AttributeSet? = null,
 ) : ViewGroup(context, attrs) {
     private companion object {
-        const val PREVIEW_LIVE_TIME = "LIVE / 4:20:27"
+        const val PREVIEW_LIVE_TIME = "32:23 · LIVE"
     }
 
     private val density = resources.displayMetrics.density
@@ -50,11 +49,24 @@ class PlayerHudLayout @JvmOverloads constructor(
     private var editorOnDragStarted: ((HudElementId) -> Unit)? = null
     private var editorOnMoved: ((HudElementId, HudPlacement) -> Unit)? = null
     private var editorOnDropped: ((HudElementId, Boolean, HudPlacement?) -> Unit)? = null
+    /** The player gesture layer may dispatch directly to this root. */
+    var interactionLocked = false
+        set(value) {
+            field = value
+            updateInteractionAccessibility()
+            if (!value) interactionUnlockGesture = false
+        }
+    var interactionUnlockView: View? = null
+    private val interactionUnlockHitRect = Rect()
+    private var interactionUnlockGesture = false
 
     init {
         clipChildren = false
         clipToPadding = false
         isClickable = false
+        // The scrim is non-accessible, but active HUD frames contain real
+        // controls. This container is structural; expose the actionable child
+        // views instead of creating a second, empty accessibility node.
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
         ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
             val system = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
@@ -69,6 +81,12 @@ class PlayerHudLayout @JvmOverloads constructor(
 
     override fun onFinishInflate() {
         super.onFinishInflate()
+        findViewById<LinearLayout>(R.id.topLeftLayout)?.apply {
+            background = HudMetadataBackgroundDrawable(density)
+            val horizontalPadding = (8f * density).roundToInt()
+            val verticalPadding = (5f * density).roundToInt()
+            setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
+        }
         frames.clear()
         for (index in 0 until childCount) {
             (getChildAt(index) as? HudElementFrame)?.let { frame ->
@@ -77,6 +95,7 @@ class PlayerHudLayout @JvmOverloads constructor(
             }
         }
         availability = runtimeAvailability()
+        updateInteractionAccessibility()
     }
 
     fun setHudOrientation(value: HudOrientation) {
@@ -159,7 +178,7 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     fun updateEditorPlacement(id: HudElementId, placement: HudPlacement) {
-        if (!editing) return
+        if (!editing || !HudElementRegistry.get(id).isMovable) return
         val base = if (profile.mode == HudProfileMode.DEFAULT) {
             materializedDefaultProfile()
         } else {
@@ -190,6 +209,47 @@ class PlayerHudLayout @JvmOverloads constructor(
 
     fun isElementActive(id: HudElementId): Boolean = resolved.containsKey(id) && frames[id]?.isActive() == true
 
+    /**
+     * Returns controls omitted from the current direct layout to the More
+     * sheet, while respecting an explicit hide in a CUSTOM profile.
+     */
+    fun canShowInOverflow(id: HudElementId): Boolean {
+        if (interactionLocked && id != HudElementId.INTERACTION_LOCK) return false
+        if (id !in availability || profile.placements[id]?.enabled == false || isElementActive(id)) {
+            return false
+        }
+        // The fixed timeline status owns the live affordance whenever it is
+        // present. Do not put a redundant "seek live" row in More at the edge
+        // or while rewound.
+        if (id == HudElementId.GO_LIVE &&
+            findViewById<View>(R.id.liveTimeGroup)?.isShown == true
+        ) {
+            return false
+        }
+        return true
+    }
+
+    fun performAction(id: HudElementId): Boolean {
+        if (interactionLocked && id != HudElementId.INTERACTION_LOCK) return false
+        return frames[id]?.performAction() == true
+    }
+
+    fun actionContentDescription(id: HudElementId): CharSequence? {
+        if (interactionLocked && id != HudElementId.INTERACTION_LOCK) return null
+        return frames[id]?.actionContentDescription()
+    }
+
+    fun isActionEnabled(id: HudElementId): Boolean {
+        if (interactionLocked && id != HudElementId.INTERACTION_LOCK) return false
+        return frames[id]?.isActionEnabled() == true
+    }
+
+    private fun updateInteractionAccessibility() {
+        frames.forEach { (id, frame) ->
+            frame.setInteractionBlocked(interactionLocked && id != HudElementId.INTERACTION_LOCK)
+        }
+    }
+
     fun isElementActive(view: View): Boolean {
         var current: View? = view
         while (current != null && current !== this) {
@@ -212,6 +272,9 @@ class PlayerHudLayout @JvmOverloads constructor(
     fun editorSnapPreview(id: HudElementId, requested: HudPlacement? = null): HudEditorSnapPreview {
         val safe = safeRect(width.toFloat(), height.toFloat())
         val raw = clampEditorPlacement(id, requested ?: profile.placements[id] ?: defaultPlacement(id))
+        if (!HudElementRegistry.get(id).isMovable) {
+            return HudEditorSnapPreview(raw, raw, emptyList())
+        }
         val elements = editorElements(editorProfileWith(id, raw))
         val selected = elements.firstOrNull { it.id == id } ?: return HudEditorSnapPreview(raw, raw, emptyList())
         val spec = HudElementRegistry.get(id)
@@ -272,6 +335,17 @@ class PlayerHudLayout @JvmOverloads constructor(
         dragStart: HudPlacement,
         requested: HudPlacement,
     ): HudEditorDropResult {
+        if (!HudElementRegistry.get(id).isMovable) {
+            return HudEditorDropResult(
+                profile = null,
+                selectedPlacement = null,
+                movedElements = emptySet(),
+                kind = HudEditorDropKind.REJECTED,
+                guides = emptyList(),
+                blockers = emptySet(),
+                explanation = "Playback timeline is fixed to the bottom of the video",
+            )
+        }
         val raw = clampEditorPlacement(id, requested)
         val rawProfile = editorProfileWith(id, raw)
         val rawBlockers = editorCollisionIds(id, raw, rawProfile)
@@ -327,6 +401,7 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     fun clampEditorPlacement(id: HudElementId, placement: HudPlacement): HudPlacement {
+        if (!HudElementRegistry.get(id).isMovable) return placement
         val safe = safeRect(width.toFloat(), height.toFloat())
         val testProfile = profile.copy(mode = HudProfileMode.CUSTOM, placements = profile.placements + (id to placement))
         val test = resolve(safe, testProfile, HudElementId.entries.toSet()).firstOrNull { it.id == id } ?: return placement
@@ -366,14 +441,14 @@ class PlayerHudLayout @JvmOverloads constructor(
         val elements = editorElements(candidateProfile)
         if (selectedId != null) {
             val selected = elements.firstOrNull { it.id == selectedId } ?: return false
-            if (!selected.hitRect.isInside(safe)) return false
+            if (!selected.visualRect.isInside(safe)) return false
             return editorCollisionIds(selectedId, selectedPlacement(selectedId, selected, candidateProfile), candidateProfile).isEmpty()
         }
-        return elements.all { it.hitRect.isInside(safe) } &&
+        return elements.all { it.visualRect.isInside(safe) } &&
             elements.withIndex().none { (index, element) ->
                 elements.drop(index + 1).any { other ->
                     (affectedIds == null || element.id in affectedIds || other.id in affectedIds) &&
-                        element.hitRect.overlaps(other.hitRect)
+                        element.visualRect.overlaps(other.visualRect)
                 }
             }
     }
@@ -411,7 +486,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         val candidate = elements.firstOrNull { it.id == id } ?: return emptySet()
         return elements
             .asSequence()
-            .filter { it.id != id && it.hitRect.overlaps(candidate.hitRect) }
+            .filter { it.id != id && it.visualRect.overlaps(candidate.visualRect) }
             .mapTo(linkedSetOf()) { it.id }
     }
 
@@ -472,9 +547,9 @@ class PlayerHudLayout @JvmOverloads constructor(
         primaryMovement: Float,
     ): Int {
         if (abs(primaryMovement) > 0.5f) return if (primaryMovement > 0f) -1 else 1
-        val selectedCenter = if (horizontal) selected.hitRect.centerX else selected.hitRect.centerY
+        val selectedCenter = if (horizontal) selected.visualRect.centerX else selected.visualRect.centerY
         val blockerCenter = blockers.mapNotNull { elements[it] }
-            .map { if (horizontal) it.hitRect.centerX else it.hitRect.centerY }
+            .map { if (horizontal) it.visualRect.centerX else it.visualRect.centerY }
             .average()
         return if (selectedCenter >= blockerCenter) -1 else 1
     }
@@ -508,7 +583,7 @@ class PlayerHudLayout @JvmOverloads constructor(
                         isMovableDefaultBlocker(element.id) &&
                         defaultLane(element.id) == lane &&
                         moved.any { movedId ->
-                            candidateElements[movedId]?.hitRect?.overlaps(element.hitRect) == true
+                            candidateElements[movedId]?.visualRect?.overlaps(element.visualRect) == true
                         }
                 }
                 .map { it.id }
@@ -530,22 +605,22 @@ class PlayerHudLayout @JvmOverloads constructor(
         val lane = blockers
             .mapNotNull { baseElements[it] }
             .sortedWith(
-                if (horizontal) compareBy<ResolvedHudElement> { it.hitRect.left }
-                else compareBy<ResolvedHudElement> { it.hitRect.top },
+                if (horizontal) compareBy<ResolvedHudElement> { it.visualRect.left }
+                else compareBy<ResolvedHudElement> { it.visualRect.top },
             )
         if (lane.isEmpty()) return null
 
         val spacing = HudDefaultLayout.SPACING * density
         val translation = if (horizontal) {
             if (direction < 0) {
-                selected.hitRect.left - spacing - lane.maxOf { it.hitRect.right }
+                selected.visualRect.left - spacing - lane.maxOf { it.visualRect.right }
             } else {
-                selected.hitRect.right + spacing - lane.minOf { it.hitRect.left }
+                selected.visualRect.right + spacing - lane.minOf { it.visualRect.left }
             }
         } else if (direction < 0) {
-            selected.hitRect.top - spacing - lane.maxOf { it.hitRect.bottom }
+            selected.visualRect.top - spacing - lane.maxOf { it.visualRect.bottom }
         } else {
-            selected.hitRect.bottom + spacing - lane.minOf { it.hitRect.top }
+            selected.visualRect.bottom + spacing - lane.minOf { it.visualRect.top }
         }
         if (abs(translation) < 0.5f) return null
 
@@ -598,7 +673,8 @@ class PlayerHudLayout @JvmOverloads constructor(
         .replaceFirstChar(Char::uppercase)
 
     private fun isMovableDefaultBlocker(id: HudElementId): Boolean =
-        id != HudElementId.STREAM_INFO &&
+        HudElementRegistry.get(id).isMovable &&
+            id != HudElementId.STREAM_INFO &&
             id != HudElementId.TIMELINE &&
             id != HudElementId.SEEK_BACK &&
             id != HudElementId.PLAY_PAUSE &&
@@ -613,16 +689,18 @@ class PlayerHudLayout @JvmOverloads constructor(
                 orientation,
                 safeWidth,
                 profile.defaultPolicyVersion,
+                safeRect(width.toFloat(), height.toFloat()).height < 260f * density,
             ) -> 0
             id == HudElementId.SEEK_BACK ||
                 id == HudElementId.PLAY_PAUSE ||
                 id == HudElementId.SEEK_FORWARD -> 1
             id == HudElementId.VOLUME ||
                 id == HudElementId.CLIP ||
-                id == HudElementId.MORE ||
-                id == HudElementId.CAPTIONS ||
-                id == HudElementId.CHAT ||
-                id == HudElementId.FULLSCREEN -> 2
+            id == HudElementId.MORE ||
+            id == HudElementId.CAPTIONS ||
+            id == HudElementId.CHAT ||
+            id == HudElementId.FULLSCREEN ||
+            id == HudElementId.INTERACTION_LOCK -> 2
             id == HudElementId.TIMELINE -> 3
             else -> null
         }
@@ -671,7 +749,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         )
         return elements.withIndex().any { (index, element) ->
             elements.drop(index + 1).any { other ->
-                element.hitRect.overlaps(other.hitRect)
+                element.visualRect.overlaps(other.visualRect)
             }
         }
     }
@@ -711,6 +789,11 @@ class PlayerHudLayout @JvmOverloads constructor(
             compactMetricsApplied = compact
         }
         applyMetadataWidth(safe)
+        findViewById<HudTimelineContent>(R.id.timelineContent)?.setLeadingActionPresent(
+            compact &&
+                HudElementId.CHAT in availability &&
+                profile.placements[HudElementId.CHAT]?.enabled != false,
+        )
         frames.values.forEach(HudElementFrame::captureCanonicalPresentationMetrics)
         val frameWidthSpec = MeasureSpec.makeMeasureSpec(safe.width.roundToInt().coerceAtLeast(1), MeasureSpec.AT_MOST)
         val frameHeightSpec = MeasureSpec.makeMeasureSpec(safe.height.roundToInt().coerceAtLeast(1), MeasureSpec.AT_MOST)
@@ -723,6 +806,7 @@ class PlayerHudLayout @JvmOverloads constructor(
             val element = resolved[id]
             frame.setGeometry(element)
             frame.setActive(element != null)
+            frame.setInteractionBlocked(interactionLocked && id != HudElementId.INTERACTION_LOCK)
             if (element != null) {
                 frame.applyPresentationScale(element.effectiveScale)
                 frame.measure(
@@ -764,10 +848,15 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (interactionLocked) {
+            return dispatchLockedTouchEvent(event)
+        }
         if (!editing) return super.dispatchTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                editorSelected = resolved.values.lastOrNull { it.hitRect.contains(event.x, event.y) }?.id
+                editorSelected = resolved.values.lastOrNull {
+                    HudElementRegistry.get(it.id).isMovable && it.hitRect.contains(event.x, event.y)
+                }?.id
                 editorSelected?.let { id ->
                     parent?.requestDisallowInterceptTouchEvent(true)
                     editorStartX = event.x
@@ -820,11 +909,57 @@ class PlayerHudLayout @JvmOverloads constructor(
         return false
     }
 
+    /**
+     * Keep the lock effective even when the player gesture layer sends a
+     * motion event directly to this root instead of through PlayerLayout.
+     */
+    private fun dispatchLockedTouchEvent(event: MotionEvent): Boolean {
+        val unlock = interactionUnlockView?.takeIf { it.isShown }
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                interactionUnlockGesture = unlock != null && isInsideInteractionUnlock(event, unlock)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> interactionUnlockGesture = false
+        }
+        if (!interactionUnlockGesture) {
+            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                interactionUnlockGesture = false
+            }
+            return true
+        }
+        val handled = super.dispatchTouchEvent(event)
+        if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            interactionUnlockGesture = false
+        }
+        return handled || true
+    }
+
+    private fun isInsideInteractionUnlock(event: MotionEvent, unlock: View): Boolean {
+        unlock.getDrawingRect(interactionUnlockHitRect)
+        offsetDescendantRectToMyCoords(unlock, interactionUnlockHitRect)
+        val minimumTarget = (48f * density).roundToInt()
+        if (interactionUnlockHitRect.width() < minimumTarget || interactionUnlockHitRect.height() < minimumTarget) {
+            val centerX = interactionUnlockHitRect.centerX()
+            val centerY = interactionUnlockHitRect.centerY()
+            val width = maxOf(interactionUnlockHitRect.width(), minimumTarget)
+            val height = maxOf(interactionUnlockHitRect.height(), minimumTarget)
+            interactionUnlockHitRect.set(
+                centerX - width / 2,
+                centerY - height / 2,
+                centerX + (width + 1) / 2,
+                centerY + (height + 1) / 2,
+            )
+        }
+        return interactionUnlockHitRect.contains(event.x.roundToInt(), event.y.roundToInt())
+    }
+
     override fun onInterceptTouchEvent(event: MotionEvent): Boolean = if (!editing) {
         false
     } else {
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> resolved.values.any { it.hitRect.contains(event.x, event.y) }
+            MotionEvent.ACTION_DOWN -> resolved.values.any {
+                HudElementRegistry.get(it.id).isMovable && it.hitRect.contains(event.x, event.y)
+            }
             else -> editorSelected != null
         }
     }
@@ -880,35 +1015,56 @@ class PlayerHudLayout @JvmOverloads constructor(
      */
     private fun videoViewport(rootWidth: Float, rootHeight: Float): HudRect {
         val parentGroup = parent as? ViewGroup ?: return HudRect(0f, 0f, rootWidth, rootHeight)
-        val video = parentGroup.findViewById<View>(R.id.aspectRatioFrameLayout)
+        val aspect = parentGroup.findViewById<View>(R.id.aspectRatioFrameLayout)
             ?: return HudRect(0f, 0f, rootWidth, rootHeight)
-        val videoWidth = video.measuredWidth.takeIf { it > 0 } ?: video.width
-        val videoHeight = video.measuredHeight.takeIf { it > 0 } ?: video.height
-        if (videoWidth <= 0 || videoHeight <= 0) return HudRect(0f, 0f, rootWidth, rootHeight)
+        val output = listOf(
+            parentGroup.findViewById<View>(R.id.playerSurface),
+            parentGroup.findViewById<View>(R.id.playerTextureView),
+        ).firstOrNull { it?.isShown == true && it.measuredWidth > 0 && it.measuredHeight > 0 }
 
-        val params = video.layoutParams as? android.widget.FrameLayout.LayoutParams
-        val gravity = params?.gravity ?: Gravity.TOP or Gravity.START
-        val absoluteGravity = Gravity.getAbsoluteGravity(gravity, layoutDirection)
-        val horizontal = absoluteGravity and Gravity.HORIZONTAL_GRAVITY_MASK
-        val vertical = gravity and Gravity.VERTICAL_GRAVITY_MASK
-        val left = when (horizontal) {
-            Gravity.CENTER_HORIZONTAL -> (rootWidth - videoWidth) / 2f
-            Gravity.RIGHT -> rootWidth - videoWidth - (params?.rightMargin ?: 0)
-            else -> (params?.leftMargin ?: 0).toFloat()
+        fun offsetToAncestor(view: View): Pair<Float, Float>? {
+            var current: View? = view
+            var x = 0f
+            var y = 0f
+            while (current != null && current !== parentGroup) {
+                x += current.left - current.scrollX
+                y += current.top - current.scrollY
+                current = current.parent as? View
+            }
+            return (x to y).takeIf { current === parentGroup }
         }
-        val top = when (vertical) {
-            Gravity.CENTER_VERTICAL -> (rootHeight - videoHeight) / 2f
-            Gravity.BOTTOM -> rootHeight - videoHeight - (params?.bottomMargin ?: 0)
-            else -> (params?.topMargin ?: 0).toFloat()
+
+        val viewport = output?.let { rendered ->
+            val renderedOffset = offsetToAncestor(rendered)
+            val hudOffset = offsetToAncestor(this)
+            if (renderedOffset != null && hudOffset != null) {
+                val left = renderedOffset.first - hudOffset.first
+                val top = renderedOffset.second - hudOffset.second
+                HudRect(left, top, left + rendered.width, top + rendered.height)
+            } else {
+                null
+            }
+        } ?: run {
+            val videoWidth = aspect.measuredWidth.takeIf { it > 0 } ?: aspect.width
+            val videoHeight = aspect.measuredHeight.takeIf { it > 0 } ?: aspect.height
+            val aspectOffset = offsetToAncestor(aspect)
+            val hudOffset = offsetToAncestor(this)
+            if (videoWidth <= 0 || videoHeight <= 0 || aspectOffset == null || hudOffset == null) {
+                return HudRect(0f, 0f, rootWidth, rootHeight)
+            }
+            HudRect(
+                aspectOffset.first - hudOffset.first,
+                aspectOffset.second - hudOffset.second,
+                aspectOffset.first - hudOffset.first + videoWidth,
+                aspectOffset.second - hudOffset.second + videoHeight,
+            )
         }
-        val boundedLeft = left.coerceIn(0f, (rootWidth - videoWidth).coerceAtLeast(0f))
-        val boundedTop = top.coerceIn(0f, (rootHeight - videoHeight).coerceAtLeast(0f))
-        return HudRect(
-            boundedLeft,
-            boundedTop,
-            (boundedLeft + videoWidth).coerceAtMost(rootWidth),
-            (boundedTop + videoHeight).coerceAtMost(rootHeight),
-        )
+
+        val boundedLeft = viewport.left.coerceIn(0f, rootWidth)
+        val boundedTop = viewport.top.coerceIn(0f, rootHeight)
+        val boundedRight = viewport.right.coerceIn(boundedLeft, rootWidth)
+        val boundedBottom = viewport.bottom.coerceIn(boundedTop, rootHeight)
+        return HudRect(boundedLeft, boundedTop, boundedRight, boundedBottom)
     }
 
     private fun runtimeAvailability(): Set<HudElementId> = HudElementId.entries.filterTo(mutableSetOf()) { id ->
@@ -966,6 +1122,8 @@ class PlayerHudLayout @JvmOverloads constructor(
         ).metadataWidthBudget(safe, orientation, profile, availability)
             .coerceAtMost(safe.width)
             .coerceAtLeast(1f)
+        val topLeft = findViewById<LinearLayout>(R.id.topLeftLayout)
+        val horizontalBackgroundPadding = (topLeft?.paddingLeft ?: 0) + (topLeft?.paddingRight ?: 0)
         val avatar = findViewById<View>(R.id.channelAvatar)
         val avatarParams = avatar?.layoutParams as? ViewGroup.MarginLayoutParams
         val avatarWidth = if (avatar?.visibility == View.GONE) {
@@ -974,12 +1132,14 @@ class PlayerHudLayout @JvmOverloads constructor(
             (avatarParams?.width ?: (40f * density).roundToInt()).toFloat() +
                 (avatarParams?.rightMargin ?: (10f * density).roundToInt())
         }
-        val textWidth = (compositionWidth - avatarWidth).coerceAtLeast(40f * density).roundToInt()
+        val textWidth = (compositionWidth - horizontalBackgroundPadding - avatarWidth)
+            .coerceAtLeast(40f * density)
+            .roundToInt()
 
         // Give the metadata composition one deterministic width. The details
         // row is packed: Playing and the viewer target keep their measured
         // widths, while category is the only field allowed to shrink.
-        findViewById<LinearLayout>(R.id.topLeftLayout)?.updateLayoutParams<ViewGroup.LayoutParams> {
+        topLeft?.updateLayoutParams<ViewGroup.LayoutParams> {
             width = compositionWidth.roundToInt().coerceAtLeast(1)
         }
         findViewById<LinearLayout>(R.id.infoLayout)?.updateLayoutParams<LinearLayout.LayoutParams> {
@@ -994,23 +1154,40 @@ class PlayerHudLayout @JvmOverloads constructor(
             width = ViewGroup.LayoutParams.MATCH_PARENT
             weight = 0f
         }
-
         val playing = findViewById<TextView>(R.id.playingLabel)
         val category = findViewById<TextView>(R.id.category)
         val viewers = findViewById<View>(R.id.viewersLayout)
+        val compact = safe.height < 260f * density
+        findViewById<LinearLayout>(R.id.streamDetailsLayout)?.orientation =
+            if (compact) LinearLayout.VERTICAL else LinearLayout.HORIZONTAL
+        findViewById<LinearLayout>(R.id.titleAndViewersLayout)?.updateLayoutParams<LinearLayout.LayoutParams> {
+            topMargin = ((if (compact) 1f else 2f) * density).roundToInt()
+        }
+        findViewById<LinearLayout>(R.id.streamDetailsLayout)?.updateLayoutParams<LinearLayout.LayoutParams> {
+            topMargin = ((if (compact) 1f else 2f) * density).roundToInt()
+        }
+        findViewById<LinearLayout>(R.id.playingCategoryLayout)?.updateLayoutParams<LinearLayout.LayoutParams> {
+            width = if (compact) ViewGroup.LayoutParams.MATCH_PARENT else ViewGroup.LayoutParams.WRAP_CONTENT
+            weight = 0f
+        }
+        viewers?.updateLayoutParams<LinearLayout.LayoutParams> {
+            width = ViewGroup.LayoutParams.WRAP_CONTENT
+            weight = 0f
+        }
+
         playing?.updateLayoutParams<LinearLayout.LayoutParams> {
             width = ViewGroup.LayoutParams.WRAP_CONTENT
             weight = 0f
-            marginEnd = (2f * density).roundToInt()
+            marginEnd = ((if (compact) 1f else 2f) * density).roundToInt()
         }
         category?.updateLayoutParams<LinearLayout.LayoutParams> {
             width = ViewGroup.LayoutParams.WRAP_CONTENT
             weight = 0f
             marginStart = 0
-            marginEnd = (4f * density).roundToInt()
+            marginEnd = ((if (compact) 2f else 4f) * density).roundToInt()
         }
         val fixedDetailsWidth = measuredWrapContentWidth(playing, safe.height) +
-            measuredWrapContentWidth(viewers, safe.height)
+            if (compact) 0 else measuredWrapContentWidth(viewers, safe.height)
         val categoryMargins = (category?.layoutParams as? ViewGroup.MarginLayoutParams)?.let {
             it.leftMargin + it.rightMargin
         } ?: 0
@@ -1060,14 +1237,31 @@ class PlayerHudLayout @JvmOverloads constructor(
         resizeView(R.id.rewind, seekSize.roundToInt())
         resizeView(R.id.fastForward, seekSize.roundToInt())
         resizeView(R.id.playPause, playSize.roundToInt())
-        findViewById<TextView>(R.id.channel)?.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 13f else 15f)
-        findViewById<TextView>(R.id.title)?.apply {
+        findViewById<TextView>(R.id.channel)?.apply {
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 12f else 15f)
-            maxLines = 2
+            includeFontPadding = !compact
         }
-        findViewById<TextView>(R.id.playingLabel)?.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 11f else 12f)
-        findViewById<TextView>(R.id.category)?.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 11f else 12f)
-        findViewById<TextView>(R.id.viewersText)?.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 11f else 12f)
+        findViewById<TextView>(R.id.title)?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 11f else 15f)
+            includeFontPadding = !compact
+            // The compact player has usable vertical space before the
+            // transport row. A third line keeps long stream descriptions
+            // readable without widening the metadata into the top-right
+            // controls.
+            maxLines = if (compact) 3 else 2
+        }
+        findViewById<TextView>(R.id.playingLabel)?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 10f else 12f)
+            includeFontPadding = !compact
+        }
+        findViewById<TextView>(R.id.category)?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 10f else 12f)
+            includeFontPadding = !compact
+        }
+        findViewById<TextView>(R.id.viewersText)?.apply {
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 10f else 12f)
+            includeFontPadding = !compact
+        }
         val avatarSize = (if (compact) 32 else 40) * density
         resizeView(R.id.channelAvatar, avatarSize.roundToInt())
     }

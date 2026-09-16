@@ -3,12 +3,18 @@ package com.github.andreyasadchy.xtra.ui.player.hud
 object HudDefaultLayout {
     const val NORMAL_EDGE_PADDING = 12f
     const val TV_EDGE_PADDING = 48f
-    const val SPACING = 8f
-    const val COMPACT_VERTICAL_PADDING = 8f
+    const val SPACING = 4f
+    const val COMPACT_HORIZONTAL_PADDING = 4f
+    const val COMPACT_VERTICAL_PADDING = 4f
+    const val COMPACT_BOTTOM_VISUAL_CLEARANCE = 2f
     const val TRANSPORT_GAP = 20f
-    const val COMPACT_TRANSPORT_GAP = 12f
+    // The 48dp touch targets can overlap, so the visible transport needs no
+    // extra gap. This leaves the fixed middle-left lock visible even when
+    // display cutouts reduce the safe width to the narrow-phone floor.
+    const val COMPACT_TRANSPORT_GAP = 0f
+    private const val RESPONSIVE_COMPACT_WIDTH = 360f
 
-    private val COMPACT_PHONE_DEFAULT_ELEMENTS = setOf(
+    private val COMPACT_PHONE_V3_DEFAULT_ELEMENTS = setOf(
         HudElementId.STREAM_INFO,
         HudElementId.TIMELINE,
         HudElementId.SEEK_BACK,
@@ -35,14 +41,44 @@ object HudDefaultLayout {
         HudElementId.FULLSCREEN,
         HudElementId.MORE,
     )
+    private val FIXED_PLAYER_CHROME_COMPACT_ELEMENTS = setOf(
+        HudElementId.STREAM_INFO,
+        HudElementId.TIMELINE,
+        HudElementId.SEEK_BACK,
+        HudElementId.PLAY_PAUSE,
+        HudElementId.SEEK_FORWARD,
+        HudElementId.CAPTIONS,
+        HudElementId.QUALITY,
+        HudElementId.CHAT,
+        HudElementId.FULLSCREEN,
+        HudElementId.MORE,
+        HudElementId.INTERACTION_LOCK,
+    )
+    private val RESPONSIVE_COMPLETE_DEFAULT_ELEMENTS = LEGACY_DEFAULT_ELEMENTS +
+        HudElementId.INTERACTION_LOCK
 
     fun defaultEnabledElements(defaultPolicyVersion: Int = HudDefaultPolicy.CURRENT): Set<HudElementId> =
-        if (defaultPolicyVersion >= HudDefaultPolicy.COMPACT_PHONE_V3) {
-            COMPACT_PHONE_DEFAULT_ELEMENTS
-        } else LEGACY_DEFAULT_ELEMENTS
+        when {
+            defaultPolicyVersion == HudDefaultPolicy.COMPACT_PHONE_V3 -> COMPACT_PHONE_V3_DEFAULT_ELEMENTS
+            defaultPolicyVersion >= HudDefaultPolicy.RESPONSIVE_COMPLETE_V4 -> RESPONSIVE_COMPLETE_DEFAULT_ELEMENTS
+            else -> LEGACY_DEFAULT_ELEMENTS
+        }
 
     private fun usesCompactPhonePolicy(defaultPolicyVersion: Int): Boolean =
-        defaultPolicyVersion >= HudDefaultPolicy.COMPACT_PHONE_V3
+        defaultPolicyVersion == HudDefaultPolicy.COMPACT_PHONE_V3
+
+    private fun usesResponsiveCompletePolicy(defaultPolicyVersion: Int): Boolean =
+        defaultPolicyVersion >= HudDefaultPolicy.RESPONSIVE_COMPLETE_V4
+
+    private fun usesFixedPlayerChromePolicy(defaultPolicyVersion: Int): Boolean =
+        defaultPolicyVersion >= HudDefaultPolicy.FIXED_PLAYER_CHROME_V5
+
+    private fun isResponsiveCompact(
+        defaultPolicyVersion: Int,
+        safeWidth: Float,
+        compact: Boolean,
+    ): Boolean = usesResponsiveCompletePolicy(defaultPolicyVersion) &&
+        (compact || safeWidth < RESPONSIVE_COMPACT_WIDTH)
 
     fun enabledByDefault(
         id: HudElementId,
@@ -54,11 +90,24 @@ object HudDefaultLayout {
         // Both orientations use the same visual language. Width and height
         // only decide which controls can fit, never a separate portrait model.
         if (usesCompactPhonePolicy(defaultPolicyVersion)) {
-            return id in COMPACT_PHONE_DEFAULT_ELEMENTS
+            return id in COMPACT_PHONE_V3_DEFAULT_ELEMENTS
         }
 
-        return id in defaultEnabledElements(HudDefaultPolicy.LEGACY_V2) && when {
-            compact && id in setOf(
+        if (isResponsiveCompact(defaultPolicyVersion, safeWidth, compact)) {
+            return if (usesFixedPlayerChromePolicy(defaultPolicyVersion)) {
+                id in FIXED_PLAYER_CHROME_COMPACT_ELEMENTS
+            } else {
+                id in COMPACT_PHONE_V3_DEFAULT_ELEMENTS
+            }
+        }
+
+        val defaultElements = if (usesResponsiveCompletePolicy(defaultPolicyVersion)) {
+            RESPONSIVE_COMPLETE_DEFAULT_ELEMENTS
+        } else {
+            LEGACY_DEFAULT_ELEMENTS
+        }
+        return id in defaultElements && when {
+            defaultPolicyVersion < HudDefaultPolicy.FIXED_PLAYER_CHROME_V5 && compact && id in setOf(
                 HudElementId.CLIP,
                 HudElementId.CAPTIONS,
                 HudElementId.CHAT,
@@ -66,6 +115,7 @@ object HudDefaultLayout {
             ) -> false
             id == HudElementId.FOLLOW -> safeWidth >= 340f
             id == HudElementId.ASPECT_RATIO -> safeWidth >= 600f
+            id == HudElementId.INTERACTION_LOCK -> safeWidth >= 600f
             else -> true
         }
     }
@@ -74,14 +124,32 @@ object HudDefaultLayout {
         orientation: HudOrientation,
         safeWidth: Float,
         defaultPolicyVersion: Int = HudDefaultPolicy.CURRENT,
+        compact: Boolean = false,
     ): List<HudElementId> = buildList {
-        if (usesCompactPhonePolicy(defaultPolicyVersion)) {
-            add(HudElementId.QUALITY)
-            add(HudElementId.FULLSCREEN)
+        if (usesCompactPhonePolicy(defaultPolicyVersion) ||
+            isResponsiveCompact(defaultPolicyVersion, safeWidth, compact)
+        ) {
+            if (usesFixedPlayerChromePolicy(defaultPolicyVersion)) {
+                // This list is placed from the right edge toward the left.
+                // Keep overflow at the outside edge, with captions and
+                // quality beside it, matching familiar player chrome.
+                add(HudElementId.MORE)
+                if (HudElementId.CAPTIONS in defaultEnabledElements(defaultPolicyVersion)) {
+                    add(HudElementId.CAPTIONS)
+                }
+                add(HudElementId.QUALITY)
+            } else {
+                add(HudElementId.QUALITY)
+                add(HudElementId.FULLSCREEN)
+                add(HudElementId.MORE)
+            }
         } else {
             if (safeWidth >= 340f) add(HudElementId.FOLLOW)
             add(HudElementId.QUALITY)
             if (safeWidth >= 600f) add(HudElementId.ASPECT_RATIO)
+            if (usesResponsiveCompletePolicy(defaultPolicyVersion) && safeWidth >= 600f) {
+                add(HudElementId.INTERACTION_LOCK)
+            }
         }
     }
 
@@ -129,7 +197,13 @@ object HudDefaultLayout {
         televisionEdgePadding: Float = TV_EDGE_PADDING * density,
     ): Map<HudElementId, HudPlacement> {
         val compact = safeRect.height < 260f * density
-        val edge = if (television) televisionEdgePadding else NORMAL_EDGE_PADDING * density
+        val edge = if (television) {
+            televisionEdgePadding
+        } else if (compact) {
+            COMPACT_HORIZONTAL_PADDING * density
+        } else {
+            NORMAL_EDGE_PADDING * density
+        }
         val edgePadding = edge.coerceAtMost(safeRect.width / 2f)
         val inner = safeRect.inset(
             edgePadding,
@@ -146,7 +220,10 @@ object HudDefaultLayout {
             } else {
                 spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
             }
-            val scale = HudScale.effective(globalScale, spec.clampScale(profile.placements[id]?.scale ?: 1f))
+            val scale = HudScale.effective(
+                globalScale,
+                if (spec.isMovable) spec.clampScale(profile.placements[id]?.scale ?: 1f) else 1f,
+            )
             return HudSize(size.width * scale, size.height * scale)
         }
 
@@ -177,11 +254,21 @@ object HudDefaultLayout {
                 )) return
             val normalizedX = (x - safeRect.left) / safeRect.width.coerceAtLeast(1f)
             val normalizedY = (y - safeRect.top) / safeRect.height.coerceAtLeast(1f)
-            placements[id] = HudPlacement(true, normalizedX.coerceIn(0f, 1f), normalizedY.coerceIn(0f, 1f), profile.placements[id]?.scale ?: 1f)
+            placements[id] = HudPlacement(
+                true,
+                normalizedX.coerceIn(0f, 1f),
+                normalizedY.coerceIn(0f, 1f),
+                profile.placements[id]?.takeIf { HudElementRegistry.get(id).isMovable }?.scale ?: 1f,
+            )
         }
 
         val safeWidth = safeRect.width / density.coerceAtLeast(0.001f)
-        val topEnd = topEndElements(orientation, safeWidth, profile.defaultPolicyVersion)
+        val topEnd = topEndElements(
+            orientation,
+            safeWidth,
+            profile.defaultPolicyVersion,
+            compact,
+        )
             .filter {
                 it in availability && enabledByDefault(
                     it,
@@ -193,11 +280,13 @@ object HudDefaultLayout {
             }
         var topEndX = if (rtl) inner.left else inner.right
         topEnd.forEach { id ->
-            val hit = hitSize(id)
-            val center = if (rtl) topEndX + hit.width / 2f else topEndX - hit.width / 2f
             val visual = scaledSize(id)
+            // Pack the visible controls by their presentation rectangles. The
+            // frame still owns the larger minimum hit target, so touch
+            // affordance is preserved without adding visible dead space.
+            val center = if (rtl) topEndX + visual.width / 2f else topEndX - visual.width / 2f
             add(id, center, inner.top + visual.height / 2f)
-            topEndX += if (rtl) hit.width + gap else -(hit.width + gap)
+            topEndX += if (rtl) visual.width + gap else -(visual.width + gap)
         }
 
         val metadata = HudElementId.STREAM_INFO
@@ -252,13 +341,18 @@ object HudDefaultLayout {
         }
 
         val compactPhonePolicy = usesCompactPhonePolicy(profile.defaultPolicyVersion)
-        val bottomStartIds = if (compactPhonePolicy) {
+        val responsiveCompact = isResponsiveCompact(profile.defaultPolicyVersion, safeWidth, compact)
+        val compactLayout = compactPhonePolicy || responsiveCompact
+        val fixedPlayerChromeCompact = usesFixedPlayerChromePolicy(profile.defaultPolicyVersion) && responsiveCompact
+        val bottomStartIds = if (compactLayout) {
             listOf(HudElementId.CHAT)
         } else {
             listOf(HudElementId.VOLUME, HudElementId.CLIP)
         }
-        val bottomEndIds = if (compactPhonePolicy) {
-            listOf(HudElementId.MORE)
+        val bottomEndIds = if (fixedPlayerChromeCompact) {
+            listOf(HudElementId.FULLSCREEN)
+        } else if (compactLayout) {
+            emptyList()
         } else {
             listOf(
                 HudElementId.MORE,
@@ -269,7 +363,8 @@ object HudDefaultLayout {
         }
         val bottomStart = bottomStartIds.filter { it in availability }
         val bottomEnd = bottomEndIds.filter {
-            it in availability && (compactPhonePolicy || !compact || it == HudElementId.MORE)
+            it in availability &&
+                (!compact || compactPhonePolicy || fixedPlayerChromeCompact || it == HudElementId.MORE)
         }
         val timelineBand = if (HudElementId.TIMELINE in availability) {
             fittedSize(HudElementId.TIMELINE).height
@@ -282,27 +377,11 @@ object HudDefaultLayout {
         } else {
             0f
         }
-        val bottomActionIds = (bottomStart + bottomEnd).distinct()
-        val bottomActionBand = bottomActionIds.maxOfOrNull { hitSize(it).height } ?: 0f
-        val actionBottom = if (compact) safeRect.bottom else inner.bottom
-        val timelineBottomCandidate = actionBottom - bottomActionBand - gap
-        val candidateTimelineBand = HudRect(
-            safeRect.left,
-            timelineBottomCandidate - timelineReservation,
-            safeRect.right,
-            timelineBottomCandidate,
-        )
-        val timelineAboveActions = compactPhonePolicy &&
-            timelineReservation > 0f &&
-            bottomActionIds.isNotEmpty() &&
-            transportHitRects.none { it.overlaps(candidateTimelineBand) }
-        val timelineBottom = if (timelineAboveActions) {
-            timelineBottomCandidate
-        } else if (compact) {
-            safeRect.bottom
-        } else {
-            inner.bottom
-        }
+        val timelineAvailable = timelineReservation > 0f
+        // Playback chrome owns the bottom edge. Custom placements are merged
+        // around it by HudLayoutEngine, so a legacy timeline coordinate can no
+        // longer lift the progress bar into the action row.
+        val timelineBottom = if (timelineAvailable) safeRect.bottom else inner.bottom
         fun placeBottomRow(ids: List<HudElementId>, start: Boolean) {
             var x = if (start) {
                 if (compact) safeRect.left else inner.left
@@ -312,12 +391,18 @@ object HudDefaultLayout {
             ids.forEach { id ->
                 val hit = hitSize(id)
                 val center = if (start) x + hit.width / 2f else x - hit.width / 2f
-                val centerY = if (timelineAboveActions) {
-                    actionBottom - hit.height / 2f
-                } else if (compact) {
-                    safeRect.bottom - timelineReservation - hit.height / 2f
+                val centerY = if (compact) {
+                    // Keep the visible icon on the last few pixels above the
+                    // fixed timeline. The hit rectangle may overlap the time
+                    // bar; PlayerHudLayout routes an edge tap to the nearest
+                    // visible action, while the middle of the bar remains
+                    // scrubable.
+                    val visual = scaledSize(id)
+                    safeRect.bottom - COMPACT_BOTTOM_VISUAL_CLEARANCE * density - visual.height / 2f
+                } else if (timelineAvailable) {
+                    safeRect.bottom - timelineReservation - hit.height / 2f - gap
                 } else {
-                    inner.bottom - timelineReservation - hit.height / 2f - gap
+                    inner.bottom - hit.height / 2f
                 }
                 val candidate = HudRect(
                     center - hit.width / 2f,
@@ -331,6 +416,12 @@ object HudDefaultLayout {
         }
         placeBottomRow(bottomStart, start = !rtl)
         placeBottomRow(bottomEnd, start = rtl)
+
+        if (fixedPlayerChromeCompact && HudElementId.INTERACTION_LOCK in availability) {
+            val lockHit = hitSize(HudElementId.INTERACTION_LOCK)
+            val lockCenterX = if (rtl) safeRect.right - lockHit.width / 2f else safeRect.left + lockHit.width / 2f
+            add(HudElementId.INTERACTION_LOCK, lockCenterX, safeRect.centerY)
+        }
 
         if (HudElementId.TIMELINE in availability && enabledByDefault(
                 HudElementId.TIMELINE,

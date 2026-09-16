@@ -1127,7 +1127,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         val player = player ?: return
         val showPlayButton = Util.shouldShowPlayButton(player)
         val buffering = player.playbackState == Player.STATE_BUFFERING
-        val canPause = !(videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, false))
+        val canPause = !(videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true))
         val state = PlaybackChromeState(
             showPlayIcon = showPlayButton,
             buffering = buffering,
@@ -1178,8 +1178,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     override fun setSubtitlesButton() {
         with(binding.playerControls) {
             val textTracks = player?.currentTracks?.groups?.find { it.type == androidx.media3.common.C.TRACK_TYPE_TEXT }
-            if (textTracks != null && requireContext().prefs().getBoolean(C.PLAYER_SUBTITLES, false)) {
+            if (videoType != STREAM && textTracks != null) {
                 subtitles.visibility = View.VISIBLE
+                subtitles.contentDescription = getString(
+                    if (textTracks.isSelected) R.string.hide_subtitles else R.string.show_subtitles,
+                )
                 if (textTracks.isSelected) {
                     subtitles.setImageResource(androidx.media3.ui.R.drawable.exo_ic_subtitle_on)
                     subtitles.setOnClickListener {
@@ -1195,8 +1198,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                         requireContext().prefs().edit { putBoolean(C.PLAYER_SUBTITLES_ENABLED, true) }
                     }
                 }
+                subtitles.setOnLongClickListener {
+                    showController(force = true)
+                    openCaptionSettings()
+                    true
+                }
             } else {
                 subtitles.setOnClickListener(null)
+                subtitles.setOnLongClickListener(null)
                 subtitles.visibility = View.GONE
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setSubtitles(textTracks)

@@ -100,6 +100,7 @@ import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.isKeyboardShown
 import com.github.andreyasadchy.xtra.util.isChatEnabled
+import com.github.andreyasadchy.xtra.ui.player.hud.HudElementId
 import com.github.andreyasadchy.xtra.ui.player.hud.HudOrientation
 import com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudVisibilityController
 import com.github.andreyasadchy.xtra.util.prefs
@@ -168,6 +169,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var controllerHideOnTouch: Boolean
         get() = hudVisibility.hideOnTouch
         set(value) { hudVisibility.hideOnTouch = value }
+    private var isInteractionLocked = false
+    private var interactionLockBackCallback: OnBackPressedCallback? = null
     private val controllerHideAction = hudVisibility.hideRunnable()
     private val controllerIsAnimating: Boolean get() = hudVisibility.isAnimating
     private var backgroundColor: Int? = null
@@ -468,9 +471,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     fun openLiveCaptionSettings() {
         if (videoType != STREAM) return
+        openCaptionSettings()
+    }
+
+    fun openCaptionSettings() {
         val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
             putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
-            putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, C.PLAYER_LIVE_CAPTION_MODEL)
+            if (videoType == STREAM) {
+                putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, C.PLAYER_LIVE_CAPTION_MODEL)
+            }
         }
         (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
             ?: startActivity(intent)
@@ -515,6 +524,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     @SuppressLint("ClickableViewAccessibility")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.playerControls.interactionLock.setOnClickListener {
+            setInteractionLocked(!isInteractionLocked)
+        }
+        binding.playerLayout.interactionUnlockView = binding.playerControls.interactionLock
+        binding.playerControls.root.interactionUnlockView = binding.playerControls.interactionLock
+        binding.chatLayout.boundaryTimeBar = binding.playerControls.progressBar
+        setInteractionLocked(isInteractionLocked, force = true)
         if (requireContext().isTelevision()) {
             controllerAutoHide = false
             binding.dragView.isFocusable = true
@@ -610,6 +626,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 !liveRewindReturningLive
             fun doubleTapGestureEnabled() = liveTapSeekGestureEnabled() || (chatDoubleTapEnabled && !isPortrait)
             var controlTouchActive = false
+            var lockedTouchActive = false
+            var lockedTouchX = 0f
+            var lockedTouchY = 0f
             val controllerTapDetector = GestureDetector(
                 requireContext(),
                 object : GestureDetector.SimpleOnGestureListener() {
@@ -847,6 +866,34 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
             dragView.setOnTouchListener { _, event ->
                 if (!isAnimating) {
+                    if (isInteractionLocked && !playerControls.root.isVisible) {
+                        liveTapSeekDoubleTapState.clearCandidate()
+                        when (event.actionMasked) {
+                            MotionEvent.ACTION_DOWN -> {
+                                lockedTouchActive = true
+                                lockedTouchX = event.x
+                                lockedTouchY = event.y
+                            }
+                            MotionEvent.ACTION_MOVE -> {
+                                if (abs(event.x - lockedTouchX) > touchSlop ||
+                                    abs(event.y - lockedTouchY) > touchSlop
+                                ) {
+                                    lockedTouchActive = false
+                                }
+                            }
+                            MotionEvent.ACTION_POINTER_DOWN -> lockedTouchActive = false
+                            MotionEvent.ACTION_UP -> {
+                                if (lockedTouchActive) {
+                                    showController()
+                                    updateProgress()
+                                }
+                                lockedTouchActive = false
+                            }
+                            MotionEvent.ACTION_CANCEL -> lockedTouchActive = false
+                        }
+                        return@setOnTouchListener true
+                    }
+
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             activePointerId = event.getPointerId(0)
@@ -1288,8 +1335,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             openViewerList()
                         }
                     }
-                    rewind.visibility = if (requireContext().isTelevision()) View.VISIBLE else View.GONE
-                    fastForward.visibility = if (requireContext().isTelevision()) View.VISIBLE else View.GONE
+                    val showLiveTransport = requireContext().isTelevision() || isLiveRewindAvailable()
+                    rewind.visibility = if (showLiveTransport) View.VISIBLE else View.GONE
+                    fastForward.visibility = if (showLiveTransport) View.VISIBLE else View.GONE
                     position.visibility = View.GONE
                     progressBar.visibility = View.GONE
                     duration.visibility = View.GONE
@@ -1682,8 +1730,29 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     }
                     aspectRatio.visibility = View.GONE
                     aspectRatio.setOnClickListener(null)
-                    toggleChat.visibility = View.GONE
-                    toggleChat.setOnClickListener(null)
+                    if (requireContext().prefs().getBoolean(C.PLAYER_CHAT_TOGGLE, true) &&
+                        requireContext().prefs().isChatEnabled()
+                    ) {
+                        toggleChat.visibility = View.VISIBLE
+                        if (isChatOpen) {
+                            toggleChat.setImageResource(R.drawable.baseline_speaker_notes_off_black_24)
+                            toggleChat.contentDescription = getString(R.string.player_hide_chat)
+                            toggleChat.setOnClickListener {
+                                showController(force = true)
+                                hideChat()
+                            }
+                        } else {
+                            toggleChat.setImageResource(R.drawable.baseline_speaker_notes_black_24)
+                            toggleChat.contentDescription = getString(R.string.player_show_chat)
+                            toggleChat.setOnClickListener {
+                                showController(force = true)
+                                showChat()
+                            }
+                        }
+                    } else {
+                        toggleChat.setOnClickListener(null)
+                        toggleChat.visibility = View.GONE
+                    }
                 }
             } else {
                 requireActivity().window.decorView.setOnSystemUiVisibilityChangeListener {
@@ -1878,6 +1947,18 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         )
         binding.playerControls.root.refreshAvailability()
     }
+
+    fun canShowHudActionInOverflow(id: HudElementId): Boolean =
+        binding.playerControls.root.canShowInOverflow(id)
+
+    fun hudActionContentDescription(id: HudElementId): CharSequence? =
+        binding.playerControls.root.actionContentDescription(id)
+
+    fun isHudActionEnabled(id: HudElementId): Boolean =
+        binding.playerControls.root.isActionEnabled(id)
+
+    fun performHudAction(id: HudElementId): Boolean =
+        binding.playerControls.root.performAction(id)
 
     fun reloadHudLayoutFromSettings() {
         if (!isAdded || view == null) return
@@ -2582,6 +2663,63 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.playerErrorRetry.setOnClickListener(null)
     }
 
+    private fun setInteractionLocked(
+        locked: Boolean,
+        force: Boolean = false,
+    ) {
+        if (!force && isInteractionLocked == locked) return
+
+        isInteractionLocked = locked
+        hudVisibility.setInteractionActive(locked)
+        with(binding) {
+            playerLayout.interactionUnlockView = playerControls.interactionLock
+            playerControls.root.interactionUnlockView = playerControls.interactionLock
+            playerControls.root.interactionLocked = locked
+            playerLayout.interactionLocked = locked
+            playerControls.interactionLock.setImageResource(
+                if (locked) R.drawable.baseline_lock_open_black_24
+                else R.drawable.baseline_lock_black_24,
+            )
+            playerControls.interactionLock.contentDescription = getString(
+                if (locked) R.string.player_unlock_controls
+                else R.string.player_lock_controls,
+            )
+            playerControls.interactionLock.isEnabled = true
+            playerControls.interactionLock.visibility = if (requireContext().isTelevision()) View.GONE else View.VISIBLE
+            playerControls.root.removeCallbacks(controllerHideAction)
+
+            if (locked) {
+                (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .hideSoftInputFromWindow(chatLayout.windowToken, 0)
+                chatLayout.clearFocus()
+                chatLayout.findViewById<RecyclerView>(R.id.recyclerView)?.stopScroll()
+                showController(force = true)
+            } else if (controllerAutoHide && controllerHideOnTouch && !playerControls.progressBar.isPressed) {
+                hudVisibility.scheduleHide()
+            }
+            playerControls.root.refreshAvailability()
+        }
+        updateInteractionLockBackCallback()
+    }
+
+    private fun updateInteractionLockBackCallback() {
+        interactionLockBackCallback?.remove()
+        interactionLockBackCallback = null
+        if (!isInteractionLocked || _binding == null) return
+
+        interactionLockBackCallback = object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // Keep Back from accidentally dismissing the player while the
+                // user has deliberately locked its controls.
+            }
+        }.also { callback ->
+            requireActivity().onBackPressedDispatcher.addCallback(
+                viewLifecycleOwner,
+                callback,
+            )
+        }
+    }
+
     private fun toggleController() {
         if (requireContext().isTelevision() || !controllerHideOnTouch) {
             hudVisibility.show(force = true)
@@ -3018,8 +3156,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         } else {
             getString(R.string.player_live)
         }
-        val durationText = DateUtils.formatElapsedTime(edgeMs / 1000L)
-        val timeText = "$positionTimeText / $durationText"
+        val timeText = if (isRewound) {
+            getString(
+                R.string.player_live_position,
+                positionTimeText,
+                getString(R.string.player_live),
+            )
+        } else {
+            getString(R.string.player_live)
+        }
         val timeActionable = isRewound && !liveRewindStreamOffline
         val timeDescription = if (timeActionable) {
             getString(R.string.player_return_to_live)
@@ -3072,6 +3217,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun updateLiveRewindUi() {
+        val showLiveTransport = requireContext().isTelevision() || isLiveRewindAvailable()
+        binding.playerControls.rewind.visibility = if (showLiveTransport) View.VISIBLE else View.GONE
+        binding.playerControls.fastForward.visibility = if (showLiveTransport) View.VISIBLE else View.GONE
         if (!isLiveRewindAvailable()) {
             cancelLiveTapSeek()
             renderedLiveRewindState = null
@@ -3111,8 +3259,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         } else {
             DateUtils.formatElapsedTime(previewPositionMs / 1000L)
         }
-        val durationText = DateUtils.formatElapsedTime(edgeMs / 1000L)
-        val timeText = "$previewPositionTimeText / $durationText"
+        val timeText = if (previewPositionMs >= edgeMs) {
+            getString(R.string.player_live)
+        } else {
+            getString(
+                R.string.player_live_position,
+                previewPositionTimeText,
+                getString(R.string.player_live),
+            )
+        }
         binding.playerControls.position.visibility = View.GONE
         binding.playerControls.duration.visibility = View.GONE
         binding.playerControls.liveTimeGroup.visibility = View.VISIBLE
@@ -3587,6 +3742,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 binding.playerControls.root.refreshAvailability()
                 hideTvSecondaryActions()
                 refreshHudLayout()
+                if (isInteractionLocked) {
+                    setInteractionLocked(true, force = true)
+                }
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.dismiss()
         }
@@ -3977,6 +4135,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     override fun onDestroyView() {
+        interactionLockBackCallback?.remove()
+        interactionLockBackCallback = null
+        _binding?.playerLayout?.interactionLocked = false
+        _binding?.playerLayout?.interactionUnlockView = null
+        _binding?.playerControls?.root?.interactionLocked = false
+        _binding?.playerControls?.root?.interactionUnlockView = null
         phoneChatOverlayGesture?.detach()
         phoneChatOverlayGesture = null
         _binding?.let { cancelLiveTapSeek() }
