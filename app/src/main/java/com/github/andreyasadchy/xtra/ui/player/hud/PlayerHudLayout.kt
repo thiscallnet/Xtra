@@ -25,6 +25,10 @@ class PlayerHudLayout @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : ViewGroup(context, attrs) {
+    private companion object {
+        const val PREVIEW_LIVE_TIME = "LIVE / 4:20:27"
+    }
+
     private val density = resources.displayMetrics.density
     private val store = HudConfigStore(context)
     private var orientation = currentOrientation()
@@ -961,9 +965,8 @@ class PlayerHudLayout @JvmOverloads constructor(
         val textWidth = (compositionWidth - avatarWidth).coerceAtLeast(40f * density).roundToInt()
 
         // Give the metadata composition one deterministic width. The details
-        // row below is a weighted LinearLayout, so its category is the only
-        // field allowed to give up space; the viewer target can never be
-        // measured on top of the "Playing" label.
+        // row is packed: Playing and the viewer target keep their measured
+        // widths, while category is the only field allowed to shrink.
         findViewById<LinearLayout>(R.id.topLeftLayout)?.updateLayoutParams<ViewGroup.LayoutParams> {
             width = compositionWidth.roundToInt().coerceAtLeast(1)
         }
@@ -980,11 +983,56 @@ class PlayerHudLayout @JvmOverloads constructor(
             weight = 0f
         }
 
-        listOf(R.id.channel, R.id.title, R.id.category).forEach { id ->
+        val playing = findViewById<TextView>(R.id.playingLabel)
+        val category = findViewById<TextView>(R.id.category)
+        val viewers = findViewById<View>(R.id.viewersLayout)
+        playing?.updateLayoutParams<LinearLayout.LayoutParams> {
+            width = ViewGroup.LayoutParams.WRAP_CONTENT
+            weight = 0f
+            marginEnd = (2f * density).roundToInt()
+        }
+        category?.updateLayoutParams<LinearLayout.LayoutParams> {
+            width = ViewGroup.LayoutParams.WRAP_CONTENT
+            weight = 0f
+            marginStart = 0
+            marginEnd = (4f * density).roundToInt()
+        }
+        val fixedDetailsWidth = measuredWrapContentWidth(playing, safe.height) +
+            measuredWrapContentWidth(viewers, safe.height)
+        val categoryMargins = (category?.layoutParams as? ViewGroup.MarginLayoutParams)?.let {
+            it.leftMargin + it.rightMargin
+        } ?: 0
+        val categoryMaxWidth = (textWidth - fixedDetailsWidth - categoryMargins).coerceAtLeast(1)
+
+        listOf(R.id.channel, R.id.title).forEach { id ->
             findViewById<TextView>(id)?.let { textView ->
                 if (textView.maxWidth != textWidth) textView.maxWidth = textWidth
             }
         }
+        category?.let {
+            it.maxWidth = categoryMaxWidth
+            it.maxLines = 1
+            it.ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        findViewById<TextView>(R.id.viewersText)?.apply {
+            maxLines = 1
+            ellipsize = null
+        }
+    }
+
+    private fun measuredWrapContentWidth(view: View?, availableHeight: Float): Int {
+        if (view == null || view.visibility != VISIBLE) return 0
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            View.MeasureSpec.makeMeasureSpec(
+                availableHeight.roundToInt().coerceAtLeast(1),
+                View.MeasureSpec.AT_MOST,
+            ),
+        )
+        val margins = (view.layoutParams as? ViewGroup.MarginLayoutParams)?.let {
+            it.leftMargin + it.rightMargin
+        } ?: 0
+        return view.measuredWidth + margins
     }
 
     private fun applyCompactMetrics(compact: Boolean) {
@@ -1038,16 +1086,25 @@ class PlayerHudLayout @JvmOverloads constructor(
         // canonical presentation. Only data-bearing fields need synthetic
         // content; recursively forcing every descendant visible makes preview
         // availability disagree with runtime (notably captions).
-        findViewById<View>(R.id.position)?.visibility = VISIBLE
-        findViewById<View>(R.id.duration)?.visibility = VISIBLE
+        findViewById<View>(R.id.position)?.visibility = GONE
+        findViewById<View>(R.id.duration)?.visibility = GONE
         findViewById<View>(R.id.liveCaptions)?.visibility = VISIBLE
         findViewById<View>(R.id.subtitles)?.visibility = GONE
-        findViewById<View>(R.id.liveTimeGroup)?.visibility = GONE
+        findViewById<TextView>(R.id.liveTimeGroup)?.apply {
+            visibility = VISIBLE
+            text = PREVIEW_LIVE_TIME
+            contentDescription = context.getString(R.string.player_position, PREVIEW_LIVE_TIME)
+        }
+        findViewById<HudTimelineContent>(R.id.timelineContent)?.apply {
+            setLiveRewindTimePosition(store.loadTimelineTimePosition())
+            setLiveRewindEnabled(true)
+        }
     }
 
     private fun restoreRuntimeContent() {
         findViewById<View>(R.id.channelAvatar)?.background = null
         findViewById<View>(R.id.liveTimeGroup)?.visibility = GONE
+        findViewById<HudTimelineContent>(R.id.timelineContent)?.setLiveRewindEnabled(false)
         refreshAvailability()
     }
 

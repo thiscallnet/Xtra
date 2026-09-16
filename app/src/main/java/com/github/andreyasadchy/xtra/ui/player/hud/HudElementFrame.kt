@@ -116,6 +116,7 @@ class HudElementFrame @JvmOverloads constructor(
         val child = getChildAt(0) ?: return
         captureBaseline(child)
         restoreCanonical(child)
+        (child as? HudTimelineContent)?.setPresentationScale(1f)
     }
 
     /** Records the current unscaled, orientation-specific presentation state. */
@@ -129,7 +130,9 @@ class HudElementFrame @JvmOverloads constructor(
     fun applyPresentationScale(scale: Float) {
         val child = getChildAt(0) ?: return
         captureBaseline(child)
-        applyScale(child, scale.coerceAtLeast(0.01f))
+        val effectiveScale = scale.coerceAtLeast(0.01f)
+        (child as? HudTimelineContent)?.setPresentationScale(effectiveScale)
+        applyScale(child, effectiveScale)
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {

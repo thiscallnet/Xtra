@@ -641,14 +641,6 @@ Metadata text</string>
     <string name="diagnostics_entry_expand">Expand diagnostic entry</string>
     <string name="diagnostics_entry_collapse">Collapse diagnostic entry</string>
     <string name="settings_developer_options">Developer options</string>
-    <string name="settings_control_group_quick">Quick controls</string>
-    <string name="settings_control_group_menu">More menu</string>
-    <string name="settings_control_group_hidden">Hidden</string>
-    <string name="settings_control_region_top_left">Top left</string>
-    <string name="settings_control_region_top_right">Top right</string>
-    <string name="settings_control_region_bottom_left">Bottom left</string>
-    <string name="settings_control_region_bottom_right">Bottom right</string>
-    <string name="settings_control_region_more_menu">More menu area</string>
     <string name="settings_player_mode">Player mode</string>
     <string name="settings_developer_enabled">Enable developer options</string>
     <string name="settings_developer_unlocking">%d more taps to enable Developer options</string>

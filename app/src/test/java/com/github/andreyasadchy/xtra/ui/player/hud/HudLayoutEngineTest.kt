@@ -203,8 +203,8 @@ class HudLayoutEngineTest {
         assertEquals(safe.left + safe.width * .15f, compact.getValue(HudElementId.STREAM_INFO).visualRect.left, .01f)
         assertEquals(compact.getValue(HudElementId.STREAM_INFO).visualRect.left, expanded.getValue(HudElementId.STREAM_INFO).visualRect.left, .01f)
         assertEquals(compact.getValue(HudElementId.STREAM_INFO).visualRect.top, expanded.getValue(HudElementId.STREAM_INFO).visualRect.top, .01f)
-        assertEquals(104f, compact.getValue(HudElementId.QUALITY).visualRect.width, .01f)
-        assertEquals(104f, expanded.getValue(HudElementId.QUALITY).visualRect.width, .01f)
+        assertEquals(72f, compact.getValue(HudElementId.QUALITY).visualRect.width, .01f)
+        assertEquals(72f, expanded.getValue(HudElementId.QUALITY).visualRect.width, .01f)
     }
 
     @Test

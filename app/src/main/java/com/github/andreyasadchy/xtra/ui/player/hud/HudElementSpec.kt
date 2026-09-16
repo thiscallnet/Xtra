@@ -30,10 +30,10 @@ object HudElementRegistry {
         HudElementSpec(HudElementId.PLAY_PAUSE, normalVisualSize = HudSize(60f, 60f), compactVisualSize = HudSize(56f, 56f), minimumHitSize = HudSize(72f, 72f)),
         HudElementSpec(HudElementId.SEEK_FORWARD, normalVisualSize = HudSize(48f, 48f), compactVisualSize = HudSize(44f, 44f), minimumHitSize = HudSize(56f, 56f)),
         HudElementSpec(HudElementId.FOLLOW, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),
-        // The pill keeps one deterministic width large enough for the gear and
-        // labels such as 1080p60. The label may ellipsize, but quality changes
-        // never change the top-row geometry.
-        HudElementSpec(HudElementId.QUALITY, normalVisualSize = HudSize(104f, 36f), compactVisualSize = HudSize(104f, 36f), minimumHitSize = HudSize(112f, 48f)),
+        // Keep the pill at the V2 contract size. Its presentation reserves
+        // enough room for the gear and the compact resolution/fps label; the
+        // full quality name remains available through contentDescription.
+        HudElementSpec(HudElementId.QUALITY, normalVisualSize = HudSize(72f, 36f), compactVisualSize = HudSize(72f, 36f), minimumHitSize = HudSize(76f, 48f)),
         HudElementSpec(HudElementId.ASPECT_RATIO, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),
         HudElementSpec(HudElementId.VOLUME, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),
         HudElementSpec(HudElementId.CLIP, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),

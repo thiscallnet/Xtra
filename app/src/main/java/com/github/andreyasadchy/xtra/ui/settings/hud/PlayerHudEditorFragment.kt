@@ -4,26 +4,28 @@ import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.DashPathEffect
 import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.drawable.RippleDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.text.TextUtils
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageButton
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
-import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.widget.NestedScrollView
 import androidx.fragment.app.Fragment
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -57,6 +59,11 @@ import kotlin.math.roundToInt
  * deterministic so opening settings never depends on login or network state.
  */
 class PlayerHudEditorFragment : Fragment() {
+    private companion object {
+        const val HISTORY_LIMIT = 50
+        const val PREVIEW_LIVE_EDGE_MS = 4L * 60L * 60L * 1000L + 20L * 60L * 1000L + 27L * 1000L
+    }
+
     private val density get() = resources.displayMetrics.density
     private lateinit var store: com.github.andreyasadchy.xtra.ui.player.hud.HudConfigStore
 
@@ -71,18 +78,23 @@ class PlayerHudEditorFragment : Fragment() {
     private lateinit var enabledSwitch: MaterialSwitch
     private lateinit var scaleSlider: Slider
     private lateinit var globalScaleSlider: Slider
+    private lateinit var selectedControlsContainer: LinearLayout
     private lateinit var swapButton: MaterialButton
     private lateinit var portraitButton: MaterialButton
     private lateinit var landscapeButton: MaterialButton
-    private lateinit var undoButton: MaterialButton
-    private lateinit var redoButton: MaterialButton
+    private lateinit var undoButton: ImageButton
+    private lateinit var redoButton: ImageButton
     private lateinit var elementList: LinearLayout
-    private lateinit var editorScroll: ScrollView
+    private lateinit var editorScroll: NestedScrollView
 
     private var previewPlayer: ExoPlayer? = null
     private var workingConfig: PlayerHudConfig = PlayerHudDefaults.config()
     private var orientation = HudOrientation.PORTRAIT
-    private var selected: HudElementId? = null
+    // Start with a real selection so the controls are measured as visible on
+    // the first pass. Selecting from preview.doOnLayout would otherwise make
+    // these children visible after the parent had already measured them as
+    // GONE, leaving their measured size at 0 until another unrelated layout.
+    private var selected: HudElementId? = HudElementId.PLAY_PAUSE
     private var dragStartSnapshot: HudEditorSnapshot? = null
     private var sliderStartSnapshot: HudEditorSnapshot? = null
     private var suppressPanelCallbacks = false
@@ -96,10 +108,6 @@ class PlayerHudEditorFragment : Fragment() {
         val orientation: HudOrientation,
         val selected: HudElementId?,
     )
-
-    private companion object {
-        const val HISTORY_LIMIT = 50
-    }
 
     private val previewProgressUpdate = object : Runnable {
         override fun run() {
@@ -160,24 +168,25 @@ class PlayerHudEditorFragment : Fragment() {
         }
         root.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> applySystemInsets() }
 
-        editorScroll = ScrollView(requireContext()).apply {
+        editorScroll = NestedScrollView(requireContext()).apply {
             clipToPadding = false
-            isFillViewport = false
+            isFillViewport = true
+            isNestedScrollingEnabled = true
             isVerticalScrollBarEnabled = true
             overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
         }
         val content = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(12), dp(16), dp(32))
+            setPadding(dp(12), dp(12), dp(12), dp(32))
         }
         editorScroll.addView(content, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         root.addView(
             editorScroll,
             FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
-                topMargin = dp(64)
+                topMargin = dp(56)
             },
         )
-        root.addView(buildAppBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64)))
+        root.addView(buildAppBar(), FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
 
         content.addView(sectionLabel("Preview"))
         val orientationSelector = LinearLayout(requireContext()).apply {
@@ -187,7 +196,7 @@ class PlayerHudEditorFragment : Fragment() {
         portraitButton = orientationButton("Portrait") { selectOrientation(HudOrientation.PORTRAIT) }
         landscapeButton = orientationButton("Landscape") { selectOrientation(HudOrientation.LANDSCAPE) }
         orientationSelector.addView(portraitButton, LinearLayout.LayoutParams(0, dp(48), 1f))
-        orientationSelector.addView(landscapeButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
+        orientationSelector.addView(landscapeButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(4) })
         content.addView(orientationSelector, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
 
         previewContainer = PreviewAspectFrameLayout(requireContext()).apply {
@@ -241,18 +250,38 @@ class PlayerHudEditorFragment : Fragment() {
 
         val selectedPanel = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(12), dp(12), dp(12), dp(12))
             background = roundedBackground(0xFF29242F.toInt())
         }
         selectedText = TextView(requireContext()).apply {
             text = "Tap a control in the preview or choose one below"
             textSize = 16f
             setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }
-        selectedPanel.addView(selectedText)
+        selectedPanel.addView(selectedText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(40)))
 
-        enabledSwitch = MaterialSwitch(requireContext()).apply {
+        selectedControlsContainer = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        selectedPanel.addView(
+            selectedControlsContainer,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+        )
+
+        val enabledRow = LinearLayout(requireContext()).apply {
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        enabledRow.addView(TextView(requireContext()).apply {
             text = "Show this control"
+            textSize = 14f
+            setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
+        enabledSwitch = MaterialSwitch(requireContext()).apply {
+            contentDescription = "Show this control"
             setOnCheckedChangeListener { _, value ->
                 if (!suppressPanelCallbacks) {
                     selected?.let { id ->
@@ -261,19 +290,26 @@ class PlayerHudEditorFragment : Fragment() {
                 }
             }
         }
-        selectedPanel.addView(enabledSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        enabledRow.addView(enabledSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        selectedControlsContainer.addView(enabledRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
 
         val scaleHeader = LinearLayout(requireContext()).apply { gravity = Gravity.CENTER_VERTICAL }
         scaleHeader.addView(TextView(requireContext()).apply {
             text = "Selected control size"
+            textSize = 14f
             setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }, LinearLayout.LayoutParams(0, dp(32), 1f))
         scaleValueText = TextView(requireContext()).apply {
             setTextColor(0xFFD0C2FF.toInt())
             gravity = Gravity.CENTER_VERTICAL
+            textSize = 13f
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }
         scaleHeader.addView(scaleValueText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
-        selectedPanel.addView(scaleHeader)
+        selectedControlsContainer.addView(scaleHeader)
         scaleSlider = Slider(requireContext()).apply {
             valueFrom = 75f
             valueTo = 175f
@@ -291,19 +327,25 @@ class PlayerHudEditorFragment : Fragment() {
             }
             addOnSliderTouchListener(sliderHistoryListener)
         }
-        selectedPanel.addView(scaleSlider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        selectedControlsContainer.addView(scaleSlider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
 
         val globalHeader = LinearLayout(requireContext()).apply { gravity = Gravity.CENTER_VERTICAL }
         globalHeader.addView(TextView(requireContext()).apply {
             text = "Overall HUD size"
+            textSize = 14f
             setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }, LinearLayout.LayoutParams(0, dp(32), 1f))
         globalScaleValueText = TextView(requireContext()).apply {
             setTextColor(0xFFD0C2FF.toInt())
             gravity = Gravity.CENTER_VERTICAL
+            textSize = 13f
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
         }
         globalHeader.addView(globalScaleValueText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
-        selectedPanel.addView(globalHeader)
+        selectedControlsContainer.addView(globalHeader)
         globalScaleSlider = Slider(requireContext()).apply {
             valueFrom = 85f
             valueTo = 130f
@@ -316,24 +358,36 @@ class PlayerHudEditorFragment : Fragment() {
             }
             addOnSliderTouchListener(sliderHistoryListener)
         }
-        selectedPanel.addView(globalScaleSlider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        selectedControlsContainer.addView(globalScaleSlider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
 
-        selectedPanel.addView(TextView(requireContext()).apply {
+        selectedControlsContainer.addView(TextView(requireContext()).apply {
             text = "Align selected control"
+            textSize = 14f
             setTextColor(Color.WHITE)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(32)))
-        val alignment = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL }
-        alignment.addView(alignmentButton("Center") { alignSelected(.5f, .5f) }, weightedButtonParams())
-        alignment.addView(alignmentButton("Top") { alignSelected(null, 0f) }, weightedButtonParams())
-        alignment.addView(alignmentButton("Bottom") { alignSelected(null, 1f) }, weightedButtonParams())
-        alignment.addView(alignmentButton("Reset") { selected?.let(::resetElement) }, weightedButtonParams())
-        selectedPanel.addView(alignment, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        val alignment = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
+        val alignmentRow = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL }
+        alignmentRow.addView(alignmentButton("Center") { alignSelected(.5f, .5f) }, weightedButtonParams())
+        alignmentRow.addView(alignmentButton("Top") { alignSelected(null, 0f) }, weightedButtonParams())
+        alignmentRow.addView(alignmentButton("Bottom") { alignSelected(null, 1f) }, weightedButtonParams(last = true))
+        alignment.addView(alignmentRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        alignment.addView(alignmentButton("Reset") { selected?.let(::resetElement) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+            topMargin = dp(4)
+        })
+        selectedControlsContainer.addView(alignment, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         swapButton = MaterialButton(requireContext()).apply {
             text = "Swap with…"
             isAllCaps = false
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            minWidth = 0
+            minimumWidth = 0
+            insetLeft = 0
+            insetRight = 0
+            setPadding(dp(4), 0, dp(4), 0)
             setOnClickListener { showSwapDialog() }
         }
-        selectedPanel.addView(swapButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+        selectedControlsContainer.addView(swapButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
             topMargin = dp(8)
         })
         content.addView(selectedPanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -363,6 +417,7 @@ class PlayerHudEditorFragment : Fragment() {
         resetSection.addView(MaterialButton(requireContext()).apply {
             text = "Reset this orientation"
             isAllCaps = false
+            configureFullWidthTextButton()
             setOnClickListener {
                 val before = snapshot()
                 setProfile(PlayerHudDefaults.config().profile(orientation))
@@ -373,6 +428,7 @@ class PlayerHudEditorFragment : Fragment() {
         resetSection.addView(MaterialButton(requireContext()).apply {
             text = "Reset both orientations"
             isAllCaps = false
+            configureFullWidthTextButton()
             setOnClickListener {
                 val before = snapshot()
                 workingConfig = PlayerHudDefaults.config()
@@ -471,68 +527,91 @@ class PlayerHudEditorFragment : Fragment() {
     }
 
     private fun syncPreviewProgress() {
-        val player = previewPlayer ?: return
-        val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0L } ?: 0L
-        previewBinding.progressBar.setDuration(duration)
-        previewBinding.progressBar.setPosition(player.currentPosition.coerceIn(0L, duration))
-        previewBinding.progressBar.setBufferedPosition(player.bufferedPosition.coerceIn(0L, duration))
-        previewBinding.position.text = android.text.format.DateUtils.formatElapsedTime(player.currentPosition / 1000L)
-        previewBinding.duration.text = android.text.format.DateUtils.formatElapsedTime(duration / 1000L)
+        if (previewPlayer == null) return
+        // The video is real Media3 playback, but its short local asset is not
+        // the stream represented by the HUD. Keep the editor's fake live state
+        // stable and use the same single live-rewind time group as production.
+        previewBinding.progressBar.setDuration(PREVIEW_LIVE_EDGE_MS)
+        previewBinding.progressBar.setPosition(PREVIEW_LIVE_EDGE_MS)
+        previewBinding.progressBar.setBufferedPosition(PREVIEW_LIVE_EDGE_MS)
         previewBinding.progressBar.setPlayedColor(0xFFB388FF.toInt())
         previewBinding.progressBar.setScrubberColor(0xFFB388FF.toInt())
     }
 
     private fun buildAppBar(): View = LinearLayout(requireContext()).apply {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), dp(8), dp(8), dp(8))
+        setPadding(dp(4), dp(4), dp(4), dp(4))
         setBackgroundColor(0xFF141218.toInt())
         elevation = dp(4).toFloat()
         addView(MaterialButton(context).apply {
             text = "Cancel"
             isAllCaps = false
+            configureToolbarTextButton()
             setOnClickListener { requireActivity().finish() }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
+        }, LinearLayout.LayoutParams(dp(64), dp(48)))
         undoButton = historyButton(R.drawable.ic_undo_24, "Undo") { undo() }
-        addView(undoButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(4) })
+        addView(undoButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(2) })
         redoButton = historyButton(R.drawable.ic_redo_24, "Redo") { redo() }
         addView(redoButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(2) })
         addView(TextView(context).apply {
-            text = "Customize player HUD"
-            textSize = 20f
+            text = "HUD editor"
+            contentDescription = getString(R.string.settings_customize_hud)
+            textSize = 18f
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER_VERTICAL
             maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
+            ellipsize = TextUtils.TruncateAt.END
+        }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(4) })
         addView(MaterialButton(context).apply {
             text = "Save"
             isAllCaps = false
+            configureToolbarTextButton()
             setOnClickListener {
                 store.save(workingConfig)
                 (requireActivity() as? SettingsActivity)?.setHudResult()
             }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
+        }, LinearLayout.LayoutParams(dp(64), dp(48)))
     }
 
-    private fun historyButton(icon: Int, description: String, action: () -> Unit): MaterialButton =
-        MaterialButton(requireContext()).apply {
-            text = ""
-            this.icon = AppCompatResources.getDrawable(requireContext(), icon)
-            iconTint = ColorStateList.valueOf(Color.WHITE)
-            iconSize = dp(28)
-            iconPadding = 0
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            gravity = Gravity.CENTER
-            textAlignment = View.TEXT_ALIGNMENT_CENTER
-            insetTop = 0
-            insetBottom = 0
-            minWidth = 0
-            minimumWidth = 0
+    private fun historyButton(icon: Int, description: String, action: () -> Unit): ImageButton =
+        ImageButton(requireContext()).apply {
+            setImageResource(icon)
+            imageTintList = ColorStateList.valueOf(Color.WHITE)
+            scaleType = android.widget.ImageView.ScaleType.CENTER
+            background = RippleDrawable(
+                ColorStateList.valueOf(0x33FFFFFF),
+                roundedBackground(0xFF302B38.toInt()),
+                null,
+            )
             contentDescription = description
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
             setPadding(0, 0, 0, 0)
             setOnClickListener { action() }
         }
+
+    private fun MaterialButton.configureToolbarTextButton() {
+        textSize = 14f
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+        minWidth = 0
+        minimumWidth = 0
+        insetTop = 0
+        insetBottom = 0
+        insetLeft = 0
+        insetRight = 0
+        setPadding(dp(4), 0, dp(4), 0)
+    }
+
+    private fun MaterialButton.configureFullWidthTextButton() {
+        textSize = 14f
+        isSingleLine = true
+        ellipsize = TextUtils.TruncateAt.END
+        minWidth = 0
+        minimumWidth = 0
+        insetLeft = 0
+        insetRight = 0
+        setPadding(dp(8), 0, dp(8), 0)
+    }
 
     private fun sectionLabel(text: String): TextView = TextView(requireContext()).apply {
         this.text = text
@@ -542,15 +621,23 @@ class PlayerHudEditorFragment : Fragment() {
     }
 
     private fun instructionLabel(): TextView = TextView(requireContext()).apply {
-        text = "Tap to select • drag after a short hold to move • use the controls below to resize or align"
-        textSize = 13f
+        text = "Tap to select. Hold and drag to move it. Adjust size or alignment below."
+        textSize = 12f
         setTextColor(0xFFB8B0C2.toInt())
         setPadding(0, dp(8), 0, 0)
+        maxLines = 2
     }
 
     private fun orientationButton(text: String, action: () -> Unit): MaterialButton = MaterialButton(requireContext()).apply {
         this.text = text
         isAllCaps = false
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+        minWidth = 0
+        minimumWidth = 0
+        insetLeft = 0
+        insetRight = 0
+        setPadding(dp(4), 0, dp(4), 0)
         setOnClickListener { action() }
     }
 
@@ -558,11 +645,18 @@ class PlayerHudEditorFragment : Fragment() {
         this.text = text
         isAllCaps = false
         textSize = 12f
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+        minWidth = 0
+        minimumWidth = 0
+        insetLeft = 0
+        insetRight = 0
+        setPadding(dp(4), 0, dp(4), 0)
         setOnClickListener { action() }
     }
 
-    private fun weightedButtonParams() = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
-        marginEnd = dp(4)
+    private fun weightedButtonParams(last: Boolean = false) = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
+        if (!last) marginEnd = dp(4)
     }
 
     private fun addElementRow(id: HudElementId) {
@@ -575,11 +669,16 @@ class PlayerHudEditorFragment : Fragment() {
         }
         row.addView(TextView(requireContext()).apply {
             text = displayName(id)
-            textSize = 15f
+            textSize = 14f
             setTextColor(Color.WHITE)
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            minWidth = 0
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val toggle = MaterialSwitch(requireContext()).apply {
             contentDescription = "Show ${displayName(id)}"
+            minWidth = 0
+            minimumWidth = dp(48)
             setOnCheckedChangeListener { _, value ->
                 if (!suppressPanelCallbacks) {
                     selectElement(id)
@@ -707,19 +806,14 @@ class PlayerHudEditorFragment : Fragment() {
     private fun updateSelectedPanel() {
         val id = selected ?: run {
             selectedText.text = "Tap a control in the preview or choose one below"
-            enabledSwitch.isVisible = false
-            scaleSlider.isVisible = false
-            globalScaleSlider.isVisible = false
-            swapButton.isVisible = false
+            setSelectedControlsVisible(false)
             return
         }
         val value = placement(id)
         selectedText.text = displayName(id)
-        enabledSwitch.isVisible = true
-        scaleSlider.isVisible = true
-        globalScaleSlider.isVisible = true
+        setSelectedControlsVisible(true)
         val spec = HudElementRegistry.get(id)
-        swapButton.isVisible = value.enabled && spec.isInteractive && spec.pivot == HudPivot.CENTER
+        setSwapButtonVisible(value.enabled && spec.isInteractive && spec.pivot == HudPivot.CENTER)
         suppressPanelCallbacks = true
         enabledSwitch.isChecked = value.enabled
         bindSlider(
@@ -737,6 +831,20 @@ class PlayerHudEditorFragment : Fragment() {
         scaleValueText.text = "${scaleSlider.value.roundToInt()}%"
         globalScaleValueText.text = "${globalScaleSlider.value.roundToInt()}%"
         suppressPanelCallbacks = false
+    }
+
+    private fun setSelectedControlsVisible(visible: Boolean) {
+        if (selectedControlsContainer.isVisible == visible) return
+        selectedControlsContainer.isVisible = visible
+        selectedControlsContainer.requestLayout()
+        editorScroll.requestLayout()
+    }
+
+    private fun setSwapButtonVisible(visible: Boolean) {
+        if (swapButton.isVisible == visible) return
+        swapButton.isVisible = visible
+        selectedControlsContainer.requestLayout()
+        editorScroll.requestLayout()
     }
 
     private fun updateSelected(
@@ -1021,19 +1129,51 @@ class PlayerHudEditorFragment : Fragment() {
                 if (element.id != selected && element.id !in collisionIds) return@forEach
                 val isSelected = element.id == selected
                 val isCollision = element.id in collisionIds
-                paint.color = when {
-                    isCollision -> 0xFFFF6B6B.toInt()
-                    isSelected -> 0xFFB388FF.toInt()
-                    else -> 0x559B9AA6
+                if (isSelected) {
+                    // The visual bounds are what the user is moving and
+                    // sizing. Hit padding is intentionally larger for
+                    // touch accessibility, so showing hitRect as the only
+                    // border made small controls look detached from their
+                    // actual content.
+                    paint.color = if (isCollision) 0xFFFF6B6B.toInt() else 0xFFB388FF.toInt()
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 2f
+                    paint.pathEffect = null
+                    canvas.drawRect(
+                        element.visualRect.left,
+                        element.visualRect.top,
+                        element.visualRect.right,
+                        element.visualRect.bottom,
+                        paint,
+                    )
+                    if (element.hitRect != element.visualRect && (dragging || isCollision)) {
+                        paint.color = if (isCollision) 0x99FF6B6B.toInt() else 0x669B8CFF
+                        paint.strokeWidth = 1f
+                        paint.pathEffect = DashPathEffect(floatArrayOf(5f, 4f), 0f)
+                        canvas.drawRect(
+                            element.hitRect.left,
+                            element.hitRect.top,
+                            element.hitRect.right,
+                            element.hitRect.bottom,
+                            paint,
+                        )
+                        paint.pathEffect = null
+                    }
+                } else if (isCollision) {
+                    // Collision feedback is about competing touch targets,
+                    // therefore the blocker outline remains its hit rect.
+                    paint.color = 0xFFFF6B6B.toInt()
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 1f
+                    paint.pathEffect = null
+                    canvas.drawRect(
+                        element.hitRect.left,
+                        element.hitRect.top,
+                        element.hitRect.right,
+                        element.hitRect.bottom,
+                        paint,
+                    )
                 }
-                paint.style = Paint.Style.STROKE
-                canvas.drawRect(
-                    element.hitRect.left,
-                    element.hitRect.top,
-                    element.hitRect.right,
-                    element.hitRect.bottom,
-                    paint,
-                )
             }
             val label = feedbackText ?: collision?.let { selectedId ->
                 val blockers = collisionIds
