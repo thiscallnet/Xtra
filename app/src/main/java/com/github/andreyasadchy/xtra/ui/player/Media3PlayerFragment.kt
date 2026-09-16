@@ -3170,7 +3170,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val edgeMs = currentLiveEdgeMs()
         val vod = liveRewindVod ?: return
         val targetMs = requestedTarget.positionMs.coerceIn(0L, edgeMs)
-        if (requestedTarget.atLiveEdge || shouldReturnToLive(targetMs, edgeMs)) {
+        if (shouldReturnToLiveAfterLiveTap(requestedTarget, edgeMs)) {
             goLive()
         } else {
             playRecordingVodAt(vod, targetMs)

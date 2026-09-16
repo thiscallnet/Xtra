@@ -122,6 +122,28 @@ class LiveRewindTest {
     }
 
     @Test
+    fun backwardLiveTapAtTenSecondsDoesNotReturnToLive() {
+        val target = LiveTapSeekTarget(
+            positionMs = 990_000L,
+            atLiveEdge = false,
+            effectiveDeltaMs = -10_000L,
+        )
+
+        assertFalse(shouldReturnToLiveAfterLiveTap(target, 1_000_000L))
+    }
+
+    @Test
+    fun forwardLiveTapWithinReturnThresholdStillReturnsToLive() {
+        val target = LiveTapSeekTarget(
+            positionMs = 990_000L,
+            atLiveEdge = false,
+            effectiveDeltaMs = 10_000L,
+        )
+
+        assertTrue(shouldReturnToLiveAfterLiveTap(target, 1_000_000L))
+    }
+
+    @Test
     fun staleDiscoveryGenerationIsRejected() {
         assertTrue(isLiveRewindGenerationCurrent(4L, 4L))
         assertTrue(!isLiveRewindGenerationCurrent(3L, 4L))

@@ -186,6 +186,10 @@ fun predictedLiveEdgeMs(
 fun shouldReturnToLive(targetMs: Long, edgeMs: Long): Boolean =
     (edgeMs - targetMs.coerceIn(0L, edgeMs)) <= LIVE_EDGE_THRESHOLD_MS
 
+fun shouldReturnToLiveAfterLiveTap(target: LiveTapSeekTarget, edgeMs: Long): Boolean =
+    target.atLiveEdge ||
+        (target.effectiveDeltaMs >= 0L && shouldReturnToLive(target.positionMs, edgeMs))
+
 fun isLiveRewindGenerationCurrent(requestGeneration: Long, currentGeneration: Long): Boolean =
     requestGeneration == currentGeneration
 
