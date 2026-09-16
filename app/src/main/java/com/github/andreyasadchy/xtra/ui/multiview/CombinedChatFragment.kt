@@ -50,6 +50,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLab
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationResolver
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPalette
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
@@ -622,6 +623,11 @@ private class CombinedChatAdapter(
             },
             translation = fragment::translationFor,
             background = { surface },
+            eventPalette = { kind, baseColor ->
+                resolveChatEventPalette(kind, baseColor) { attribute ->
+                    MaterialColors.getColor(fragment.requireView(), attribute)
+                }
+            },
             labels = ChatPresentationLabels(
                 firstChatter = fragment.getString(R.string.chat_first),
                 redeemed = { reward -> fragment.getString(R.string.redeemed, reward) },

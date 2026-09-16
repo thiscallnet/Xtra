@@ -88,6 +88,7 @@ class ChatRowCompiler(
     private val labels: ChatPresentationLabels = ChatPresentationLabels(),
     private val gifDisplayMode: ChatGifDisplayMode = ChatGifDisplayMode.LARGE,
     private val highlightSettings: ChatHighlightSettings = ChatHighlightSettings(),
+    private val eventPalette: ((ChatEventKind, Int) -> ChatEventPalette)? = null,
 ) {
     fun compile(message: ChatMessage, catalog: ChatCatalogSnapshot = ChatCatalogSnapshot(0)): ChatRowUiModel {
         val isWatchStreak = message.noticeType.equals("watch_streak", ignoreCase = true) ||
@@ -310,7 +311,9 @@ class ChatRowCompiler(
     ): ChatRowUiModel {
         val baseBackground = background(message)
         val baseReadabilityBackground = readabilityBackground(message)
-        val mutedColor = colors.mutedTextColor(baseReadabilityBackground)
+        val palette = eventPalette?.invoke(eventKind, baseReadabilityBackground)
+        val eventBackground = palette?.surfaceColor ?: baseReadabilityBackground
+        val mutedColor = colors.mutedTextColor(eventBackground)
         val systemEvent = eventKind == ChatEventKind.ANNOUNCEMENT ||
             eventKind == ChatEventKind.RAID ||
             eventKind == ChatEventKind.NOTICE
@@ -322,7 +325,7 @@ class ChatRowCompiler(
         )
         val targetHeight = emoteTargetHeight(message)
         val bodyPieces = if (hasSemanticBody) {
-            messageBodyPieces(message, resolvedSegments, catalog, targetHeight, baseReadabilityBackground)
+            messageBodyPieces(message, resolvedSegments, catalog, targetHeight, eventBackground)
         } else {
             emptyList()
         }
@@ -333,8 +336,9 @@ class ChatRowCompiler(
             isPrimeSubscription = isPrimeSubscription,
             resolvedSegments = resolvedSegments,
             bodyPieces = bodyPieces,
-            baseBackground = baseReadabilityBackground,
+            baseBackground = eventBackground,
             mutedColor = mutedColor,
+            eventHeadingColor = palette?.railColor,
         )
         var moderationStart: Int? = null
         var moderationEnd: Int? = null
@@ -359,7 +363,7 @@ class ChatRowCompiler(
                 moderationStart = size - event.bodyPieces.size
                 moderationEnd = size
             }
-            message.moderation?.let { add(ChatPiece.Text(" ${labels.moderationSuffix(it)}", color = colors.brightTextColor(baseReadabilityBackground))) }
+            message.moderation?.let { add(ChatPiece.Text(" ${labels.moderationSuffix(it)}", color = colors.brightTextColor(eventBackground))) }
             translation(message)?.takeIf { it.isNotBlank() }?.let {
                 add(ChatPiece.Text("\n$it", color = mutedColor))
             }
@@ -372,7 +376,7 @@ class ChatRowCompiler(
             id = message.id,
             channelId = message.channelId,
             timestampText = timestampText(message.timestampMs),
-            timestampColor = colors.timestampTextColor(baseReadabilityBackground),
+            timestampColor = colors.timestampTextColor(eventBackground),
             pieces = pieces,
             background = baseBackground,
             backgroundStyle = ChatRowBackground.EVENT,
@@ -400,8 +404,9 @@ class ChatRowCompiler(
         bodyPieces: List<ChatPiece>,
         baseBackground: Int,
         mutedColor: Int,
+        eventHeadingColor: Int? = null,
     ): ChatEventPresentation {
-        val headingColor = colors.brightTextColor(baseBackground)
+        val headingColor = eventHeadingColor ?: colors.brightTextColor(baseBackground)
         val actorName = message.user?.displayName(nameDisplay)
         val messageText = segmentsAccessibilityText(resolvedSegments)
         val bodyAccessibility = messageText.takeIf { it.isNotBlank() }?.let { " Message: $it." }.orEmpty()

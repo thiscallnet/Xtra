@@ -58,9 +58,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPiece
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowBackground
-import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventVisualStyle
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventVisualTokens
-import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatEventKind
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPalette
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
@@ -366,25 +365,20 @@ open class ChatMessageTextView private constructor(
         val density = resources.displayMetrics.density
         val event = row.eventPresentation
         if (event != null) {
-            val accentAttribute = if (event.visualStyle == ChatEventVisualStyle.STREAK) {
-                R.attr.chatEventStreakAccentColor
-            } else {
-                R.attr.chatMessageSpecialAccentColor
-            }
-            val accentColor = com.google.android.material.color.MaterialColors.getColor(this, accentAttribute)
             val usesCustomBackground = row.background == Color.TRANSPARENT
             val baseColor = row.background.takeIf { it != 0 } ?:
                 com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorSurface)
-            val tintAlpha = if (event.kind == ChatEventKind.HIGHLIGHT) 0x2A else 0x18
-            val eventSurfaceColor = blendColors(baseColor, accentColor, tintAlpha)
+            val palette = resolveChatEventPalette(event.kind, baseColor) { attribute ->
+                com.google.android.material.color.MaterialColors.getColor(this, attribute)
+            }
             setBackground(
                 ChatEventBackgroundDrawable(
                     surfaceColor = if (usesCustomBackground) {
-                        ColorUtils.setAlphaComponent(eventSurfaceColor, CUSTOM_BACKGROUND_ROW_ALPHA)
+                        ColorUtils.setAlphaComponent(palette.surfaceColor, CUSTOM_BACKGROUND_ROW_ALPHA)
                     } else {
-                        eventSurfaceColor
+                        palette.surfaceColor
                     },
-                    accentColor = accentColor,
+                    railColor = palette.railColor,
                     railWidthPx = (ChatEventVisualTokens.accentRailWidthDp * density).roundToInt(),
                 ),
             )
@@ -1551,7 +1545,7 @@ open class ChatMessageTextView private constructor(
 
 private class ChatEventBackgroundDrawable(
     private val surfaceColor: Int,
-    private val accentColor: Int,
+    private val railColor: Int,
     private val railWidthPx: Int,
 ) : Drawable() {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -1566,7 +1560,7 @@ private class ChatEventBackgroundDrawable(
             bounds.bottom.toFloat(),
             paint,
         )
-        paint.color = accentColor
+        paint.color = railColor
         val railLeft = if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
             (bounds.right - railWidthPx).coerceAtLeast(bounds.left)
         } else {
@@ -1605,19 +1599,6 @@ private fun chatRowBackgroundColor(color: Int, row: ChatRowUiModel): Int =
     } else {
         color
     }
-
-private fun blendColors(baseColor: Int, overlayColor: Int, overlayAlpha: Int): Int {
-    val alpha = overlayAlpha.coerceIn(0, 255)
-    fun component(shift: Int): Int {
-        val base = baseColor ushr shift and 0xff
-        val overlay = overlayColor ushr shift and 0xff
-        return (base * (255 - alpha) + overlay * alpha) / 255
-    }
-    return 0xff000000.toInt() or
-        (component(16) shl 16) or
-        (component(8) shl 8) or
-        component(0)
-}
 
 private fun Int?.orZero(): Int = this ?: 0
 

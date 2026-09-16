@@ -24,6 +24,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationRes
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLabels
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPalette
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
@@ -48,6 +49,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationCat
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import com.google.android.material.color.MaterialColors
 
 internal fun countNewLiveMessages(
     previousIds: Set<ChatMessageId>?,
@@ -699,6 +701,11 @@ class ChatV2RendererController(
             },
             background = { rowBackgroundColor },
             readabilityBackground = { background },
+            eventPalette = { kind, baseColor ->
+                resolveChatEventPalette(kind, baseColor) { attribute ->
+                    MaterialColors.getColor(recyclerView, attribute)
+                }
+            },
             labels = presentationLabels,
             gifDisplayMode = style.gifDisplayMode,
             highlightSettings = highlightSettings,

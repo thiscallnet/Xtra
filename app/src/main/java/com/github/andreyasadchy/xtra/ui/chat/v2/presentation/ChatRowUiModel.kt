@@ -55,7 +55,7 @@ enum class ChatEventKind {
     NOTICE,
 }
 
-/** The visual family controls color only. All event families share the same geometry. */
+/** The visual family controls content semantics. All event families share the same geometry. */
 enum class ChatEventVisualStyle {
     SUPPORT,
     REWARD,

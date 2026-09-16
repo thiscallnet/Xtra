@@ -1,15 +1,23 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
-import android.app.Activity
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
+import com.github.andreyasadchy.xtra.model.chat.Poll
+import com.github.andreyasadchy.xtra.model.chat.Prediction
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.databinding.ViewPinnedChatMessageBinding
+import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
+import com.github.andreyasadchy.xtra.ui.chat.HappeningNowView
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGiftSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
@@ -19,6 +27,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPalette
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.google.android.material.color.MaterialColors
 import androidx.core.view.WindowCompat
@@ -26,7 +35,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 /** Debug-only deterministic fixture for reviewing the event family as one screen. */
-class ChatEventFixtureActivity : Activity() {
+class ChatEventFixtureActivity : AppCompatActivity() {
     private val rows = ArrayList<ChatMessageTextView>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,7 +66,14 @@ class ChatEventFixtureActivity : Activity() {
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
 
-        val compiler = ChatRowCompiler(background = { surface })
+        val compiler = ChatRowCompiler(
+            background = { surface },
+            eventPalette = { kind, baseColor ->
+                resolveChatEventPalette(kind, baseColor) { attribute ->
+                    MaterialColors.getColor(root, attribute)
+                }
+            },
+        )
         val catalog = ChatCatalogSnapshot(
             revision = 1,
             channelPointRewards = mapOf("hydrate" to ChatReward("Hydrate", 420)),
@@ -66,6 +82,49 @@ class ChatEventFixtureActivity : Activity() {
                     ChatReward("Highlight My Message", 2_000),
             ),
         )
+        val happeningNow = HappeningNowView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(dp(6), dp(6), dp(6), dp(6))
+            }
+            render(
+                state = fixtureHappeningNowState(),
+                onOpenChannelPoints = {},
+                onOpenHistoricalPrediction = {},
+                onOpenGiftProfile = {},
+                onDismiss = {},
+                isPredictionTracked = { false },
+                onTogglePredictionTracking = {},
+            )
+        }
+        val pinnedMessage = ViewPinnedChatMessageBinding.inflate(layoutInflater, root, false).apply {
+            pinnedMessageOverlay.layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                setMargins(dp(6), dp(6), dp(6), dp(6))
+            }
+            pinnedMessageOverlay.isVisible = true
+            pinnedMessageBy.text = "PinnedViewer"
+            pinnedMessageText.text = "Community game night starts in ten minutes!"
+            pinnedMessageSender.text = "Broadcaster"
+            pinnedMessageSentAt.text = "sent at 07:41 PM"
+            pinnedMessageSentAt.isVisible = true
+            pinnedMessageSeen.setImageResource(android.R.drawable.ic_menu_view)
+            pinnedMessageSeen.imageTintList = ColorStateList.valueOf(
+                MaterialColors.getColor(
+                    pinnedMessageSeen,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant,
+                ),
+            )
+            pinnedMessageProgress.progress = 620
+            pinnedMessageProgress.isVisible = true
+        }
+        root.addView(pinnedMessage.root)
+        root.addView(happeningNow)
+
         fixtureMessages().forEach { message ->
             ChatMessageTextView(this, (application as XtraApp).xtraModule.chatAssetRepository).also { view ->
                 view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * scale)
@@ -154,8 +213,91 @@ class ChatEventFixtureActivity : Activity() {
             text = "Hello chat",
             isFirst = true,
         ),
+        message(
+            id = "announcement",
+            userName = "Broadcaster",
+            text = "Community game night starts in ten minutes.",
+            kind = ChatMessageKind.ANNOUNCEMENT,
+            systemText = "Community announcement",
+        ),
+        message(
+            id = "raid",
+            userName = "RaidLeader",
+            text = "Welcome raiders!",
+            kind = ChatMessageKind.RAID,
+            systemText = "Raid incoming",
+        ),
+        message(
+            id = "notice",
+            userName = "System",
+            text = "Chat is in slow mode.",
+            kind = ChatMessageKind.NOTICE,
+            systemText = "Channel notice",
+        ),
         message("normal-2", "ChatViewer", "Another normal chat line"),
     )
+
+    private fun fixtureHappeningNowState() = HappeningNowView.RenderState(
+        gift = HappeningNowGift(
+            stableId = "fixture-gift",
+            occurredAt = 0L,
+            gifterDisplayName = "GiftViewer",
+            gifterUserId = "gift-viewer",
+            gifterLogin = "giftviewer",
+            isAnonymous = false,
+            count = 5,
+            source = ChatGiftSource.EVENTSUB,
+        ),
+        activePrediction = Prediction(
+            id = "fixture-prediction-active",
+            createdAt = 0L,
+            startedAt = 0L,
+            outcomes = listOf(
+                Prediction.PredictionOutcome("yes", "Yes", 1_240, 18, "BLUE"),
+                Prediction.PredictionOutcome("no", "No", 860, 12, "PINK"),
+            ),
+            predictionWindowSeconds = 120,
+            status = "ACTIVE",
+            title = "Will the next play be a win?",
+            winningOutcomeId = null,
+        ),
+        recentPredictionResult = Prediction(
+            id = "fixture-prediction-result",
+            createdAt = 0L,
+            outcomes = listOf(
+                Prediction.PredictionOutcome("yes", "Yes", 2_800, 30, "BLUE"),
+                Prediction.PredictionOutcome("no", "No", 1_100, 14, "PINK"),
+            ),
+            predictionWindowSeconds = 120,
+            status = "RESOLVED",
+            title = "Did chat call the clutch play?",
+            winningOutcomeId = "yes",
+        ),
+        activePoll = Poll(
+            id = "fixture-poll",
+            title = "Which emote should chat use next?",
+            status = "ACTIVE",
+            choices = listOf(
+                Poll.PollChoice("pog", "Pog", 42),
+                Poll.PollChoice("hype", "Hype", 27),
+                Poll.PollChoice("gg", "GG", 18),
+            ),
+            totalVotes = 87,
+            remainingMilliseconds = 90_000L,
+        ),
+        canBetPrediction = true,
+        canVotePoll = true,
+        newIds = setOf(
+            "gift:fixture-gift",
+            "prediction:fixture-prediction-active",
+            "prediction-result:fixture-prediction-result",
+            "poll:fixture-poll",
+        ),
+        dismissedIds = emptySet(),
+    )
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     private fun message(
         id: String,

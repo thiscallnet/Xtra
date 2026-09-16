@@ -18,9 +18,12 @@ accent rail | icon  title
 - Event rows use 6dp vertical padding and 1dp extra line spacing.
 - The title is strong. Metadata is muted. The actor keeps the normal chat
   color. A message is emitted only when Twitch supplied meaningful input.
-- The surface is a low-alpha tint of the channel surface. The rail carries the
-  semantic accent. Event rows do not use cards, gradients, shadows, or animated
-  backgrounds.
+- The surface uses the event's semantic fill token over the channel surface.
+  Translucent legacy fills keep their alpha; opaque fills stay opaque. The rail
+  is a separate, opaque readable accent so a fill token cannot disappear when
+  used as a narrow strip. Custom chat backgrounds render the event surface at
+  the existing reduced alpha. Event rows do not use cards, gradients, shadows,
+  or animated backgrounds.
 
 ## Semantic families
 
@@ -38,8 +41,9 @@ provide enough structured metadata.
 ## Review fixture
 
 The debug build includes `ChatEventFixtureActivity`, a deterministic sequence
-of ordinary chat, Prime and paid subscriptions, gifts, a community gift,
-Channel Points, Highlight My Message, Watch Streak, and First Time Chatter.
+of ordinary chat, every v2 inline event kind, a pinned message, and all four
+expanded “Happening Now” card states: gifted subscriptions, an active
+prediction, a resolved prediction, and an active poll.
 Launch it with:
 
 ```text
