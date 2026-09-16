@@ -18,6 +18,12 @@ class VideoPlaybackPolicyTest {
     }
 
     @Test
+    fun pipSkipsBackgroundPlaybackTransition() {
+        assertFalse(shouldApplyBackgroundPlaybackTransition(isInPictureInPicture = true))
+        assertTrue(shouldApplyBackgroundPlaybackTransition(isInPictureInPicture = false))
+    }
+
+    @Test
     fun pausedEndedOrIdlePlaybackDoesNotDisableVideo() {
         assertFalse(policy(playWhenReady = false))
         assertFalse(policy(playbackState = Player.STATE_ENDED))

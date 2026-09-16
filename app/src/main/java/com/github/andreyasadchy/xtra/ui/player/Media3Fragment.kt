@@ -1689,49 +1689,51 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         player?.let { player ->
             if (player.isConnected) {
                 savePosition()
-                if (viewModel.usingProxy) {
+                if (shouldApplyBackgroundPlaybackTransition(isInPIPMode)) {
+                    if (viewModel.usingProxy) {
+                        player.sendCustomCommand(
+                            SessionCommand(
+                                PlaybackService.TOGGLE_PROXY, Bundle().apply {
+                                    putBoolean(PlaybackService.USING_PROXY, false)
+                                }
+                            ), Bundle.EMPTY
+                        )
+                        viewModel.usingProxy = false
+                    }
+                    if (requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
+                        val shouldDisableVideo = shouldDisableVideoForBackground(
+                            backgroundPlaybackEnabled = true,
+                            isInPictureInPicture = isInPIPMode,
+                            playWhenReady = player.playWhenReady,
+                            playbackState = player.playbackState,
+                            hasMediaItem = player.currentMediaItem != null,
+                            audioOnly = viewModel.quality?.name == AUDIO_ONLY_QUALITY,
+                            chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY,
+                            videoAlreadySuppressed = viewModel.hidden,
+                        )
+                        if (shouldDisableVideo) {
+                            player.trackSelectionParameters = player.trackSelectionParameters
+                                .buildUpon()
+                                .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, true)
+                                .build()
+                            viewModel.videoTrackDisabledForBackground = true
+                            viewModel.videoOutputState.markDetachedForBackground()
+                            binding.playerSurface.visibility = View.GONE
+                            if (BuildConfig.PERF_DIAGNOSTICS) {
+                                Log.i("XtraPerf", "backgroundVideoTrack disabled")
+                            }
+                        }
+                    } else {
+                        viewModel.resume = player.playWhenReady && player.playbackState != Player.STATE_ENDED
+                        player.pause()
+                    }
                     player.sendCustomCommand(
                         SessionCommand(
-                            PlaybackService.TOGGLE_PROXY, Bundle().apply {
-                                putBoolean(PlaybackService.USING_PROXY, false)
-                            }
+                            PlaybackService.SET_BACKGROUND_PLAYBACK,
+                            Bundle().apply { putBoolean(PlaybackService.BACKGROUND_PLAYBACK, true) }
                         ), Bundle.EMPTY
                     )
-                    viewModel.usingProxy = false
                 }
-                if (requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
-                    val shouldDisableVideo = shouldDisableVideoForBackground(
-                        backgroundPlaybackEnabled = true,
-                        isInPictureInPicture = isInPIPMode,
-                        playWhenReady = player.playWhenReady,
-                        playbackState = player.playbackState,
-                        hasMediaItem = player.currentMediaItem != null,
-                        audioOnly = viewModel.quality?.name == AUDIO_ONLY_QUALITY,
-                        chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY,
-                        videoAlreadySuppressed = viewModel.hidden,
-                    )
-                    if (shouldDisableVideo) {
-                        player.trackSelectionParameters = player.trackSelectionParameters
-                            .buildUpon()
-                            .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, true)
-                            .build()
-                        viewModel.videoTrackDisabledForBackground = true
-                        viewModel.videoOutputState.markDetachedForBackground()
-                        binding.playerSurface.visibility = View.GONE
-                        if (BuildConfig.PERF_DIAGNOSTICS) {
-                            Log.i("XtraPerf", "backgroundVideoTrack disabled")
-                        }
-                    }
-                } else {
-                    viewModel.resume = player.playWhenReady && player.playbackState != Player.STATE_ENDED
-                    player.pause()
-                }
-                player.sendCustomCommand(
-                    SessionCommand(
-                        PlaybackService.SET_BACKGROUND_PLAYBACK,
-                        Bundle().apply { putBoolean(PlaybackService.BACKGROUND_PLAYBACK, true) }
-                    ), Bundle.EMPTY
-                )
                 player.sendCustomCommand(
                     SessionCommand(
                         PlaybackService.SET_SLEEP_TIMER, Bundle().apply {

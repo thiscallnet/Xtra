@@ -2,6 +2,10 @@ package com.github.andreyasadchy.xtra.ui.player
 
 import androidx.media3.common.Player
 
+internal fun shouldApplyBackgroundPlaybackTransition(
+    isInPictureInPicture: Boolean,
+): Boolean = !isInPictureInPicture
+
 internal fun shouldDisableVideoForBackground(
     backgroundPlaybackEnabled: Boolean,
     isInPictureInPicture: Boolean,

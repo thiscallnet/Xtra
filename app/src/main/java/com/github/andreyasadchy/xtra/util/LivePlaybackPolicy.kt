@@ -45,8 +45,8 @@ object LivePlaybackPolicies {
     val LOW_LATENCY = LivePlaybackPolicy(
         lowLatency = true,
         buffers = PlaybackBufferPolicy(
-            minBufferMs = 1_000,
-            maxBufferMs = 3_000,
+            minBufferMs = 1_500,
+            maxBufferMs = 6_000,
             bufferForPlaybackMs = 250,
             bufferForPlaybackAfterRebufferMs = 500,
             prioritizeTimeOverSizeThresholds = true,
