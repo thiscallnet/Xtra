@@ -67,10 +67,27 @@ data class HudPlacement(
     val scale: Float,
 )
 
+/**
+ * The policy used for controls that are not explicitly present in a sparse
+ * CUSTOM profile. This is separate from the config schema version so shipped
+ * defaults can evolve without changing an existing user's HUD.
+ */
+object HudDefaultPolicy {
+    const val LEGACY_V2 = 2
+    const val COMPACT_PHONE_V3 = 3
+    const val CURRENT = COMPACT_PHONE_V3
+
+    fun sanitize(value: Int, fallback: Int): Int = when (value) {
+        LEGACY_V2, COMPACT_PHONE_V3 -> value
+        else -> fallback
+    }
+}
+
 data class HudProfile(
     val mode: HudProfileMode,
     val globalScale: Float,
     val placements: Map<HudElementId, HudPlacement>,
+    val defaultPolicyVersion: Int = HudDefaultPolicy.CURRENT,
 )
 
 data class PlayerHudConfig(

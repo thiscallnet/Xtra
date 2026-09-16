@@ -453,6 +453,18 @@
     <string name="settings_layout_preview">Preview</string>
     <string name="settings_customize_hud">Customize player HUD</string>
     <string name="settings_customize_hud_summary">Move, resize, and show player controls</string>
+    <string name="settings_hud_share_setup">Share setup</string>
+    <string name="settings_hud_share_setup_summary">Copy a compact setup string or paste one from another Xtra user.</string>
+    <string name="settings_hud_use_for_both">Use this setup for both orientations</string>
+    <string name="settings_hud_copy_setup">Copy setup</string>
+    <string name="settings_hud_paste_setup">Paste setup</string>
+    <string name="settings_hud_setup_clip_label" translatable="false">Xtra HUD setup</string>
+    <string name="settings_hud_setup_copied">HUD setup copied</string>
+    <string name="settings_hud_setup_copied_to_both">HUD setup copied to both orientations</string>
+    <string name="settings_hud_paste_setup_title">Paste HUD setup?</string>
+    <string name="settings_hud_paste_setup_message">This replaces both portrait and landscape layouts. You can undo it in the editor.</string>
+    <string name="settings_hud_setup_invalid_title">Setup not recognized</string>
+    <string name="settings_hud_setup_invalid_message">The clipboard does not contain a valid Xtra HUD setup.</string>
     <string name="settings_preview_empty">Nothing here</string>
     <string name="settings_seek_controls">Seek controls</string>
     <string name="settings_gestures">Gestures</string>

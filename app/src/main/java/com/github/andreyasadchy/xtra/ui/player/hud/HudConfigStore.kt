@@ -52,12 +52,31 @@ internal object HudConfigJson {
     fun encode(config: PlayerHudConfig): String = encodeConfig(config).toString()
 
     private fun readProfile(json: JSONObject?, orientation: HudOrientation): HudProfile {
-        if (json == null) return HudProfile(HudProfileMode.DEFAULT, 1f, emptyMap())
+        if (json == null) return HudProfile(
+            HudProfileMode.DEFAULT,
+            1f,
+            emptyMap(),
+            HudDefaultPolicy.CURRENT,
+        )
         val mode = runCatching { HudProfileMode.valueOf(json.optString("mode")) }
             .getOrDefault(HudProfileMode.DEFAULT)
         val globalScale = json.optDouble("globalScale", 1.0).toFloat()
-            .takeIf(Float::isFinite)?.coerceIn(0.85f, 1.30f) ?: 1f
-        if (mode == HudProfileMode.DEFAULT) return HudProfile(mode, globalScale, emptyMap())
+            .takeIf(Float::isFinite)?.let(HudScale::clampGlobal) ?: 1f
+        val policyFallback = if (mode == HudProfileMode.DEFAULT) {
+            HudDefaultPolicy.CURRENT
+        } else {
+            // v2 CUSTOM profiles did not record which responsive defaults they
+            // inherited. Pin them to the old policy so a product-default
+            // change cannot silently rearrange an existing sparse profile.
+            HudDefaultPolicy.LEGACY_V2
+        }
+        val defaultPolicyVersion = HudDefaultPolicy.sanitize(
+            json.optInt("defaultPolicyVersion", policyFallback),
+            policyFallback,
+        )
+        if (mode == HudProfileMode.DEFAULT) {
+            return HudProfile(mode, globalScale, emptyMap(), defaultPolicyVersion)
+        }
         val elements = json.optJSONObject("elements")
         val placements = buildMap {
             if (elements != null) {
@@ -76,7 +95,7 @@ internal object HudConfigJson {
         // CUSTOM profiles contain only explicit overrides. Missing elements
         // inherit the responsive shared default in HudLayoutEngine, which
         // keeps portrait and landscape coupled until the user edits one.
-        return HudProfile(mode, globalScale, placements)
+        return HudProfile(mode, globalScale, placements, defaultPolicyVersion)
     }
 
     private fun encodeConfig(config: PlayerHudConfig): JSONObject = JSONObject().apply {
@@ -87,7 +106,16 @@ internal object HudConfigJson {
 
     private fun encodeProfile(profile: HudProfile): JSONObject = JSONObject().apply {
         put("mode", profile.mode.name)
-        put("globalScale", profile.globalScale.takeIf(Float::isFinite)?.coerceIn(0.85f, 1.30f) ?: 1f)
+        put("globalScale", HudScale.clampGlobal(profile.globalScale))
+        val policyFallback = if (profile.mode == HudProfileMode.DEFAULT) {
+            HudDefaultPolicy.CURRENT
+        } else {
+            HudDefaultPolicy.LEGACY_V2
+        }
+        put(
+            "defaultPolicyVersion",
+            HudDefaultPolicy.sanitize(profile.defaultPolicyVersion, policyFallback),
+        )
         put("elements", JSONObject().apply {
             profile.placements.forEach { (id, placement) ->
                 val spec = HudElementRegistry.get(id)

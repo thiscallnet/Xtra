@@ -8,53 +8,94 @@ object HudDefaultLayout {
     const val TRANSPORT_GAP = 20f
     const val COMPACT_TRANSPORT_GAP = 12f
 
+    private val COMPACT_PHONE_DEFAULT_ELEMENTS = setOf(
+        HudElementId.STREAM_INFO,
+        HudElementId.TIMELINE,
+        HudElementId.SEEK_BACK,
+        HudElementId.PLAY_PAUSE,
+        HudElementId.SEEK_FORWARD,
+        HudElementId.QUALITY,
+        HudElementId.CHAT,
+        HudElementId.FULLSCREEN,
+        HudElementId.MORE,
+    )
+    private val LEGACY_DEFAULT_ELEMENTS = setOf(
+        HudElementId.STREAM_INFO,
+        HudElementId.TIMELINE,
+        HudElementId.SEEK_BACK,
+        HudElementId.PLAY_PAUSE,
+        HudElementId.SEEK_FORWARD,
+        HudElementId.FOLLOW,
+        HudElementId.QUALITY,
+        HudElementId.ASPECT_RATIO,
+        HudElementId.VOLUME,
+        HudElementId.CLIP,
+        HudElementId.CAPTIONS,
+        HudElementId.CHAT,
+        HudElementId.FULLSCREEN,
+        HudElementId.MORE,
+    )
+
+    fun defaultEnabledElements(defaultPolicyVersion: Int = HudDefaultPolicy.CURRENT): Set<HudElementId> =
+        if (defaultPolicyVersion >= HudDefaultPolicy.COMPACT_PHONE_V3) {
+            COMPACT_PHONE_DEFAULT_ELEMENTS
+        } else LEGACY_DEFAULT_ELEMENTS
+
+    private fun usesCompactPhonePolicy(defaultPolicyVersion: Int): Boolean =
+        defaultPolicyVersion >= HudDefaultPolicy.COMPACT_PHONE_V3
+
     fun enabledByDefault(
         id: HudElementId,
         orientation: HudOrientation,
         safeWidth: Float,
         compact: Boolean = false,
+        defaultPolicyVersion: Int = HudDefaultPolicy.CURRENT,
     ): Boolean {
-        // Both orientations use the same visual language and the same set of
-        // default elements. Width and height only decide which controls can
-        // fit, never a separate portrait layout model.
-        val enabled = when (id) {
-            HudElementId.STREAM_INFO,
-            HudElementId.TIMELINE,
-            HudElementId.SEEK_BACK,
-            HudElementId.PLAY_PAUSE,
-            HudElementId.SEEK_FORWARD,
-            HudElementId.FOLLOW,
-            HudElementId.QUALITY,
-            HudElementId.ASPECT_RATIO,
-            HudElementId.VOLUME,
-            HudElementId.CLIP,
-            HudElementId.CAPTIONS,
-            HudElementId.CHAT,
-            HudElementId.FULLSCREEN,
-            HudElementId.MORE -> true
-            else -> false
+        // Both orientations use the same visual language. Width and height
+        // only decide which controls can fit, never a separate portrait model.
+        if (usesCompactPhonePolicy(defaultPolicyVersion)) {
+            return id in COMPACT_PHONE_DEFAULT_ELEMENTS
         }
-        return enabled && when {
-        compact && id in setOf(
-            HudElementId.CLIP,
-            HudElementId.CAPTIONS,
-            HudElementId.CHAT,
-            HudElementId.FULLSCREEN,
-        ) -> false
-        id == HudElementId.FOLLOW -> safeWidth >= 340f
-        id == HudElementId.ASPECT_RATIO -> safeWidth >= 600f
-        else -> true
+
+        return id in defaultEnabledElements(HudDefaultPolicy.LEGACY_V2) && when {
+            compact && id in setOf(
+                HudElementId.CLIP,
+                HudElementId.CAPTIONS,
+                HudElementId.CHAT,
+                HudElementId.FULLSCREEN,
+            ) -> false
+            id == HudElementId.FOLLOW -> safeWidth >= 340f
+            id == HudElementId.ASPECT_RATIO -> safeWidth >= 600f
+            else -> true
         }
     }
 
-    fun topEndElements(orientation: HudOrientation, safeWidth: Float): List<HudElementId> = buildList {
-        if (safeWidth >= 340f) add(HudElementId.FOLLOW)
-        add(HudElementId.QUALITY)
-        if (safeWidth >= 600f) add(HudElementId.ASPECT_RATIO)
+    fun topEndElements(
+        orientation: HudOrientation,
+        safeWidth: Float,
+        defaultPolicyVersion: Int = HudDefaultPolicy.CURRENT,
+    ): List<HudElementId> = buildList {
+        if (usesCompactPhonePolicy(defaultPolicyVersion)) {
+            add(HudElementId.QUALITY)
+            add(HudElementId.FULLSCREEN)
+        } else {
+            if (safeWidth >= 340f) add(HudElementId.FOLLOW)
+            add(HudElementId.QUALITY)
+            if (safeWidth >= 600f) add(HudElementId.ASPECT_RATIO)
+        }
     }
 
-    fun semanticFallback(id: HudElementId, orientation: HudOrientation): HudPlacement {
-        val enabled = enabledByDefault(id, orientation, Float.POSITIVE_INFINITY)
+    fun semanticFallback(
+        id: HudElementId,
+        orientation: HudOrientation,
+        defaultPolicyVersion: Int = HudDefaultPolicy.CURRENT,
+    ): HudPlacement {
+        val enabled = enabledByDefault(
+            id,
+            orientation,
+            Float.POSITIVE_INFINITY,
+            defaultPolicyVersion = defaultPolicyVersion,
+        )
         val point = when (id) {
             HudElementId.STREAM_INFO -> 0f to 0f
             HudElementId.TIMELINE -> .5f to 1f
@@ -96,7 +137,7 @@ object HudDefaultLayout {
         )
         val gap = SPACING * density
         val placements = mutableMapOf<HudElementId, HudPlacement>()
-        val globalScale = profile.globalScale.takeIf(Float::isFinite)?.coerceIn(0.85f, 1.30f) ?: 1f
+        val globalScale = HudScale.clampGlobal(profile.globalScale)
 
         fun scaledSize(id: HudElementId): HudSize {
             val spec = HudElementRegistry.get(id)
@@ -105,7 +146,7 @@ object HudDefaultLayout {
             } else {
                 spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
             }
-            val scale = globalScale * spec.clampScale(profile.placements[id]?.scale ?: 1f)
+            val scale = HudScale.effective(globalScale, spec.clampScale(profile.placements[id]?.scale ?: 1f))
             return HudSize(size.width * scale, size.height * scale)
         }
 
@@ -132,14 +173,24 @@ object HudDefaultLayout {
                     orientation,
                     safeRect.width / density.coerceAtLeast(0.001f),
                     compact,
+                    defaultPolicyVersion = profile.defaultPolicyVersion,
                 )) return
             val normalizedX = (x - safeRect.left) / safeRect.width.coerceAtLeast(1f)
             val normalizedY = (y - safeRect.top) / safeRect.height.coerceAtLeast(1f)
             placements[id] = HudPlacement(true, normalizedX.coerceIn(0f, 1f), normalizedY.coerceIn(0f, 1f), profile.placements[id]?.scale ?: 1f)
         }
 
-        val topEnd = topEndElements(orientation, safeRect.width / density.coerceAtLeast(0.001f))
-            .filter { it in availability }
+        val safeWidth = safeRect.width / density.coerceAtLeast(0.001f)
+        val topEnd = topEndElements(orientation, safeWidth, profile.defaultPolicyVersion)
+            .filter {
+                it in availability && enabledByDefault(
+                    it,
+                    orientation,
+                    safeWidth,
+                    compact,
+                    profile.defaultPolicyVersion,
+                )
+            }
         var topEndX = if (rtl) inner.left else inner.right
         topEnd.forEach { id ->
             val hit = hitSize(id)
@@ -155,6 +206,7 @@ object HudDefaultLayout {
                 orientation,
                 safeRect.width / density.coerceAtLeast(0.001f),
                 compact,
+                defaultPolicyVersion = profile.defaultPolicyVersion,
             )) {
             add(metadata, if (rtl) inner.right else inner.left, inner.top)
         }
@@ -199,19 +251,57 @@ object HudDefaultLayout {
             add(HudElementId.SEEK_FORWARD, playCenterX + playHit.width / 2f + transportGap + forwardHit.width / 2f, playCenterY)
         }
 
-        val bottomStart = listOf(HudElementId.VOLUME, HudElementId.CLIP)
-            .filter { it in availability }
-        val bottomEnd = listOf(
-            HudElementId.MORE,
-            HudElementId.CAPTIONS,
-            HudElementId.CHAT,
-            HudElementId.FULLSCREEN,
-        ).filter { it in availability && (!compact || it == HudElementId.MORE) }
+        val compactPhonePolicy = usesCompactPhonePolicy(profile.defaultPolicyVersion)
+        val bottomStartIds = if (compactPhonePolicy) {
+            listOf(HudElementId.CHAT)
+        } else {
+            listOf(HudElementId.VOLUME, HudElementId.CLIP)
+        }
+        val bottomEndIds = if (compactPhonePolicy) {
+            listOf(HudElementId.MORE)
+        } else {
+            listOf(
+                HudElementId.MORE,
+                HudElementId.CAPTIONS,
+                HudElementId.CHAT,
+                HudElementId.FULLSCREEN,
+            )
+        }
+        val bottomStart = bottomStartIds.filter { it in availability }
+        val bottomEnd = bottomEndIds.filter {
+            it in availability && (compactPhonePolicy || !compact || it == HudElementId.MORE)
+        }
         val timelineBand = if (HudElementId.TIMELINE in availability) {
             fittedSize(HudElementId.TIMELINE).height
                 .coerceAtLeast(24f * density)
         } else {
             0f
+        }
+        val timelineReservation = if (HudElementId.TIMELINE in availability) {
+            maxOf(timelineBand, hitSize(HudElementId.TIMELINE).height)
+        } else {
+            0f
+        }
+        val bottomActionIds = (bottomStart + bottomEnd).distinct()
+        val bottomActionBand = bottomActionIds.maxOfOrNull { hitSize(it).height } ?: 0f
+        val actionBottom = if (compact) safeRect.bottom else inner.bottom
+        val timelineBottomCandidate = actionBottom - bottomActionBand - gap
+        val candidateTimelineBand = HudRect(
+            safeRect.left,
+            timelineBottomCandidate - timelineReservation,
+            safeRect.right,
+            timelineBottomCandidate,
+        )
+        val timelineAboveActions = compactPhonePolicy &&
+            timelineReservation > 0f &&
+            bottomActionIds.isNotEmpty() &&
+            transportHitRects.none { it.overlaps(candidateTimelineBand) }
+        val timelineBottom = if (timelineAboveActions) {
+            timelineBottomCandidate
+        } else if (compact) {
+            safeRect.bottom
+        } else {
+            inner.bottom
         }
         fun placeBottomRow(ids: List<HudElementId>, start: Boolean) {
             var x = if (start) {
@@ -222,10 +312,12 @@ object HudDefaultLayout {
             ids.forEach { id ->
                 val hit = hitSize(id)
                 val center = if (start) x + hit.width / 2f else x - hit.width / 2f
-                val centerY = if (compact) {
-                    safeRect.bottom - timelineBand - hit.height / 2f
+                val centerY = if (timelineAboveActions) {
+                    actionBottom - hit.height / 2f
+                } else if (compact) {
+                    safeRect.bottom - timelineReservation - hit.height / 2f
                 } else {
-                    inner.bottom - timelineBand - hit.height / 2f - gap
+                    inner.bottom - timelineReservation - hit.height / 2f - gap
                 }
                 val candidate = HudRect(
                     center - hit.width / 2f,
@@ -245,8 +337,9 @@ object HudDefaultLayout {
                 orientation,
                 safeRect.width / density.coerceAtLeast(0.001f),
                 compact,
+                defaultPolicyVersion = profile.defaultPolicyVersion,
             )) {
-            add(HudElementId.TIMELINE, safeRect.centerX, safeRect.bottom)
+            add(HudElementId.TIMELINE, safeRect.centerX, timelineBottom)
         }
 
         return placements

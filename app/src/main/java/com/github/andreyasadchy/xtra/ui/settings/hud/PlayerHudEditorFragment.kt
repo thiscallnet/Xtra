@@ -1,5 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.settings.hud
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Canvas
@@ -19,6 +21,7 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
@@ -34,6 +37,7 @@ import androidx.media3.ui.PlayerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerLayoutBinding
 import com.github.andreyasadchy.xtra.ui.player.hud.HudDefaultLayout
+import com.github.andreyasadchy.xtra.ui.player.hud.HudConfigShareCodec
 import com.github.andreyasadchy.xtra.ui.player.hud.HudElementId
 import com.github.andreyasadchy.xtra.ui.player.hud.HudElementRegistry
 import com.github.andreyasadchy.xtra.ui.player.hud.HudOrientation
@@ -41,6 +45,7 @@ import com.github.andreyasadchy.xtra.ui.player.hud.HudPlacement
 import com.github.andreyasadchy.xtra.ui.player.hud.HudPivot
 import com.github.andreyasadchy.xtra.ui.player.hud.HudProfile
 import com.github.andreyasadchy.xtra.ui.player.hud.HudProfileMode
+import com.github.andreyasadchy.xtra.ui.player.hud.HudScale
 import com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudConfig
 import com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudDefaults
 import com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudLayout
@@ -198,6 +203,15 @@ class PlayerHudEditorFragment : Fragment() {
         orientationSelector.addView(portraitButton, LinearLayout.LayoutParams(0, dp(48), 1f))
         orientationSelector.addView(landscapeButton, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(4) })
         content.addView(orientationSelector, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
+        content.addView(MaterialButton(requireContext()).apply {
+            text = getString(R.string.settings_hud_use_for_both)
+            isAllCaps = false
+            configureFullWidthTextButton()
+            setOnClickListener { useCurrentSetupForBoth() }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+            topMargin = dp(4)
+            bottomMargin = dp(8)
+        })
 
         previewContainer = PreviewAspectFrameLayout(requireContext()).apply {
             setBackgroundColor(Color.BLACK)
@@ -311,8 +325,8 @@ class PlayerHudEditorFragment : Fragment() {
         scaleHeader.addView(scaleValueText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         selectedControlsContainer.addView(scaleHeader)
         scaleSlider = Slider(requireContext()).apply {
-            valueFrom = 75f
-            valueTo = 175f
+            valueFrom = HudScale.ELEMENT_MIN * 100f
+            valueTo = HudScale.ELEMENT_MAX * 100f
             stepSize = 1f
             addOnChangeListener { _, value, fromUser ->
                 if (fromUser && !suppressPanelCallbacks) {
@@ -347,8 +361,8 @@ class PlayerHudEditorFragment : Fragment() {
         globalHeader.addView(globalScaleValueText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)))
         selectedControlsContainer.addView(globalHeader)
         globalScaleSlider = Slider(requireContext()).apply {
-            valueFrom = 85f
-            valueTo = 130f
+            valueFrom = HudScale.GLOBAL_MIN * 100f
+            valueTo = HudScale.GLOBAL_MAX * 100f
             stepSize = 1f
             addOnChangeListener { _, value, fromUser ->
                 if (fromUser && !suppressPanelCallbacks) {
@@ -408,6 +422,36 @@ class PlayerHudEditorFragment : Fragment() {
         }
         HudElementId.entries.forEach { id -> addElementRow(id) }
         content.addView(elementList, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        val shareSection = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(16), 0, 0)
+        }
+        shareSection.addView(sectionLabel(getString(R.string.settings_hud_share_setup)))
+        shareSection.addView(TextView(requireContext()).apply {
+            text = getString(R.string.settings_hud_share_setup_summary)
+            textSize = 13f
+            setTextColor(0xFFB8B0C2.toInt())
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val shareButtons = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        shareButtons.addView(MaterialButton(requireContext()).apply {
+            text = getString(R.string.settings_hud_copy_setup)
+            isAllCaps = false
+            configureFullWidthTextButton()
+            setOnClickListener { copySetup() }
+        }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        shareButtons.addView(MaterialButton(requireContext()).apply {
+            text = getString(R.string.settings_hud_paste_setup)
+            isAllCaps = false
+            configureFullWidthTextButton()
+            setOnClickListener { pasteSetup() }
+        }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
+        shareSection.addView(shareButtons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+            topMargin = dp(8)
+        })
+        content.addView(shareSection)
 
         val resetSection = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.VERTICAL
@@ -782,7 +826,7 @@ class PlayerHudEditorFragment : Fragment() {
         ?: if (preview.isLaidOut) {
             preview.defaultEditorPlacement(id)
         } else {
-            HudDefaultLayout.semanticFallback(id, orientation)
+            HudDefaultLayout.semanticFallback(id, orientation, currentProfile().defaultPolicyVersion)
         }
 
     private fun materializeDefault() {
@@ -824,8 +868,8 @@ class PlayerHudEditorFragment : Fragment() {
         )
         bindSlider(
             globalScaleSlider,
-            85,
-            130,
+            (HudScale.GLOBAL_MIN * 100f).roundToInt(),
+            (HudScale.GLOBAL_MAX * 100f).roundToInt(),
             (currentProfile().globalScale * 100f).roundToInt(),
         )
         scaleValueText.text = "${scaleSlider.value.roundToInt()}%"
@@ -971,6 +1015,73 @@ class PlayerHudEditorFragment : Fragment() {
                 if (id == selected) 0xFF463A5A.toInt() else 0x0029242F,
             )
         }
+    }
+
+    private fun copySetup() {
+        val clipboard = requireContext().getSystemService(ClipboardManager::class.java) ?: return
+        clipboard.setPrimaryClip(
+            ClipData.newPlainText(
+                getString(R.string.settings_hud_setup_clip_label),
+                HudConfigShareCodec.encode(workingConfig),
+            ),
+        )
+        Toast.makeText(requireContext(), R.string.settings_hud_setup_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun useCurrentSetupForBoth() {
+        val before = snapshot()
+        val current = currentProfile()
+        workingConfig = workingConfig.copy(portrait = current, landscape = current)
+        preview.setHudOrientationAndProfile(orientation, current)
+        guideOverlay.clearCollision()
+        guideOverlay.setDragging(false)
+        guideOverlay.selected = selected
+        updateSelectedPanel()
+        updateElementList()
+        guideOverlay.invalidate()
+        commitAction(before)
+        Toast.makeText(requireContext(), R.string.settings_hud_setup_copied_to_both, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun pasteSetup() {
+        val raw = runCatching {
+            requireContext().getSystemService(ClipboardManager::class.java)
+                ?.primaryClip
+                ?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)
+                ?.coerceToText(requireContext())
+                ?.toString()
+                ?.trim()
+        }.getOrNull().orEmpty()
+        val imported = HudConfigShareCodec.decode(raw)
+        if (imported == null) {
+            MaterialAlertDialogBuilder(requireContext())
+                .setTitle(R.string.settings_hud_setup_invalid_title)
+                .setMessage(R.string.settings_hud_setup_invalid_message)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+            return
+        }
+
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.settings_hud_paste_setup_title)
+            .setMessage(R.string.settings_hud_paste_setup_message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.settings_hud_paste_setup) { _, _ -> applySharedSetup(imported) }
+            .show()
+    }
+
+    private fun applySharedSetup(config: PlayerHudConfig) {
+        val before = snapshot()
+        workingConfig = config
+        preview.setHudOrientationAndProfile(orientation, currentProfile())
+        guideOverlay.clearCollision()
+        guideOverlay.setDragging(false)
+        guideOverlay.selected = selected
+        updateSelectedPanel()
+        updateElementList()
+        guideOverlay.invalidate()
+        commitAction(before)
     }
 
     private fun displayName(id: HudElementId): String = id.name

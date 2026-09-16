@@ -183,6 +183,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         // first actual edit preserves the shared default for the other
         // orientation and for every untouched element.
         placements = emptyMap(),
+        defaultPolicyVersion = profile.defaultPolicyVersion,
     )
 
     fun elementFrame(id: HudElementId): HudElementFrame? = frames[id]
@@ -608,7 +609,11 @@ class PlayerHudLayout @JvmOverloads constructor(
     private fun defaultLane(id: HudElementId): Int? {
         val safeWidth = safeRect(width.toFloat(), height.toFloat()).width / density.coerceAtLeast(0.001f)
         return when {
-            id == HudElementId.STREAM_INFO || id in HudDefaultLayout.topEndElements(orientation, safeWidth) -> 0
+            id == HudElementId.STREAM_INFO || id in HudDefaultLayout.topEndElements(
+                orientation,
+                safeWidth,
+                profile.defaultPolicyVersion,
+            ) -> 0
             id == HudElementId.SEEK_BACK ||
                 id == HudElementId.PLAY_PAUSE ||
                 id == HudElementId.SEEK_FORWARD -> 1
@@ -672,7 +677,11 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     fun collisionFreeEditorPlacement(id: HudElementId, placement: HudPlacement): HudPlacement? {
-        val semantic = HudDefaultLayout.semanticFallback(id, orientation).copy(
+        val semantic = HudDefaultLayout.semanticFallback(
+            id,
+            orientation,
+            profile.defaultPolicyVersion,
+        ).copy(
             enabled = true,
             scale = placement.scale,
         )
@@ -922,7 +931,10 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     private fun defaultPlacement(id: HudElementId): HudPlacement {
-        val defaultProfile = PlayerHudDefaults.config().profile(orientation).copy(globalScale = profile.globalScale)
+        val defaultProfile = PlayerHudDefaults.config().profile(orientation).copy(
+            globalScale = profile.globalScale,
+            defaultPolicyVersion = profile.defaultPolicyVersion,
+        )
         return resolve(safeRect(width.toFloat(), height.toFloat()), defaultProfile, HudElementId.entries.toSet())
             .firstOrNull { it.id == id }
             ?.let { element ->
@@ -939,7 +951,7 @@ class PlayerHudLayout @JvmOverloads constructor(
                 }
                 HudPlacement(true, (x - safe.left) / safe.width.coerceAtLeast(1f), (y - safe.top) / safe.height.coerceAtLeast(1f), 1f)
             }
-            ?: HudDefaultLayout.semanticFallback(id, orientation).copy(
+            ?: HudDefaultLayout.semanticFallback(id, orientation, profile.defaultPolicyVersion).copy(
                 enabled = false,
                 scale = profile.placements[id]?.scale ?: 1f,
             )

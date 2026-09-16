@@ -72,18 +72,23 @@ class HudLayoutEngine(
         val topEnd = HudDefaultLayout.topEndElements(
             orientation,
             safeRect.width / density.coerceAtLeast(0.001f),
+            profile.defaultPolicyVersion,
         ).filter { id ->
             id in availability && HudDefaultLayout.enabledByDefault(
                 id,
                 orientation,
                 safeRect.width / density.coerceAtLeast(0.001f),
                 compact,
+                profile.defaultPolicyVersion,
             )
         }
         val topEndWidth = topEnd.sumOf { id ->
             val spec = HudElementRegistry.get(id)
             val visual = spec.visualSize(compact)
-            val scale = profile.globalScale.takeIf(Float::isFinite)?.coerceIn(0.85f, 1.30f) ?: 1f
+            val scale = HudScale.effective(
+                profile.globalScale,
+                spec.clampScale(profile.placements[id]?.scale ?: 1f),
+            )
             maxOf(visual.width * density * scale, spec.minimumHitSize.width * density)
                 .toDouble()
         }.toFloat() + (topEnd.size.coerceAtLeast(1) - 1) * gap
@@ -102,7 +107,7 @@ class HudLayoutEngine(
     ): List<ResolvedHudElement> {
         val safe = safeRect
         val compact = safe.height < 260f * density
-        val globalScale = profile.globalScale.takeIf(Float::isFinite)?.coerceIn(0.85f, 1.30f) ?: 1f
+        val globalScale = HudScale.clampGlobal(profile.globalScale)
         val compactTransportVisualHeight = if (compact) {
             listOf(
                 HudElementId.SEEK_BACK,
@@ -111,8 +116,10 @@ class HudLayoutEngine(
             ).filter { it in availability }
                 .maxOfOrNull { id ->
                     val spec = HudElementRegistry.get(id)
-                    spec.visualSize(true).height * density * globalScale *
-                        spec.clampScale(profile.placements[id]?.scale ?: 1f)
+                    spec.visualSize(true).height * density * HudScale.effective(
+                        globalScale,
+                        spec.clampScale(profile.placements[id]?.scale ?: 1f),
+                    )
                 }
                 ?: 0f
         } else {
@@ -157,7 +164,7 @@ class HudLayoutEngine(
             }
             val baseWidth = if (id == HudElementId.TIMELINE && measuredSize.width <= 0f) safe.width else measuredSize.width
             val baseSize = HudSize(baseWidth, measuredSize.height)
-            val rawScale = globalScale * elementScale
+            val rawScale = HudScale.effective(globalScale, elementScale)
             val scaledBaseSize = HudSize(
                 baseSize.width * rawScale,
                 baseSize.height * rawScale,

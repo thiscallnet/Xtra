@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.player.hud
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.json.JSONObject
 
 class HudLayoutEngineTest {
     private val viewports = listOf(
@@ -48,16 +49,19 @@ class HudLayoutEngineTest {
     }
 
     @Test
-    fun `default responsive top right controls follow width rules`() {
+    fun `compact phone defaults keep only the useful top controls`() {
         val portraitNarrow = engine().resolve(HudRect(0f, 0f, 320f, 203f), HudOrientation.PORTRAIT, defaultProfile(), sizes(320f, 203f))
         val portraitWide = engine().resolve(HudRect(0f, 0f, 360f, 203f), HudOrientation.PORTRAIT, defaultProfile(), sizes(360f, 203f))
         val landscapeNarrow = engine().resolve(HudRect(0f, 0f, 568f, 320f), HudOrientation.LANDSCAPE, defaultProfile(), sizes(568f, 320f))
         val landscapeWide = engine().resolve(HudRect(0f, 0f, 640f, 360f), HudOrientation.LANDSCAPE, defaultProfile(), sizes(640f, 360f))
 
-        assertTrue(portraitNarrow.none { it.id == HudElementId.FOLLOW })
-        assertTrue(portraitWide.any { it.id == HudElementId.FOLLOW })
-        assertTrue(landscapeNarrow.none { it.id == HudElementId.ASPECT_RATIO })
-        assertTrue(landscapeWide.any { it.id == HudElementId.ASPECT_RATIO })
+        listOf(portraitNarrow, portraitWide, landscapeNarrow, landscapeWide).forEach { result ->
+            assertTrue(result.any { it.id == HudElementId.QUALITY })
+            assertTrue(result.any { it.id == HudElementId.FULLSCREEN })
+            assertTrue(result.none { it.id == HudElementId.FOLLOW })
+            assertTrue(result.none { it.id == HudElementId.VOLUME })
+            assertTrue(result.none { it.id == HudElementId.ASPECT_RATIO })
+        }
     }
 
     @Test
@@ -120,17 +124,18 @@ class HudLayoutEngineTest {
     }
 
     @Test
-    fun `sparse custom profiles inherit the shared responsive default`() {
+    fun `sparse custom profiles preserve their pinned default policy`() {
         val safe = HudRect(0f, 0f, 800f, 360f)
         val custom = HudProfile(
             HudProfileMode.CUSTOM,
             1f,
             mapOf(HudElementId.QUALITY to HudPlacement(true, .2f, .3f, 1f)),
+            HudDefaultPolicy.LEGACY_V2,
         )
         val defaultResult = engine().resolve(
             safe,
             HudOrientation.LANDSCAPE,
-            defaultProfile(),
+            defaultProfile().copy(defaultPolicyVersion = HudDefaultPolicy.LEGACY_V2),
             sizes(800f, 360f),
         ).associateBy { it.id }
         val customResult = engine().resolve(
@@ -153,8 +158,8 @@ class HudLayoutEngineTest {
 
         assertEquals(48f, result.getValue(HudElementId.TIMELINE).visualRect.height, .01f)
         assertTrue(
-            result.getValue(HudElementId.VOLUME).hitRect.bottom <=
-                result.getValue(HudElementId.TIMELINE).visualRect.top - HudDefaultLayout.SPACING + .01f,
+            result.getValue(HudElementId.TIMELINE).visualRect.bottom <=
+                result.getValue(HudElementId.CHAT).hitRect.top - HudDefaultLayout.SPACING + .01f,
         )
     }
 
@@ -163,11 +168,11 @@ class HudLayoutEngineTest {
         val safe = HudRect(24f, 12f, 984f, 612f)
         val profile = HudProfile(
             HudProfileMode.CUSTOM,
-            .85f,
+            HudScale.GLOBAL_MIN,
             HudElementId.entries.associateWith { HudPlacement(true, .5f, .5f, .75f) },
         )
         val first = engine(rtl = true).resolve(safe, HudOrientation.LANDSCAPE, profile, sizes(safe.width, safe.height))
-        val second = engine(rtl = true).resolve(safe, HudOrientation.LANDSCAPE, profile.copy(globalScale = 1.30f), sizes(safe.width, safe.height))
+        val second = engine(rtl = true).resolve(safe, HudOrientation.LANDSCAPE, profile.copy(globalScale = HudScale.GLOBAL_MAX), sizes(safe.width, safe.height))
         assertEquals(first, engine(rtl = true).resolve(safe, HudOrientation.LANDSCAPE, profile, sizes(safe.width, safe.height)))
         assertTrue(first.all { it.effectiveScale.isFinite() })
         assertTrue(second.all { it.effectiveScale.isFinite() })
@@ -301,7 +306,7 @@ class HudLayoutEngineTest {
             .associateBy { it.id }
         val metadataTop = result.getValue(HudElementId.STREAM_INFO).visualRect.top
 
-        listOf(HudElementId.FOLLOW, HudElementId.QUALITY, HudElementId.ASPECT_RATIO).forEach { id ->
+        listOf(HudElementId.QUALITY, HudElementId.FULLSCREEN).forEach { id ->
             assertEquals(metadataTop, result.getValue(id).visualRect.top, .01f)
         }
     }
@@ -335,6 +340,52 @@ class HudLayoutEngineTest {
         val decoded = HudConfigJson.decode(HudConfigJson.encode(config))
 
         assertEquals(config, decoded)
+    }
+
+    @Test
+    fun `old sparse profiles keep legacy defaults when policy field is absent`() {
+        val custom = HudProfile(
+            HudProfileMode.CUSTOM,
+            1f,
+            mapOf(HudElementId.QUALITY to HudPlacement(true, .2f, .3f, 1f)),
+        )
+        val raw = JSONObject(HudConfigJson.encode(PlayerHudConfig(
+            portrait = custom,
+            landscape = PlayerHudDefaults.config().landscape,
+        ))).apply {
+            getJSONObject("portrait").remove("defaultPolicyVersion")
+        }.toString()
+
+        val decoded = HudConfigJson.decode(raw)
+
+        assertEquals(HudDefaultPolicy.LEGACY_V2, decoded?.portrait?.defaultPolicyVersion)
+        assertEquals(HudDefaultPolicy.CURRENT, decoded?.landscape?.defaultPolicyVersion)
+    }
+
+    @Test
+    fun `shared setup is compact and round trips`() {
+        val config = PlayerHudConfig(
+            portrait = HudProfile(
+                HudProfileMode.CUSTOM,
+                HudScale.GLOBAL_MAX,
+                mapOf(HudElementId.QUALITY to HudPlacement(true, .2f, .3f, HudScale.ELEMENT_MAX)),
+            ),
+            landscape = PlayerHudDefaults.config().landscape,
+        )
+
+        val encoded = HudConfigShareCodec.encode(config)
+
+        assertTrue(encoded.startsWith("xtra-hud:v1:"))
+        assertEquals(config, HudConfigShareCodec.decode(encoded))
+        assertTrue(HudConfigShareCodec.decode("xtra-hud:v2:invalid") == null)
+        assertTrue(HudConfigShareCodec.decode(encoded + "!") == null)
+    }
+
+    @Test
+    fun `visual scale has broad limits without shrinking hit targets`() {
+        assertEquals(.50f, HudScale.effective(HudScale.GLOBAL_MIN, HudScale.ELEMENT_MIN), .001f)
+        assertEquals(2.50f, HudScale.effective(HudScale.GLOBAL_MAX, HudScale.ELEMENT_MAX), .001f)
+        assertEquals(HudElementRegistry.get(HudElementId.PLAY_PAUSE).minimumHitSize.width, 72f, .001f)
     }
 
     private fun defaultProfile() = PlayerHudDefaults.config().landscape
