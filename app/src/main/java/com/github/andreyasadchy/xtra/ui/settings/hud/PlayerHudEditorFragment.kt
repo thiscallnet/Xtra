@@ -41,6 +41,8 @@ import com.github.andreyasadchy.xtra.ui.player.hud.HudConfigShareCodec
 import com.github.andreyasadchy.xtra.ui.player.hud.HudConfigMigration
 import com.github.andreyasadchy.xtra.ui.player.hud.HudElementId
 import com.github.andreyasadchy.xtra.ui.player.hud.HudElementRegistry
+import com.github.andreyasadchy.xtra.ui.player.hud.HudEditorHorizontalAlignment
+import com.github.andreyasadchy.xtra.ui.player.hud.HudEditorVerticalAlignment
 import com.github.andreyasadchy.xtra.ui.player.hud.HudOrientation
 import com.github.andreyasadchy.xtra.ui.player.hud.HudPlacement
 import com.github.andreyasadchy.xtra.ui.player.hud.HudPivot
@@ -217,6 +219,11 @@ class PlayerHudEditorFragment : Fragment() {
         previewContainer = PreviewAspectFrameLayout(requireContext()).apply {
             setBackgroundColor(Color.BLACK)
             elevation = dp(2).toFloat()
+            // The progress handle straddles the video/content boundary, like
+            // a conventional video player. Let the lower half remain visible
+            // instead of clipping it at the preview's last row of pixels.
+            clipChildren = false
+            clipToPadding = false
         }
         previewBinding = PlayerLayoutBinding.inflate(inflater, previewContainer, false)
         preview = previewBinding.root
@@ -380,18 +387,22 @@ class PlayerHudEditorFragment : Fragment() {
             textSize = 14f
             setTextColor(Color.WHITE)
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(32)))
-        val alignment = LinearLayout(requireContext()).apply { orientation = LinearLayout.VERTICAL }
-        val alignmentRow = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL }
-        alignmentRow.addView(alignmentButton("Center") { alignSelected(.5f, .5f) }, weightedButtonParams())
-        alignmentRow.addView(alignmentButton("Top") { alignSelected(null, 0f) }, weightedButtonParams())
-        alignmentRow.addView(alignmentButton("Bottom") { alignSelected(null, 1f) }, weightedButtonParams(last = true))
-        alignment.addView(alignmentRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
-        alignment.addView(alignmentButton("Reset") { selected?.let(::resetElement) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
+        val alignment = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL }
+        alignment.addView(alignmentButton("Center X") {
+            alignSelected(horizontal = HudEditorHorizontalAlignment.CENTER)
+        }, weightedButtonParams())
+        alignment.addView(alignmentButton("Center Y") {
+            alignSelected(vertical = HudEditorVerticalAlignment.CENTER)
+        }, weightedButtonParams())
+        alignment.addView(alignmentButton("Align...") { showAlignmentDialog() }, weightedButtonParams(last = true))
+        selectedControlsContainer.addView(alignment, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val resetRow = LinearLayout(requireContext()).apply { orientation = LinearLayout.HORIZONTAL }
+        resetRow.addView(alignmentButton("Reset position") { selected?.let(::resetElement) }, LinearLayout.LayoutParams(0, dp(48), 1f))
+        selectedControlsContainer.addView(resetRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply {
             topMargin = dp(4)
         })
-        selectedControlsContainer.addView(alignment, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         swapButton = MaterialButton(requireContext()).apply {
-            text = "Swap with…"
+            text = "Swap with..."
             isAllCaps = false
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
@@ -421,10 +432,9 @@ class PlayerHudEditorFragment : Fragment() {
             orientation = LinearLayout.VERTICAL
             background = roundedBackground(0xFF29242F.toInt())
         }
-        HudElementId.entries
-            .filter { HudElementRegistry.get(it).isMovable }
-            .forEach { id -> addElementRow(id) }
-        addFixedTimelineRow()
+        HudElementRegistry.all
+            .filter { it.isMovable }
+            .forEach { spec -> addElementRow(spec.id) }
         content.addView(elementList, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         val shareSection = LinearLayout(requireContext()).apply {
@@ -740,40 +750,6 @@ class PlayerHudEditorFragment : Fragment() {
         elementList.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(56)))
     }
 
-    private fun addFixedTimelineRow() {
-        val row = LinearLayout(requireContext()).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            minimumHeight = dp(64)
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            contentDescription = getString(R.string.settings_hud_playback_timeline_fixed)
-        }
-        val labels = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        labels.addView(TextView(requireContext()).apply {
-            text = getString(R.string.settings_hud_playback_timeline)
-            textSize = 14f
-            setTextColor(Color.WHITE)
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        labels.addView(TextView(requireContext()).apply {
-            text = getString(R.string.settings_hud_playback_timeline_fixed)
-            textSize = 12f
-            setTextColor(0xFFB8B0C2.toInt())
-            maxLines = 1
-            ellipsize = TextUtils.TruncateAt.END
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        row.addView(labels, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        row.addView(TextView(requireContext()).apply {
-            text = "Fixed"
-            textSize = 12f
-            setTextColor(0xFFD0C2FF.toInt())
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        elementList.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(64)))
-    }
-
     private fun selectOrientation(value: HudOrientation) {
         orientation = value
         updateOrientationButtons()
@@ -939,10 +915,11 @@ class PlayerHudEditorFragment : Fragment() {
         if (currentProfile().mode == HudProfileMode.DEFAULT) materializeDefault()
         val current = placement(id)
         val requested = preview.clampEditorPlacement(id, transform(current))
-        val next = if (!current.enabled && requested.enabled) {
-            preview.collisionFreeEditorPlacement(id, requested)
-        } else {
+        val next = if (!requested.enabled) {
             requested
+        } else {
+            preview.repairEditorPlacement(id, requested)
+                ?: if (!current.enabled) preview.collisionFreeEditorPlacement(id, requested) else null
         }
         if (next != null && next.enabled && preview.editorDropHasCollision(id, next)) {
             if (originalProfile.mode == HudProfileMode.DEFAULT) setProfile(originalProfile)
@@ -977,16 +954,47 @@ class PlayerHudEditorFragment : Fragment() {
         }
     }
 
-    private fun alignSelected(x: Float?, y: Float?) {
+    private fun alignSelected(
+        horizontal: HudEditorHorizontalAlignment? = null,
+        vertical: HudEditorVerticalAlignment? = null,
+    ) {
         val id = selected ?: return
-        updateSelected(id, transform = { value -> value.copy(x = x ?: value.x, y = y ?: value.y) })
+        val requested = preview.editorPlacementAlignedToCanvas(id, horizontal, vertical) ?: return
+        updateSelected(id, transform = { requested })
+    }
+
+    private fun showAlignmentDialog() {
+        val id = selected ?: return
+        val targetIds = preview.resolvedElements()
+            .map { it.id }
+            .filter { it != id }
+        val actions = buildList<Pair<String, () -> Unit>> {
+            add("Left edge" to { alignSelected(horizontal = HudEditorHorizontalAlignment.LEFT) })
+            add("Center X" to { alignSelected(horizontal = HudEditorHorizontalAlignment.CENTER) })
+            add("Right edge" to { alignSelected(horizontal = HudEditorHorizontalAlignment.RIGHT) })
+            add("Top edge" to { alignSelected(vertical = HudEditorVerticalAlignment.TOP) })
+            add("Center Y" to { alignSelected(vertical = HudEditorVerticalAlignment.CENTER) })
+            add("Bottom edge" to { alignSelected(vertical = HudEditorVerticalAlignment.BOTTOM) })
+            targetIds.forEach { targetId ->
+                add("Center with ${displayName(targetId)}" to {
+                    preview.editorPlacementAlignedTo(id, targetId)?.let { requested ->
+                        updateSelected(id, transform = { requested })
+                    }
+                })
+            }
+        }
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle("Align ${displayName(id)}")
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun showSwapDialog() {
         val first = selected ?: return
         val firstSpec = HudElementRegistry.get(first)
         if (!placement(first).enabled || !firstSpec.isInteractive || firstSpec.pivot != HudPivot.CENTER) return
-        val candidates = HudElementId.entries.filter { id ->
+        val candidates = HudElementRegistry.activeIds.filter { id ->
             id != first &&
                 HudElementRegistry.get(id).isInteractive &&
                 HudElementRegistry.get(id).pivot == HudPivot.CENTER &&
@@ -1265,6 +1273,7 @@ class PlayerHudEditorFragment : Fragment() {
                     paint.style = Paint.Style.FILL
                     paint.color = when (guide.kind) {
                         com.github.andreyasadchy.xtra.ui.player.hud.HudEditorGuideKind.SAFE_CENTER -> 0xFFB388FF.toInt()
+                        com.github.andreyasadchy.xtra.ui.player.hud.HudEditorGuideKind.CONTROL_BASELINE -> 0xFFE0B7FF.toInt()
                         else -> 0xCC8FD3FF.toInt()
                     }
                     if (guide.axis == com.github.andreyasadchy.xtra.ui.player.hud.HudEditorGuideAxis.VERTICAL) {
@@ -1279,11 +1288,9 @@ class PlayerHudEditorFragment : Fragment() {
                 val isSelected = element.id == selected
                 val isCollision = element.id in collisionIds
                 if (isSelected) {
-                    // The visual bounds are what the user is moving and
-                    // sizing. Hit padding is intentionally larger for
-                    // touch accessibility, so showing hitRect as the only
-                    // border made small controls look detached from their
-                    // actual content.
+                    // The visual bounds are the editor bounds. Runtime touch
+                    // geometry follows the same rectangle, so the selection
+                    // outline never advertises invisible padding.
                     paint.color = if (isCollision) 0xFFFF6B6B.toInt() else 0xFFB388FF.toInt()
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 2f
@@ -1331,22 +1338,26 @@ class PlayerHudEditorFragment : Fragment() {
                 "Overlaps $blockers"
             }
             if (showGuides && label != null) {
-                paint.textSize = 12f * resources.displayMetrics.density
-                val textWidth = paint.measureText(label) + 24f
+                val density = resources.displayMetrics.density
+                paint.textSize = 12f * density
+                val textWidth = paint.measureText(label) + 24f * density
+                val labelHeight = 28f * density
+                val labelTop = (safe.bottom - labelHeight - 4f * density)
+                    .coerceAtLeast(safe.top + 4f * density)
                 paint.style = Paint.Style.FILL
                 paint.color = 0xDD2A1D2F.toInt()
                 canvas.drawRoundRect(
                     safe.centerX - textWidth / 2f,
-                    safe.top + 8f,
+                    labelTop,
                     safe.centerX + textWidth / 2f,
-                    safe.top + 36f,
-                    14f,
-                    14f,
+                    labelTop + labelHeight,
+                    14f * density,
+                    14f * density,
                     paint,
                 )
                 paint.color = Color.WHITE
                 paint.textAlign = Paint.Align.CENTER
-                canvas.drawText(label, safe.centerX, safe.top + 27f, paint)
+                canvas.drawText(label, safe.centerX, labelTop + 18f * density, paint)
                 paint.textAlign = Paint.Align.LEFT
             }
         }

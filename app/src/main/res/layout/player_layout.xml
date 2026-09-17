@@ -136,14 +136,12 @@
         </LinearLayout>
     </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 
-    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:tag="TIMELINE">
-        <com.github.andreyasadchy.xtra.ui.player.hud.HudTimelineContent
-            android:id="@+id/timelineContent"
-            android:layout_width="match_parent"
-            android:layout_height="48dp">
+    <!-- Fixed player chrome. The line is always full-width at the video edge;
+         it is deliberately outside the configurable HUD element model. -->
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudTimelineContent
+        android:id="@+id/timelineContent"
+        android:layout_width="match_parent"
+        android:layout_height="48dp">
             <TextView
                 android:id="@+id/position"
                 android:layout_width="72dp"
@@ -177,18 +175,6 @@
                     app:unplayed_color="#66FFFFFF" />
             </LinearLayout>
             <TextView
-                android:id="@+id/liveTimeGroup"
-                android:layout_width="160dp"
-                android:layout_height="48dp"
-                android:fontFeatureSettings="tnum"
-                android:gravity="bottom|start"
-                android:includeFontPadding="false"
-                android:paddingBottom="6dp"
-                android:textColor="@android:color/white"
-                android:textSize="12sp"
-                android:visibility="gone"
-                tools:text="32:23 · LIVE" />
-            <TextView
                 android:id="@+id/duration"
                 android:layout_width="72dp"
                 android:layout_height="48dp"
@@ -197,6 +183,29 @@
                 android:visibility="gone"
                 tools:text="1:12:16" />
         </com.github.andreyasadchy.xtra.ui.player.hud.HudTimelineContent>
+
+    <!-- The status label follows ordinary HUD placement and sizing. -->
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:tag="TIME_STATUS">
+        <TextView
+            android:id="@+id/liveTimeGroup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFeatureSettings="tnum"
+            android:gravity="center_vertical|start"
+            android:includeFontPadding="false"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:paddingStart="4dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="2dp"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:text="32:23 · LIVE" />
     </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 
     <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="SEEK_BACK">
@@ -298,8 +307,8 @@
             android:id="@+id/captionsContent"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content">
-            <ImageButton android:id="@+id/liveCaptions" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_live_captions" android:src="@drawable/exo_ic_subtitle_off" android:visibility="gone" app:tint="@android:color/white" />
-            <ImageButton android:id="@+id/subtitles" android:layout_width="40dp" android:layout_height="40dp" android:background="@android:color/transparent" android:contentDescription="@string/player_subtitles" android:src="@drawable/exo_ic_subtitle_off" android:visibility="gone" app:tint="@android:color/white" />
+            <ImageButton android:id="@+id/liveCaptions" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/transparent" android:contentDescription="@string/player_live_captions" android:src="@drawable/exo_ic_subtitle_off" android:visibility="gone" app:tint="@android:color/white" />
+            <ImageButton android:id="@+id/subtitles" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/transparent" android:contentDescription="@string/player_subtitles" android:src="@drawable/exo_ic_subtitle_off" android:visibility="gone" app:tint="@android:color/white" />
         </FrameLayout>
     </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 </com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudLayout>

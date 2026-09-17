@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.player.hud
 enum class HudElementId {
     STREAM_INFO,
     TIMELINE,
+    TIME_STATUS,
 
     SEEK_BACK,
     PLAY_PAUSE,
@@ -97,7 +98,8 @@ object HudDefaultPolicy {
 object HudConfigMigration {
     const val INITIAL = 0
     const val FIXED_PLAYER_CHROME_V5 = 1
-    const val CURRENT = FIXED_PLAYER_CHROME_V5
+    const val SPLIT_FIXED_TIMELINE = 2
+    const val CURRENT = SPLIT_FIXED_TIMELINE
 
     fun apply(config: PlayerHudConfig): PlayerHudConfig {
         if (config.migrationVersion >= CURRENT) return config
@@ -114,10 +116,9 @@ object HudConfigMigration {
             defaultPolicyVersion = HudDefaultPolicy.CURRENT,
         )
         HudProfileMode.CUSTOM -> profile.copy(
-            // Keep every explicit placement, including old timeline data. The
-            // layout engine now treats TIMELINE as fixed chrome, so stale
-            // coordinates cannot move it, while preserving the data keeps the
-            // migration lossless for shared setups and future recovery.
+            // The progress line is fixed player chrome, not a user placement.
+            // Drop its old coordinates while preserving every real control.
+            placements = profile.placements - HudElementId.TIMELINE,
             defaultPolicyVersion = HudDefaultPolicy.CURRENT,
         )
     }

@@ -1,7 +1,5 @@
 package com.github.andreyasadchy.xtra.ui.player.hud
 
-import kotlin.math.max
-
 data class ResolvedHudElement(
     val id: HudElementId,
     val visualRect: HudRect,
@@ -17,8 +15,22 @@ enum class HudEditorGuideAxis {
 enum class HudEditorGuideKind {
     SAFE_EDGE,
     SAFE_CENTER,
+    SAFE_DIVISION,
     SIBLING_CENTER,
+    SIBLING_EDGE,
     CONTROL_BASELINE,
+}
+
+enum class HudEditorHorizontalAlignment {
+    LEFT,
+    CENTER,
+    RIGHT,
+}
+
+enum class HudEditorVerticalAlignment {
+    TOP,
+    CENTER,
+    BOTTOM,
 }
 
 data class HudEditorGuide(
@@ -26,6 +38,8 @@ data class HudEditorGuide(
     val coordinate: Float,
     val kind: HudEditorGuideKind,
     val source: HudElementId? = null,
+    /** The anchor coordinate used for snapping; [coordinate] is the drawn line. */
+    val snapCoordinate: Float = coordinate,
 )
 
 data class HudEditorSnapPreview(
@@ -103,15 +117,14 @@ class HudLayoutEngine(
                 profile.globalScale,
                 spec.clampScale(profile.placements[id]?.scale ?: 1f),
             )
-            // The metadata column shares the visible top row. Hit targets are
-            // deliberately larger than the icons and may overlap; reserving
-            // them here would recreate the old sparse, truncated layout.
+            // The metadata column shares the visible top row. Reserve only
+            // what is actually drawn; hidden touch padding must not recreate
+            // the old sparse, truncated layout.
             visual.width * density * scale
                 .toDouble()
         }.toFloat() + (topEnd.size.coerceAtLeast(1) - 1) * gap
         // Keep the metadata's visible rectangle one visual gap away from the
-        // nearest visible top-end control. The enlarged hit rectangles are
-        // allowed to overlap this gap and are resolved by child order.
+        // nearest visible top-end control.
         val widthBudget = (safeRect.width - 2f * edge - topEndWidth - gap)
             .coerceAtLeast(0f)
         return maxWidth.coerceAtMost(widthBudget).coerceAtMost(safeRect.width)
@@ -123,7 +136,8 @@ class HudLayoutEngine(
         profile: HudProfile,
         measuredVisualSizes: Map<HudElementId, HudSize>,
         minimumHitSizes: Map<HudElementId, HudSize> = emptyMap(),
-        availability: Set<HudElementId> = HudElementId.entries.toSet(),
+        availability: Set<HudElementId> = HudElementRegistry.activeIds,
+        liveTimePosition: HudTimelineTimePosition = HudTimelineTimePosition.LEFT,
     ): List<ResolvedHudElement> {
         val safe = safeRect
         val compact = safe.height < 260f * density
@@ -162,6 +176,7 @@ class HudLayoutEngine(
             rtl = rtl,
             television = television,
             televisionEdgePadding = televisionEdgePadding,
+            liveTimePosition = liveTimePosition,
         )
         // A custom profile is a sparse override layer over the same responsive
         // default. An element is only independent after its placement is
@@ -169,20 +184,26 @@ class HudLayoutEngine(
         val resolvedPlacements = if (profile.mode == HudProfileMode.DEFAULT) {
             defaultPlacements
         } else {
-            defaultPlacements + profile.placements.filterKeys { HudElementRegistry.get(it).isMovable }
+            defaultPlacements + profile.placements.filterKeys {
+                it != HudElementId.TIMELINE && HudElementRegistry.get(it).isMovable
+            }
         }
-        val ordered = HudElementId.entries
+        val ordered = HudElementRegistry.all.map(HudElementSpec::id)
         return ordered.mapNotNull { id ->
+            // TIMELINE is retained only as a legacy persistence token. The
+            // progress line and scrub band are fixed player chrome, laid out
+            // by PlayerHudLayout rather than by HUD profile semantics.
+            if (id == HudElementId.TIMELINE) return@mapNotNull null
             val spec = HudElementRegistry.get(id)
             val placement = resolvedPlacements[id] ?: return@mapNotNull null
             if (!placement.enabled || id !in availability) return@mapNotNull null
             val elementScale = if (spec.isMovable) spec.clampScale(placement.scale) else 1f
-            val measuredSize = if (id == HudElementId.STREAM_INFO || id == HudElementId.TIMELINE) {
+            val measuredSize = if (id == HudElementId.STREAM_INFO || id == HudElementId.TIME_STATUS) {
                 measuredSizes[id] ?: spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
             } else {
                 spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
             }
-            val baseWidth = if (id == HudElementId.TIMELINE && measuredSize.width <= 0f) safe.width else measuredSize.width
+            val baseWidth = measuredSize.width
             val baseSize = HudSize(baseWidth, measuredSize.height)
             val rawScale = HudScale.effective(globalScale, elementScale)
             val scaledBaseSize = HudSize(
@@ -211,25 +232,12 @@ class HudLayoutEngine(
                 baseSize.width * effectiveScale,
                 baseSize.height * effectiveScale,
             )
-            val minimum = minimumHitSizes[id]
-                ?: spec.minimumHitSize.let { HudSize(it.width * density, it.height * density) }
-            val hitSize = HudSize(
-                max(visualSize.width, minimum.width),
-                max(visualSize.height, minimum.height),
-            )
             val rawVisualRect = visualRect(safe, placement, spec.pivot, visualSize)
-            val rawHitRect = rawVisualRect.expandedTo(
-                hitSize.width.coerceAtMost(safe.width),
-                hitSize.height.coerceAtMost(safe.height),
-            )
-            // Clamp the visual and hit rectangles independently. Expanding a
-            // top-row hit target must not move its visual sibling down by a
-            // different amount, which was the source of the misaligned top
-            // controls. The semantic pivot remains stable while hit padding
-            // is absorbed inside the safe rectangle.
+            // The visible bounds are also the interaction bounds. A previous
+            // 48/56/72dp minimum made a small icon own invisible space and
+            // caused neighboring controls to activate or appear misaligned.
             val visual = rawVisualRect.clampInside(safe)
-            val hit = rawHitRect.clampInside(safe)
-            ResolvedHudElement(id, visual, hit, effectiveScale)
+            ResolvedHudElement(id, visual, visual, effectiveScale)
         }
     }
 

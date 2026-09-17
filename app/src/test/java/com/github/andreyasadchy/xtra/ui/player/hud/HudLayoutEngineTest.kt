@@ -19,7 +19,7 @@ class HudLayoutEngineTest {
     )
 
     @Test
-    fun `default layouts stay inside safe viewport and use minimum hit targets`() {
+    fun `default layouts stay inside safe viewport with tight hit targets`() {
         viewports.forEach { (width, height) ->
             listOf(HudOrientation.PORTRAIT, HudOrientation.LANDSCAPE).forEach { orientation ->
                 val safe = HudRect(0f, 0f, width, height)
@@ -34,23 +34,19 @@ class HudLayoutEngineTest {
                     assertTrue("${width}x$height ${element.id} hit top", element.hitRect.top >= safe.top - .01f)
                     assertTrue("${width}x$height ${element.id} hit right", element.hitRect.right <= safe.right + .01f)
                     assertTrue("${width}x$height ${element.id} hit bottom", element.hitRect.bottom <= safe.bottom + .01f)
-                    val spec = HudElementRegistry.get(element.id)
-                    if (spec.isInteractive) {
-                        assertTrue(element.hitRect.width >= spec.minimumHitSize.width - .01f)
-                        assertTrue(element.hitRect.height >= spec.minimumHitSize.height - .01f)
-                    }
+                    assertEquals(
+                        "${width}x$height ${element.id} hit geometry must match visible geometry",
+                        element.visualRect,
+                        element.hitRect,
+                    )
                     assertTrue(
                         "${width}x$height ${element.id} visible center is actionable",
                         element.hitRect.contains(element.visualRect.centerX, element.visualRect.centerY),
                     )
                 }
-                // TIMELINE.visualRect is the full-height Media3 touch host;
-                // its actual painted bar is the 3dp bottom strip. It is
-                // intentionally allowed to share the host with edge actions.
-                result.filterNot { it.id == HudElementId.TIMELINE }
-                    .forEachIndexed { index, element ->
-                    result.filterNot { it.id == HudElementId.TIMELINE }
-                        .drop(index + 1).forEach { other ->
+                assertTrue(result.none { it.id == HudElementId.TIMELINE })
+                result.forEachIndexed { index, element ->
+                    result.drop(index + 1).forEach { other ->
                         assertTrue(
                             "${width}x$height $orientation overlap: ${element.id}/${other.id}",
                             !element.visualRect.overlaps(other.visualRect),
@@ -212,18 +208,13 @@ class HudLayoutEngineTest {
     }
 
     @Test
-    fun `default timeline is fixed to the safe bottom above bottom actions`() {
+    fun `fixed timeline chrome is outside the layout engine`() {
         val safe = HudRect(0f, 0f, 800f, 360f)
         val result = engine().resolve(safe, HudOrientation.LANDSCAPE, defaultProfile(), sizes(800f, 360f))
             .associateBy { it.id }
 
-        assertEquals(48f, result.getValue(HudElementId.TIMELINE).visualRect.height, .01f)
-        assertEquals(safe.bottom, result.getValue(HudElementId.TIMELINE).visualRect.bottom, .01f)
-        assertEquals(safe.bottom, result.getValue(HudElementId.TIMELINE).hitRect.bottom, .01f)
-        assertTrue(
-            result.getValue(HudElementId.CHAT).hitRect.bottom <=
-                result.getValue(HudElementId.TIMELINE).hitRect.top - HudDefaultLayout.SPACING + .01f,
-        )
+        assertTrue(result.keys.none { it == HudElementId.TIMELINE })
+        assertTrue(result.keys.any { it == HudElementId.TIME_STATUS })
     }
 
     @Test
@@ -281,7 +272,7 @@ class HudLayoutEngineTest {
         val result = engine().resolve(safe, HudOrientation.PORTRAIT, defaultProfile(), sizes(safe.width, safe.height))
             .associateBy { it.id }
 
-        assertEquals(safe.bottom, result.getValue(HudElementId.TIMELINE).hitRect.bottom, .01f)
+        assertTrue(result.keys.none { it == HudElementId.TIMELINE })
         assertEquals(safe.centerX, result.getValue(HudElementId.PLAY_PAUSE).hitRect.centerX, .01f)
         result.values.forEach { element ->
             assertTrue(element.hitRect.left >= safe.left - .01f)
@@ -305,10 +296,8 @@ class HudLayoutEngineTest {
                     defaultProfile(),
                     sizes(safe.width, safe.height),
                 )
-                result.filterNot { it.id == HudElementId.TIMELINE }
-                    .forEachIndexed { index, element ->
-                    result.filterNot { it.id == HudElementId.TIMELINE }
-                        .drop(index + 1).forEach { other ->
+                result.forEachIndexed { index, element ->
+                    result.drop(index + 1).forEach { other ->
                         assertTrue(
                             "${safe.width} compact rtl=$rtl overlap: ${element.id}/${other.id}",
                             !element.visualRect.overlaps(other.visualRect),
@@ -452,21 +441,17 @@ class HudLayoutEngineTest {
     }
 
     @Test
-    fun `scaled timeline remains inside the safe viewport`() {
+    fun `legacy timeline placements are ignored by the active layout`() {
         val safe = HudRect(0f, 0f, 800f, 360f)
         val profile = HudProfile(
             HudProfileMode.CUSTOM,
             1.30f,
             mapOf(HudElementId.TIMELINE to HudPlacement(false, .2f, .2f, 2f)),
         )
-        val timeline = engine().resolve(safe, HudOrientation.LANDSCAPE, profile, sizes(800f, 360f))
-            .single { it.id == HudElementId.TIMELINE }
+        val result = engine().resolve(safe, HudOrientation.LANDSCAPE, profile, sizes(800f, 360f))
 
-        assertEquals(safe.width, timeline.visualRect.width, .01f)
-        assertEquals(safe.bottom, timeline.visualRect.bottom, .01f)
-        assertTrue(timeline.hitRect.bottom <= safe.bottom + .01f)
-        assertTrue(timeline.visualRect.left >= safe.left - .01f)
-        assertTrue(timeline.visualRect.right <= safe.right + .01f)
+        assertTrue(result.none { it.id == HudElementId.TIMELINE })
+        assertTrue(result.any { it.id == HudElementId.TIME_STATUS })
     }
 
     @Test
@@ -474,7 +459,7 @@ class HudLayoutEngineTest {
         val profile = HudProfile(
             HudProfileMode.CUSTOM,
             1.23f,
-            HudElementId.entries.associateWith { id ->
+            HudElementId.entries.filter { it != HudElementId.TIMELINE }.associateWith { id ->
                 HudPlacement(id.ordinal % 2 == 0, (id.ordinal + 1) / 30f, (id.ordinal + 2) / 31f, 1f)
             },
         )
@@ -535,10 +520,16 @@ class HudLayoutEngineTest {
     }
 
     @Test
-    fun `visual scale has broad limits without shrinking hit targets`() {
+    fun `visual scale has broad limits and keeps hit geometry tight`() {
         assertEquals(.50f, HudScale.effective(HudScale.GLOBAL_MIN, HudScale.ELEMENT_MIN), .001f)
         assertEquals(2.50f, HudScale.effective(HudScale.GLOBAL_MAX, HudScale.ELEMENT_MAX), .001f)
-        assertEquals(HudElementRegistry.get(HudElementId.PLAY_PAUSE).minimumHitSize.width, 72f, .001f)
+        val result = engine().resolve(
+            HudRect(0f, 0f, 800f, 360f),
+            HudOrientation.LANDSCAPE,
+            defaultProfile(),
+            sizes(800f, 360f),
+        )
+        assertTrue(result.all { it.visualRect == it.hitRect })
     }
 
     private fun defaultProfile() = PlayerHudDefaults.config().landscape
@@ -547,10 +538,7 @@ class HudLayoutEngineTest {
 
     private fun sizes(width: Float, height: Float, density: Float = 1f): Map<HudElementId, HudSize> =
         HudElementRegistry.all.associate { spec ->
-            spec.id to if (spec.id == HudElementId.TIMELINE) {
-                HudSize(width, 48f * density)
-            } else {
-                spec.visualSize(height < 260f / density).let { HudSize(it.width * density, it.height * density) }
-            }
+            spec.id to spec.visualSize(height < 260f / density)
+                .let { HudSize(it.width * density, it.height * density) }
         }
 }

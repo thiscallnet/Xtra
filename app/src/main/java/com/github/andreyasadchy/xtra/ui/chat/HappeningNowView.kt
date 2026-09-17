@@ -72,6 +72,11 @@ internal class HappeningNowView @JvmOverloads constructor(
             expansionChangedByUser = true
             expanded = !expanded
             updateExpandedState()
+            if (expanded) {
+                cards.getChildAt(0)?.let { firstCard ->
+                    (parent?.parent as? ChatTopOverlayScrollView)?.revealDescendant(firstCard)
+                }
+            }
         }
 
         visibility = GONE
@@ -86,6 +91,51 @@ internal class HappeningNowView @JvmOverloads constructor(
         }
     }
 
+    /**
+     * Adds content-coordinate breakpoints for the scroll view's resting edge.
+     * The header, new badge, and each activity card are all complete units;
+     * the outer scroll view adds its own padding after these coordinates.
+     */
+    internal fun appendOverlayBreakpoints(top: Int, breakpoints: MutableList<Int>) {
+        var childTop = paddingTop
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            if (child.visibility != View.VISIBLE) continue
+
+            val margins = child.layoutParams as? android.view.ViewGroup.MarginLayoutParams
+            childTop += margins?.topMargin ?: 0
+            val childBottom = childTop + child.measuredHeight
+            val bottomWithMargin = childBottom + (margins?.bottomMargin ?: 0)
+
+            when (child.id) {
+                R.id.happeningHeader,
+                R.id.happeningNewBadge,
+                -> breakpoints += top + bottomWithMargin
+
+                R.id.happeningCards -> {
+                    val cardContainer = child as? LinearLayout
+                    if (cardContainer != null) {
+                        var cardTop = cardContainer.paddingTop
+                        for (cardIndex in 0 until cardContainer.childCount) {
+                            val card = cardContainer.getChildAt(cardIndex)
+                            if (card.visibility != View.VISIBLE) continue
+                            val cardMargins = card.layoutParams as? android.view.ViewGroup.MarginLayoutParams
+                            cardTop += cardMargins?.topMargin ?: 0
+                            val cardBottom = cardTop + card.measuredHeight
+                            breakpoints += top + childTop + cardBottom +
+                                (cardMargins?.bottomMargin ?: 0)
+                            cardTop = cardBottom + (cardMargins?.bottomMargin ?: 0)
+                        }
+                    }
+                }
+            }
+
+            childTop = bottomWithMargin
+        }
+
+        breakpoints += top + childTop + paddingBottom
+    }
+
     fun render(
         state: RenderState,
         onOpenChannelPoints: () -> Unit,
@@ -95,6 +145,8 @@ internal class HappeningNowView @JvmOverloads constructor(
         isPredictionTracked: (String) -> Boolean = { false },
         onTogglePredictionTracking: (Prediction) -> Unit = {},
     ) {
+        val overlayScrollView = parent?.parent as? ChatTopOverlayScrollView
+        val previousScrollY = overlayScrollView?.scrollY ?: 0
         cards.removeAllViews()
         activePredictionTimer = null
         activePredictionStableKey = null
@@ -177,6 +229,7 @@ internal class HappeningNowView @JvmOverloads constructor(
         isVisible = count > 0
 
         if (count == 0) {
+            overlayScrollView?.restoreScrollPosition(previousScrollY)
             return
         }
 
@@ -190,6 +243,7 @@ internal class HappeningNowView @JvmOverloads constructor(
         )
 
         updateExpandedState()
+        overlayScrollView?.restoreScrollPosition(previousScrollY)
     }
 
     fun updateTimers(

@@ -24,7 +24,6 @@ class HudTimeBar @JvmOverloads constructor(
 ) : DefaultTimeBar(context, attrs, defStyleAttr) {
     private val density = resources.displayMetrics.density
     private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var edgePlayedColor = 0xFFB388FF.toInt()
     private var edgeBufferedColor = 0x66FFFFFF
     private var edgeUnplayedColor = 0x66FFFFFF
@@ -32,21 +31,22 @@ class HudTimeBar @JvmOverloads constructor(
     private var edgePositionMs = 0L
     private var edgeBufferedPositionMs = 0L
     private var initialized = false
+    private var edgeMarkerListener: (() -> Unit)? = null
 
     private val scrubStateListener = object : TimeBar.OnScrubListener {
         override fun onScrubStart(timeBar: TimeBar, position: Long) {
             edgePositionMs = position
-            invalidate()
+            notifyEdgeMarkerChanged()
         }
 
         override fun onScrubMove(timeBar: TimeBar, position: Long) {
             edgePositionMs = position
-            invalidate()
+            notifyEdgeMarkerChanged()
         }
 
         override fun onScrubStop(timeBar: TimeBar, position: Long, canceled: Boolean) {
             edgePositionMs = position
-            invalidate()
+            notifyEdgeMarkerChanged()
         }
     }
 
@@ -65,44 +65,70 @@ class HudTimeBar @JvmOverloads constructor(
     override fun setPlayedColor(color: Int) {
         edgePlayedColor = color
         super.setPlayedColor(Color.TRANSPARENT)
-        if (initialized) invalidate()
+        notifyEdgeMarkerChanged()
     }
 
     override fun setScrubberColor(color: Int) {
         edgePlayedColor = color
         super.setScrubberColor(Color.TRANSPARENT)
-        if (initialized) invalidate()
+        notifyEdgeMarkerChanged()
     }
 
     override fun setBufferedColor(color: Int) {
         edgeBufferedColor = color
         super.setBufferedColor(Color.TRANSPARENT)
-        if (initialized) invalidate()
+        notifyEdgeMarkerChanged()
     }
 
     override fun setUnplayedColor(color: Int) {
         edgeUnplayedColor = color
         super.setUnplayedColor(Color.TRANSPARENT)
-        if (initialized) invalidate()
+        notifyEdgeMarkerChanged()
     }
 
     override fun setDuration(duration: Long) {
         edgeDurationMs = duration
         super.setDuration(duration)
-        invalidate()
+        notifyEdgeMarkerChanged()
     }
 
     override fun setPosition(position: Long) {
         edgePositionMs = position
         super.setPosition(position)
-        invalidate()
+        notifyEdgeMarkerChanged()
     }
 
     override fun setBufferedPosition(bufferedPosition: Long) {
         edgeBufferedPositionMs = bufferedPosition
         super.setBufferedPosition(bufferedPosition)
-        invalidate()
+        notifyEdgeMarkerChanged()
     }
+
+    /** Installs the visual marker that is allowed to straddle the video edge. */
+    fun setEdgeMarkerListener(listener: (() -> Unit)?) {
+        edgeMarkerListener = listener
+        if (initialized) listener?.invoke()
+    }
+
+    fun edgeMarkerFraction(): Float? =
+        edgeDurationMs.takeIf { it > 0L }?.let(::normalizedFraction)
+
+    fun edgeMarkerRadiusPx(): Float = markerRadiusPx(max(height, measuredHeight).toFloat())
+
+    /** The center of the painted edge-to-edge track, in this view's coordinates. */
+    fun edgeMarkerLineCenterY(): Float {
+        val heightPx = max(height, measuredHeight).toFloat()
+        val lineHeight = min(heightPx, max(1f, 3f * density))
+        return heightPx - lineHeight / 2f
+    }
+
+    fun edgeMarkerCenterX(fraction: Float): Float = markerCenterX(
+        fraction = fraction,
+        widthPx = max(width, measuredWidth).toFloat(),
+        radius = edgeMarkerRadiusPx(),
+    )
+
+    fun edgeMarkerColor(): Int = edgePlayedColor
 
     /** True when x falls inside the handle's expanded 48dp touch target. */
     fun isWithinHandleTouchTarget(x: Float): Boolean {
@@ -134,17 +160,6 @@ class HudTimeBar @JvmOverloads constructor(
             drawFraction(canvas, lineTop, heightPx, widthPx, edgeBufferedPositionMs.toFloat() / duration, edgeBufferedColor)
             drawFraction(canvas, lineTop, heightPx, widthPx, edgePositionMs.toFloat() / duration, edgePlayedColor)
 
-            val radius = markerRadiusPx(heightPx)
-            val fraction = normalizedFraction(duration)
-            // Keep the logical progress coordinate edge-to-edge, but inset the
-            // visible handle so the complete circle remains owned by the
-            // player at physical endpoints. This is the same separation used
-            // by compact video players: the track reaches the edge while the
-            // handle stays drawable and tangible inside it.
-            val x = markerCenterX(fraction, widthPx, radius)
-            thumbPaint.color = edgePlayedColor
-            thumbPaint.isAntiAlias = true
-            canvas.drawCircle(x, lineTop + lineHeight / 2f, radius, thumbPaint)
         }
 
         // Preserve ad markers and any other semantics implemented by Media3.
@@ -175,5 +190,10 @@ class HudTimeBar @JvmOverloads constructor(
     private fun markerCenterX(fraction: Float, widthPx: Float, radius: Float): Float {
         val travel = (widthPx - 2f * radius).coerceAtLeast(0f)
         return if (travel > 0f) radius + travel * fraction else widthPx / 2f
+    }
+
+    private fun notifyEdgeMarkerChanged() {
+        edgeMarkerListener?.invoke()
+        if (initialized) invalidate()
     }
 }

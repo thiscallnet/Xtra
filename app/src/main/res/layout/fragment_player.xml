@@ -278,5 +278,12 @@
             android:focusable="true"
             android:visibility="gone" />
 
+        <com.github.andreyasadchy.xtra.ui.player.hud.HudEdgeMarkerTouchOverlay
+            android:id="@+id/hudEdgeMarkerTouchOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:translationZ="2dp" />
+
     </FrameLayout>
 </LinearLayout>

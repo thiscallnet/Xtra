@@ -5,6 +5,9 @@ data class HudElementSpec(
     val pivot: HudPivot = HudPivot.CENTER,
     val normalVisualSize: HudSize,
     val compactVisualSize: HudSize = normalVisualSize,
+    // Kept in the schema for compatibility with the original registry. The
+    // layout engine no longer expands invisible hit rectangles from this
+    // value; touch geometry follows the visible element instead.
     val minimumHitSize: HudSize,
     val minimumScale: Float = HudScale.ELEMENT_MIN,
     val maximumScale: Float = HudScale.ELEMENT_MAX,
@@ -27,12 +30,12 @@ object HudElementRegistry {
     val all: List<HudElementSpec> = listOf(
         HudElementSpec(HudElementId.STREAM_INFO, HudPivot.TOP_START, HudSize(280f, 76f), HudSize(240f, 60f), HudSize(0f, 0f), isInteractive = false),
         HudElementSpec(
-            HudElementId.TIMELINE,
-            HudPivot.BOTTOM_CENTER,
-            HudSize(0f, 48f),
-            HudSize(0f, 48f),
-            HudSize(0f, 24f),
-            isMovable = false,
+            HudElementId.TIME_STATUS,
+            pivot = HudPivot.TOP_START,
+            normalVisualSize = HudSize(160f, 24f),
+            compactVisualSize = HudSize(112f, 24f),
+            minimumHitSize = HudSize(0f, 0f),
+            isInteractive = false,
         ),
         HudElementSpec(HudElementId.SEEK_BACK, normalVisualSize = HudSize(48f, 48f), compactVisualSize = HudSize(44f, 44f), minimumHitSize = HudSize(56f, 56f)),
         HudElementSpec(HudElementId.PLAY_PAUSE, normalVisualSize = HudSize(60f, 60f), compactVisualSize = HudSize(56f, 56f), minimumHitSize = HudSize(72f, 72f)),
@@ -63,6 +66,9 @@ object HudElementRegistry {
     )
 
     private val byId = all.associateBy(HudElementSpec::id)
+
+    /** IDs with active HUD semantics. TIMELINE is legacy persistence only. */
+    val activeIds: Set<HudElementId> = all.mapTo(linkedSetOf(), HudElementSpec::id)
 
     fun get(id: HudElementId): HudElementSpec = byId.getValue(id)
 }

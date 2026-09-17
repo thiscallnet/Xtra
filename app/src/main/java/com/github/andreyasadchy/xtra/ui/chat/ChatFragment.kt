@@ -415,6 +415,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var seenPinnedMessageId: String? = null
     private var displayedPinnedMessageId: String? = null
     private var pinnedMessageMinimized = false
+    private var pinnedExpansionChangedByUser = false
+    private var compactOverlayMode = false
     private var backPressedCallbackAdded = false
     private var lastSlowModeUiState = SlowModeState()
     private var dismissedDropPresentationKey: String? = null
@@ -806,6 +808,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         seenPinnedMessageId = savedInstanceState?.getString(KEY_SEEN_PINNED_MESSAGE_ID)
         displayedPinnedMessageId = savedInstanceState?.getString(KEY_DISPLAYED_PINNED_MESSAGE_ID)
         pinnedMessageMinimized = savedInstanceState?.getBoolean(KEY_PINNED_MESSAGE_MINIMIZED) ?: false
+        pinnedExpansionChangedByUser = savedInstanceState?.getBoolean(KEY_PINNED_EXPANSION_CHANGED_BY_USER) ?: false
         dropCalloutMinimized = savedInstanceState?.getBoolean(KEY_DROP_CALLOUT_MINIMIZED) ?: false
         setupEmotePickerSizing()
         setupDropCallout()
@@ -823,10 +826,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }
             }
         }
+        binding.recyclerView.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+            updateCompactOverlayMode(bottom - top)
+        }
         binding.chatTopOverlays.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             updatePinnedMessageOverlayWidth()
+            updateCompactOverlayMode(binding.recyclerView.height)
         }
         updatePinnedMessageOverlayWidth()
+        updateCompactOverlayMode(binding.recyclerView.height)
         val pinnedBinding = pinnedMessageBinding ?: return
         pinnedBinding.pinnedMessageSeen.setOnClickListener {
             seenPinnedMessageId = displayedPinnedMessageId
@@ -834,7 +842,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             pinnedBinding.pinnedMessageOverlay.isGone = true
         }
         pinnedBinding.pinnedMessageMinimize.setOnClickListener {
-            pinnedMessageMinimized = !pinnedMessageMinimized
+            val currentlyMinimized = effectivePinnedMessageMinimized()
+            pinnedExpansionChangedByUser = true
+            pinnedMessageMinimized = !currentlyMinimized
             updatePinnedMessage(viewModel.pinnedChatMessage.value)
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -2035,6 +2045,22 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         return false
     }
 
+    private fun updateCompactOverlayMode(viewportHeight: Int) {
+        if (viewportHeight <= 0) return
+        val compact = viewportHeight < COMPACT_OVERLAY_VIEWPORT_HEIGHT_DP * resources.displayMetrics.density
+        if (compactOverlayMode == compact) return
+        compactOverlayMode = compact
+        binding.happeningNow.setCompactMode(compact)
+        updatePinnedMessage(viewModel.pinnedChatMessage.value)
+    }
+
+    private fun effectivePinnedMessageMinimized(): Boolean =
+        if (pinnedExpansionChangedByUser) {
+            pinnedMessageMinimized
+        } else {
+            compactOverlayMode || requireContext().isTelevision()
+        }
+
     private fun updatePinnedMessage(message: PinnedChatMessage?) {
         val currentBinding = _binding ?: return
         val pinnedBinding = pinnedMessageBinding ?: return
@@ -2048,12 +2074,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
         if (message.id != displayedPinnedMessageId) {
             displayedPinnedMessageId = message.id
-            // The expanded pinned-message card is designed for touch-sized
-            // chat surfaces. Keep it compact on TV so it does not cover the
-            // chat feed or dominate the viewing area; the existing minimize
-            // action still allows expansion when deliberately selected.
-            pinnedMessageMinimized = requireContext().isTelevision()
+            pinnedExpansionChangedByUser = false
+            pinnedMessageMinimized = false
         }
+        val minimized = effectivePinnedMessageMinimized()
         pinnedBinding.pinnedMessageBy.text = message.pinnedBy
         pinnedBinding.pinnedMessageBy.setOnClickListener {
             showPinnedMessageUserPopout(message, pinner = true)
@@ -2085,10 +2109,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         installLegacyClipLinkClicks(linkedMessage)
         pinnedBinding.pinnedMessageText.text = linkedMessage
         pinnedBinding.pinnedMessageText.movementMethod = LinkMovementMethod.getInstance()
-        pinnedBinding.pinnedMessageText.isVisible = !pinnedMessageMinimized
+        pinnedBinding.pinnedMessageText.isVisible = !minimized
         pinnedBinding.pinnedMessageCollapsedPreview.text = message.text
-        pinnedBinding.pinnedMessageCollapsedPreview.isVisible = pinnedMessageMinimized
-        pinnedBinding.pinnedMessageFooter.isVisible = !pinnedMessageMinimized
+        pinnedBinding.pinnedMessageCollapsedPreview.isVisible = minimized
+        pinnedBinding.pinnedMessageFooter.isVisible = !minimized
         disposePinnedBadgeRequests()
         renderPinnedMessageBadges(
             pinnedBinding.pinnedMessagePinnedByBadges,
@@ -2097,10 +2121,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         renderPinnedMessageBadges(pinnedBinding.pinnedMessageSenderBadges, message.senderBadges)
         renderPinnedMessageListeningBadge()
         pinnedBinding.pinnedMessageMinimize.setImageResource(
-            if (pinnedMessageMinimized) R.drawable.baseline_expand_more_black_24 else R.drawable.ic_expand_less,
+            if (minimized) R.drawable.baseline_expand_more_black_24 else R.drawable.ic_expand_less,
         )
         pinnedBinding.pinnedMessageMinimize.contentDescription = getString(
-            if (pinnedMessageMinimized) R.string.pinned_message_expand else R.string.pinned_message_minimize,
+            if (minimized) R.string.pinned_message_expand else R.string.pinned_message_minimize,
         )
         overlay.isVisible = true
         schedulePinnedMessageTimer(message)
@@ -4001,6 +4025,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         outState.putString(KEY_SEEN_PINNED_MESSAGE_ID, seenPinnedMessageId)
         outState.putString(KEY_DISPLAYED_PINNED_MESSAGE_ID, displayedPinnedMessageId)
         outState.putBoolean(KEY_PINNED_MESSAGE_MINIMIZED, pinnedMessageMinimized)
+        outState.putBoolean(KEY_PINNED_EXPANSION_CHANGED_BY_USER, pinnedExpansionChangedByUser)
         outState.putBoolean(KEY_DROP_CALLOUT_MINIMIZED, dropCalloutMinimized)
         super.onSaveInstanceState(outState)
     }
@@ -4213,7 +4238,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         private const val KEY_SEEN_PINNED_MESSAGE_ID = "seenPinnedMessageId"
         private const val KEY_DISPLAYED_PINNED_MESSAGE_ID = "displayedPinnedMessageId"
         private const val KEY_PINNED_MESSAGE_MINIMIZED = "pinnedMessageMinimized"
+        private const val KEY_PINNED_EXPANSION_CHANGED_BY_USER = "pinnedExpansionChangedByUser"
         private const val KEY_DROP_CALLOUT_MINIMIZED = "dropCalloutMinimized"
+        private const val COMPACT_OVERLAY_VIEWPORT_HEIGHT_DP = 640f
         private const val KEY_V2_FOLLOW_MODE = "chatV2FollowMode"
         private const val KEY_V2_NEW_MESSAGE_COUNT = "chatV2NewMessageCount"
         private const val KEY_V2_ANCHOR_ID = "chatV2AnchorId"

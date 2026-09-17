@@ -1,5 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.player.hud
 
+import kotlin.math.roundToInt
+
 object HudDefaultLayout {
     const val NORMAL_EDGE_PADDING = 12f
     const val TV_EDGE_PADDING = 48f
@@ -8,15 +10,14 @@ object HudDefaultLayout {
     const val COMPACT_VERTICAL_PADDING = 4f
     const val COMPACT_BOTTOM_VISUAL_CLEARANCE = 2f
     const val TRANSPORT_GAP = 20f
-    // The 48dp touch targets can overlap, so the visible transport needs no
-    // extra gap. This leaves the fixed middle-left lock visible even when
-    // display cutouts reduce the safe width to the narrow-phone floor.
+    // The compact transport needs no artificial gap. Keeping visible geometry
+    // tight leaves room for the fixed middle-left lock on narrow phones.
     const val COMPACT_TRANSPORT_GAP = 0f
     private const val RESPONSIVE_COMPACT_WIDTH = 360f
 
     private val COMPACT_PHONE_V3_DEFAULT_ELEMENTS = setOf(
         HudElementId.STREAM_INFO,
-        HudElementId.TIMELINE,
+        HudElementId.TIME_STATUS,
         HudElementId.SEEK_BACK,
         HudElementId.PLAY_PAUSE,
         HudElementId.SEEK_FORWARD,
@@ -27,7 +28,7 @@ object HudDefaultLayout {
     )
     private val LEGACY_DEFAULT_ELEMENTS = setOf(
         HudElementId.STREAM_INFO,
-        HudElementId.TIMELINE,
+        HudElementId.TIME_STATUS,
         HudElementId.SEEK_BACK,
         HudElementId.PLAY_PAUSE,
         HudElementId.SEEK_FORWARD,
@@ -43,7 +44,7 @@ object HudDefaultLayout {
     )
     private val FIXED_PLAYER_CHROME_COMPACT_ELEMENTS = setOf(
         HudElementId.STREAM_INFO,
-        HudElementId.TIMELINE,
+        HudElementId.TIME_STATUS,
         HudElementId.SEEK_BACK,
         HudElementId.PLAY_PAUSE,
         HudElementId.SEEK_FORWARD,
@@ -166,7 +167,7 @@ object HudDefaultLayout {
         )
         val point = when (id) {
             HudElementId.STREAM_INFO -> 0f to 0f
-            HudElementId.TIMELINE -> .5f to 1f
+            HudElementId.TIME_STATUS -> 0f to 1f
             HudElementId.SEEK_BACK -> .38f to .5f
             HudElementId.PLAY_PAUSE -> .5f to .5f
             HudElementId.SEEK_FORWARD -> .62f to .5f
@@ -195,6 +196,7 @@ object HudDefaultLayout {
         rtl: Boolean = false,
         television: Boolean = false,
         televisionEdgePadding: Float = TV_EDGE_PADDING * density,
+        liveTimePosition: HudTimelineTimePosition = HudTimelineTimePosition.LEFT,
     ): Map<HudElementId, HudPlacement> {
         val compact = safeRect.height < 260f * density
         val edge = if (television) {
@@ -215,7 +217,7 @@ object HudDefaultLayout {
 
         fun scaledSize(id: HudElementId): HudSize {
             val spec = HudElementRegistry.get(id)
-            val size = if (id == HudElementId.STREAM_INFO || id == HudElementId.TIMELINE) {
+            val size = if (id == HudElementId.STREAM_INFO || id == HudElementId.TIME_STATUS) {
                 measuredVisualSizes[id] ?: spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
             } else {
                 spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
@@ -238,10 +240,10 @@ object HudDefaultLayout {
         }
 
         fun hitSize(id: HudElementId): HudSize {
-            val visual = scaledSize(id)
-            val minimum = minimumHitSizes[id]
-                ?: HudElementRegistry.get(id).minimumHitSize.let { HudSize(it.width * density, it.height * density) }
-            return HudSize(maxOf(visual.width, minimum.width), maxOf(visual.height, minimum.height))
+            // A control's interaction box must describe the control the user
+            // can see. The old independent minimum made compact controls own
+            // invisible space and caused adjacent buttons to feel broken.
+            return scaledSize(id)
         }
 
         fun add(id: HudElementId, x: Float, y: Float) {
@@ -281,9 +283,9 @@ object HudDefaultLayout {
         var topEndX = if (rtl) inner.left else inner.right
         topEnd.forEach { id ->
             val visual = scaledSize(id)
-            // Pack the visible controls by their presentation rectangles. The
-            // frame still owns the larger minimum hit target, so touch
-            // affordance is preserved without adding visible dead space.
+            // Pack by the same rectangles that are drawn and touched. There is
+            // no separate invisible minimum target to steal space from a
+            // neighboring control.
             val center = if (rtl) topEndX + visual.width / 2f else topEndX - visual.width / 2f
             add(id, center, inner.top + visual.height / 2f)
             topEndX += if (rtl) visual.width + gap else -(visual.width + gap)
@@ -366,22 +368,6 @@ object HudDefaultLayout {
             it in availability &&
                 (!compact || compactPhonePolicy || fixedPlayerChromeCompact || it == HudElementId.MORE)
         }
-        val timelineBand = if (HudElementId.TIMELINE in availability) {
-            fittedSize(HudElementId.TIMELINE).height
-                .coerceAtLeast(24f * density)
-        } else {
-            0f
-        }
-        val timelineReservation = if (HudElementId.TIMELINE in availability) {
-            maxOf(timelineBand, hitSize(HudElementId.TIMELINE).height)
-        } else {
-            0f
-        }
-        val timelineAvailable = timelineReservation > 0f
-        // Playback chrome owns the bottom edge. Custom placements are merged
-        // around it by HudLayoutEngine, so a legacy timeline coordinate can no
-        // longer lift the progress bar into the action row.
-        val timelineBottom = if (timelineAvailable) safeRect.bottom else inner.bottom
         fun placeBottomRow(ids: List<HudElementId>, start: Boolean) {
             var x = if (start) {
                 if (compact) safeRect.left else inner.left
@@ -392,15 +378,10 @@ object HudDefaultLayout {
                 val hit = hitSize(id)
                 val center = if (start) x + hit.width / 2f else x - hit.width / 2f
                 val centerY = if (compact) {
-                    // Keep the visible icon on the last few pixels above the
-                    // fixed timeline. The hit rectangle may overlap the time
-                    // bar; PlayerHudLayout routes an edge tap to the nearest
-                    // visible action, while the middle of the bar remains
-                    // scrubable.
+                    // Keep the visible icon close to the permanent bottom
+                    // chrome. The line itself is not a layout element.
                     val visual = scaledSize(id)
                     safeRect.bottom - COMPACT_BOTTOM_VISUAL_CLEARANCE * density - visual.height / 2f
-                } else if (timelineAvailable) {
-                    safeRect.bottom - timelineReservation - hit.height / 2f - gap
                 } else {
                     inner.bottom - hit.height / 2f
                 }
@@ -417,20 +398,51 @@ object HudDefaultLayout {
         placeBottomRow(bottomStart, start = !rtl)
         placeBottomRow(bottomEnd, start = rtl)
 
-        if (fixedPlayerChromeCompact && HudElementId.INTERACTION_LOCK in availability) {
-            val lockHit = hitSize(HudElementId.INTERACTION_LOCK)
-            val lockCenterX = if (rtl) safeRect.right - lockHit.width / 2f else safeRect.left + lockHit.width / 2f
-            add(HudElementId.INTERACTION_LOCK, lockCenterX, safeRect.centerY)
-        }
-
-        if (HudElementId.TIMELINE in availability && enabledByDefault(
-                HudElementId.TIMELINE,
+        if (HudElementId.TIME_STATUS in availability && enabledByDefault(
+                HudElementId.TIME_STATUS,
                 orientation,
                 safeRect.width / density.coerceAtLeast(0.001f),
                 compact,
                 defaultPolicyVersion = profile.defaultPolicyVersion,
             )) {
-            add(HudElementId.TIMELINE, safeRect.centerX, timelineBottom)
+            val timeSize = scaledSize(HudElementId.TIME_STATUS)
+            val startReservation = bottomStart.sumOf { id ->
+                scaledSize(id).width.roundToInt() + gap.roundToInt()
+            }.toFloat()
+            val endReservation = bottomEnd.sumOf { id ->
+                scaledSize(id).width.roundToInt() + gap.roundToInt()
+            }.toFloat()
+            val startEdge = if (compact) safeRect.left else inner.left
+            val endEdge = if (compact) safeRect.right else inner.right
+            val x = if (liveTimePosition == HudTimelineTimePosition.RIGHT) {
+                // TIME_STATUS uses a TOP_START pivot. Keep it beside the
+                // layout-end controls when the legacy preference requests the
+                // right side; in RTL that side is physically left.
+                if (rtl) {
+                    startEdge + endReservation + timeSize.width
+                } else {
+                    endEdge - endReservation - timeSize.width
+                }
+            } else if (rtl) {
+                endEdge - startReservation
+            } else {
+                startEdge + startReservation
+            }
+            val bottomClearance = if (compact) {
+                // The handle is roughly 7dp tall above the 3dp line. Keep the
+                // text just clear of that painted chrome.
+                14f * density
+            } else {
+                0f
+            }
+            val y = safeRect.bottom - bottomClearance - timeSize.height
+            add(HudElementId.TIME_STATUS, x, y)
+        }
+
+        if (fixedPlayerChromeCompact && HudElementId.INTERACTION_LOCK in availability) {
+            val lockHit = hitSize(HudElementId.INTERACTION_LOCK)
+            val lockCenterX = if (rtl) safeRect.right - lockHit.width / 2f else safeRect.left + lockHit.width / 2f
+            add(HudElementId.INTERACTION_LOCK, lockCenterX, safeRect.centerY)
         }
 
         return placements

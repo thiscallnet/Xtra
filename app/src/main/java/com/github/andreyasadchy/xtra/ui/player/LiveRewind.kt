@@ -417,8 +417,38 @@ fun liveRewindTimelinePositionMs(
     edgeMs: Long,
     playerPositionMs: Long,
     scrubPositionMs: Long?,
-): Long = (scrubPositionMs ?: if (mode is LivePlaybackMode.Live) edgeMs else playerPositionMs)
+    playbackRequested: Boolean = true,
+    pausedLivePositionMs: Long? = null,
+): Long = (scrubPositionMs ?: if (mode is LivePlaybackMode.Live && playbackRequested) {
+    edgeMs
+} else if (mode is LivePlaybackMode.Live) {
+    pausedLivePositionMs ?: playerPositionMs
+} else {
+    playerPositionMs
+})
     .coerceIn(0L, edgeMs)
+
+fun liveRewindPausedPositionMs(
+    mode: LivePlaybackMode,
+    edgeMs: Long,
+    playbackRequested: Boolean,
+    existingPositionMs: Long?,
+): Long? = if (mode is LivePlaybackMode.Live && !playbackRequested) {
+    (existingPositionMs ?: edgeMs).coerceIn(0L, edgeMs)
+} else {
+    null
+}
+
+fun shouldSeekToLiveAfterPausedLive(
+    mode: LivePlaybackMode,
+    playbackRequested: Boolean,
+    pausedLivePositionMs: Long?,
+): Boolean = mode is LivePlaybackMode.Live && playbackRequested && pausedLivePositionMs != null
+
+fun shouldSeekToLiveAfterLiveTarget(
+    mode: LivePlaybackMode,
+    returnToLive: Boolean,
+): Boolean = returnToLive && mode is LivePlaybackMode.Live
 
 /** Twitch's checked-in schema has no recording-state field on Video. */
 suspend fun GraphQLRepository.findCurrentRecordingVod(

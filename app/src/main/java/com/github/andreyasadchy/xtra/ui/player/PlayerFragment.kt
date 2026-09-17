@@ -188,6 +188,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     private var liveRewindSessionGeneration = 0L
     private var liveRewindSwitchGeneration = 0L
     private var liveRewindFrozenEdgeMs: Long? = null
+    private var pausedLivePositionMs: Long? = null
     private var liveRewindStreamWasLive = false
     private var liveRewindStreamOffline = false
     private var pendingLiveSession: LiveRewindSession? = null
@@ -372,6 +373,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     open fun getCurrentSpeed(): Float? = null
     open fun getCurrentVolume(): Float? = null
     open fun getTotalDuration(): Long? = null
+    protected open fun isPlaybackRequested(): Boolean = true
     open fun playPause() {}
     open fun rewind() {}
     open fun fastForward() {}
@@ -406,6 +408,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             liveRewindVod = null
         }
         livePlaybackMode = LivePlaybackMode.Live
+        pausedLivePositionMs = null
         return session.takeIf { result.shouldDiscoverRecordingVod }
     }
     open fun setPlaybackSpeed(speed: Float) {}
@@ -648,6 +651,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             binding.dragView.requestFocus()
         }
         with(binding) {
+            hudEdgeMarkerTouchOverlay.bind(playerControls.root, playerControls.progressBar)
             chatLayout.boundaryTimeBar = playerControls.progressBar
             phoneChatOverlayGesture = PhoneChatOverlayGestureController(
                 context = requireContext(),
@@ -1269,6 +1273,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         if (!isLiveRewindEnabled() || playbackService?.type != BasePlaybackService.STREAM) {
             stopLiveRewindTicker()
             liveRewindVod = null
+            pausedLivePositionMs = null
             liveRewindStreamId = null
             liveRewindStreamCreatedAt = null
             liveRewindFrozenEdgeMs = null
@@ -1292,6 +1297,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         liveRewindStreamWasLive = true
         liveRewindStreamOffline = false
         liveRewindFrozenEdgeMs = null
+        pausedLivePositionMs = null
         updateLiveRewindUi()
         liveRewindDiscoveryJob?.cancel()
         liveRewindDiscoveryJob = viewLifecycleOwner.lifecycleScope.launch {
@@ -1349,6 +1355,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         if (generation != liveRewindSessionGeneration || view == null || !isAdded) return
         liveRewindVod = vod
         liveRewindStreamOffline = false
+        pausedLivePositionMs = null
         viewLifecycleOwner.lifecycleScope.launch {
             livePlaybackMode = if (getLiveRewindVodId() == vod.id) {
                 LivePlaybackMode.Rewound(vod.id)
@@ -1382,6 +1389,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     protected fun updateLiveRewindProgress() {
         val vod = liveRewindVod ?: return
         if (!isLiveRewindAvailable() || view == null) {
+            pausedLivePositionMs = null
             binding.playerControls.progressBar.visibility = View.GONE
             binding.playerControls.position.visibility = View.GONE
             binding.playerControls.duration.visibility = View.GONE
@@ -1425,27 +1433,53 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             return
         }
         val edgeMs = freezeLiveEdge(vod.predictedDurationMs(), liveRewindFrozenEdgeMs)
+        val playbackRequested = isPlaybackRequested()
+        if (shouldSeekToLiveAfterPausedLive(livePlaybackMode, playbackRequested, pausedLivePositionMs)) {
+            pausedLivePositionMs = null
+            seekToLivePosition()
+        }
+        pausedLivePositionMs = liveRewindPausedPositionMs(
+            mode = livePlaybackMode,
+            edgeMs = edgeMs,
+            playbackRequested = playbackRequested,
+            existingPositionMs = pausedLivePositionMs,
+        )
+        val playerPositionMs = getCurrentPosition() ?: if (livePlaybackMode is LivePlaybackMode.Live) {
+            edgeMs
+        } else {
+            0L
+        }
         binding.playerControls.progressBar.setDuration(edgeMs)
         if (liveRewindScrubPositionMs == null) {
-            val positionMs = when (livePlaybackMode) {
-                LivePlaybackMode.Live -> edgeMs
-                is LivePlaybackMode.Rewound -> getCurrentPosition() ?: 0L
-            }.coerceIn(0L, edgeMs)
+            val positionMs = liveRewindTimelinePositionMs(
+                mode = livePlaybackMode,
+                edgeMs = edgeMs,
+                playerPositionMs = playerPositionMs,
+                scrubPositionMs = null,
+                playbackRequested = playbackRequested,
+                pausedLivePositionMs = pausedLivePositionMs,
+            )
             binding.playerControls.progressBar.setPosition(positionMs)
         }
         val displayedPositionMs = liveRewindTimelinePositionMs(
             mode = livePlaybackMode,
             edgeMs = edgeMs,
-            playerPositionMs = getCurrentPosition() ?: 0L,
+            playerPositionMs = playerPositionMs,
             scrubPositionMs = liveRewindScrubPositionMs,
+            playbackRequested = playbackRequested,
+            pausedLivePositionMs = pausedLivePositionMs,
         )
         val isRewound = livePlaybackMode is LivePlaybackMode.Rewound
-        val positionTimeText = if (isRewound) {
+        val isLivePaused = livePlaybackMode is LivePlaybackMode.Live &&
+            !playbackRequested &&
+            liveRewindScrubPositionMs == null
+        val isBehindLive = isRewound || isLivePaused || liveRewindScrubPositionMs != null
+        val positionTimeText = if (isBehindLive) {
             DateUtils.formatElapsedTime(displayedPositionMs / 1000L)
         } else {
             getString(R.string.player_live)
         }
-        val timeText = if (isRewound) {
+        val timeText = if (isBehindLive) {
             getString(
                 R.string.player_live_position,
                 positionTimeText,
@@ -1457,7 +1491,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         val timeActionable = isRewound && !liveRewindStreamOffline
         val timeDescription = if (timeActionable) {
             getString(R.string.player_return_to_live)
-        } else if (isRewound) {
+        } else if (isBehindLive) {
             getString(R.string.player_position, timeText)
         } else {
             getString(R.string.player_live)
@@ -1488,6 +1522,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         updateLiveClipSourceAvailability()
         if (!isLiveRewindAvailable()) {
             cancelLiveTapSeek()
+            pausedLivePositionMs = null
             setLiveRewindTimelineLayout(false)
             binding.playerControls.progressBar.visibility = View.GONE
             binding.playerControls.position.visibility = View.GONE
@@ -1568,10 +1603,26 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         }
         val edgeMs = currentLiveEdgeMs()
         if (edgeMs <= 0L) return false
-        val currentPositionMs = when (livePlaybackMode) {
-            LivePlaybackMode.Live -> edgeMs
-            is LivePlaybackMode.Rewound -> getCurrentPosition() ?: return false
+        val playbackRequested = isPlaybackRequested()
+        pausedLivePositionMs = liveRewindPausedPositionMs(
+            mode = livePlaybackMode,
+            edgeMs = edgeMs,
+            playbackRequested = playbackRequested,
+            existingPositionMs = pausedLivePositionMs,
+        )
+        val playerPositionMs = getCurrentPosition() ?: if (livePlaybackMode is LivePlaybackMode.Live) {
+            edgeMs
+        } else {
+            return false
         }
+        val currentPositionMs = liveRewindTimelinePositionMs(
+            mode = livePlaybackMode,
+            edgeMs = edgeMs,
+            playerPositionMs = playerPositionMs,
+            scrubPositionMs = null,
+            playbackRequested = playbackRequested,
+            pausedLivePositionMs = pausedLivePositionMs,
+        )
         val target = liveTapSeekAccumulator.addTap(currentPositionMs, edgeMs, direction)
         liveRewindScrubPositionMs = target.positionMs
         showController(force = true)
@@ -1594,7 +1645,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         val vod = liveRewindVod ?: return
         val targetMs = requestedTarget.positionMs.coerceIn(0L, edgeMs)
         if (shouldReturnToLiveAfterLiveTap(requestedTarget, edgeMs)) {
-            goLive()
+            seekToCurrentLiveEdge()
         } else {
             playRecordingVodAt(vod, targetMs)
         }
@@ -1670,9 +1721,18 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         val edgeMs = currentLiveEdgeMs()
         val targetMs = positionMs.coerceIn(0L, edgeMs)
         if (shouldReturnToLive(targetMs, edgeMs)) {
-            goLive()
+            seekToCurrentLiveEdge()
         } else {
             playRecordingVodAt(vod, targetMs)
+        }
+    }
+
+    private fun seekToCurrentLiveEdge() {
+        if (shouldSeekToLiveAfterLiveTarget(livePlaybackMode, true)) {
+            pausedLivePositionMs = null
+            seekToLivePosition()
+        } else {
+            goLive()
         }
     }
 
@@ -1713,6 +1773,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             liveRewindPendingVodId = null
             liveRewindPendingTargetMs = null
             livePlaybackMode = LivePlaybackMode.Rewound(vod.id)
+            pausedLivePositionMs = null
             startLiveRewindChat(targetMs)
             pendingTarget?.let {
                 seek(it)
@@ -1753,6 +1814,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             updateLiveClipSourceAvailability()
             if (success) {
                 livePlaybackMode = LivePlaybackMode.Live
+                pausedLivePositionMs = null
                 chatFragment?.returnToLiveChat()
                 val newSession = commitPendingLiveSession()
                 if (newSession != null) {
@@ -1823,6 +1885,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             liveRewindStreamOffline = false
             liveRewindFrozenEdgeMs = null
             liveRewindVod = null
+            pausedLivePositionMs = null
             prepareLiveRewind(session.id, session.createdAt)
         }
     }
@@ -2093,6 +2156,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                     seekLive.visibility = View.VISIBLE
                     seekLive.setOnClickListener {
                         showController(force = true)
+                        pausedLivePositionMs = null
                         seekToLivePosition()
                     }
                     viewersLayout.apply {
@@ -4012,6 +4076,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         liveCaptionModelVerificationJob = null
         stopLiveRewindTicker()
         liveRewindScrubPositionMs = null
+        pausedLivePositionMs = null
         liveRewindSwitchGeneration++
         liveRewindSwitchJob?.cancel()
         liveRewindSwitchJob = null

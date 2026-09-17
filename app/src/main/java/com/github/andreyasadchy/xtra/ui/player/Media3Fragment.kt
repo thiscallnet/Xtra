@@ -11,6 +11,7 @@ import android.os.Bundle
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.SurfaceView
+import android.view.TextureView
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.widget.HorizontalScrollView
@@ -30,6 +31,7 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.text.Cue
@@ -85,6 +87,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     private var playerListener: Player.Listener? = null
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
+    private var recoveringBehindLiveWindow = false
     private var adAvoidanceJob: Job? = null
     private var primaryStreamRestoreJob: Job? = null
     private var qualityRetryJob: Job? = null
@@ -100,12 +103,60 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     private var renderedDurationMs = Long.MIN_VALUE
     private var renderedPlaybackChrome: PlaybackChromeState? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
-    private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
-        attachTarget = { currentPlayer, target -> currentPlayer.setVideoSurfaceView(target) },
-        detachTarget = { currentPlayer, target -> currentPlayer.clearVideoSurfaceView(target) },
+    private val useTextureVideoOutput = shouldUseTextureViewForVideoOutput()
+    private val videoOutputOwner = VideoOutputOwner<Player, View>(
+        attachTarget = { currentPlayer, target ->
+            when (target) {
+                is SurfaceView -> currentPlayer.setVideoSurfaceView(target)
+                is TextureView -> currentPlayer.setVideoTextureView(target)
+                else -> error("Unsupported video output view: ${target.javaClass.name}")
+            }
+        },
+        detachTarget = { currentPlayer, target ->
+            when (target) {
+                is SurfaceView -> currentPlayer.clearVideoSurfaceView(target)
+                is TextureView -> currentPlayer.clearVideoTextureView(target)
+                else -> error("Unsupported video output view: ${target.javaClass.name}")
+            }
+        },
     )
+
+    private val videoOutputView: View
+        get() = if (useTextureVideoOutput) {
+            binding.playerTextureView
+        } else {
+            binding.playerSurface
+        }
+
+    private fun configureVideoOutputView() {
+        binding.playerTextureView.visibility =
+            if (useTextureVideoOutput) View.VISIBLE else View.GONE
+        binding.playerSurface.visibility =
+            if (useTextureVideoOutput) View.GONE else View.VISIBLE
+
+        if (!useTextureVideoOutput &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
+        ) {
+            binding.playerSurface.setSurfaceLifecycle(
+                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
+            )
+        }
+    }
+
+    private fun setVideoOutputVisible(visible: Boolean) {
+        videoOutputView.visibility = if (visible) View.VISIBLE else View.GONE
+    }
+
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+
+        configureVideoOutputView()
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "VideoSurface",
+                "renderer=${videoOutputView.javaClass.simpleName} emulatorFallback=$useTextureVideoOutput",
+            )
+        }
 
         viewLifecycleOwner.lifecycleScope.launch {
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -151,14 +202,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             }
         }
 
-        binding.playerTextureView.visibility = View.GONE
-        binding.playerSurface.visibility = View.VISIBLE
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            binding.playerSurface.setSurfaceLifecycle(
-                SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
-            )
-        }
-        logVideoSurfaceBinding("on_view_created", player, binding.playerSurface)
+        logVideoSurfaceBinding("on_view_created", player, videoOutputView)
     }
 
     override fun onViewingMetadataChanged(title: String?, gameId: String?, gameName: String?) {
@@ -183,7 +227,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
 
     override fun onStart() {
         super.onStart()
-        logVideoSurfaceBinding("on_start", player, binding.playerSurface)
+        logVideoSurfaceBinding("on_start", player, videoOutputView)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         val future = MediaController.Builder(
             requireContext(),
@@ -203,7 +247,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 MediaController.releaseFuture(future)
                 return@addListener
             }
-            logVideoSurfaceBinding("controller_connected", controller, binding.playerSurface)
+            logVideoSurfaceBinding("controller_connected", controller, videoOutputView)
             val listener = object : Player.Listener {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
@@ -211,6 +255,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                         onLiveRewindPlaybackError()
                     }
                     if (playbackState == Player.STATE_READY) {
+                        recoveringBehindLiveWindow = false
                         streamRecoveryJob?.cancel()
                         streamRecoveryJob = null
                         streamRecoveryAttempt = 0
@@ -360,6 +405,20 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     Log.e(tag, "Player error", error)
                     if (onLiveRewindPlaybackError()) return
                     if (isLiveRewindActiveOrSwitching()) return
+                    if (
+                        videoType == STREAM
+                        && error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                        && !recoveringBehindLiveWindow
+                    ) {
+                        recoveringBehindLiveWindow = true
+                        Log.i(tag, "Recovering live stream from a behind-live-window error")
+                        clearPlayerError()
+                        player?.let { currentPlayer ->
+                            currentPlayer.seekToDefaultPosition()
+                            currentPlayer.prepare()
+                        }
+                        return
+                    }
                     when (videoType) {
                         STREAM -> {
                             player?.sendCustomCommand(
@@ -459,7 +518,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 }
 
                 override fun onRenderedFirstFrame() {
-                    logVideoSurfaceBinding("first_frame", controller, binding.playerSurface)
+                    logVideoSurfaceBinding("first_frame", controller, videoOutputView)
                 }
             }
             val restoreBackgroundVideo = shouldRestoreVideoAfterBackground(
@@ -481,7 +540,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             }
             viewModel.videoTrackDisabledForBackground = false
             val restored = if (restoreBackgroundVideo) viewModel.videoOutputState.restoreIfNeeded {
-                binding.playerSurface.visibility = View.VISIBLE
+                setVideoOutputVisible(true)
                 attachVideoOutput(controller)
                 true
             } else {
@@ -609,7 +668,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                         setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                     }.build()
-                    binding.playerSurface.visibility = View.GONE
+                    setVideoOutputVisible(false)
                 }
                 player.volume = 0f
             }
@@ -625,7 +684,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                         setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                     }.build()
-                    binding.playerSurface.visibility = View.VISIBLE
+                    setVideoOutputVisible(true)
                 }
                 player.volume = requireContext().prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
             }
@@ -811,7 +870,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
             }.build()
-            binding.playerSurface.visibility = View.VISIBLE
+            setVideoOutputVisible(true)
             player.sendCustomCommand(
                 SessionCommand(
                     PlaybackService.START_VIDEO, Bundle().apply {
@@ -839,12 +898,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                 }.build()
-                binding.playerSurface.visibility = View.GONE
+                setVideoOutputVisible(false)
             } else {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                 }.build()
-                binding.playerSurface.visibility = View.VISIBLE
+                setVideoOutputVisible(true)
             }
             player.sendCustomCommand(
                 SessionCommand(
@@ -872,12 +931,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                 }.build()
-                binding.playerSurface.visibility = View.GONE
+                setVideoOutputVisible(false)
             } else {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                 }.build()
-                binding.playerSurface.visibility = View.VISIBLE
+                setVideoOutputVisible(true)
             }
             player.sendCustomCommand(
                 SessionCommand(
@@ -899,6 +958,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     override fun getCurrentPosition() = player?.currentPosition
+
+    override fun isPlaybackRequested(): Boolean = player?.let { currentPlayer ->
+        currentPlayer.playWhenReady && currentPlayer.playbackState != Player.STATE_ENDED
+    } == true
 
     override fun getCurrentSpeed() = player?.playbackParameters?.speed
 
@@ -1299,37 +1362,99 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 onInfo(
                     PlaybackVideoInfo.fromBundle(sessionResult.extras),
                     PlaybackVideoViewMetrics(
-                        viewportWidth = binding.playerSurface.width.takeIf { it > 0 },
-                        viewportHeight = binding.playerSurface.height.takeIf { it > 0 },
-                        renderSurface = "SurfaceView",
+                        viewportWidth = videoOutputView.width.takeIf { it > 0 },
+                        viewportHeight = videoOutputView.height.takeIf { it > 0 },
+                        renderSurface = videoOutputView.javaClass.simpleName,
                     ),
                 )
             }, ContextCompat.getMainExecutor(requireContext()))
         }
     }
 
+    private fun shouldResetEmulatorStreamDecoder(
+        previous: VideoQuality?,
+        next: VideoQuality,
+        mediaSourceRebuilt: Boolean,
+    ): Boolean =
+        previous != null &&
+                useTextureVideoOutput &&
+                videoType == STREAM &&
+                viewModel.qualities?.any { it.name == AUTO_QUALITY } == true &&
+                next.name != AUDIO_ONLY_QUALITY &&
+                next.name != CHAT_ONLY_QUALITY &&
+                (previous.name != next.name || previous.url != next.url) &&
+                !isLiveRewindActiveOrSwitching() &&
+                !mediaSourceRebuilt
+
+    private fun applyTrackSelectionParameters(
+        player: Player,
+        parameters: TrackSelectionParameters,
+        forceVideoDecoderReset: Boolean,
+        previousQuality: VideoQuality?,
+        nextQuality: VideoQuality,
+    ) {
+        if (!forceVideoDecoderReset) {
+            player.trackSelectionParameters = parameters
+            return
+        }
+
+        val playWhenReady = player.playWhenReady
+        val positionMs = player.currentPosition
+        val mediaItemIndex = player.currentMediaItemIndex
+        Log.i(
+            "VideoSurface",
+            "quality_reset backend=media3 renderer=${videoOutputView.javaClass.simpleName} " +
+                    "from=${previousQuality?.name} to=${nextQuality.name} position=$positionMs",
+        )
+
+        // The Android emulator's adaptive AVC decoder can retain a corrupt
+        // buffer layout when a manual HLS quality switch reuses the codec.
+        // Stop without removing the media item so Media3 releases that codec,
+        // then prepare with the new selection at the existing position.
+        player.stop()
+        player.trackSelectionParameters = parameters
+        if (mediaItemIndex != androidx.media3.common.C.INDEX_UNSET) {
+            player.seekTo(mediaItemIndex, positionMs)
+        } else {
+            player.seekTo(positionMs)
+        }
+        player.prepare()
+        player.playWhenReady = playWhenReady
+    }
+
     override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
-        viewModel.previousQuality = viewModel.quality
+        val previousQuality = viewModel.quality
+        viewModel.previousQuality = previousQuality
         viewModel.quality = selectedQuality
         viewModel.quality?.let { quality ->
             player?.let { player ->
                 player.currentMediaItem?.let { mediaItem ->
+                    var mediaSourceRebuilt = false
                     when (quality.name) {
                         AUTO_QUALITY -> {
+                            val forceDecoderReset = shouldResetEmulatorStreamDecoder(previousQuality, quality, false)
                             viewModel.playlistUrl?.let { uri ->
                                 if (mediaItem.localConfiguration?.uri != uri) {
                                     val position = player.currentPosition
                                     player.setMediaItem(mediaItem.buildUpon().setUri(uri).build())
                                     player.prepare()
                                     player.seekTo(position)
+                                    mediaSourceRebuilt = true
                                 }
                                 viewModel.playlistUrl = null
-                            } ?: player.prepare()
-                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                            } ?: run {
+                                if (!forceDecoderReset) player.prepare()
+                            }
+                            val actualForceDecoderReset = shouldResetEmulatorStreamDecoder(
+                                previousQuality,
+                                quality,
+                                mediaSourceRebuilt,
+                            )
+                            applyTrackSelectionParameters(player, player.trackSelectionParameters.buildUpon().apply {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                                 clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
-                            }.build()
-                            binding.playerSurface.visibility = View.VISIBLE
+                            }.build(), actualForceDecoderReset, previousQuality, quality)
+                            setVideoOutputVisible(true)
                         }
                         AUDIO_ONLY_QUALITY -> {
                             if (viewModel.usingProxy) {
@@ -1345,7 +1470,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                             }.build()
-                            binding.playerSurface.visibility = View.GONE
+                            setVideoOutputVisible(false)
                             quality.url?.let {
                                 val position = player.currentPosition
                                 if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
@@ -1371,6 +1496,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                         }
                         else -> {
                             if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
+                                val forceDecoderReset = shouldResetEmulatorStreamDecoder(previousQuality, quality, false)
                                 viewModel.playlistUrl?.let { uri ->
                                     player.currentMediaItem?.let {
                                         val position = player.currentPosition
@@ -1378,11 +1504,18 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                         player.prepare()
                                         player.seekTo(position)
                                         viewModel.playlistUrl = null
+                                        mediaSourceRebuilt = true
                                     }
-                                } ?: player.prepare()
-                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                } ?: run {
+                                    if (!forceDecoderReset) player.prepare()
+                                }
+                                val actualForceDecoderReset = shouldResetEmulatorStreamDecoder(
+                                    previousQuality,
+                                    quality,
+                                    mediaSourceRebuilt,
+                                )
+                                applyTrackSelectionParameters(player, player.trackSelectionParameters.buildUpon().apply {
                                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                    binding.playerSurface.visibility = View.VISIBLE
                                     if (!player.currentTracks.isEmpty) {
                                         player.currentTracks.groups.find { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }?.let { trackGroup ->
                                             val selectedQuality = quality.name?.split("p")
@@ -1414,7 +1547,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                             }
                                         }
                                     }
-                                }.build()
+                                }.build(), actualForceDecoderReset, previousQuality, quality)
+                                setVideoOutputVisible(true)
                             } else {
                                 player.currentMediaItem?.let {
                                     if (it.localConfiguration?.uri?.toString() != quality.url) {
@@ -1427,7 +1561,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                                 }.build()
-                                binding.playerSurface.visibility = View.VISIBLE
+                                setVideoOutputVisible(true)
                             }
                         }
                     }
@@ -1467,7 +1601,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                             }.build()
-                            binding.playerSurface.visibility = View.GONE
+                            setVideoOutputVisible(false)
                         }
                     }
                 }
@@ -1561,6 +1695,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
         streamRecoveryAttempt = 0
+        recoveringBehindLiveWindow = false
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         if (view != null) {
@@ -1688,7 +1823,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     override fun onStop() {
-        logVideoSurfaceBinding("on_stop", player, view?.findViewById(R.id.playerSurface))
+        logVideoSurfaceBinding("on_stop", player, view?.let { videoOutputView })
         super.onStop()
         val isInPIPMode = when {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
@@ -1727,7 +1862,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                 .build()
                             viewModel.videoTrackDisabledForBackground = true
                             viewModel.videoOutputState.markDetachedForBackground()
-                            binding.playerSurface.visibility = View.GONE
+                            setVideoOutputVisible(false)
                             if (BuildConfig.PERF_DIAGNOSTICS) {
                                 Log.i("XtraPerf", "backgroundVideoTrack disabled")
                             }
@@ -1790,7 +1925,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         renderedPlaybackChrome = null
         binding.playerControls.root.removeCallbacks(updateProgressAction)
         binding.liveCaptionView.clearCaption()
-        logVideoSurfaceBinding("on_destroy_view", player, view?.findViewById(R.id.playerSurface))
+        logVideoSurfaceBinding("on_destroy_view", player, view?.let { videoOutputView })
         detachVideoOutput()
         super.onDestroyView()
     }
@@ -1807,13 +1942,13 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     private fun attachVideoOutput(currentPlayer: Player) {
-        videoOutputOwner.attach(currentPlayer, binding.playerSurface)
-        logVideoSurfaceBinding("attach", currentPlayer, binding.playerSurface)
+        videoOutputOwner.attach(currentPlayer, videoOutputView)
+        logVideoSurfaceBinding("attach", currentPlayer, videoOutputView)
     }
 
     private fun detachVideoOutput() {
         val currentPlayer = videoOutputOwner.attachedPlayer() ?: return
-        logVideoSurfaceBinding("detach", currentPlayer, binding.playerSurface)
+        logVideoSurfaceBinding("detach", currentPlayer, videoOutputView)
         videoOutputOwner.clear()
     }
 

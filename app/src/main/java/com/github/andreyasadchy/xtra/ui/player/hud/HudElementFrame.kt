@@ -26,7 +26,7 @@ class HudElementFrame @JvmOverloads constructor(
     private var touchMoved = false
     private var longPressTriggered = false
     private var longPressTarget: View? = null
-    private var expandedTouchTarget: View? = null
+    private var compositeTouchTarget: View? = null
     private val baselineMetrics = IdentityHashMap<View, PresentationMetrics>()
     private val canonicalMetrics = IdentityHashMap<View, PresentationMetrics>()
 
@@ -60,7 +60,7 @@ class HudElementFrame @JvmOverloads constructor(
             longPressTarget = null
             longPressTriggered = false
             touchTarget = null
-            expandedTouchTarget = null
+            compositeTouchTarget = null
         }
     }
 
@@ -132,7 +132,6 @@ class HudElementFrame @JvmOverloads constructor(
         val child = getChildAt(0) ?: return
         captureBaseline(child)
         restoreCanonical(child)
-        (child as? HudTimelineContent)?.setPresentationScale(1f)
     }
 
     /** Records the current unscaled, orientation-specific presentation state. */
@@ -147,7 +146,6 @@ class HudElementFrame @JvmOverloads constructor(
         val child = getChildAt(0) ?: return
         captureBaseline(child)
         val effectiveScale = scale.coerceAtLeast(0.01f)
-        (child as? HudTimelineContent)?.setPresentationScale(effectiveScale)
         applyScale(child, effectiveScale)
     }
 
@@ -167,15 +165,15 @@ class HudElementFrame @JvmOverloads constructor(
         if (!active) return false
         if (isCompositeFrame()) {
             if (event.actionMasked == MotionEvent.ACTION_DOWN) {
-                expandedTouchTarget = findLocalTouchTarget(event.x, event.y)
+                compositeTouchTarget = findLocalTouchTarget(event.x, event.y)
             }
-            expandedTouchTarget?.let { target ->
+            compositeTouchTarget?.let { target ->
                 val handled = dispatchToLocalTarget(target, event)
                 if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                    expandedTouchTarget = null
+                    compositeTouchTarget = null
                 }
                 if (handled || event.actionMasked != MotionEvent.ACTION_DOWN) return true
-                expandedTouchTarget = null
+                compositeTouchTarget = null
             }
         }
         return super.dispatchTouchEvent(event)
@@ -282,10 +280,7 @@ class HudElementFrame @JvmOverloads constructor(
         return clickable.singleOrNull()
     }
 
-    private fun isCompositeFrame(): Boolean = when (tag as? String) {
-        HudElementId.STREAM_INFO.name, HudElementId.TIMELINE.name -> true
-        else -> false
-    }
+    private fun isCompositeFrame(): Boolean = tag as? String == HudElementId.STREAM_INFO.name
 
     private fun findLocalTouchTarget(x: Float, y: Float): View? {
         val candidates = mutableListOf<View>()
@@ -297,23 +292,10 @@ class HudElementFrame @JvmOverloads constructor(
                 val rect = Rect()
                 target.getDrawingRect(rect)
                 offsetDescendantRectToMyCoords(target, rect)
-                val expandedWidth = maxOf(rect.width().toFloat(), 48f * resources.displayMetrics.density).roundToInt()
-                // Metadata has several adjacent text targets. Expanding its
-                // targets vertically would make a title tap activate the
-                // channel link above it, so only expand its horizontal touch
-                // affordance. Timeline actions already own a full-height band.
-                val expandedHeight = if (tag == HudElementId.STREAM_INFO.name) {
-                    rect.height()
-                } else {
-                    maxOf(rect.height().toFloat(), 48f * resources.displayMetrics.density).roundToInt()
-                }
-                val expanded = Rect(
-                    rect.centerX() - expandedWidth / 2,
-                    rect.centerY() - expandedHeight / 2,
-                    rect.centerX() + (expandedWidth + 1) / 2,
-                    rect.centerY() + (expandedHeight + 1) / 2,
-                )
-                if (expanded.contains(x.roundToInt(), y.roundToInt())) target else null
+                // Composite metadata targets are dispatched only inside their
+                // actual visible rectangle. No neighboring text inherits an
+                // invisible touch expansion.
+                if (rect.contains(x.roundToInt(), y.roundToInt())) target else null
             }
             .minByOrNull { target ->
                 val rect = Rect()

@@ -1,9 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.player.hud
 
-/**
- * Visual scale limits for the HUD. Hit targets are expanded separately by
- * HudLayoutEngine and HudElementFrame, so a small icon remains usable.
- */
+/** Visual scale limits for the HUD. Touch geometry follows the scaled visual control. */
 object HudScale {
     const val GLOBAL_MIN = 0.70f
     const val GLOBAL_MAX = 1.50f

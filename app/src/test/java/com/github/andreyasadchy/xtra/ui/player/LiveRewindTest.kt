@@ -369,8 +369,111 @@ class LiveRewindTest {
     @Test
     fun rewindTimelineUsesLiveEdgeLiveAndCurrentPositionWhenRewound() {
         assertEquals(600_000L, liveRewindTimelinePositionMs(LivePlaybackMode.Live, 600_000L, 120_000L, null))
+        assertEquals(
+            450_000L,
+            liveRewindTimelinePositionMs(
+                LivePlaybackMode.Live,
+                600_000L,
+                120_000L,
+                null,
+                playbackRequested = false,
+                pausedLivePositionMs = 450_000L,
+            ),
+        )
         assertEquals(120_000L, liveRewindTimelinePositionMs(LivePlaybackMode.Rewound("vod"), 600_000L, 120_000L, null))
         assertEquals(300_000L, liveRewindTimelinePositionMs(LivePlaybackMode.Rewound("vod"), 600_000L, 120_000L, 300_000L))
+    }
+
+    @Test
+    fun pausedLivePositionIsCapturedOnceAndClearedWhenPlaybackIsRequested() {
+        assertEquals(
+            600_000L,
+            liveRewindPausedPositionMs(
+                mode = LivePlaybackMode.Live,
+                edgeMs = 600_000L,
+                playbackRequested = false,
+                existingPositionMs = null,
+            ),
+        )
+        assertEquals(
+            600_000L,
+            liveRewindPausedPositionMs(
+                mode = LivePlaybackMode.Live,
+                edgeMs = 610_000L,
+                playbackRequested = false,
+                existingPositionMs = 600_000L,
+            ),
+        )
+        assertNull(
+            liveRewindPausedPositionMs(
+                mode = LivePlaybackMode.Live,
+                edgeMs = 610_000L,
+                playbackRequested = true,
+                existingPositionMs = 600_000L,
+            ),
+        )
+        assertNull(
+            liveRewindPausedPositionMs(
+                mode = LivePlaybackMode.Rewound("vod"),
+                edgeMs = 610_000L,
+                playbackRequested = false,
+                existingPositionMs = 600_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun resumingPausedLiveRequiresAOneShotLiveEdgeSeek() {
+        assertTrue(
+            shouldSeekToLiveAfterPausedLive(
+                mode = LivePlaybackMode.Live,
+                playbackRequested = true,
+                pausedLivePositionMs = 600_000L,
+            ),
+        )
+        assertFalse(
+            shouldSeekToLiveAfterPausedLive(
+                mode = LivePlaybackMode.Live,
+                playbackRequested = false,
+                pausedLivePositionMs = 600_000L,
+            ),
+        )
+        assertFalse(
+            shouldSeekToLiveAfterPausedLive(
+                mode = LivePlaybackMode.Live,
+                playbackRequested = true,
+                pausedLivePositionMs = null,
+            ),
+        )
+        assertFalse(
+            shouldSeekToLiveAfterPausedLive(
+                mode = LivePlaybackMode.Rewound("vod"),
+                playbackRequested = true,
+                pausedLivePositionMs = 600_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun pausedLiveForwardTapUsesTheSameLiveEdgeSeek() {
+        assertTrue(
+            shouldSeekToLiveAfterLiveTarget(
+                mode = LivePlaybackMode.Live,
+                returnToLive = true,
+            ),
+        )
+        assertFalse(
+            shouldSeekToLiveAfterLiveTarget(
+                mode = LivePlaybackMode.Live,
+                returnToLive = false,
+            ),
+        )
+        assertFalse(
+            shouldSeekToLiveAfterLiveTarget(
+                mode = LivePlaybackMode.Rewound("vod"),
+                returnToLive = true,
+            ),
+        )
     }
 
     @Test

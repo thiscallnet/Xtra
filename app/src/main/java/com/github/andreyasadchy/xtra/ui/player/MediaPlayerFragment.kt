@@ -285,7 +285,12 @@ class MediaPlayerFragment : PlayerFragment() {
     private fun updatePlayingState(ended: Boolean = false) {
         playbackService?.player?.let { player ->
             val isPlaying = player.isPlaying
-            if (!isPlaying) {
+            val playbackRequested = if (playbackService?.type == BasePlaybackService.STREAM) {
+                playbackService?.isStreamPlaybackRequested() == true
+            } else {
+                isPlaying
+            }
+            if (!playbackRequested) {
                 binding.playerControls.playPause.setImageResource(R.drawable.baseline_play_arrow_black_48)
                 binding.playerControls.playPause.contentDescription = getString(R.string.player_play)
                 binding.playerControls.playPause.visibility = View.VISIBLE
@@ -296,10 +301,10 @@ class MediaPlayerFragment : PlayerFragment() {
                     binding.playerControls.playPause.visibility = View.GONE
                 }
             }
-            setPipActions(isPlaying)
-            controllerAutoHide = !requireContext().isTelevision() && isPlaying
+            setPipActions(playbackRequested)
+            controllerAutoHide = !requireContext().isTelevision() && playbackRequested
             if (useController) {
-                showController(show = !isPlaying || (playbackService?.type != BasePlaybackService.STREAM && ended))
+                showController(show = !playbackRequested || (playbackService?.type != BasePlaybackService.STREAM && ended))
             }
             updateProgress()
             if (isAdded && view != null) {
@@ -309,6 +314,8 @@ class MediaPlayerFragment : PlayerFragment() {
     }
 
     override fun getCurrentPosition(): Long? = playbackService?.player?.currentPosition?.toLong()
+
+    override fun isPlaybackRequested(): Boolean = playbackService?.isStreamPlaybackRequested() == true
 
     override fun getCurrentSpeed(): Float {
         return if (playbackService?.type == BasePlaybackService.STREAM) {
@@ -366,6 +373,10 @@ class MediaPlayerFragment : PlayerFragment() {
 
     override suspend fun returnToLivePlayback(): Boolean =
         playbackService?.returnToLivePlayback() == true
+
+    override fun seekToLivePosition() {
+        playbackService?.seekToLivePosition()
+    }
 
     override fun setPlaybackSpeed(speed: Float) {
         val params = PlaybackParams()

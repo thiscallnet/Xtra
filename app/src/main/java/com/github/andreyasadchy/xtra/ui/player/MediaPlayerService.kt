@@ -322,11 +322,8 @@ class MediaPlayerService : BasePlaybackService() {
                 } else {
                     startPlayer = true
                 }
-                if (type == STREAM && !liveRewindActive) {
-                    streamPlaybackRequested = runCatching { player.isPlaying }.getOrDefault(false)
-                }
                 updateMetadata()
-                updatePlayingState()
+                updatePlayingState(updatePlaybackIntent = type != STREAM)
                 playerListener?.onPrepared(player)
             }
             player.setOnSeekCompleteListener { player ->
@@ -1422,6 +1419,12 @@ class MediaPlayerService : BasePlaybackService() {
         }
     }
 
+    fun seekToLivePosition() {
+        if (type != STREAM || liveRewindActive || liveRewindTransitioning) return
+        streamPlaybackRequested = true
+        restartPlayer()
+    }
+
     private fun scheduleStreamRecovery() {
         if (!prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
             || type != STREAM
@@ -1464,20 +1467,24 @@ class MediaPlayerService : BasePlaybackService() {
 
     fun togglePlayback() {
         player?.let { player ->
-            val isPlaying = runCatching { player.isPlaying }.getOrDefault(false)
-            if (isPlaying) {
+            val playbackRequested = if (type == STREAM) {
+                streamPlaybackRequested
+            } else {
+                runCatching { player.isPlaying }.getOrDefault(false)
+            }
+            if (playbackRequested) {
                 streamPlaybackRequested = false
                 streamRecoveryJob?.cancel()
                 streamRecoveryJob = null
                 runCatching { player.pause() }
-                updatePlayingState()
+                updatePlayingState(updatePlaybackIntent = false)
             } else {
                 if (type == STREAM) {
                     streamPlaybackRequested = true
                 }
                 try {
                     player.start()
-                    updatePlayingState()
+                    updatePlayingState(updatePlaybackIntent = type != STREAM)
                 } catch (_: IllegalStateException) {
                     if (type == STREAM) {
                         scheduleStreamRecovery()
@@ -1536,7 +1543,7 @@ class MediaPlayerService : BasePlaybackService() {
             streamPlaybackRequested = type == STREAM
             try {
                 player.start()
-                updatePlayingState()
+                updatePlayingState(updatePlaybackIntent = type != STREAM)
                 playerListener?.onIsPlayingChanged()
             } catch (_: IllegalStateException) {
                 if (type == STREAM) {
