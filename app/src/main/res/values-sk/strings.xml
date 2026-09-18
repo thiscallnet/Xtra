@@ -1495,4 +1495,8 @@
     <string name="chat_gif_display_large">Large images</string>
     <string name="chat_gif_display_emote">Emote size</string>
     <string name="chat_gif_display_link">Links only</string>
+    <string name="chat_username_recommendations">Návrhy používateľských mien</string>
+    <string name="chat_username_recommendations_summary">Pri písaní znaku @ zobrazí zoradených používateľov z tohto chatu.</string>
+    <string name="chat_username_recommendation_login">@%1$s</string>
+    <string name="use_username">Spomenúť používateľa %1$s</string>
 </resources>

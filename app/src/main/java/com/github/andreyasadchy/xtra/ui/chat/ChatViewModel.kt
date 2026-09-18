@@ -121,6 +121,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.viewerSendableValues
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.ChatUserSuggestion
+import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.ChatUserSuggestionAggregator
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationEngine
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationState
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteUsageKeys
@@ -635,6 +637,10 @@ class ChatViewModel(
     private var liveChatReadOnly = false
     private var activeChannelId: String? = null
     private var activeChannelLogin: String? = null
+    private var chatUsernameRecommendationsEnabled = applicationContext.prefs().getBoolean(
+        C.CHAT_USERNAME_RECOMMENDATIONS,
+        true,
+    )
     // v2 owns the message transport and canonical timeline. This marker keeps
     // ancillary live-chat services from being restarted on every view reattach.
     private var v2LiveChannelId: String? = null
@@ -812,6 +818,15 @@ class ChatViewModel(
     private var chatRevision = 0L
     val autoCompleteList = mutableListOf<Any?>()
     private val chatters = ConcurrentHashMap<String, Chatter>()
+    private val _chatUserSuggestions = MutableStateFlow<List<ChatUserSuggestion>>(emptyList())
+    val chatUserSuggestions: StateFlow<List<ChatUserSuggestion>> = _chatUserSuggestions.asStateFlow()
+    private val chatUserRecords = LinkedHashMap<String, ChatUserSuggestion>()
+    private val recordedChatUserMessageIds = HashSet<String>()
+    private val chatUserAvatarCache = mutableMapOf<String, String?>()
+    private val chatUserSuggestionAggregator = ChatUserSuggestionAggregator()
+    private var chatUserAvatarLoadJob: Job? = null
+    private var chatUserAvatarGeneration = 0L
+    private var chatUserSequence = 0L
 
     private fun markPickerCatalogChanged() {
         pickerCatalogRevision.update { it + 1 }
@@ -1834,6 +1849,7 @@ class ChatViewModel(
                                 chatMessages.addAll(0, items)
                                 chatRevision++
                                 chatMutationEvents.trySend(ChatMutation.Prepend(chatRevision, items))
+                                recordChatUsers(items)
                             }
                         }
                     }
@@ -1915,6 +1931,7 @@ class ChatViewModel(
                 )
             )
         }
+        recordChatUsers(listOf(message))
     }
 
     fun isSlowModeBlocked(): Boolean = slowModeState.value.blocked
@@ -2073,13 +2090,274 @@ class ChatViewModel(
         ChatSnapshot(chatRevision, chatMessages.toList())
     }
 
+    private fun recordChatUsers(messages: List<ChatMessage>) {
+        if (!chatUsernameRecommendationsEnabled) return
+        var changed = false
+        synchronized(chatUserRecords) {
+            messages.forEach { message ->
+                if (message.type != ChatMessage.USER_MESSAGE) return@forEach
+                val login = message.userLogin
+                    ?.trim()
+                    ?.takeIf(String::isNotBlank)
+                    ?: return@forEach
+                val messageId = message.id?.takeIf(String::isNotBlank)
+                if (messageId != null && !recordedChatUserMessageIds.add(messageId)) return@forEach
+                val key = login.lowercase(Locale.ROOT)
+                val previous = chatUserRecords[key]
+                val next = ChatUserSuggestion(
+                    userId = message.userId ?: previous?.userId,
+                    login = login,
+                    displayName = message.userName?.takeIf(String::isNotBlank)
+                        ?: previous?.displayName
+                        ?: login,
+                    profileImageUrl = previous?.profileImageUrl
+                        ?: chatUserAvatarCache["login:$key"],
+                    messageCount = (previous?.messageCount ?: 0) + 1,
+                    lastSeenAt = maxOf(previous?.lastSeenAt ?: 0L, message.timestamp ?: 0L, ++chatUserSequence),
+                )
+                if (next != previous) {
+                    chatUserRecords[key] = next
+                    changed = true
+                }
+            }
+            if (changed) {
+                chatUserAvatarGeneration++
+                _chatUserSuggestions.value = chatUserRecords.values.toList()
+            }
+        }
+        if (changed) scheduleChatUserAvatarLoad()
+    }
+
+    internal fun reconcileV2ChatUsers(
+        messages: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>,
+    ) {
+        if (!chatUsernameRecommendationsEnabled) return
+        var changed = false
+        synchronized(chatUserRecords) {
+            val previous = chatUserRecords.toMap()
+            val next = chatUserSuggestionAggregator.aggregate(
+                messages = messages,
+                previous = previous,
+                avatarFor = { userId, login -> cachedChatUserAvatar(userId, login) },
+            )
+            val activeAvatarKeys = next.flatMap(::chatUserAvatarKeys).toSet()
+            chatUserAvatarCache.keys.retainAll(activeAvatarKeys)
+            changed = next != chatUserRecords.values.toList()
+            if (changed) {
+                chatUserRecords.clear()
+                next.forEach { user -> chatUserRecords[user.login.lowercase(Locale.ROOT)] = user }
+                recordedChatUserMessageIds.clear()
+                chatUserAvatarGeneration++
+                _chatUserSuggestions.value = next
+            }
+        }
+        if (changed) scheduleChatUserAvatarLoad()
+    }
+
+    private fun scheduleChatUserAvatarLoad() {
+        if (!chatUsernameRecommendationsEnabled) return
+        if (chatUserAvatarLoadJob?.isActive == true) return
+        val expectedChannelId = activeChannelId ?: return
+        val expectedChannelLogin = activeChannelLogin
+        val expectedGeneration = synchronized(chatUserRecords) { chatUserAvatarGeneration }
+        chatUserAvatarLoadJob = viewModelScope.launch {
+            try {
+                delay(200L)
+                val users = synchronized(chatUserRecords) {
+                    chatUserRecords.values
+                        .sortedWith(compareByDescending<ChatUserSuggestion> { it.messageCount }.thenByDescending { it.lastSeenAt })
+                        .filterNot {
+                            it.profileImageUrl?.isNotBlank() == true ||
+                                    chatUserAvatarCache.containsKey(chatUserAvatarKey(it))
+                        }
+                        .take(MAX_CHAT_USER_AVATARS)
+                }
+                if (users.isEmpty() || !chatUserAvatarLoadStillCurrent(expectedChannelId, expectedChannelLogin)) return@launch
+                val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                val headers = TwitchApiHelper.getHelixHeaders(applicationContext)
+                users.filter { !it.userId.isNullOrBlank() }
+                    .chunked(100)
+                    .forEach { batch ->
+                        if (!chatUserAvatarLoadStillCurrent(expectedChannelId, expectedChannelLogin)) return@launch
+                        val response = loadChatUserAvatars(networkLibrary, headers, ids = batch.mapNotNull { it.userId })
+                        if (response != null) {
+                            if (!chatUserAvatarLoadStillCurrent(expectedChannelId, expectedChannelLogin)) return@launch
+                            updateChatUserAvatars(response.data)
+                            markMissingChatUserAvatars(batch, response.data)
+                        }
+                    }
+                users.filter { it.userId.isNullOrBlank() }
+                    .chunked(100)
+                    .forEach { batch ->
+                        if (!chatUserAvatarLoadStillCurrent(expectedChannelId, expectedChannelLogin)) return@launch
+                        val response = loadChatUserAvatars(networkLibrary, headers, logins = batch.map { it.login })
+                        if (response != null) {
+                            if (!chatUserAvatarLoadStillCurrent(expectedChannelId, expectedChannelLogin)) return@launch
+                            updateChatUserAvatars(response.data)
+                            markMissingChatUserAvatars(batch, response.data)
+                        }
+                    }
+            } catch (e: CancellationException) {
+                throw e
+            } finally {
+                if (chatUserAvatarLoadJob === coroutineContext[Job]) {
+                    chatUserAvatarLoadJob = null
+                    if (chatUserAvatarGeneration != expectedGeneration) {
+                        scheduleChatUserAvatarLoad()
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun loadChatUserAvatars(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        ids: List<String>? = null,
+        logins: List<String>? = null,
+    ): com.github.andreyasadchy.xtra.model.helix.user.UsersResponse? {
+        if (headers[C.HEADER_TOKEN].isNullOrBlank()) {
+            return loadChatUserAvatarsFromGraphQl(networkLibrary, ids, logins)
+        }
+        return try {
+            helixRepository.getUsers(networkLibrary, headers, ids = ids, logins = logins)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            loadChatUserAvatarsFromGraphQl(networkLibrary, ids, logins)
+        }
+    }
+
+    private suspend fun loadChatUserAvatarsFromGraphQl(
+        networkLibrary: String?,
+        ids: List<String>? = null,
+        logins: List<String>? = null,
+    ): com.github.andreyasadchy.xtra.model.helix.user.UsersResponse? = try {
+        val response = graphQLRepository.loadQueryUsers(
+            networkLibrary = networkLibrary,
+            headers = TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = true),
+            ids = ids,
+            logins = logins,
+        )
+        if (!response.errors.isNullOrEmpty()) {
+            null
+        } else {
+            com.github.andreyasadchy.xtra.model.helix.user.UsersResponse(
+                response.data?.users.orEmpty().mapNotNull { user ->
+                    user?.let {
+                        com.github.andreyasadchy.xtra.model.helix.user.User(
+                            id = it.id,
+                            login = it.login,
+                            displayName = it.displayName,
+                            profileImageURL = it.profileImageURL,
+                        )
+                    }
+                },
+            )
+        }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun chatUserAvatarLoadStillCurrent(
+        expectedChannelId: String,
+        expectedChannelLogin: String?,
+    ): Boolean = activeChannelId == expectedChannelId &&
+            activeChannelLogin.equals(expectedChannelLogin, ignoreCase = true) &&
+            chatUsernameRecommendationsEnabled
+
+    private fun markMissingChatUserAvatars(
+        requested: List<ChatUserSuggestion>,
+        resolved: List<com.github.andreyasadchy.xtra.model.helix.user.User>,
+    ) {
+        val resolvedIds = resolved.mapNotNull { it.id?.takeIf(String::isNotBlank) }.toSet()
+        val resolvedLogins = resolved.mapNotNull { it.login?.trim()?.lowercase(Locale.ROOT) }.toSet()
+        synchronized(chatUserRecords) {
+            requested.filter { it.login.lowercase(Locale.ROOT) in chatUserRecords }.forEach { user ->
+                val resolvedUser = if (!user.userId.isNullOrBlank()) {
+                    user.userId in resolvedIds
+                } else {
+                    user.login.lowercase(Locale.ROOT) in resolvedLogins
+                }
+                if (!resolvedUser) chatUserAvatarCache.putIfAbsent(chatUserAvatarKey(user), null)
+            }
+        }
+    }
+
+    private fun updateChatUserAvatars(users: List<com.github.andreyasadchy.xtra.model.helix.user.User>) {
+        var changed = false
+        synchronized(chatUserRecords) {
+            val activeAvatarKeys = chatUserRecords.values.flatMap(::chatUserAvatarKeys).toSet()
+            users.forEach { user ->
+                val loginKey = user.login?.trim()?.lowercase(Locale.ROOT)
+                val imageUrl = user.profileImageURL?.takeIf(String::isNotBlank)
+                user.id?.takeIf(String::isNotBlank)?.let { id ->
+                    if ("id:$id" in activeAvatarKeys) chatUserAvatarCache["id:$id"] = imageUrl
+                }
+                loginKey?.let { login ->
+                    if ("login:$login" in activeAvatarKeys) chatUserAvatarCache["login:$login"] = imageUrl
+                }
+            }
+            chatUserRecords.forEach { (key, current) ->
+                val imageUrl = chatUserAvatarCache[chatUserAvatarKey(current)] ?: return@forEach
+                if (imageUrl != current.profileImageUrl) {
+                    chatUserRecords[key] = current.copy(profileImageUrl = imageUrl)
+                    changed = true
+                }
+            }
+            if (changed) _chatUserSuggestions.value = chatUserRecords.values.toList()
+        }
+    }
+
+    private fun chatUserAvatarKey(user: ChatUserSuggestion): String =
+        user.userId?.takeIf(String::isNotBlank)?.let { "id:$it" }
+            ?: "login:${user.login.lowercase(Locale.ROOT)}"
+
+    private fun chatUserAvatarKeys(user: ChatUserSuggestion): List<String> = buildList {
+        user.userId?.takeIf(String::isNotBlank)?.let { add("id:$it") }
+        add("login:${user.login.lowercase(Locale.ROOT)}")
+    }
+
+    private fun cachedChatUserAvatar(userId: String?, login: String): String? =
+        chatUserAvatarKeys(userId, login).asSequence()
+            .mapNotNull { chatUserAvatarCache[it] }
+            .firstOrNull()
+
+    private fun chatUserAvatarKeys(userId: String?, login: String): List<String> = buildList {
+        userId?.takeIf(String::isNotBlank)?.let { add("id:$it") }
+        add("login:${login.lowercase(Locale.ROOT)}")
+    }
+
+    private fun clearChatUserSuggestions() {
+        chatUserAvatarLoadJob?.cancel()
+        chatUserAvatarLoadJob = null
+        synchronized(chatUserRecords) {
+            chatUserRecords.clear()
+            recordedChatUserMessageIds.clear()
+            chatUserAvatarCache.clear()
+            chatUserAvatarGeneration++
+            chatUserSequence = 0L
+            _chatUserSuggestions.value = emptyList()
+        }
+    }
+
+    fun setChatUsernameRecommendationsEnabled(enabled: Boolean) {
+        if (chatUsernameRecommendationsEnabled == enabled) return
+        chatUsernameRecommendationsEnabled = enabled
+        if (!enabled) clearChatUserSuggestions()
+    }
+
     private fun clearChatMessages() {
         synchronized(chatMessages) {
-            if (chatMessages.isEmpty()) return
-            chatMessages.clear()
-            chatRevision++
-            chatMutationEvents.trySend(ChatMutation.Clear(chatRevision))
+            if (chatMessages.isNotEmpty()) {
+                chatMessages.clear()
+                chatRevision++
+                chatMutationEvents.trySend(ChatMutation.Clear(chatRevision))
+            }
         }
+        clearChatUserSuggestions()
     }
 
     private fun channelPointsBalanceRevision(): Long = synchronized(channelPointsBalanceLock) {
@@ -3270,6 +3548,7 @@ class ChatViewModel(
                 !activeChannelLogin.equals(channelLogin, ignoreCase = true)
         stopLiveChat()
         if (channelChanged) {
+            clearChatUserSuggestions()
             synchronized(userEmotes) { userEmotes.clear() }
             loadedUserEmotes = false
             viewModelScope.launch { emitUserEmotesUpdated() }
@@ -7486,6 +7765,7 @@ class ChatViewModel(
         private const val MAX_RECENT_CLAIM_IDS = 64
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
+        private const val MAX_CHAT_USER_AVATARS = 100
         private const val DEFAULT_REWARD_COLOR = "#9146FF"
         private const val MIN_PREDICTION_POINTS = 10
         private const val MAX_PREDICTION_POINTS = 250_000

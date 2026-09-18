@@ -238,6 +238,17 @@
             android:visibility="gone"
             tools:listitem="@layout/item_emote_recommendation" />
 
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/userRecommendationStrip"
+            android:layout_width="match_parent"
+            android:layout_height="68dp"
+            android:background="?attr/colorSurfaceContainer"
+            android:clipToPadding="false"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone"
+            tools:listitem="@layout/item_chat_user_recommendation" />
+
         <LinearLayout
             android:id="@+id/messageView"
             android:layout_width="match_parent"

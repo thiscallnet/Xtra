@@ -1472,4 +1472,8 @@
     <string name="chat_gif_display_large">Large images</string>
     <string name="chat_gif_display_emote">Emote size</string>
     <string name="chat_gif_display_link">Links only</string>
+    <string name="chat_username_recommendations">用户名建议</string>
+    <string name="chat_username_recommendations_summary">输入 @ 时显示此聊天中的排序用户。</string>
+    <string name="chat_username_recommendation_login">@%1$s</string>
+    <string name="use_username">提及 %1$s</string>
 </resources>

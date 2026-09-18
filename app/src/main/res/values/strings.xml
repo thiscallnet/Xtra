@@ -591,6 +591,10 @@ Metadata text</string>
     <string name="chat_emote_autocomplete_summary">Show matching emotes while typing.</string>
     <string name="chat_emote_recommendations">Recommendation strip</string>
     <string name="chat_emote_recommendations_summary">Show ranked emotes above the chat input.</string>
+    <string name="chat_username_recommendations">Username suggestions</string>
+    <string name="chat_username_recommendations_summary">Show ranked users from this chat when typing @.</string>
+    <string name="chat_username_recommendation_login">@%1$s</string>
+    <string name="use_username">Mention %1$s</string>
     <string name="chat_compact_twitch_emote_groups">Compact picker layout</string>
     <string name="chat_compact_twitch_emote_groups_summary">Use compact bottom navigation and grouped emote/emoji sections.</string>
     <string name="chat_compact_picker_item_size">Compact picker item size</string>

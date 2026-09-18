@@ -1470,4 +1470,8 @@
     <string name="chat_gif_display_large">Large images</string>
     <string name="chat_gif_display_emote">Emote size</string>
     <string name="chat_gif_display_link">Links only</string>
+    <string name="chat_username_recommendations">Sugestie nazw użytkowników</string>
+    <string name="chat_username_recommendations_summary">Pokazuj uporządkowanych użytkowników z tego czatu podczas wpisywania @.</string>
+    <string name="chat_username_recommendation_login">@%1$s</string>
+    <string name="use_username">Wspomnij użytkownika %1$s</string>
 </resources>
