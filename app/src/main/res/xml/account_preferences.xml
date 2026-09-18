@@ -1,4 +1,5 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <PreferenceCategory android:title="@string/settings_account_login" app:iconSpaceReserved="false" />
+    <Preference android:key="account_action" android:summary="@string/settings_account_signed_out_summary" android:title="@string/settings_account_details" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="clear_twitch_browser_session_on_logout" android:summary="@string/settings_clear_twitch_browser_session_on_logout_summary" android:title="@string/settings_clear_twitch_browser_session_on_logout" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

@@ -160,20 +160,38 @@
     <string name="settings_search_prompt">Search settings</string>
     <string name="settings_search_empty" translatable="false">Enter a setting name to search.</string>
     <string name="settings_search_no_results" translatable="false">No matching settings.</string>
-    <string name="settings_home_browsing">Browsing &amp; tabs</string>
-    <string name="settings_home_controls">Player controls</string>
-    <string name="settings_home_account_network">Account &amp; network</string>
-    <string name="settings_home_general_summary">Language, backup &amp; app info</string>
-    <string name="settings_home_notifications_summary">Live alerts and notification timing</string>
-    <string name="settings_home_updates_summary">Release checks, notes and downloads</string>
-    <string name="settings_home_appearance_summary">Theme, colors &amp; layout</string>
-    <string name="settings_home_browsing_summary">Tabs, lists, content &amp; search</string>
-    <string name="settings_home_playback_summary">Quality, background playback &amp; playback sources</string>
-    <string name="settings_home_controls_summary">Customize the player HUD, seek, gestures, and information</string>
-    <string name="settings_home_chat_summary">Messages, emotes &amp; Twitch features</string>
-    <string name="settings_home_downloads_summary">Download behavior, live streams &amp; imports</string>
-    <string name="settings_home_account_network_summary">Login, tokens, proxies &amp; connection</string>
-    <string name="settings_home_advanced_summary">Diagnostics and developer tools</string>
+    <string name="settings_home_browsing">Browsing &amp; navigation</string>
+    <string name="settings_home_controls">Player &amp; controls</string>
+    <string name="settings_home_account_network">Account</string>
+    <string name="settings_home_general_summary">Language, updates, backups, and app details</string>
+    <string name="settings_home_notifications_summary">Live alerts, delivery, and notification content</string>
+    <string name="settings_home_updates_summary">Release notes, update checks, and downloads</string>
+    <string name="settings_home_appearance_summary">Theme, backgrounds, text, and display layout</string>
+    <string name="settings_home_browsing_summary">Feeds, stream cards, Following, tabs, and search</string>
+    <string name="settings_home_playback_summary">Quality, live playback, captions, and background playback</string>
+    <string name="settings_home_controls_summary">HUD, gestures, seek, speed, mini player, clips, and information</string>
+    <string name="settings_home_chat_summary">Chat appearance, messages, emotes, and Twitch features</string>
+    <string name="settings_home_downloads_summary">Download behavior, live streams, and imports</string>
+    <string name="settings_home_account_network_summary">Twitch sign-in and session settings</string>
+    <string name="settings_home_advanced_summary">Network overrides, diagnostics, and developer options</string>
+    <string name="settings_section_watch">Watch</string>
+    <string name="settings_section_customize">Customize</string>
+    <string name="settings_app_summary">Language, updates, backups, and help</string>
+    <string name="settings_help_about">Help &amp; about</string>
+    <string name="settings_help_about_summary">Support, diagnostics, project details, and licenses</string>
+    <string name="settings_chat_appearance_layout">Appearance &amp; layout</string>
+    <string name="settings_chat_appearance_layout_summary">Background, text, sizing, chat layout, and username colors</string>
+    <string name="settings_chat_messages_interactions">Messages &amp; interactions</string>
+    <string name="settings_chat_messages_interactions_summary">History, moderation, profiles, emotes, and message visibility</string>
+    <string name="settings_chat_emotes_badges_summary">Twitch, 7TV, BTTV, FFZ, and the emote picker</string>
+    <string name="settings_chat_features_summary">Highlights, channel points, raids, polls, predictions, and Drops</string>
+    <string name="settings_chat_translation_summary">On-device translation and language models</string>
+    <string name="settings_chat_username_colors">Username colors</string>
+    <string name="settings_diagnostics_page">Diagnostics</string>
+    <string name="settings_diagnostics_page_summary">Capture details to troubleshoot playback, chat, and network problems</string>
+    <string name="settings_network_proxy">Network &amp; proxy</string>
+    <string name="settings_network_proxy_summary">Proxy settings for Xtra requests and stream playback</string>
+    <string name="settings_background_behavior">Background behavior</string>
     <string name="settings_section_appearance">Appearance</string>
     <string name="settings_app_background">App background</string>
     <string name="settings_app_background_preview">Preview</string>
@@ -203,6 +221,7 @@
     <string name="settings_section_downloads">Downloads</string>
     <string name="settings_section_network">Network</string>
     <string name="settings_section_app">App &amp; data</string>
+    <string name="settings_section_advanced_tools">Advanced tools</string>
     <string name="settings_section_advanced">Advanced</string>
     <string name="settings_item_interface">Interface</string>
     <string name="settings_item_interface_summary">Layout and tabs</string>
@@ -282,7 +301,7 @@
     <string name="settings_proxy_connection">Proxy connection</string>
     <string name="settings_api_client">API client</string>
     <string name="settings_api_account">Current account</string>
-    <string name="settings_general_notifications">Live notifications</string>
+    <string name="settings_general_notifications">Notifications</string>
     <string name="settings_general_updates">Updates</string>
     <string name="settings_general_data">Backup &amp; restore</string>
     <string name="settings_general_about">About</string>
@@ -300,6 +319,8 @@
     <string name="settings_account_connected_summary">Twitch account</string>
     <string name="settings_account_signed_out_summary">Sign in to access followed channels and account features.</string>
     <string name="settings_account_details">Account details</string>
+    <string name="settings_account_manage">Manage Twitch account</string>
+    <string name="settings_account_manage_summary">Profile, channel, privacy, and account controls</string>
     <string name="settings_account_status">Account status</string>
     <string name="settings_account_connected">Connected</string>
     <string name="settings_account_disconnected">Not signed in</string>
@@ -393,7 +414,7 @@
     <string name="settings_language">Language</string>
     <string name="settings_updates">Updates</string>
     <string name="settings_backup_restore">Backup &amp; restore</string>
-    <string name="settings_about">About</string>
+    <string name="settings_about">Help &amp; about</string>
     <string name="settings_join_discord">Join the Xtra Discord</string>
     <string name="settings_join_discord_summary">Chat with the community, get help, and share feedback</string>
     <string name="settings_advanced">Advanced</string>
@@ -627,7 +648,7 @@ Metadata text</string>
     <string name="settings_version">Version</string>
     <string name="settings_build">Build</string>
     <string name="settings_package">Package</string>
-    <string name="settings_mix_audio">Mix audio with other apps</string>
+    <string name="settings_mix_audio">Play audio while other apps are playing</string>
     <string name="settings_mix_audio_summary">Allow Xtra audio to continue while another app is playing audio.</string>
     <string name="settings_keep_chat_background">Keep chat connected in background</string>
     <string name="settings_keep_chat_background_summary">Keeps chat live when you leave the player, using more battery and network data.</string>
@@ -1191,6 +1212,7 @@ Metadata text</string>
     <string name="live_caption_update_frequency" translatable="false">Caption update frequency</string>
     <string name="live_caption_processing_interval_value">Moonshine partials every %1$.1f seconds</string>
     <string name="live_caption_settings" translatable="false">Live captions (experimental)</string>
+    <string name="settings_live_caption_category" translatable="false">Caption settings</string>
     <string name="live_caption_settings_summary" translatable="false">On-device English captions powered by Moonshine v2 Tiny. Faster updates use more CPU and battery; actual use varies by device.</string>
     <string name="live_caption_model" translatable="false">Moonshine v2 Tiny model</string>
     <string name="live_caption_model_summary" translatable="false">Downloaded separately for live captions</string>

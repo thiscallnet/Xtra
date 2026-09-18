@@ -88,7 +88,7 @@ import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.ui.player.PlayerViewModel.Companion.PlayerViewModelFactory
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE
-import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_LIVE_CAPTIONS
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -500,7 +500,7 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
     fun openCaptionSettings() {
         val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
-            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_LIVE_CAPTIONS)
             if (playbackService?.type == BasePlaybackService.STREAM) {
                 putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, C.PLAYER_LIVE_CAPTION_MODEL)
             }

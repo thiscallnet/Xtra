@@ -281,6 +281,7 @@ class SettingsActivity : AppCompatActivity() {
                 SETTINGS_SCREEN_PLAYER_CONTROLS -> navController.navigate(R.id.playerButtonSettingsFragment)
                 SETTINGS_SCREEN_PLAYER_HUD -> navController.navigate(R.id.playerHudEditorFragment)
                 SETTINGS_SCREEN_PLAYER -> navController.navigate(R.id.playerSettingsFragment)
+                SETTINGS_SCREEN_LIVE_CAPTIONS -> navController.navigate(R.id.liveCaptionsFragment)
                 SETTINGS_SCREEN_CHAT -> navController.navigate(R.id.chatSettingsFragment)
             }
         }
@@ -541,34 +542,18 @@ class SettingsActivity : AppCompatActivity() {
             binding.searchCard.setOnClickListener {
                 navigate(SettingsNavGraphDirections.actionGlobalSettingsSearchFragment())
             }
-            val discordRow = ItemSettingsRowBinding.inflate(layoutInflater, binding.communityActions, false)
-            discordRow.icon.setImageResource(R.drawable.ic_settings_discord)
-            discordRow.title.setText(R.string.settings_join_discord)
-            discordRow.summary.setText(R.string.settings_join_discord_summary)
-            discordRow.root.contentDescription = getString(R.string.settings_join_discord) + ". " +
-                    getString(R.string.settings_join_discord_summary)
-            discordRow.divider.visibility = View.GONE
-            discordRow.root.setOnClickListener {
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, DISCORD_URL.toUri()))
-                } catch (_: ActivityNotFoundException) {
-                    Toast.makeText(requireContext(), R.string.no_browser_found, Toast.LENGTH_SHORT).show()
+            settingsGroups().forEach { group ->
+                addSectionHeader(group.title)
+                group.items.forEachIndexed { index, item ->
+                    val rowBinding = ItemSettingsRowBinding.inflate(layoutInflater, binding.sections, false)
+                    rowBinding.icon.setImageResource(item.icon)
+                    rowBinding.title.setText(item.title)
+                    rowBinding.summary.setText(item.summary)
+                    rowBinding.root.contentDescription = getString(item.title) + ". " + getString(item.summary)
+                    rowBinding.divider.visibility = if (index == group.items.lastIndex) View.GONE else View.VISIBLE
+                    rowBinding.root.setOnClickListener { item.onClick() }
+                    binding.sections.addView(rowBinding.root)
                 }
-            }
-            binding.communityActions.addView(discordRow.root)
-            val items = settingsItems()
-            addSectionHeader(R.string.settings_preferences)
-            items.forEachIndexed { index, item ->
-                if (index == 7) addSectionHeader(R.string.settings_app)
-                if (index == items.lastIndex) addSectionHeader(R.string.settings_section_advanced)
-                val rowBinding = ItemSettingsRowBinding.inflate(layoutInflater, binding.sections, false)
-                rowBinding.icon.setImageResource(item.icon)
-                rowBinding.title.setText(item.title)
-                rowBinding.summary.setText(item.summary)
-                rowBinding.root.contentDescription = getString(item.title) + ". " + getString(item.summary)
-                rowBinding.divider.visibility = if (index == items.lastIndex) View.GONE else View.VISIBLE
-                rowBinding.root.setOnClickListener { item.onClick() }
-                binding.sections.addView(rowBinding.root)
             }
             accountRow = ItemSettingsRowBinding.inflate(layoutInflater, binding.accountActions, false)
             binding.accountActions.addView(accountRow!!.root)
@@ -596,15 +581,11 @@ class SettingsActivity : AppCompatActivity() {
             row.title.text = if (isLoggedIn) username ?: getString(R.string.settings_account_details)
             else getString(R.string.settings_account_connected_summary)
             row.summary.text = accountSummary
-            row.arrow.visibility = if (isLoggedIn) View.VISIBLE else View.GONE
+            row.arrow.visibility = View.VISIBLE
             row.divider.visibility = View.GONE
             row.root.contentDescription = row.title.text.toString() + ". " + accountSummary
             row.root.setOnClickListener {
-                if (settingsActivity.isAccountConnected()) {
-                    settingsActivity.accountResultLauncher?.launch(Intent(requireContext(), AccountActivity::class.java))
-                } else {
-                    settingsActivity.openAccountAction()
-                }
+                navigate(R.id.accountSettingsFragment)
             }
         }
 
@@ -612,60 +593,71 @@ class SettingsActivity : AppCompatActivity() {
             binding.sections.addView(TextView(requireContext()).apply {
                 setText(title)
                 textSize = 14f
+                setTextColor(com.google.android.material.color.MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant))
                 setPadding(16.dp(), 16.dp(), 16.dp(), 6.dp())
             })
         }
 
         private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
 
-        private fun settingsItems(): List<SettingsItem> = listOf(
-            SettingsItem(R.string.settings_general_notifications, R.drawable.ic_settings_notifications, R.string.settings_home_notifications_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalLiveNotificationSettingsFragment())
-            },
-            SettingsItem(R.string.settings_section_playback, R.drawable.ic_settings_playback, R.string.settings_home_playback_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalPlayerSettingsFragment())
-            },
-            SettingsItem(R.string.settings_home_controls, R.drawable.ic_settings_playback, R.string.settings_home_controls_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalPlayerButtonSettingsFragment())
-            },
-            SettingsItem(R.string.settings_section_chat, R.drawable.ic_settings_chat, R.string.settings_home_chat_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalChatSettingsFragment())
-            },
-            SettingsItem(R.string.settings_section_appearance, R.drawable.ic_settings_appearance, R.string.settings_home_appearance_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalThemeSettingsFragment())
-            },
-            SettingsItem(R.string.settings_home_browsing, R.drawable.ic_settings_data, R.string.settings_home_browsing_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalUiSettingsFragment())
-            },
-            SettingsItem(R.string.settings_section_downloads, R.drawable.ic_settings_download, R.string.settings_home_downloads_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalDownloadSettingsFragment())
-            },
-            SettingsItem(R.string.settings_home_account_network, R.drawable.ic_settings_network, R.string.settings_home_account_network_summary) {
-                findNavController().navigate(R.id.accountSettingsFragment)
-            },
-            SettingsItem(R.string.settings_language, R.drawable.ic_settings_data, R.string.settings_item_language_summary) {
-                findNavController().navigate(R.id.languageSettingsFragment)
-            },
-            SettingsItem(R.string.settings_updates, R.drawable.ic_settings_updates, R.string.settings_home_updates_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment())
-            },
-            SettingsItem(R.string.settings_backup_restore, R.drawable.ic_settings_data, R.string.settings_item_backup_summary) {
-                findNavController().navigate(R.id.backupSettingsFragment)
-            },
-            SettingsItem(R.string.settings_about, R.drawable.ic_settings_advanced, R.string.app_name) {
-                findNavController().navigate(R.id.aboutSettingsFragment)
-            },
-            SettingsItem(R.string.settings_diagnostics_live, R.drawable.ic_settings_advanced, R.string.settings_diagnostics_live_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalDiagnosticsSettingsFragment())
-            },
-            SettingsItem(R.string.settings_section_advanced, R.drawable.ic_settings_advanced, R.string.settings_home_advanced_summary) {
-                navigate(SettingsNavGraphDirections.actionGlobalDebugSettingsFragment())
-            }
+        private fun settingsGroups(): List<SettingsGroup> = listOf(
+            SettingsGroup(
+                R.string.settings_section_watch,
+                listOf(
+                    SettingsItem(R.string.settings_section_playback, R.drawable.ic_settings_playback, R.string.settings_home_playback_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalPlayerSettingsFragment())
+                    },
+                    SettingsItem(R.string.settings_home_controls, R.drawable.ic_settings_playback, R.string.settings_home_controls_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalPlayerButtonSettingsFragment())
+                    },
+                    SettingsItem(R.string.settings_section_chat, R.drawable.ic_settings_chat, R.string.settings_home_chat_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalChatSettingsFragment())
+                    },
+                    SettingsItem(R.string.settings_general_notifications, R.drawable.ic_settings_notifications, R.string.settings_home_notifications_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalLiveNotificationSettingsFragment())
+                    },
+                ),
+            ),
+            SettingsGroup(
+                R.string.settings_section_customize,
+                listOf(
+                    SettingsItem(R.string.settings_section_appearance, R.drawable.ic_settings_appearance, R.string.settings_home_appearance_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalThemeSettingsFragment())
+                    },
+                    SettingsItem(R.string.settings_home_browsing, R.drawable.ic_settings_data, R.string.settings_home_browsing_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalUiSettingsFragment())
+                    },
+                ),
+            ),
+            SettingsGroup(
+                R.string.settings_section_app,
+                listOf(
+                    SettingsItem(R.string.settings_section_downloads, R.drawable.ic_settings_download, R.string.settings_home_downloads_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalDownloadSettingsFragment())
+                    },
+                    SettingsItem(R.string.settings_app, R.drawable.ic_settings_data, R.string.settings_app_summary) {
+                        findNavController().navigate(R.id.appSettingsFragment)
+                    },
+                ),
+            ),
+            SettingsGroup(
+                R.string.settings_section_advanced_tools,
+                listOf(
+                    SettingsItem(R.string.settings_section_advanced, R.drawable.ic_settings_advanced, R.string.settings_home_advanced_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalDebugSettingsFragment())
+                    },
+                ),
+            ),
         )
 
         private fun navigate(directions: NavDirections) {
             requireActivity().findViewById<AppBarLayout>(R.id.appBar)?.setExpanded(true)
             findNavController().navigate(directions)
+        }
+
+        private fun navigate(destinationId: Int) {
+            requireActivity().findViewById<AppBarLayout>(R.id.appBar)?.setExpanded(true)
+            findNavController().navigate(destinationId)
         }
 
         override fun onDestroyView() {
@@ -679,6 +671,11 @@ class SettingsActivity : AppCompatActivity() {
             @DrawableRes val icon: Int,
             @StringRes val summary: Int,
             val onClick: () -> Unit
+        )
+
+        private data class SettingsGroup(
+            @StringRes val title: Int,
+            val items: List<SettingsItem>,
         )
     }
 
@@ -1183,6 +1180,7 @@ class SettingsActivity : AppCompatActivity() {
                     SCREEN_SYSTEM_MEDIA -> R.xml.system_media_notification_preferences
                     SCREEN_PREDICTION_LIVE_UPDATES -> R.xml.prediction_live_update_preferences
                     SCREEN_DROPS_LIVE_UPDATES -> R.xml.drops_live_update_preferences
+                    SCREEN_APP -> R.xml.app_preferences
                     SCREEN_ACCOUNT -> R.xml.account_preferences
                     SCREEN_LANGUAGE -> R.xml.language_preferences
                     SCREEN_BACKUP -> R.xml.backup_preferences
@@ -1302,17 +1300,38 @@ class SettingsActivity : AppCompatActivity() {
                 })
                 true
             }
-            findPreference<Preference>("app_version")?.summary = getString(
+            findPreference<Preference>("about_version")?.summary = getString(
                 R.string.app_version_summary,
                 BuildConfig.VERSION_NAME,
                 BuildConfig.VERSION_CODE,
             )
-            findPreference<Preference>("app_build")?.summary = getString(
+            findPreference<Preference>("about_build")?.summary = getString(
                 R.string.app_build_summary,
                 BuildConfig.BUILD_TYPE,
             )
-            findPreference<Preference>("app_package")?.summary = BuildConfig.APPLICATION_ID
+            findPreference<Preference>("about_package")?.summary = BuildConfig.APPLICATION_ID
+            if (settingsScreen == SCREEN_ACCOUNT) configureAccountPreferences()
             configureRedesignedPreferences()
+        }
+
+        private fun configureAccountPreferences() {
+            val activity = requireActivity() as SettingsActivity
+            findPreference<Preference>("account_action")?.apply {
+                val isConnected = activity.isAccountConnected()
+                title = getString(if (isConnected) R.string.settings_account_manage else R.string.log_in)
+                summary = getString(
+                    if (isConnected) R.string.settings_account_manage_summary
+                    else R.string.settings_account_signed_out_summary,
+                )
+                setOnPreferenceClickListener {
+                    if (activity.isAccountConnected()) {
+                        activity.accountResultLauncher?.launch(Intent(requireContext(), AccountActivity::class.java))
+                    } else {
+                        activity.openAccountAction()
+                    }
+                    true
+                }
+            }
         }
 
         private fun createProxyPreferenceDataStore(): PreferenceDataStore {
@@ -1369,6 +1388,10 @@ class SettingsActivity : AppCompatActivity() {
         private fun configureRedesignedPreferences() {
             val activity = requireActivity() as SettingsActivity
             val destinations = mapOf(
+                "app_language_page" to R.id.languageSettingsFragment,
+                "app_updates_page" to R.id.updateSettingsFragment,
+                "app_backup_page" to R.id.backupSettingsFragment,
+                "app_help_about_page" to R.id.aboutSettingsFragment,
                 "appearance_display_compatibility" to R.id.appearanceDisplayCompatibilityFragment,
                 "browsing_displayed_information" to R.id.browsingInformationFragment,
                 "browsing_customize_tabs" to R.id.browsingTabsFragment,
@@ -1392,6 +1415,14 @@ class SettingsActivity : AppCompatActivity() {
                     findNavController().navigate(destination)
                     true
                 }
+            }
+            findPreference<Preference>("about_discord")?.setOnPreferenceClickListener {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, DISCORD_URL.toUri()))
+                } catch (_: ActivityNotFoundException) {
+                    Toast.makeText(requireContext(), R.string.no_browser_found, Toast.LENGTH_SHORT).show()
+                }
+                true
             }
             listOf(
                 C.UI_NAVIGATION_TAB_LIST,
@@ -1478,12 +1509,6 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 true
             }
-            findPreference<Preference>("copy_diagnostics")?.setOnPreferenceClickListener {
-                val clipboard = requireContext().getSystemService(android.content.ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Xtra diagnostics", diagnosticInformation()))
-                Toast.makeText(requireContext(), R.string.settings_diagnostics_copied, Toast.LENGTH_SHORT).show()
-                true
-            }
             findPreference<SwitchPreferenceCompat>(C.SETTINGS_CHAT_ENABLED)?.setOnPreferenceChangeListener { _, value ->
                 requireContext().prefs().edit {
                     putBoolean(C.SETTINGS_CHAT_ENABLED, value as Boolean)
@@ -1494,10 +1519,6 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<SwitchPreferenceCompat>(C.SETTINGS_BACKGROUND_PLAYBACK)?.setOnPreferenceChangeListener { _, value ->
                 val enabled = value as Boolean
                 requireContext().prefs().edit { putBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, enabled) }
-                true
-            }
-            findPreference<SwitchPreferenceCompat>("settings_mix_audio")?.setOnPreferenceChangeListener { _, value ->
-                requireContext().prefs().edit { putBoolean(C.PLAYER_AUDIO_FOCUS, !(value as Boolean)) }
                 true
             }
             findPreference<SwitchPreferenceCompat>(C.SETTINGS_DEVICE_COLORS)?.setOnPreferenceChangeListener { _, _ ->
@@ -2027,6 +2048,7 @@ class SettingsActivity : AppCompatActivity() {
 
         private companion object {
             const val ARG_SETTINGS_SCREEN = "settings_screen"
+            const val SCREEN_APP = "app"
             const val SCREEN_LIVE_NOTIFICATIONS = "live_notifications"
             const val SCREEN_ACCOUNT = "account"
             const val SCREEN_LANGUAGE = "language"
@@ -2714,10 +2736,8 @@ class SettingsActivity : AppCompatActivity() {
             configureTvChatPreferences()
             configurePhoneChatPreferences()
             findPreference<Preference>("chat_appearance_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatAppearanceFragment); true }
-            findPreference<Preference>("chat_username_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatUsernameFragment); true }
             findPreference<Preference>("chat_emotes_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatEmotesFragment); true }
             findPreference<Preference>("chat_features_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatFeaturesFragment); true }
-            findPreference<Preference>("chat_history_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatHistoryFragment); true }
             findPreference<Preference>("chat_translation_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatTranslationFragment); true }
             findPreference<Preference>("chat_visibility_page")?.setOnPreferenceClickListener { findNavController().navigate(R.id.chatVisibilityFragment); true }
             findPreference<SwitchPreferenceCompat>(C.SETTINGS_CHAT_ENABLED)?.setOnPreferenceChangeListener { _, value ->
@@ -2918,12 +2938,48 @@ class SettingsActivity : AppCompatActivity() {
         private var moonshineModelDialogProgress: ProgressBar? = null
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
+            if (arguments?.getString("settings_screen") == SCREEN_LIVE_CAPTIONS) {
+                setPreferencesFromResource(R.xml.live_caption_preferences, rootKey)
+                configureLiveCaptionPreferences()
+                return
+            }
             setPreferencesFromResource(R.xml.playback_preferences, rootKey)
+            findPreference<Preference>("live_caption_page")?.setOnPreferenceClickListener {
+                findNavController().navigate(R.id.liveCaptionsFragment)
+                true
+            }
             findPreference<Preference>("system_media_controls_page")?.setOnPreferenceClickListener {
                 findNavController().navigate(R.id.action_global_systemMediaNotificationSettingsFragment)
                 true
             }
-            findPreference<PreferenceCategory>("live_caption_settings")?.isVisible = true
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                findPreference<SwitchPreferenceCompat>(C.PLAYER_PICTURE_IN_PICTURE)?.isVisible = false
+            }
+            findPreference<SwitchPreferenceCompat>(C.SETTINGS_BACKGROUND_PLAYBACK)?.setOnPreferenceChangeListener { _, value ->
+                val enabled = value as Boolean
+                requireContext().prefs().edit { putBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, enabled) }
+                true
+            }
+            findPreference<SwitchPreferenceCompat>("settings_mix_audio")?.apply {
+                isChecked = !requireContext().prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false)
+                setOnPreferenceChangeListener { _, value ->
+                    requireContext().prefs().edit { putBoolean(C.PLAYER_AUDIO_FOCUS, !(value as Boolean)) }
+                    true
+                }
+            }
+            findPreference<Preference>("delete_video_positions")?.setOnPreferenceClickListener {
+                requireActivity().getAlertDialogBuilder()
+                    .setMessage(getString(R.string.delete_video_positions_message))
+                    .setPositiveButton(getString(R.string.yes)) { _, _ ->
+                        viewModel.deletePositions()
+                    }
+                    .setNegativeButton(getString(R.string.no), null)
+                    .show()
+                true
+            }
+        }
+
+        private fun configureLiveCaptionPreferences() {
                 findPreference<Preference>(C.PLAYER_LIVE_CAPTION_MODEL)?.setOnPreferenceClickListener {
                     showMoonshineModelDialog()
                     true
@@ -3011,24 +3067,10 @@ class SettingsActivity : AppCompatActivity() {
                     }
                     true
                 }
-            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
-                findPreference<SwitchPreferenceCompat>(C.PLAYER_PICTURE_IN_PICTURE)?.isVisible = false
-            }
-            findPreference<SwitchPreferenceCompat>(C.SETTINGS_BACKGROUND_PLAYBACK)?.setOnPreferenceChangeListener { _, value ->
-                val enabled = value as Boolean
-                requireContext().prefs().edit { putBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, enabled) }
-                true
-            }
-            findPreference<Preference>("delete_video_positions")?.setOnPreferenceClickListener {
-                requireActivity().getAlertDialogBuilder()
-                    .setMessage(getString(R.string.delete_video_positions_message))
-                    .setPositiveButton(getString(R.string.yes)) { _, _ ->
-                        viewModel.deletePositions()
-                    }
-                    .setNegativeButton(getString(R.string.no), null)
-                    .show()
-                true
-            }
+        }
+
+        private companion object {
+            const val SCREEN_LIVE_CAPTIONS = "live_captions"
         }
 
         override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -3065,7 +3107,6 @@ class SettingsActivity : AppCompatActivity() {
             }
             updateMoonshineModelDialog(state)
         }
-
         private fun showMoonshineModelDialog() {
             if (moonshineModelDialog != null) return
             val horizontalPadding = TypedValue.applyDimension(
@@ -3337,10 +3378,44 @@ class SettingsActivity : AppCompatActivity() {
                 viewModel.importDownloads()
                 true
             }
-            findPreference<Preference>("download_live_page")?.setOnPreferenceClickListener {
-                findNavController().navigate(R.id.downloadLiveFragment)
+            configureLiveDownloadPreferences()
+        }
+
+        private fun configureLiveDownloadPreferences() {
+            val start = findPreference<ListPreference>(C.DOWNLOAD_STREAM_START_WAIT)
+            val end = findPreference<ListPreference>(C.DOWNLOAD_STREAM_END_WAIT)
+            appendCustomListValue(start, "minutes")
+            appendCustomListValue(end, "minutes")
+            updateLiveDownloadSummary(start, "Minutes to wait for a queued live download to start.")
+            updateLiveDownloadSummary(end, "Keep waiting briefly after a stream ends so a quick restart can continue the capture.")
+            start?.setOnPreferenceChangeListener { preference, newValue ->
+                updateLiveDownloadSummary(preference as ListPreference, "Minutes to wait for a queued live download to start.", newValue.toString())
                 true
             }
+            end?.setOnPreferenceChangeListener { preference, newValue ->
+                updateLiveDownloadSummary(preference as ListPreference, "Keep waiting briefly after a stream ends so a quick restart can continue the capture.", newValue.toString())
+                true
+            }
+        }
+
+        private fun appendCustomListValue(preference: ListPreference?, unit: String) {
+            preference ?: return
+            val values = preference.entryValues.toMutableList()
+            val entries = preference.entries.toMutableList()
+            if (values.none { it.toString() == "custom" }) {
+                values.add("custom")
+                entries.add("Custom $unit")
+                preference.entryValues = values.toTypedArray()
+                preference.entries = entries.toTypedArray()
+            }
+        }
+
+        private fun updateLiveDownloadSummary(preference: ListPreference?, explanation: String, value: String? = preference?.value) {
+            preference ?: return
+            val index = preference.findIndexOfValue(value)
+            val selected = preference.entries.getOrNull(index)?.toString()
+                ?: value?.let { "$it minutes (custom)" }
+            preference.summary = listOfNotNull(selected, explanation).joinToString("\n")
         }
 
     }
@@ -3350,27 +3425,27 @@ class SettingsActivity : AppCompatActivity() {
 
         override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
             setPreferencesFromResource(R.xml.debug_preferences, rootKey)
-            preferenceScreen.addPreference(Preference(requireContext()).apply {
-                key = "debug_corrupt_gecko_gql_identity"
-                title = getString(R.string.settings_debug_corrupt_gecko_identity)
-                summary = getString(R.string.settings_debug_corrupt_gecko_identity_summary)
-                setOnPreferenceClickListener {
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        val manager = (requireContext().applicationContext as XtraApp)
-                            .xtraModule.twitchWebSessionManager
-                        val acquired = manager.refreshGeckoGqlIdentity()
-                        val corrupted = acquired && manager.debugCorruptGeckoGqlIdentity()
-                        Toast.makeText(
-                            requireContext(),
-                            if (corrupted) R.string.settings_debug_gecko_identity_corrupted
-                            else R.string.settings_debug_gecko_identity_unavailable,
-                            Toast.LENGTH_SHORT,
-                        ).show()
-                    }
-                    true
-                }
-            })
             if (BuildConfig.DEBUG) {
+                preferenceScreen.addPreference(Preference(requireContext()).apply {
+                    key = "debug_corrupt_gecko_gql_identity"
+                    title = getString(R.string.settings_debug_corrupt_gecko_identity)
+                    summary = getString(R.string.settings_debug_corrupt_gecko_identity_summary)
+                    setOnPreferenceClickListener {
+                        viewLifecycleOwner.lifecycleScope.launch {
+                            val manager = (requireContext().applicationContext as XtraApp)
+                                .xtraModule.twitchWebSessionManager
+                            val acquired = manager.refreshGeckoGqlIdentity()
+                            val corrupted = acquired && manager.debugCorruptGeckoGqlIdentity()
+                            Toast.makeText(
+                                requireContext(),
+                                if (corrupted) R.string.settings_debug_gecko_identity_corrupted
+                                else R.string.settings_debug_gecko_identity_unavailable,
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                        true
+                    }
+                })
                 preferenceScreen.addPreference(Preference(requireContext()).apply {
                     key = "debug_gql"
                     title = getString(R.string.settings_debug_gql)
@@ -3414,17 +3489,8 @@ class SettingsActivity : AppCompatActivity() {
                 findNavController().navigate(R.id.proxySettingsFragment)
                 true
             }
-            findPreference<SwitchPreferenceCompat>("settings_mix_audio")?.apply {
-                isChecked = !requireContext().prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false)
-                setOnPreferenceChangeListener { _, value ->
-                    requireContext().prefs().edit { putBoolean(C.PLAYER_AUDIO_FOCUS, !(value as Boolean)) }
-                    true
-                }
-            }
-            findPreference<Preference>("copy_diagnostics")?.setOnPreferenceClickListener {
-                val clipboard = requireContext().getSystemService(android.content.ClipboardManager::class.java)
-                clipboard?.setPrimaryClip(android.content.ClipData.newPlainText("Xtra diagnostics", diagnosticInformation()))
-                Toast.makeText(requireContext(), R.string.settings_diagnostics_copied, Toast.LENGTH_SHORT).show()
+            findPreference<Preference>("diagnostics_page")?.setOnPreferenceClickListener {
+                findNavController().navigate(R.id.action_global_diagnosticsSettingsFragment)
                 true
             }
         }
@@ -3702,40 +3768,39 @@ class SettingsActivity : AppCompatActivity() {
                 val preferenceManager = PreferenceManager(requireContext())
                 val developerVisible = requireContext().prefs().getBoolean(C.SETTINGS_DEVELOPER_UNLOCKED, false) &&
                     requireContext().prefs().getBoolean(C.SETTINGS_DEVELOPER_ENABLED, false)
+                fun breadcrumb(vararg labels: String): String = labels.joinToString(" / ")
                 listOf(
                     Triple(R.xml.live_notification_preferences, SettingsNavGraphDirections.actionGlobalLiveNotificationSettingsFragment(), getString(R.string.settings_general_notifications)),
-                    Triple(R.xml.system_media_notification_preferences, SettingsNavDirections(R.id.systemMediaNotificationSettingsFragment), getString(R.string.settings_system_media_controls)),
-                    Triple(R.xml.prediction_live_update_preferences, SettingsNavDirections(R.id.predictionLiveUpdateSettingsFragment), getString(R.string.prediction_live_updates)),
-                    Triple(R.xml.drops_live_update_preferences, SettingsNavDirections(R.id.dropsLiveUpdateSettingsFragment), getString(R.string.drops_live_updates)),
-                    Triple(R.xml.account_preferences, SettingsNavDirections(R.id.accountSettingsFragment), getString(R.string.settings_home_account_network)),
-                    Triple(R.xml.update_search_preferences, SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment(), getString(R.string.settings_general_updates)),
-                    Triple(R.xml.language_preferences, SettingsNavDirections(R.id.languageSettingsFragment), "App › Language"),
-                    Triple(R.xml.backup_preferences, SettingsNavDirections(R.id.backupSettingsFragment), "App › Backup & restore"),
-                    Triple(R.xml.about_preferences, SettingsNavDirections(R.id.aboutSettingsFragment), "App › About"),
-                    Triple(R.xml.theme_preferences, SettingsNavGraphDirections.actionGlobalThemeSettingsFragment(), getString(R.string.settings_section_appearance)),
-                    Triple(R.xml.display_compatibility_preferences, SettingsNavDirections(R.id.appearanceDisplayCompatibilityFragment), "Appearance › Display compatibility"),
-                    Triple(R.xml.ui_preferences, SettingsNavGraphDirections.actionGlobalUiSettingsFragment(), getString(R.string.settings_home_browsing)),
-                    Triple(R.xml.browsing_information_preferences, SettingsNavDirections(R.id.browsingInformationFragment), "Browsing › Displayed information"),
-                    Triple(R.xml.browsing_search_preferences, SettingsNavDirections(R.id.browsingSearchFragment), "Browsing › Search history"),
-                    Triple(R.xml.tabs_preferences, SettingsNavDirections(R.id.browsingTabsFragment), "Browsing › Navigation › Customize tabs"),
+                    Triple(R.xml.prediction_live_update_preferences, SettingsNavDirections(R.id.predictionLiveUpdateSettingsFragment), breadcrumb(getString(R.string.settings_general_notifications), getString(R.string.settings_live_activities))),
+                    Triple(R.xml.drops_live_update_preferences, SettingsNavDirections(R.id.dropsLiveUpdateSettingsFragment), breadcrumb(getString(R.string.settings_general_notifications), getString(R.string.settings_live_activities))),
                     Triple(R.xml.playback_preferences, SettingsNavGraphDirections.actionGlobalPlayerSettingsFragment(), getString(R.string.settings_section_playback)),
+                    Triple(R.xml.live_caption_preferences, SettingsNavDirections(R.id.liveCaptionsFragment), breadcrumb(getString(R.string.settings_section_playback), getString(R.string.live_caption_settings))),
+                    Triple(R.xml.system_media_notification_preferences, SettingsNavDirections(R.id.systemMediaNotificationSettingsFragment), breadcrumb(getString(R.string.settings_section_playback), getString(R.string.settings_background_playback))),
+                    Triple(R.xml.account_preferences, SettingsNavDirections(R.id.accountSettingsFragment), getString(R.string.settings_home_account_network)),
+                    Triple(R.xml.update_search_preferences, SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment(), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_general_updates))),
+                    Triple(R.xml.language_preferences, SettingsNavDirections(R.id.languageSettingsFragment), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_language))),
+                    Triple(R.xml.backup_preferences, SettingsNavDirections(R.id.backupSettingsFragment), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_backup_restore))),
+                    Triple(R.xml.about_preferences, SettingsNavDirections(R.id.aboutSettingsFragment), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_help_about))),
+                    Triple(R.xml.theme_preferences, SettingsNavGraphDirections.actionGlobalThemeSettingsFragment(), getString(R.string.settings_section_appearance)),
+                    Triple(R.xml.display_compatibility_preferences, SettingsNavDirections(R.id.appearanceDisplayCompatibilityFragment), breadcrumb(getString(R.string.settings_section_appearance), getString(R.string.settings_display_compatibility))),
+                    Triple(R.xml.ui_preferences, SettingsNavGraphDirections.actionGlobalUiSettingsFragment(), getString(R.string.settings_home_browsing)),
+                    Triple(R.xml.browsing_information_preferences, SettingsNavDirections(R.id.browsingInformationFragment), breadcrumb(getString(R.string.settings_home_browsing), getString(R.string.settings_browsing_streams_videos))),
+                    Triple(R.xml.browsing_search_preferences, SettingsNavDirections(R.id.browsingSearchFragment), breadcrumb(getString(R.string.settings_home_browsing), getString(R.string.settings_search_history))),
+                    Triple(R.xml.tabs_preferences, SettingsNavDirections(R.id.browsingTabsFragment), breadcrumb(getString(R.string.settings_home_browsing), getString(R.string.settings_customize_tabs))),
                     Triple(R.xml.player_controls_preferences, SettingsNavGraphDirections.actionGlobalPlayerButtonSettingsFragment(), getString(R.string.settings_home_controls)),
-                    Triple(R.xml.clip_preferences, SettingsNavDirections(R.id.clipSettingsFragment), "Player controls › Local clips"),
-                    Triple(R.xml.player_seek_preferences, SettingsNavDirections(R.id.playerSeekFragment), "Player controls › Seek controls"),
-                    Triple(R.xml.player_gestures_preferences, SettingsNavDirections(R.id.playerGesturesFragment), "Player controls › Gestures"),
-                    Triple(R.xml.player_information_preferences, SettingsNavDirections(R.id.playerInformationFragment), "Player controls › Player information"),
+                    Triple(R.xml.clip_preferences, SettingsNavDirections(R.id.clipSettingsFragment), breadcrumb(getString(R.string.settings_home_controls), getString(R.string.settings_clip_capture))),
+                    Triple(R.xml.player_seek_preferences, SettingsNavDirections(R.id.playerSeekFragment), breadcrumb(getString(R.string.settings_home_controls), getString(R.string.settings_seek_controls))),
+                    Triple(R.xml.player_gestures_preferences, SettingsNavDirections(R.id.playerGesturesFragment), breadcrumb(getString(R.string.settings_home_controls), getString(R.string.settings_gestures))),
+                    Triple(R.xml.player_information_preferences, SettingsNavDirections(R.id.playerInformationFragment), breadcrumb(getString(R.string.settings_home_controls), getString(R.string.settings_player_information))),
                     Triple(R.xml.chat_preferences, SettingsNavGraphDirections.actionGlobalChatSettingsFragment(), getString(R.string.settings_section_chat)),
-                    Triple(R.xml.chat_appearance_preferences, SettingsNavDirections(R.id.chatAppearanceFragment), "Chat › Appearance"),
-                    Triple(R.xml.chat_username_preferences, SettingsNavDirections(R.id.chatUsernameFragment), "Chat › Appearance › Username appearance"),
-                    Triple(R.xml.chat_emotes_preferences, SettingsNavDirections(R.id.chatEmotesFragment), "Chat › Emotes & badges"),
-                    Triple(R.xml.chat_features_preferences, SettingsNavDirections(R.id.chatFeaturesFragment), "Chat › Twitch features"),
-                    Triple(R.xml.chat_history_preferences, SettingsNavDirections(R.id.chatHistoryFragment), "Chat › History"),
-                    Triple(R.xml.chat_translation_preferences, SettingsNavDirections(R.id.chatTranslationFragment), "Chat › Translation"),
-                    Triple(R.xml.chat_visibility_preferences, SettingsNavDirections(R.id.chatVisibilityFragment), "Chat › Message visibility"),
+                    Triple(R.xml.chat_appearance_preferences, SettingsNavDirections(R.id.chatAppearanceFragment), breadcrumb(getString(R.string.settings_section_chat), getString(R.string.settings_chat_appearance_layout))),
+                    Triple(R.xml.chat_emotes_preferences, SettingsNavDirections(R.id.chatEmotesFragment), breadcrumb(getString(R.string.settings_section_chat), getString(R.string.settings_chat_emotes_badges))),
+                    Triple(R.xml.chat_features_preferences, SettingsNavDirections(R.id.chatFeaturesFragment), breadcrumb(getString(R.string.settings_section_chat), getString(R.string.settings_chat_features))),
+                    Triple(R.xml.chat_translation_preferences, SettingsNavDirections(R.id.chatTranslationFragment), breadcrumb(getString(R.string.settings_section_chat), getString(R.string.settings_chat_translation_page))),
+                    Triple(R.xml.chat_visibility_preferences, SettingsNavDirections(R.id.chatVisibilityFragment), breadcrumb(getString(R.string.settings_section_chat), getString(R.string.settings_chat_messages_interactions))),
                     Triple(R.xml.download_preferences, SettingsNavGraphDirections.actionGlobalDownloadSettingsFragment(), getString(R.string.settings_section_downloads)),
-                    Triple(R.xml.download_live_preferences, SettingsNavDirections(R.id.downloadLiveFragment), "Downloads › Live stream downloads"),
-                    Triple(R.xml.proxy_preferences, SettingsNavDirections(R.id.proxySettingsFragment), "Advanced › Proxy"),
-                    Triple(R.xml.debug_preferences, SettingsNavGraphDirections.actionGlobalDebugSettingsFragment(), "Advanced"),
+                    Triple(R.xml.proxy_preferences, SettingsNavDirections(R.id.proxySettingsFragment), breadcrumb(getString(R.string.settings_section_advanced), getString(R.string.settings_network_proxy))),
+                    Triple(R.xml.debug_preferences, SettingsNavGraphDirections.actionGlobalDebugSettingsFragment(), getString(R.string.settings_section_advanced)),
                 ).plus(if (developerVisible) listOf(
                     Triple(R.xml.developer_preferences, SettingsNavDirections(R.id.developerSettingsFragment), "Developer options"),
                 ) else emptyList()).forEach { item ->

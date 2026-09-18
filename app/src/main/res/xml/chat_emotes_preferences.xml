@@ -1,8 +1,12 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_stv" android:title="@string/enable_stv" app:iconSpaceReserved="false" />
-    <Preference android:key="chat_7tv_appearance" android:dependency="chat_enable_stv" android:title="@string/settings_7tv_appearance" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_bttv" android:title="@string/enable_bttv" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_enable_ffz" android:title="@string/enable_ffz" app:iconSpaceReserved="false" />
+
+    <PreferenceCategory android:title="@string/settings_7tv_appearance" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_paints" android:dependency="chat_enable_stv" android:title="@string/show_name_paints" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_stv_badges" android:dependency="chat_enable_stv" android:title="@string/show_stv_badges" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_personal_emotes" android:dependency="chat_enable_stv" android:title="@string/show_stv_personal_emotes" app:iconSpaceReserved="false" />
 
     <PreferenceCategory android:title="@string/chat_emote_suggestions" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_emote_autocomplete" android:summary="@string/chat_emote_autocomplete_summary" android:title="@string/chat_emote_autocomplete" app:iconSpaceReserved="false" />

@@ -584,6 +584,32 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_bubble_status_android",
     "chat_bubble_status_available",
     "chat_bubble_status_disabled",
+    # Settings IA labels and summaries currently use the default English
+    # wording until the reorganized settings copy is reviewed for translation.
+    "player_live_position",
+    "settings_account_manage",
+    "settings_account_manage_summary",
+    "settings_app_summary",
+    "settings_background_behavior",
+    "settings_chat_appearance_layout",
+    "settings_chat_appearance_layout_summary",
+    "settings_chat_emotes_badges_summary",
+    "settings_chat_features_summary",
+    "settings_chat_messages_interactions",
+    "settings_chat_messages_interactions_summary",
+    "settings_chat_translation_summary",
+    "settings_chat_username_colors",
+    "settings_diagnostics_page",
+    "settings_diagnostics_page_summary",
+    "settings_help_about",
+    "settings_help_about_summary",
+    "settings_hud_playback_timeline",
+    "settings_hud_playback_timeline_fixed",
+    "settings_network_proxy",
+    "settings_network_proxy_summary",
+    "settings_section_advanced_tools",
+    "settings_section_customize",
+    "settings_section_watch",
 }
 
 

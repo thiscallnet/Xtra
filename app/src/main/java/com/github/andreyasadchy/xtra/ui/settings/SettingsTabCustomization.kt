@@ -13,6 +13,7 @@ internal const val SETTINGS_SCREEN_TABS = "tabs"
 internal const val SETTINGS_SCREEN_PLAYER_CONTROLS = "player_controls"
 internal const val SETTINGS_SCREEN_PLAYER_HUD = "player_hud"
 internal const val SETTINGS_SCREEN_PLAYER = "player"
+internal const val SETTINGS_SCREEN_LIVE_CAPTIONS = "live_captions"
 internal const val SETTINGS_SCREEN_CHAT = "chat"
 
 internal fun navigationTabDefaults(isTelevision: Boolean): String =

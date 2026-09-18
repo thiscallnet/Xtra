@@ -1,0 +1,114 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <PreferenceCategory
+        android:key="live_caption_settings"
+        android:title="@string/settings_live_caption_category"
+        app:iconSpaceReserved="false">
+        <Preference
+            android:selectable="false"
+            android:summary="@string/live_caption_settings_summary"
+            app:iconSpaceReserved="false" />
+        <Preference
+            android:key="player_live_caption_model"
+            android:title="@string/live_caption_model"
+            android:summary="@string/live_caption_model_summary"
+            app:iconSpaceReserved="false" />
+        <ListPreference
+            android:defaultValue="1000"
+            android:entries="@array/liveCaptionIntervalEntries"
+            android:entryValues="@array/liveCaptionIntervalValues"
+            android:key="player_live_caption_partial_interval_ms"
+            android:summary="%s"
+            android:title="@string/live_caption_update_frequency"
+            app:iconSpaceReserved="false" />
+        <SeekBarPreference
+            android:defaultValue="1250"
+            android:key="player_live_caption_presentation_delay_ms"
+            android:max="2000"
+            android:summary="@string/live_caption_presentation_delay_summary"
+            android:title="@string/live_caption_presentation_delay"
+            app:iconSpaceReserved="false"
+            app:seekBarIncrement="250"
+            app:showSeekBarValue="true" />
+        <EditTextPreference
+            android:defaultValue="0.0"
+            android:key="player_live_caption_text_offset_seconds"
+            android:summary="@string/live_caption_text_offset_description"
+            android:title="@string/live_caption_text_offset"
+            app:iconSpaceReserved="false" />
+        <ListPreference
+            android:defaultValue="black"
+            android:entries="@array/liveCaptionBackgroundEntries"
+            android:entryValues="@array/liveCaptionBackgroundValues"
+            android:key="player_live_caption_background"
+            android:summary="%s"
+            android:title="@string/live_caption_background"
+            app:iconSpaceReserved="false" />
+        <EditTextPreference
+            android:defaultValue="#000000"
+            android:key="player_live_caption_background_color"
+            android:summary="@string/live_caption_custom_color_summary"
+            android:title="@string/live_caption_custom_color"
+            app:iconSpaceReserved="false" />
+        <EditTextPreference
+            android:defaultValue="#FFFFFF"
+            android:key="player_live_caption_text_color"
+            android:summary="@string/live_caption_text_color_summary"
+            android:title="@string/live_caption_text_color"
+            app:iconSpaceReserved="false" />
+        <Preference
+            android:key="player_live_caption_reset_position"
+            android:summary="@string/live_caption_position_reset_summary"
+            android:title="@string/live_caption_position_reset"
+            app:iconSpaceReserved="false" />
+        <ListPreference
+            android:defaultValue="sans-serif"
+            android:entries="@array/settingsFontEntries"
+            android:entryValues="@array/settingsFontValues"
+            android:key="player_live_caption_font"
+            android:summary="%s"
+            android:title="@string/live_caption_font"
+            app:iconSpaceReserved="false" />
+        <SeekBarPreference
+            android:defaultValue="18"
+            android:key="player_live_caption_font_size"
+            android:max="30"
+            android:title="@string/live_caption_font_size"
+            app:iconSpaceReserved="false"
+            app:min="8"
+            app:showSeekBarValue="true" />
+        <ListPreference
+            android:defaultValue="auto"
+            android:entries="@array/liveCaptionWidthEntries"
+            android:entryValues="@array/liveCaptionWidthValues"
+            android:key="player_live_caption_width"
+            android:summary="%s"
+            android:title="@string/live_caption_width"
+            app:iconSpaceReserved="false" />
+        <SeekBarPreference
+            android:defaultValue="100"
+            android:key="player_live_caption_opacity"
+            android:max="100"
+            android:title="@string/live_caption_opacity"
+            app:iconSpaceReserved="false"
+            app:min="20"
+            app:showSeekBarValue="true" />
+        <ListPreference
+            android:defaultValue="250"
+            android:entries="@array/liveCaptionAnimationEntries"
+            android:entryValues="@array/liveCaptionAnimationValues"
+            android:key="player_live_caption_animation_ms"
+            android:summary="%s"
+            android:title="@string/live_caption_animation"
+            app:iconSpaceReserved="false" />
+        <SeekBarPreference
+            android:defaultValue="3"
+            android:key="player_live_caption_hold_seconds"
+            android:max="8"
+            android:summary="@string/live_caption_hold_summary"
+            android:title="@string/live_caption_hold"
+            app:iconSpaceReserved="false"
+            app:min="1"
+            app:showSeekBarValue="true" />
+    </PreferenceCategory>
+</androidx.preference.PreferenceScreen>
