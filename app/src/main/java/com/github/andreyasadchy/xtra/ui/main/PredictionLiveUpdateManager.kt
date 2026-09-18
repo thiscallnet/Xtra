@@ -264,7 +264,7 @@ class PredictionLiveUpdateManager(
         ContextCompat.checkSelfPermission(context, "android.permission.POST_PROMOTED_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED
 
     private fun canPostPromotedNotifications(): Boolean = Build.VERSION.SDK_INT >= 36 &&
-        notificationManager.canPostPromotedNotifications()
+        NotificationManagerCompat.from(context).canPostPromotedNotifications()
 
     private fun criticalText(current: PredictionLiveUpdateSnapshot, remaining: String?): String? = when (
         preferences.getString(C.PREDICTION_STATUS_CHIP_TEXT, C.PREDICTION_CHIP_TIME_REMAINING)

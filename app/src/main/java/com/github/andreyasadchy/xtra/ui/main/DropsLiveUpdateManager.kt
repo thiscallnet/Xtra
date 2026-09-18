@@ -305,7 +305,7 @@ class DropsLiveUpdateManager(
         ContextCompat.checkSelfPermission(context, "android.permission.POST_PROMOTED_NOTIFICATIONS") == PackageManager.PERMISSION_GRANTED
 
     private fun canPostPromotedNotifications(): Boolean = Build.VERSION.SDK_INT >= 36 &&
-        notificationManager.canPostPromotedNotifications()
+        NotificationManagerCompat.from(context).canPostPromotedNotifications()
 
     private fun criticalText(current: DropsLiveUpdateSnapshot, percent: Int): String = when (
         preferences.getString(C.DROPS_STATUS_CHIP_TEXT, C.DROPS_CHIP_PERCENT)

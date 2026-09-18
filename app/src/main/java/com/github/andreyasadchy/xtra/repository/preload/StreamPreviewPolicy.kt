@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.repository.preload
 
+import android.app.ActivityManager
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -62,8 +63,17 @@ object StreamPreviewPolicy {
         }
     }
 
-    fun allowsMultiplePreviews(context: Context): Boolean =
-        context.prefs().getBoolean(C.STREAM_PREVIEW_MULTIPLE, true)
+    fun allowsMultiplePreviews(context: Context): Boolean {
+        if (!context.prefs().getBoolean(C.STREAM_PREVIEW_MULTIPLE, true)) return false
+
+        // Android 10-era tablets can exhaust the app's native/video memory when several
+        // SurfaceView decoders are active at once. Keep the SurfaceView path, but share one
+        // preview player on those devices so browsing cannot take down the process.
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) return false
+        if (context.getSystemService(ActivityManager::class.java)?.isLowRamDevice == true) return false
+
+        return true
+    }
 
     fun quality(context: Context): StreamPreviewQuality =
         StreamPreviewQuality.fromPreference(context.prefs().getString(C.STREAM_PREVIEW_QUALITY, StreamPreviewQuality.P360.preferenceValue))

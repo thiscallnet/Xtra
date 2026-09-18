@@ -1607,7 +1607,7 @@ class PlayerHudLayout @JvmOverloads constructor(
 
     private fun hasBoundAction(view: View): Boolean {
         if (view.visibility != VISIBLE) return false
-        if (view.hasOnClickListeners() || view.hasOnLongClickListeners()) return true
+        if (view.hasOnClickListeners() || view.isLongClickable) return true
         if (view !is ViewGroup) return false
         return (0 until view.childCount).any { hasBoundAction(view.getChildAt(it)) }
     }

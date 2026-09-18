@@ -85,8 +85,12 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         // Restore persisted Live Update notifications as soon as the process starts. The
         // managers only consume existing state here; they do not create a new network source.
         applicationScope.launch(Dispatchers.IO) {
-            xtraModule.predictionLiveUpdateManager
-            xtraModule.dropsLiveUpdateManager
+            if (prefs().contains(C.PREDICTION_LIVE_UPDATE_SNAPSHOT)) {
+                xtraModule.predictionLiveUpdateManager
+            }
+            if (prefs().contains(C.DROPS_LIVE_UPDATE_SNAPSHOT)) {
+                xtraModule.dropsLiveUpdateManager
+            }
         }
         reconcilePendingAccountScopedState()
         xtraModule.authSessionMaintainer.start(applicationScope)
