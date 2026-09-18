@@ -1783,9 +1783,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                             add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
                         }
                     viewModel.updateQualities = false
+                    // A source switch clears the UI quality while the new
+                    // playlist is loading. On later refreshes, keep the
+                    // current selection too, otherwise setDefaultQuality()
+                    // can silently put the player back on Auto.
+                    val qualityNameToRestore = pendingSourceSwitchQuality.consume()
+                        ?: viewModel.quality?.name
                     setDefaultQuality()
-                    val pendingQualityName = pendingSourceSwitchQuality.consume()
-                    val restoredQuality = pendingQualityName?.let { name ->
+                    val restoredQuality = qualityNameToRestore?.let { name ->
                         viewModel.qualities?.firstOrNull {
                             it.name.equals(name, ignoreCase = true)
                         } ?: findQuality(name)
