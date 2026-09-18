@@ -342,6 +342,14 @@ class SettingsActivity : AppCompatActivity() {
         })
     }
 
+    fun openDiscord() {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, DISCORD_URL.toUri()))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(this, R.string.no_browser_found, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     fun showDragListDialog(
         list: List<SettingsDragListItem>,
         prefKey: String,
@@ -637,6 +645,17 @@ class SettingsActivity : AppCompatActivity() {
                     },
                     SettingsItem(R.string.settings_app, R.drawable.ic_settings_data, R.string.settings_app_summary) {
                         findNavController().navigate(R.id.appSettingsFragment)
+                    },
+                ),
+            ),
+            SettingsGroup(
+                R.string.settings_help_about,
+                listOf(
+                    SettingsItem(R.string.settings_general_updates, R.drawable.ic_settings_updates, R.string.settings_home_updates_summary) {
+                        navigate(SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment())
+                    },
+                    SettingsItem(R.string.settings_join_discord, R.drawable.ic_settings_discord, R.string.settings_join_discord_summary) {
+                        (requireActivity() as SettingsActivity).openDiscord()
                     },
                 ),
             ),
@@ -1417,11 +1436,7 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
             findPreference<Preference>("about_discord")?.setOnPreferenceClickListener {
-                try {
-                    startActivity(Intent(Intent.ACTION_VIEW, DISCORD_URL.toUri()))
-                } catch (_: ActivityNotFoundException) {
-                    Toast.makeText(requireContext(), R.string.no_browser_found, Toast.LENGTH_SHORT).show()
-                }
+                activity.openDiscord()
                 true
             }
             listOf(
