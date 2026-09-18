@@ -1579,8 +1579,8 @@ class SettingsActivity : AppCompatActivity() {
 
         private fun configureLiveUpdateSettings() {
             val supported = Build.VERSION.SDK_INT >= 36
-            val notificationManager = requireContext().getSystemService(NotificationManager::class.java)
-            val promotionAllowed = supported && notificationManager?.canPostPromotedNotifications() == true
+            val promotionAllowed = supported &&
+                NotificationManagerCompat.from(requireContext()).canPostPromotedNotifications()
             findPreference<SwitchPreferenceCompat>(
                 if (settingsScreen == SCREEN_PREDICTION_LIVE_UPDATES) C.PREDICTION_TRACKING_ENABLED else C.DROPS_TRACKING_ENABLED,
             )?.apply {

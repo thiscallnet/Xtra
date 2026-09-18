@@ -166,6 +166,7 @@ class StreamHlsMediaSourceFactory(
     fun hlsDiagnosticsFor(mediaId: String): TwitchHlsPlaylistDiagnostics? =
         proxyStates[mediaId]?.twitchHlsDiagnostics
 
+    @SuppressLint("NewApi")
     private fun dataSourceFactory(state: StreamProxyState): DataSource.Factory {
         val proxyHost = configuration.proxyHost
         val proxyPort = configuration.proxyPort

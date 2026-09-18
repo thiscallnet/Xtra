@@ -196,7 +196,7 @@ class HudElementFrame @JvmOverloads constructor(
                 longPressTriggered = false
                 longPressTarget = child
                 removeCallbacks(longPressAction)
-                if (child.hasOnLongClickListeners()) {
+                if (child.isLongClickable) {
                     postDelayed(longPressAction, ViewConfiguration.getLongPressTimeout().toLong())
                 }
                 return true
@@ -331,7 +331,7 @@ class HudElementFrame @JvmOverloads constructor(
 
     private fun collectClickableChildren(view: View?, result: MutableList<View>) {
         if (view == null || view.visibility != VISIBLE) return
-        if (view.hasOnClickListeners() || view.hasOnLongClickListeners()) {
+        if (view.hasOnClickListeners() || view.isLongClickable) {
             result += view
             return
         }
