@@ -221,7 +221,7 @@ class ViewingStatsRecorder(
         timerWork.tryReceive().getOrNull()?.let {
             return Work.Timer
         }
-        return kotlinx.coroutines.selects.select {
+        val selected = kotlinx.coroutines.selects.select<Work?> {
             commands.onReceiveCatching { result ->
                 result.getOrNull()?.let {
                     commandDepth.decrementAndGet()
@@ -231,6 +231,13 @@ class ViewingStatsRecorder(
             timerWork.onReceive { Work.Timer }
             refreshWork.onReceive { Work.Refresh }
         }
+        if (selected is Work.Timer || selected is Work.Refresh) {
+            commands.tryReceive().getOrNull()?.let {
+                commandDepth.decrementAndGet()
+                return Work.Semantic(it)
+            }
+        }
+        return selected
     }
 
     private suspend fun processSemanticCommand(command: Command): Boolean {
