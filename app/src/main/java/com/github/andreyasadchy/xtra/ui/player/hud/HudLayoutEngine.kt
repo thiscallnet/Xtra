@@ -185,15 +185,14 @@ class HudLayoutEngine(
             defaultPlacements
         } else {
             defaultPlacements + profile.placements.filterKeys {
-                it != HudElementId.TIMELINE && HudElementRegistry.get(it).isMovable
+                !HudElementRegistry.isSystemChrome(it) && HudElementRegistry.get(it).isMovable
             }
         }
         val ordered = HudElementRegistry.all.map(HudElementSpec::id)
         return ordered.mapNotNull { id ->
-            // TIMELINE is retained only as a legacy persistence token. The
-            // progress line and scrub band are fixed player chrome, laid out
-            // by PlayerHudLayout rather than by HUD profile semantics.
-            if (id == HudElementId.TIMELINE) return@mapNotNull null
+            // Fixed player chrome is laid out by PlayerHudLayout rather than
+            // by HUD profile semantics.
+            if (HudElementRegistry.isSystemChrome(id)) return@mapNotNull null
             val spec = HudElementRegistry.get(id)
             val placement = resolvedPlacements[id] ?: return@mapNotNull null
             if (!placement.enabled || id !in availability) return@mapNotNull null

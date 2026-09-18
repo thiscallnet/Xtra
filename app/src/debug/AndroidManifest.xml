@@ -13,5 +13,12 @@
             android:name="com.github.andreyasadchy.xtra.ui.following.overview.StreamShelfLifecycleTestActivity"
             android:exported="true"
             android:theme="@style/DarkTheme" />
+        <receiver
+            android:name="com.github.andreyasadchy.xtra.debug.PlaybackBackendDiagnosticReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.github.andreyasadchy.xtra.debug.DUMP_PLAYBACK_BACKEND" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

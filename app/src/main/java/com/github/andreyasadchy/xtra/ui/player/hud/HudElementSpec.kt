@@ -67,8 +67,13 @@ object HudElementRegistry {
 
     private val byId = all.associateBy(HudElementSpec::id)
 
-    /** IDs with active HUD semantics. TIMELINE is legacy persistence only. */
+    /** IDs that are persisted for compatibility but are not editable HUD elements. */
+    val systemChromeIds: Set<HudElementId> = setOf(HudElementId.TIMELINE)
+
+    /** IDs with active HUD semantics. System chrome is not part of this set. */
     val activeIds: Set<HudElementId> = all.mapTo(linkedSetOf(), HudElementSpec::id)
+
+    fun isSystemChrome(id: HudElementId): Boolean = id in systemChromeIds
 
     fun get(id: HudElementId): HudElementSpec = byId.getValue(id)
 }

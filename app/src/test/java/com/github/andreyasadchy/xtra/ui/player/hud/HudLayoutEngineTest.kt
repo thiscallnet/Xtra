@@ -19,6 +19,13 @@ class HudLayoutEngineTest {
     )
 
     @Test
+    fun `fixed player chrome cannot become an editable HUD element`() {
+        assertTrue(HudElementRegistry.isSystemChrome(HudElementId.TIMELINE))
+        assertTrue(HudElementId.TIMELINE !in HudElementRegistry.activeIds)
+        assertTrue(HudElementRegistry.activeIds.none(HudElementRegistry::isSystemChrome))
+    }
+
+    @Test
     fun `default layouts stay inside safe viewport with tight hit targets`() {
         viewports.forEach { (width, height) ->
             listOf(HudOrientation.PORTRAIT, HudOrientation.LANDSCAPE).forEach { orientation ->

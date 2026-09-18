@@ -118,7 +118,7 @@ object HudConfigMigration {
         HudProfileMode.CUSTOM -> profile.copy(
             // The progress line is fixed player chrome, not a user placement.
             // Drop its old coordinates while preserving every real control.
-            placements = profile.placements - HudElementId.TIMELINE,
+            placements = profile.placements.filterKeys { !HudElementRegistry.isSystemChrome(it) },
             defaultPolicyVersion = HudDefaultPolicy.CURRENT,
         )
     }

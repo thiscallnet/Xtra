@@ -90,10 +90,10 @@ internal object HudConfigJson {
             if (elements != null) {
                 for (key in elements.keys()) {
                     val id = runCatching { HudElementId.valueOf(key) }.getOrNull() ?: continue
-                    // TIMELINE was a legacy serialized element. The purple
-                    // progress line is now fixed chrome and has no profile
+                    // System chrome may exist in old serialized elements. The
+                    // purple progress line is fixed chrome and has no profile
                     // geometry; old setups must remain importable.
-                    if (id == HudElementId.TIMELINE) continue
+                    if (HudElementRegistry.isSystemChrome(id)) continue
                     val value = elements.optJSONObject(key) ?: continue
                     val spec = HudElementRegistry.get(id)
                     val x = value.optDouble("x", 0.5).toFloat().takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0.5f
@@ -131,7 +131,7 @@ internal object HudConfigJson {
         )
         put("elements", JSONObject().apply {
             profile.placements.forEach { (id, placement) ->
-                if (id == HudElementId.TIMELINE) return@forEach
+                if (HudElementRegistry.isSystemChrome(id)) return@forEach
                 val spec = HudElementRegistry.get(id)
                 put(id.name, JSONObject().apply {
                     put("enabled", placement.enabled)

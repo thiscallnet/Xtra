@@ -113,6 +113,7 @@ import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.UiInteractionGovernor
 import com.github.andreyasadchy.xtra.util.PerfFrameMetricsDiagnostics
+import com.github.andreyasadchy.xtra.util.PlaybackRuntimeDiagnostic
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import com.github.andreyasadchy.xtra.ui.update.UpdateDetailsBottomSheet
@@ -184,6 +185,7 @@ class MainActivity : AppCompatActivity() {
     private var bottomNavigationDestinationInFlight: Int? = null
     private var bottomNavigationDrainPosted = false
     private val bottomNavigationInteractionSource = Any()
+    private val playbackDiagnosticOwner = Any()
     private var keepStateNavigator: KeepStateFragmentNavigator? = null
     private var lastDeepLinkNavKey: String? = null
     private var lastDeepLinkNavTime = 0L
@@ -975,6 +977,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        PlaybackRuntimeDiagnostic.clear(playbackDiagnosticOwner)
         appBackgroundController.stop()
         PerfFrameMetricsDiagnostics.detach()
         UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
@@ -1460,6 +1463,13 @@ class MainActivity : AppCompatActivity() {
         ),
     )
 
+    private fun backendForPlayerFragment(fragment: Fragment): PlaybackBackend = when (fragment) {
+        is Media3PlayerFragment -> PlaybackBackend.MEDIA3
+        is ExoPlayerFragment -> PlaybackBackend.LEGACY_EXOPLAYER
+        is MediaPlayerFragment -> PlaybackBackend.ANDROID_MEDIA_PLAYER
+        else -> playbackBackend()
+    }
+
     private fun legacyPlayerFragment(): Fragment = when (playbackBackend()) {
         PlaybackBackend.LEGACY_EXOPLAYER -> ExoPlayerFragment()
         PlaybackBackend.ANDROID_MEDIA_PLAYER -> MediaPlayerFragment()
@@ -1467,13 +1477,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startPlayer(fragment: Fragment) {
+        val backend = backendForPlayerFragment(fragment)
         if (BuildConfig.DEBUG) {
             Log.d(
                 "PlaybackBackend",
-                "playback_backend=${playbackBackend().name.lowercase(Locale.ROOT)}",
+                "playback_backend=${backend.name.lowercase(Locale.ROOT)}",
             )
         }
         playerFragment = fragment
+        PlaybackRuntimeDiagnostic.setActive(playbackDiagnosticOwner, backend)
         viewModel.isPlayerOpened = true
         val transaction = supportFragmentManager.beginTransaction()
             .setReorderingAllowed(true)
@@ -1530,6 +1542,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         playerFragment = null
+        PlaybackRuntimeDiagnostic.clear(playbackDiagnosticOwner)
         viewModel.isPlayerOpened = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
             setPictureInPictureParams(PictureInPictureParams.Builder().setAutoEnterEnabled(false).build())
@@ -1569,6 +1582,9 @@ class MainActivity : AppCompatActivity() {
     private fun restorePlayerFragment() {
         if (playerFragment == null) {
             playerFragment = supportFragmentManager.findFragmentById(R.id.playerContainer) as? Media3PlayerFragment ?: supportFragmentManager.findFragmentById(R.id.playerContainer) as? PlayerFragment
+            playerFragment?.let {
+                PlaybackRuntimeDiagnostic.setActive(playbackDiagnosticOwner, backendForPlayerFragment(it))
+            }
             if (playerFragment == null) {
                 if (playbackBackend() == PlaybackBackend.LEGACY_EXOPLAYER) {
                     viewModel.getPlaybackStates()
@@ -1738,7 +1754,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun activePlayerFragment(): Fragment? = playerFragment
         ?: supportFragmentManager.findFragmentById(R.id.playerContainer)
-            ?.also { playerFragment = it }
+            ?.also {
+                playerFragment = it
+                PlaybackRuntimeDiagnostic.setActive(playbackDiagnosticOwner, backendForPlayerFragment(it))
+            }
 
     private fun hasActivePlayer(): Boolean = activePlayerFragment() != null
 
