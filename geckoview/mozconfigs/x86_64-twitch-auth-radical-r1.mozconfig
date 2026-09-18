@@ -1,0 +1,3 @@
+# x86_64 architecture configuration for the runtime-qualified R1 profile.
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-x86_64-twitch-auth-radical-r1
+ac_add_options --target=x86_64

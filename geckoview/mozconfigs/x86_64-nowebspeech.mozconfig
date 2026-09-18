@@ -1,0 +1,5 @@
+# One-flag reduction experiment: inherit the WebRTC-disabled baseline and remove Web Speech.
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-x86_64-nowebspeech
+ac_add_options --target=x86_64
+ac_add_options --disable-webrtc
+ac_add_options --disable-webspeech
