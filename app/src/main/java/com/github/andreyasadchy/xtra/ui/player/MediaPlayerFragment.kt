@@ -36,13 +36,20 @@ class MediaPlayerFragment : PlayerFragment() {
     private var pendingLiveRewindChatPositionMs: Long? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
 
+    private fun setVideoOutputVisible(visible: Boolean) {
+        binding.playerSurface.visibility = if (visible) View.VISIBLE else View.GONE
+        // PlayerHudLayout positions the fixed timeline from the rendered output.
+        // Re-measure it when audio mode hides or restores that output.
+        binding.playerControls.root.requestLayout()
+    }
+
     override fun startLiveRewindChat(positionMs: Long) {
         pendingLiveRewindChatPositionMs = positionMs
     }
 
     override fun onStart() {
         super.onStart()
-        binding.playerSurface.visibility = View.VISIBLE
+        setVideoOutputVisible(true)
         binding.playerTextureView.visibility = View.GONE
         val listener = object : MediaPlayerService.PlayerListener {
             override fun onPrepared(player: MediaPlayer) {
@@ -187,11 +194,10 @@ class MediaPlayerFragment : PlayerFragment() {
                     if (surfaceCreated) {
                         playbackService?.player?.setDisplay(binding.playerSurface.holder)
                     }
-                    binding.playerSurface.visibility = View.VISIBLE
                 } else {
                     playbackService?.player?.setDisplay(null)
-                    binding.playerSurface.visibility = View.GONE
                 }
+                setVideoOutputVisible(visible)
             }
         }
         val callback = object : SurfaceHolder.Callback {

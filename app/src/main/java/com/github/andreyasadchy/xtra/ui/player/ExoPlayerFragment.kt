@@ -1207,6 +1207,12 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
 
     private fun setVideoOutputVisible(visible: Boolean) {
         videoOutputView.visibility = if (visible) View.VISIBLE else View.GONE
+        // PlayerHudLayout derives the fixed timeline position from the
+        // rendered video output. Audio mode hides that output, so the HUD can
+        // temporarily measure against the full aspect-ratio container. When
+        // video is restored, force the HUD to measure again after the output
+        // becomes visible or the timeline can remain below the video edge.
+        binding.playerControls.root.requestLayout()
         if (!visible) {
             showVideoOutputCover()
         }
