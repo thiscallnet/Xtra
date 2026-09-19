@@ -177,6 +177,13 @@ import kotlin.time.Instant
 internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
     currentStreamId ?: initialStreamId
 
+internal fun isChannelPointRewardUnavailable(
+    submittedReward: ChannelPointRewardInfo,
+    latestCatalogReward: ChannelPointRewardInfo?,
+    catalogLoaded: Boolean,
+): Boolean = !submittedReward.isAvailable ||
+        catalogLoaded && (latestCatalogReward == null || !latestCatalogReward.isAvailable)
+
 sealed interface ChatSendResult {
     data class Success(val messageId: String? = null) : ChatSendResult
     data class Failure(val message: String) : ChatSendResult
@@ -2612,7 +2619,6 @@ class ChatViewModel(
             .filter {
                 it.isEnabled != false &&
                     it.isPaused != true &&
-                    it.isInStock != false &&
                     it.cost != null &&
                     it.cost > 0 &&
                     (it.pricingType.isNullOrBlank() || it.pricingType.equals("POINTS", true))
@@ -2634,6 +2640,7 @@ class ChatViewModel(
                         } else {
                             ChannelPointRewardInput.NONE
                         },
+                        isAvailable = reward.isInStock != false,
                     )
                 } else null
             }
@@ -2642,7 +2649,6 @@ class ChatViewModel(
             .filter {
                 val type = it.type
                 it.isEnabled != false &&
-                    it.isInStock != false &&
                     (type?.equals("CHOSEN_MODIFIED_SUB_EMOTE_UNLOCK", true) != true || hasModifiedEmotes)
             }
             .mapNotNull { reward ->
@@ -2668,6 +2674,7 @@ class ChatViewModel(
                             ?: automaticRewardColor(type),
                         inputType = redemptionType.inputType(),
                         redemptionType = redemptionType,
+                        isAvailable = reward.isInStock != false,
                     )
                 } else null
             }
@@ -3303,6 +3310,19 @@ class ChatViewModel(
                     reward.title,
                     success = false,
                     message = "Chat is not connected",
+                    rewardId = reward.id,
+                ),
+            )
+            return
+        }
+        val channelPointCatalog = channelPoints.value
+        val latestCatalogReward = channelPointCatalog?.rewards?.firstOrNull { it.id == reward.id }
+        if (isChannelPointRewardUnavailable(reward, latestCatalogReward, channelPointCatalog != null)) {
+            channelPointRedemptionEvents.trySend(
+                ChannelPointRedemptionResult(
+                    reward.title,
+                    success = false,
+                    message = applicationContext.getString(R.string.channel_points_reward_unavailable),
                     rewardId = reward.id,
                 ),
             )

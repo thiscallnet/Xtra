@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat
 
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
+import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward
 import com.github.andreyasadchy.xtra.repository.parseSTVEntitledEmoteSetIds
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
@@ -28,6 +29,22 @@ class ChatViewModelTest {
         assertTrue(matchesV2PickerSession(active, "channel-a", "streamera"))
         assertFalse(matchesV2PickerSession(active, "channel-b", "streamerb"))
         assertFalse(matchesV2PickerSession(null, "channel-a", "streamera"))
+    }
+
+    @Test
+    fun channelPointRedemptionIsBlockedWhenTheCatalogTurnsUnavailable() {
+        val submittedReward = ChannelPointReward(
+            id = "first",
+            title = "First",
+            cost = 69,
+        )
+        val refreshedReward = submittedReward.copy(isAvailable = false)
+
+        assertTrue(isChannelPointRewardUnavailable(submittedReward, refreshedReward, catalogLoaded = true))
+        assertTrue(isChannelPointRewardUnavailable(refreshedReward, submittedReward, catalogLoaded = true))
+        assertTrue(isChannelPointRewardUnavailable(submittedReward, null, catalogLoaded = true))
+        assertFalse(isChannelPointRewardUnavailable(submittedReward, null, catalogLoaded = false))
+        assertFalse(isChannelPointRewardUnavailable(submittedReward, submittedReward, catalogLoaded = true))
     }
 
     @Test
