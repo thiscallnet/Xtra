@@ -16,6 +16,7 @@ data class ChannelPointReward(
     val backgroundColor: String? = null,
     val inputType: ChannelPointRewardInput = ChannelPointRewardInput.NONE,
     val redemptionType: ChannelPointRewardRedemption = ChannelPointRewardRedemption.CUSTOM,
+    val isAvailable: Boolean = true,
 )
 
 enum class ChannelPointRewardInput {

@@ -464,10 +464,14 @@ class ChannelPointsDialog : DialogFragment() {
             radius = 4 * density
             strokeWidth = 0
             setCardBackgroundColor(parseColor(reward.backgroundColor, R.color.channel_points_reward_default))
-            isClickable = true
-            isFocusable = true
-            contentDescription = reward.title
+            alpha = if (reward.isAvailable) 1f else 0.55f
+            contentDescription = if (reward.isAvailable) {
+                reward.title
+            } else {
+                getString(R.string.channel_points_reward_unavailable_accessibility, reward.title)
+            }
             setOnClickListener {
+                if (!reward.isAvailable) return@setOnClickListener
                 if (reward.inputType == ChannelPointRewardInput.TEXT) {
                     listener.startChannelPointReward(reward)
                     dismiss()
@@ -475,6 +479,9 @@ class ChannelPointsDialog : DialogFragment() {
                     showRewardRedemptionDialog(reward)
                 }
             }
+            isEnabled = reward.isAvailable
+            isClickable = reward.isAvailable
+            isFocusable = reward.isAvailable
         }
         val content = LinearLayout(requireContext()).apply {
             gravity = Gravity.CENTER
