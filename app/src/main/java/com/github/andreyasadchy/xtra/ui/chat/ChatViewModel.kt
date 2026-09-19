@@ -4311,9 +4311,9 @@ class ChatViewModel(
         }
 
         override suspend fun onNotice(message: ChatUtils.IRCMessage) {
-            if (!isLoggedIn) {
-                onMessage(ChatUtils.parseNotice(message))
-            }
+            val notice = ChatUtils.parseNotice(message)
+            onMessage(notice)
+            forwardLegacyNoticeToV2(notice, channelId)
         }
 
         override suspend fun onRoomState(message: ChatUtils.IRCMessage) {
@@ -4353,7 +4353,9 @@ class ChatViewModel(
         }
 
         override suspend fun onNotice(message: ChatUtils.IRCMessage) {
-            onMessage(ChatUtils.parseNotice(message))
+            val notice = ChatUtils.parseNotice(message)
+            onMessage(notice)
+            forwardLegacyNoticeToV2(notice, channelId)
         }
 
         override suspend fun onUserState(message: ChatUtils.IRCMessage) {
@@ -5928,6 +5930,23 @@ class ChatViewModel(
         }
     }
 
+    private suspend fun publishChatNotice(
+        text: String?,
+        channelId: String?,
+        noticeType: String? = null,
+    ) {
+        val message = text?.trim()?.takeIf { it.isNotEmpty() } ?: return
+        val notice = ChatMessage(
+            type = ChatMessage.NOTICE_MESSAGE,
+            id = "local-notice-${System.nanoTime()}",
+            systemMsg = message,
+            msgId = noticeType,
+            timestamp = System.currentTimeMillis(),
+        )
+        onMessage(notice)
+        forwardLegacyNoticeToV2(notice, channelId)
+    }
+
     private fun addChatter(displayName: String?) {
         if (displayName != null && !chatters.containsKey(displayName)) {
             val chatter = Chatter(displayName)
@@ -6022,8 +6041,8 @@ class ChatViewModel(
         }
     }
 
-    /** Supplemental Hermes notices must enter the V2 timeline because live chat no longer reads
-     * the ViewModel's legacy mutation stream. */
+    /** Legacy notices must enter the V2 timeline because live chat no longer reads the
+     * ViewModel's legacy mutation stream. */
     private suspend fun forwardLegacyNoticeToV2(message: ChatMessage, channelId: String?) {
         val targetChannelId = channelId ?: return
         val active = v2ActiveSession.value ?: return
@@ -6428,8 +6447,11 @@ class ChatViewModel(
                                 )
                                 ChatSendResult.Success()
                             } else {
+                                val error = response.errors?.firstOrNull()?.message
+                                    ?: "Twitch rejected the message"
+                                publishChatNotice(error, channelId)
                                 ChatSendResult.Failure(
-                                    response.errors?.firstOrNull()?.message ?: "Twitch rejected the message",
+                                    error,
                                 )
                             }
                         }
@@ -6452,7 +6474,14 @@ class ChatViewModel(
                                 )
                                 ChatSendResult.Success(response.messageId)
                             } else {
-                                ChatSendResult.Failure(response.errorMessage ?: "Twitch rejected the message")
+                                val dropMessage = response.dropReasonMessage?.takeIf { it.isNotBlank() }
+                                    ?: response.dropReasonCode?.takeIf { it.isNotBlank() }?.let {
+                                        "Twitch rejected the message ($it)."
+                                    }
+                                    ?: response.errorMessage
+                                    ?: "Twitch rejected the message"
+                                publishChatNotice(dropMessage, channelId, response.dropReasonCode)
+                                ChatSendResult.Failure(dropMessage)
                             }
                         }
                         else -> ChatSendResult.Failure("Login required to send chat messages")

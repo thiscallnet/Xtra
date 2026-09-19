@@ -74,11 +74,14 @@ object TwitchChatEventParser {
                 ChatEvent.Clear(message.tags["id"], timestamp(message.tags["tmi-sent-ts"]))
             }
         }
-        "NOTICE" -> ChatEvent.Notice(
-            fromLegacy(ChatUtils.parseNotice(message), channelId),
-            message.tags["id"],
-            timestamp(message.tags["tmi-sent-ts"]),
-        )
+        "NOTICE" -> ChatUtils.parseNotice(message).let { legacy ->
+            val normalized = fromLegacy(legacy, channelId)
+            ChatEvent.Notice(
+                normalized,
+                normalized.id.value,
+                timestamp(message.tags["tmi-sent-ts"]),
+            )
+        }
         "ROOMSTATE" -> ChatEvent.SettingsUpdated(
             channelId = channelId,
             slowModeSeconds = message.tags["slow"]?.toIntOrNull()?.takeIf { it >= 0 },

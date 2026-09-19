@@ -220,7 +220,10 @@ object ChatUtils {
         } else null
         return ChatMessage(
             type = ChatMessage.NOTICE_MESSAGE,
+            id = message.tags["id"],
+            msgId = message.tags["msg-id"],
             systemMsg = text,
+            timestamp = message.tags["tmi-sent-ts"]?.toLongOrNull(),
             fullMsg = message.fullMessage
         )
     }

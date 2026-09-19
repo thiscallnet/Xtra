@@ -162,4 +162,19 @@ class SpecialChatMessageParsingTest {
         assertTrue(ChatMessage(reward = ChannelPointReward(title = "Highlight My Message")).isHighlightedMessage())
         assertFalse(ChatMessage(msgId = "not-highlighted").isHighlightedMessage())
     }
+
+    @Test
+    fun parsesIrcNoticeTextAndIdentity() {
+        val message = ChatUtils.parseNotice(
+            ChatUtils.parseIRCMessage(
+                "@id=notice-1;msg-id=msg_emoteonly;tmi-sent-ts=1700000000000 :tmi.twitch.tv NOTICE #channel :This channel is in emote-only mode.",
+            ),
+        )
+
+        assertEquals(ChatMessage.NOTICE_MESSAGE, message.type)
+        assertEquals("notice-1", message.id)
+        assertEquals("msg_emoteonly", message.msgId)
+        assertEquals("This channel is in emote-only mode.", message.systemMsg)
+        assertEquals(1700000000000L, message.timestamp)
+    }
 }

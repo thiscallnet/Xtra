@@ -357,6 +357,21 @@ class TwitchChatEventParserTest {
     }
 
     @Test
+    fun ircSendFailureNoticeKeepsTheUserFacingText() {
+        val event = TwitchChatEventParser.fromIrc(
+            ChatUtils.parseIRCMessage(
+                "@id=notice-1;msg-id=msg_emoteonly;tmi-sent-ts=1700000000000 :tmi.twitch.tv NOTICE #channel :This channel is in emote-only mode.",
+            ),
+            "channel-id",
+        ) as ChatEvent.Notice
+
+        assertEquals(ChatMessageKind.NOTICE, event.message.kind)
+        assertEquals("msg_emoteonly", event.message.noticeType)
+        assertEquals("This channel is in emote-only mode.", event.message.systemText)
+        assertEquals("notice-1", event.eventId)
+    }
+
+    @Test
     fun ircGiftNoticeKeepsStructuredRecipientCountAndAnonymousState() {
         val event = TwitchChatEventParser.fromIrc(
             ChatUtils.IRCMessage(
