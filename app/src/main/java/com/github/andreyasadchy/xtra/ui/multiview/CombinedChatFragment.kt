@@ -26,7 +26,7 @@ import com.github.andreyasadchy.xtra.databinding.CombinedChatListItemBinding
 import com.github.andreyasadchy.xtra.databinding.FragmentCombinedChatBinding
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage as LegacyChatMessage
 import com.github.andreyasadchy.xtra.model.ui.Stream
-import com.github.andreyasadchy.xtra.ui.chat.ChatAdapterConfiguration
+import com.github.andreyasadchy.xtra.ui.chat.ChatInteractionAdapterConfiguration
 import com.github.andreyasadchy.xtra.ui.chat.ChatInteractionAdapterFactory
 import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
 import com.github.andreyasadchy.xtra.ui.chat.ChatEmotePopoutMode
@@ -55,6 +55,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
+import com.github.andreyasadchy.xtra.util.chat.legacyThreadParentId
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.chip.Chip
 import com.google.android.material.color.MaterialColors
@@ -330,8 +331,8 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     }
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
-        val identity = interactionIdentity ?: return interactionAdapter?.createReplyClickedChatAdapter()
-        val renderer = adapter.renderer(identity) ?: return interactionAdapter?.createReplyClickedChatAdapter()
+        val identity = interactionIdentity ?: return null
+        val renderer = adapter.renderer(identity) ?: return null
         return interactionAdapter?.createReplyClickedChatAdapter(
             v2Rows = viewModel.snapshot(identity).map { renderer.compile(it.message) },
             v2Assets = renderer.assets,
@@ -402,6 +403,7 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
                     chatMessage.translationFailed = true
                     syncV2Translation(chatMessage)
                     viewModel.invalidateRendering(identity)
+                    refreshInteractionDialogs(identity)
                 }
             return
         }
@@ -420,7 +422,6 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
             }
             translators[sourceLanguage] = it
         }
-        val previousTranslation = chatMessage.translatedMessage
         translator.translate(message)
             .addOnSuccessListener { translated ->
                 val languageName = Locale.forLanguageTag(sourceLanguage).displayLanguage
@@ -429,17 +430,27 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
                 chatMessage.messageLanguage = null
                 syncV2Translation(chatMessage)
                 viewModel.invalidateRendering(identity)
-                (childFragmentManager.findFragmentByTag(COMBINED_MESSAGE_DIALOG_TAG) as? MessageClickedDialog)
-                    ?.updateTranslation(chatMessage, previousTranslation)
-                (childFragmentManager.findFragmentByTag(COMBINED_REPLY_DIALOG_TAG) as? ReplyClickedDialog)
-                    ?.updateTranslation(chatMessage, previousTranslation)
+                refreshInteractionDialogs(identity)
             }
             .addOnFailureListener {
                 chatMessage.translatedMessage = getString(R.string.translate_failed, Locale.forLanguageTag(sourceLanguage).displayLanguage)
                 chatMessage.translationFailed = true
                 syncV2Translation(chatMessage)
                 viewModel.invalidateRendering(identity)
+                refreshInteractionDialogs(identity)
             }
+    }
+
+    private fun refreshInteractionDialogs(identity: String?) {
+        if (identity == null || identity != interactionIdentity) return
+        val renderer = adapter.renderer(identity) ?: return
+        val snapshot = viewModel.snapshot(identity)
+        val messages = snapshot.map { renderer.toLegacy(it.message) }
+        val rows = snapshot.map { renderer.compile(it.message) }
+        (childFragmentManager.findFragmentByTag(COMBINED_MESSAGE_DIALOG_TAG) as? MessageClickedDialog)
+            ?.updateV2Messages(messages, rows)
+        (childFragmentManager.findFragmentByTag(COMBINED_REPLY_DIALOG_TAG) as? ReplyClickedDialog)
+            ?.updateV2Messages(messages, rows)
     }
 
     private fun syncV2Translation(chatMessage: LegacyChatMessage) {
@@ -729,7 +740,7 @@ private class CombinedChatAdapter(
             }
             val reply = message.reply?.let {
                 com.github.andreyasadchy.xtra.model.chat.Reply(
-                    threadParentId = it.parentMessageId.value,
+                    threadParentId = it.legacyThreadParentId(),
                     userLogin = it.parentUserLogin,
                     userName = it.parentUserName,
                     message = it.parentMessageBody,
@@ -783,61 +794,16 @@ private class CombinedChatAdapter(
         }
 
         fun createInteractionAdapter(initialMessages: List<LegacyChatMessage>): ChatInteractionAdapterFactory {
-            val size = context.resources.displayMetrics.density
-            val isLightTheme = context.obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.isLightTheme)).let { attributes ->
-                try { attributes.getBoolean(0, false) } finally { attributes.recycle() }
-            }
-            return ChatInteractionAdapterFactory(ChatAdapterConfiguration(
-                localTwitchEmotes = emptyList(),
-                thirdPartyEmotes = emptyList(),
-                globalBadges = emptyList(),
-                channelBadges = emptyList(),
-                cheerEmotes = emptyList(),
-                namePaints = emptyList(),
-                stvBadges = emptyList(),
-                personalEmoteSets = emptyMap(),
-                stvUsers = emptyList(),
-                enableTimestamps = preferences.getBoolean(C.CHAT_TIMESTAMPS, false),
-                timestampFormat = preferences.getString(C.CHAT_TIMESTAMP_FORMAT, "0"),
-                firstMsgVisibility = style.firstMessageVisibility,
-                firstChatMsg = fragment.getString(R.string.chat_first),
-                redeemedChatMsg = fragment.getString(R.string.redeemed),
-                redeemedNoMsg = fragment.getString(R.string.user_redeemed),
-                replyMessage = fragment.getString(R.string.replying_to_message),
-                useRandomColors = preferences.getBoolean(C.CHAT_RANDOM_COLOR, true),
-                useReadableColors = preferences.getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
-                isLightTheme = isLightTheme,
-                nameDisplay = preferences.getString(C.UI_NAME_DISPLAY, "0"),
-                useBoldNames = preferences.getBoolean(C.CHAT_BOLD_NAMES, false),
-                showNamePaints = preferences.getBoolean(C.CHAT_SHOW_PAINTS, true),
-                showBadges = style.showBadges,
-                showSTVBadges = preferences.getBoolean(C.CHAT_SHOW_STV_BADGES, true),
-                showPersonalEmotes = preferences.getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true),
-                showSystemMessageEmotes = preferences.getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
-                chatUrl = null,
-                fragment = fragment,
-                backgroundColor = surface,
-                dialogBackgroundColor = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurfaceContainerLow),
-                imageLibrary = "0",
-                messageTextSize = style.textSizeSp,
-                emoteSize = style.emoteHeightPx,
-                badgeSize = style.badgeHeightPx,
-                inlineIconSize = (DEFAULT_CHAT_BADGE_SIZE_DP * size).toInt(),
-                emoteQuality = "4",
-                animateGifs = preferences.getBoolean(C.ANIMATED_EMOTES, true),
-                enableOverlayEmotes = style.enableOverlayEmotes,
-                translateMessage = { message, language -> fragment.onRendererTranslateMessage(message, language, identity) },
-                showLanguageDownloadDialog = { _, _ -> },
-                channelId = active.spec.channelId,
-                loggedInUser = null,
-                messageClickListener = null,
-                replyClickListener = null,
-                imageClickListener = { url, name, format, animated, source, thirdParty, emoteId ->
-                    fragment.openImageInteraction(url, name, format, animated, source, thirdParty, emoteId)
-                },
-                profilePopoutGesture = profileGesture,
-                emotePopoutMode = emotePopoutMode,
-            ), initialMessages)
+            lateinit var factory: ChatInteractionAdapterFactory
+            factory = ChatInteractionAdapterFactory(
+                ChatInteractionAdapterConfiguration(
+                    messageTextSize = style.textSizeSp,
+                    animateGifs = preferences.getBoolean(C.ANIMATED_EMOTES, true),
+                ),
+                initialMessages,
+                onOpenReplyThread = { fragment.openReplyInteraction(factory) },
+            )
+            return factory
         }
     }
 

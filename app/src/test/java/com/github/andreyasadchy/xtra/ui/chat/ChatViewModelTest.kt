@@ -58,25 +58,6 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun contiguousChatMutationIsAppliedIncrementally() {
-        assertEquals(ChatMutationAction.APPLY_INCREMENTAL, chatMutationAction(displayedRevision = 10, mutationRevision = 11))
-    }
-
-    @Test
-    fun queuedMutationAdvancesExpectedRevisionBeforeFrameIsApplied() {
-        val expected = expectedChatMutationRevision(
-            displayedRevision = 100L,
-            pendingRevision = 101L,
-        )
-
-        assertEquals(101L, expected)
-        assertEquals(
-            ChatMutationAction.APPLY_INCREMENTAL,
-            chatMutationAction(expected, 102L),
-        )
-    }
-
-    @Test
     fun canonicalChatHistoryStaysCappedAndOrdered() {
         val history = ArrayList<ChatMessage>()
 
@@ -108,37 +89,6 @@ class ChatViewModelTest {
         assertEquals(600, snapshot.messages.size)
         assertEquals("message-1", snapshot.messages.first().message)
         assertEquals("message-600", snapshot.messages.last().message)
-    }
-
-    @Test
-    fun coalescedAppendsPreserveMessageOrder() {
-        val mutations = listOf(
-            ChatViewModel.ChatMutation.Append(101L, listOf(ChatMessage(message = "first")), 0),
-            ChatViewModel.ChatMutation.Append(102L, listOf(ChatMessage(message = "second")), 1),
-            ChatViewModel.ChatMutation.Append(103L, listOf(ChatMessage(message = "third")), 1),
-        )
-
-        val coalesced = coalesceChatAppendMutations(mutations)
-
-        assertEquals(103L, coalesced.revision)
-        assertEquals(2, coalesced.trimCount)
-        assertEquals(listOf("first", "second", "third"), coalesced.messages.map { it.message })
-    }
-
-    @Test
-    fun revisionGapRequestsSnapshotRecovery() {
-        assertEquals(ChatMutationAction.SYNCHRONIZE_SNAPSHOT, chatMutationAction(displayedRevision = 10, mutationRevision = 12))
-        assertEquals(ChatMutationAction.SYNCHRONIZE_SNAPSHOT, chatMutationAction(displayedRevision = 10, mutationRevision = 138))
-        assertEquals(ChatMutationAction.SYNCHRONIZE_SNAPSHOT, chatMutationAction(displayedRevision = 100, mutationRevision = 103))
-    }
-
-    @Test
-    fun mutationsCoveredBySnapshotAreIgnored() {
-        (11L..20L).forEach { mutationRevision ->
-            assertEquals(ChatMutationAction.IGNORE, chatMutationAction(displayedRevision = 20, mutationRevision = mutationRevision))
-        }
-        assertFalse(shouldSynchronizeChatSnapshot(displayedRevision = 20, snapshotRevision = 20))
-        assertFalse(shouldSynchronizeChatSnapshot(displayedRevision = 21, snapshotRevision = 20))
     }
 
     @Test

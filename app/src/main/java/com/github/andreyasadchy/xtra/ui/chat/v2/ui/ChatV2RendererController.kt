@@ -200,6 +200,12 @@ class ChatV2RendererController(
     internal fun currentMessages(): List<ChatMessage> = latestMessages.toList()
     internal fun currentRows(): List<ChatRowUiModel> = latestRows
 
+    /** Compiles an interaction-only row with the renderer's current style and catalog. */
+    internal fun compileForInteraction(message: ChatMessage): ChatRowUiModel = presentation.resolve(
+        message,
+        latestPublication?.catalog ?: externalCatalog,
+    )
+
     /** Publishes a non-session timeline, such as recorded VOD chat, through the v2 renderer. */
     internal suspend fun replaceExternalMessages(
         messages: List<ChatMessage>,

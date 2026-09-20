@@ -2,6 +2,8 @@ package com.github.andreyasadchy.xtra.util.chat
 
 import com.github.andreyasadchy.xtra.model.chat.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReply
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -9,6 +11,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SpecialChatMessageParsingTest {
+
+    @Test
+    fun nestedRepliesUseTheRootThreadId() {
+        val nested = ChatReply(
+            parentMessageId = ChatMessageId("direct-parent"),
+            parentMessageBody = "parent",
+            parentUserId = null,
+            parentUserName = null,
+            parentUserLogin = null,
+            threadMessageId = ChatMessageId("thread-root"),
+            threadUserId = null,
+            threadUserName = null,
+            threadUserLogin = null,
+        )
+
+        assertEquals("thread-root", nested.legacyThreadParentId())
+        assertEquals("direct-parent", nested.copy(threadMessageId = null).legacyThreadParentId())
+    }
 
     @Test
     fun parsesIrcWatchStreakWithViewerMessage() {

@@ -10,7 +10,6 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import androidx.core.content.ContextCompat.getSystemService
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -51,8 +50,6 @@ class ReplyClickedDialog : BottomSheetDialogFragment() {
 
     private lateinit var listener: OnButtonClickListener
     var adapter: ReplyClickedChatAdapter? = null
-    private var isChatTouched = false
-    private var messageLimit: Int? = null
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -83,12 +80,6 @@ class ReplyClickedDialog : BottomSheetDialogFragment() {
                             MotionEvent.ACTION_UP -> behavior.isDraggable = true
                         }
                         return false
-                    }
-                })
-                it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-                    override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
-                        super.onScrollStateChanged(recyclerView, newState)
-                        isChatTouched = newState == RecyclerView.SCROLL_STATE_DRAGGING
                     }
                 })
             }
@@ -193,66 +184,11 @@ class ReplyClickedDialog : BottomSheetDialogFragment() {
         }
     }
 
-    fun updateTranslation(chatMessage: ChatMessage, previousTranslation: String?) {
-        adapter?.let { adapter ->
-            synchronized(adapter.messages) {
-                adapter.messages.indexOf(chatMessage).takeIf { it != -1 }
-            }?.let {
-                (binding.recyclerView.layoutManager?.findViewByPosition(it) as? TextView)?.let {
-                    adapter.updateTranslation(chatMessage, it, previousTranslation)
-                } ?: adapter.notifyItemChanged(it)
-            }
-        }
-    }
-
-    fun newMessage(message: ChatMessage) {
-        adapter?.let { adapter ->
-            if ((message.reply?.threadParentId == adapter.threadParentId || message.id == adapter.threadParentId) && message.type != ChatMessage.REPLY_MESSAGE) {
-                synchronized(adapter.messages) {
-                    if (adapter.messages.size >= (messageLimit ?: 600.also { messageLimit = it })) {
-                        adapter.messages.removeAt(0)
-                        adapter.notifyItemRemoved(0)
-                    }
-                    adapter.messages.add(message)
-                    val lastIndex = adapter.messages.lastIndex
-                    adapter.notifyItemInserted(lastIndex)
-                    if (!isChatTouched && !shouldShowButton()) {
-                        binding.recyclerView.scrollToPosition(lastIndex)
-                    }
-                }
-            }
-        }
-    }
-
-    fun addMessages(messages: List<ChatMessage>) {
-        adapter?.let { adapter ->
-            synchronized(adapter.messages) {
-                    val left = (messageLimit ?: 600.also { messageLimit = it }) - adapter.messages.size
-                if (left > 0) {
-                    val items = messages.filter { message ->
-                        (message.reply?.threadParentId == adapter.threadParentId || message.id == adapter.threadParentId) && message.type != ChatMessage.REPLY_MESSAGE
-                    }.takeLast(left)
-                    adapter.messages.addAll(0, items)
-                    adapter.notifyItemRangeInserted(0, items.size)
-                    if (!isChatTouched && !shouldShowButton()) {
-                        binding.recyclerView.scrollToPosition(adapter.messages.lastIndex)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun shouldShowButton(): Boolean {
-        with(binding) {
-            val offset = recyclerView.computeVerticalScrollOffset()
-            if (offset < 0) {
-                return false
-            }
-            val extent = recyclerView.computeVerticalScrollExtent()
-            val range = recyclerView.computeVerticalScrollRange()
-            val percentage = (100f * offset / (range - extent).toFloat())
-            return percentage < 100f
-        }
+    fun updateV2Messages(
+        messages: List<ChatMessage>,
+        rows: List<com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel>,
+    ) {
+        adapter?.updateV2Messages(messages, rows)
     }
 
     override fun onDestroyView() {

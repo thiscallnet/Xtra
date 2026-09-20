@@ -100,7 +100,6 @@ import com.github.andreyasadchy.xtra.util.chat.chooseGqlPredictionSnapshot
 import com.github.andreyasadchy.xtra.util.chat.hasUsableOutcomeSet
 import com.github.andreyasadchy.xtra.util.chat.HermesWebSocket
 import com.github.andreyasadchy.xtra.util.chat.PollCache
-import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
 import com.github.andreyasadchy.xtra.util.chat.PollState
 import com.github.andreyasadchy.xtra.util.chat.PredictionBetPolicy
 import com.github.andreyasadchy.xtra.util.chat.PredictionCache

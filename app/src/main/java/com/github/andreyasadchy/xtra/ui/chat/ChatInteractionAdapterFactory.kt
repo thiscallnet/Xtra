@@ -5,162 +5,52 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
-import java.util.Random
 
-/**
- * Creates the adapters used inside message/reply dialogs.
- *
- * The live timeline is rendered by Chat v2. Keeping this factory separate means those dialogs
- * can retain their existing UI without constructing the legacy timeline adapter for live chat.
- */
+/** Creates the v2-backed adapters used inside message and reply dialogs. */
 internal class ChatInteractionAdapterFactory(
-    private val configuration: ChatAdapterConfiguration,
+    private val configuration: ChatInteractionAdapterConfiguration,
     private val defaultMessages: List<ChatMessage> = emptyList(),
+    private val onOpenReplyThread: (ChatMessage) -> Unit = {},
 ) {
     private var selectedMessage: ChatMessage? = null
-    private val random = Random()
-    private val userColors = HashMap<String, Int>()
-    private val savedColors = HashMap<String, Int>()
-    private val savedLocalTwitchEmotes = mutableMapOf<String, ByteArray>()
-    private val savedLocalBadges = mutableMapOf<String, ByteArray>()
-    private val savedLocalCheerEmotes = mutableMapOf<String, ByteArray>()
-    private val savedLocalEmotes = mutableMapOf<String, ByteArray>()
 
     fun createMessageClickedChatAdapter(
         sourceMessages: List<ChatMessage>,
         selectedMessageOverride: ChatMessage? = selectedMessage,
-        v2Rows: List<ChatRowUiModel>? = null,
-        v2Assets: ChatAssetRepository? = null,
+        v2Rows: List<ChatRowUiModel>,
+        v2Assets: ChatAssetRepository,
         v2EmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
         v2GifClick: ((ChatGifInteraction) -> Unit)? = null,
     ): MessageClickedChatAdapter = MessageClickedChatAdapter(
-        sourceMessages,
-        configuration.localTwitchEmotes,
-        configuration.thirdPartyEmotes,
-        configuration.globalBadges,
-        configuration.channelBadges,
-        configuration.cheerEmotes,
-        configuration.namePaints,
-        configuration.stvBadges,
-        configuration.personalEmoteSets,
-        configuration.stvUsers,
-        configuration.enableTimestamps,
-        configuration.timestampFormat,
-        configuration.firstMsgVisibility,
-        configuration.firstChatMsg,
-        configuration.redeemedChatMsg,
-        configuration.redeemedNoMsg,
-        configuration.replyMessage,
-        { chatMessage ->
+        sourceMessages = sourceMessages,
+        messageTextSize = configuration.messageTextSize,
+        animateGifs = configuration.animateGifs,
+        replyClick = { chatMessage ->
             selectedMessage = chatMessage
-            configuration.replyClickListener?.invoke()
+            onOpenReplyThread(chatMessage)
         },
-        { url, name, format, isAnimated, source, thirdParty, emoteId ->
-            configuration.imageClickListener?.invoke(url, name, format, isAnimated, source, thirdParty, emoteId)
-        },
-        configuration.useRandomColors,
-        configuration.useReadableColors,
-        configuration.isLightTheme,
-        configuration.nameDisplay,
-        configuration.useBoldNames,
-        configuration.showNamePaints,
-        configuration.showBadges,
-        configuration.showSTVBadges,
-        configuration.showPersonalEmotes,
-        configuration.showSystemMessageEmotes,
-        configuration.chatUrl,
-        configuration.fragment,
-        configuration.dialogBackgroundColor,
-        configuration.imageLibrary,
-        configuration.messageTextSize,
-        configuration.emoteSize,
-        configuration.badgeSize,
-        configuration.inlineIconSize,
-        configuration.emoteQuality,
-        configuration.animateGifs,
-        configuration.enableOverlayEmotes,
-        false,
-        configuration.translateMessage,
-        configuration.showLanguageDownloadDialog,
-        random,
-        userColors,
-        savedColors,
-        savedLocalTwitchEmotes,
-        savedLocalBadges,
-        savedLocalCheerEmotes,
-        savedLocalEmotes,
-        configuration.loggedInUser,
-        selectedMessageOverride,
-        v2Rows,
-        v2Assets,
-        v2EmoteClick,
-        v2GifClick,
+        selectedMessage = selectedMessageOverride,
+        v2Rows = v2Rows,
+        v2Assets = v2Assets,
+        v2EmoteClick = v2EmoteClick,
+        v2GifClick = v2GifClick,
     )
 
     fun createReplyClickedChatAdapter(
         sourceMessages: List<ChatMessage> = defaultMessages,
         selectedMessageOverride: ChatMessage? = selectedMessage,
-        v2Rows: List<ChatRowUiModel>? = null,
-        v2Assets: ChatAssetRepository? = null,
+        v2Rows: List<ChatRowUiModel>,
+        v2Assets: ChatAssetRepository,
         v2EmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
         v2GifClick: ((ChatGifInteraction) -> Unit)? = null,
     ): ReplyClickedChatAdapter = ReplyClickedChatAdapter(
-        sourceMessages,
-        configuration.localTwitchEmotes,
-        configuration.thirdPartyEmotes,
-        configuration.globalBadges,
-        configuration.channelBadges,
-        configuration.cheerEmotes,
-        configuration.namePaints,
-        configuration.stvBadges,
-        configuration.personalEmoteSets,
-        configuration.stvUsers,
-        configuration.enableTimestamps,
-        configuration.timestampFormat,
-        configuration.firstMsgVisibility,
-        configuration.firstChatMsg,
-        configuration.redeemedChatMsg,
-        configuration.redeemedNoMsg,
-        configuration.replyMessage,
-        { url, name, format, isAnimated, source, thirdParty, emoteId ->
-            configuration.imageClickListener?.invoke(url, name, format, isAnimated, source, thirdParty, emoteId)
-        },
-        configuration.useRandomColors,
-        configuration.useReadableColors,
-        configuration.isLightTheme,
-        configuration.nameDisplay,
-        configuration.useBoldNames,
-        configuration.showNamePaints,
-        configuration.showBadges,
-        configuration.showSTVBadges,
-        configuration.showPersonalEmotes,
-        configuration.showSystemMessageEmotes,
-        configuration.chatUrl,
-        configuration.fragment,
-        configuration.dialogBackgroundColor,
-        configuration.imageLibrary,
-        configuration.messageTextSize,
-        configuration.emoteSize,
-        configuration.badgeSize,
-        configuration.inlineIconSize,
-        configuration.emoteQuality,
-        configuration.animateGifs,
-        configuration.enableOverlayEmotes,
-        false,
-        configuration.translateMessage,
-        configuration.showLanguageDownloadDialog,
-        random,
-        userColors,
-        savedColors,
-        savedLocalTwitchEmotes,
-        savedLocalBadges,
-        savedLocalCheerEmotes,
-        savedLocalEmotes,
-        configuration.loggedInUser,
-        selectedMessageOverride,
-        v2Rows,
-        v2Assets,
-        v2EmoteClick,
-        v2GifClick,
+        sourceMessages = sourceMessages,
+        messageTextSize = configuration.messageTextSize,
+        animateGifs = configuration.animateGifs,
+        selectedMessage = selectedMessageOverride,
+        v2Rows = v2Rows,
+        v2Assets = v2Assets,
+        v2EmoteClick = v2EmoteClick,
+        v2GifClick = v2GifClick,
     )
 }

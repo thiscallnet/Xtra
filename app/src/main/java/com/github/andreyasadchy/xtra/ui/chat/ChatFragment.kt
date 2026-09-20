@@ -100,6 +100,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
@@ -133,6 +134,7 @@ import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
+import com.github.andreyasadchy.xtra.util.chat.legacyThreadParentId
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.prefs
@@ -352,7 +354,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var pinnedMessageBinding: ViewPinnedChatMessageBinding? = null
     private val binding get() = _binding!!
     private val viewModel: ChatViewModel by viewModels { ChatViewModelFactory }
-    private var adapter: ChatAdapter? = null
     private var interactionAdapterFactory: ChatInteractionAdapterFactory? = null
     private var chatV2Renderer: ChatV2RendererController? = null
     private var chatBackgroundRequest: Disposable? = null
@@ -360,7 +361,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private val chatV2SessionSlot = ChatV2SessionSlot()
     private var chatV2ViewportState = ChatViewportState()
     private var useChatV2 = false
-    private var useChatV2Renderer = false
     private var chatV2RendererVisible = true
     private var selectedV2Message: V2ChatMessage? = null
     private var selectedPinnedMessage: ChatMessage? = null
@@ -373,10 +373,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     internal val isUsingChatV2: Boolean
         get() = useChatV2
 
-    var chatMessageListener: ((ChatMessage) -> Unit)? = null
-    var chatHistoryListener: ((List<ChatMessage>) -> Unit)? = null
-
-    private var isChatTouched = false
     private var showChatStatus = false
     private var messagingEnabled = false
     private var messageViewWasVisibleBeforeReplay: Boolean? = null
@@ -447,67 +443,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var dropProgressView: com.google.android.material.progressindicator.LinearProgressIndicator? = null
     private var dropMinimizeView: ImageButton? = null
     private var dropCalloutMinimized = false
-    private var chatAdapterUpdatePosted = false
-    private var chatAdapterReady = false
-    private var chatSnapshotSyncPending = false
-    private val pendingChatMutations = ArrayDeque<ChatViewModel.ChatMutation>()
-    private var chatMutationRevision = 0L
-    private var chatMutationGapCount = 0L
-    private var chatSnapshotSyncCount = 0L
-    private data class ChatViewportAnchor(val stableId: Long, val fallbackPosition: Int, val top: Int)
-    private var pendingChatPublicationAnchor: ChatViewportAnchor? = null
-    private var pendingChatPublicationFollowBottom = false
-    private var userScrollGeneration = 0L
     private var userGestureActive = false
-    private var pendingChatPublicationScrollGeneration = 0L
-
-    private val chatAdapterUpdateRunnable = Runnable {
-        chatAdapterUpdatePosted = false
-        val currentBinding = _binding ?: return@Runnable
-        val currentAdapter = adapter ?: return@Runnable
-        val recyclerView = currentBinding.recyclerView
-        val followBottom = !recyclerView.canScrollVertically(1)
-        val anchor = if (followBottom) null else captureChatViewportAnchor(recyclerView, currentAdapter)
-        pendingChatPublicationAnchor = anchor
-        pendingChatPublicationFollowBottom = followBottom
-        pendingChatPublicationScrollGeneration = userScrollGeneration
-        while (pendingChatMutations.isNotEmpty()) {
-            when (val firstMutation = pendingChatMutations.removeFirst()) {
-                is ChatViewModel.ChatMutation.Append -> {
-                    val appendMutations = ArrayList<ChatViewModel.ChatMutation.Append>()
-                    appendMutations += firstMutation
-                    while (pendingChatMutations.firstOrNull() is ChatViewModel.ChatMutation.Append) {
-                        appendMutations += pendingChatMutations.removeFirst() as ChatViewModel.ChatMutation.Append
-                    }
-                    val coalesced = coalesceChatAppendMutations(appendMutations)
-                    currentAdapter.appendMessages(coalesced.messages, coalesced.trimCount)
-                    chatMutationRevision = coalesced.revision
-                }
-                is ChatViewModel.ChatMutation.Prepend -> {
-                    val batches = ArrayList<List<ChatMessage>>()
-                    batches += firstMutation.messages
-                    var revision = firstMutation.revision
-                    while (pendingChatMutations.firstOrNull() is ChatViewModel.ChatMutation.Prepend) {
-                        val next = pendingChatMutations.removeFirst() as ChatViewModel.ChatMutation.Prepend
-                        batches += next.messages
-                        revision = next.revision
-                    }
-                    val messages = ArrayList<ChatMessage>(batches.sumOf { it.size })
-                    batches.asReversed().forEach(messages::addAll)
-                    currentAdapter.prependMessages(messages)
-                    chatMutationRevision = revision
-                }
-                is ChatViewModel.ChatMutation.Clear -> {
-                    pendingChatPublicationAnchor = null
-                    pendingChatPublicationFollowBottom = false
-                    currentAdapter.clearMessages()
-                    chatMutationRevision = firstMutation.revision
-                }
-            }
-        }
-        // Append/prepend/replace publication is asynchronous. Scroll and anchor restoration are
-        // performed by onChatMessagesPublished after the READY dataset mutation.
-    }
 
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
     private var recommendationAdapter: EmoteRecommendationAdapter? = null
@@ -553,140 +489,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private val replyDialog: ReplyClickedDialog?
         get() = childFragmentManager.findFragmentByTag("replyDialog") as? ReplyClickedDialog
-
-    private fun scheduleChatAdapterUpdate() {
-        if (chatAdapterUpdatePosted) return
-        if (!chatAdapterReady) return
-        val recyclerView = _binding?.recyclerView ?: return
-        chatAdapterUpdatePosted = true
-        recyclerView.postOnAnimation(chatAdapterUpdateRunnable)
-    }
-
-    private fun onChatMessagesPublished(kind: ChatPublicationKind, hasMorePending: Boolean) {
-        val recyclerView = _binding?.recyclerView ?: return
-        val currentAdapter = adapter ?: return
-        val viewportIsStillCurrent = userScrollGeneration == pendingChatPublicationScrollGeneration
-        when (kind) {
-            ChatPublicationKind.APPEND -> {
-                // Re-check the live viewport. The user may have scrolled up while rendering ran.
-                if (pendingChatPublicationFollowBottom && !recyclerView.canScrollVertically(1) && currentAdapter.itemCount > 0) {
-                    recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
-                } else if (viewportIsStillCurrent && !pendingChatPublicationFollowBottom) {
-                    pendingChatPublicationAnchor?.let { restoreChatViewportAnchor(recyclerView, currentAdapter, it) }
-                }
-            }
-            ChatPublicationKind.PREPEND -> {
-                if (viewportIsStillCurrent) {
-                    pendingChatPublicationAnchor?.let { restoreChatViewportAnchor(recyclerView, currentAdapter, it) }
-                }
-            }
-            ChatPublicationKind.REPLACE -> {
-                if (pendingChatPublicationFollowBottom && !recyclerView.canScrollVertically(1) && currentAdapter.itemCount > 0) {
-                    recyclerView.scrollToPosition(currentAdapter.itemCount - 1)
-                } else if (viewportIsStillCurrent) {
-                    pendingChatPublicationAnchor?.let { restoreChatViewportAnchor(recyclerView, currentAdapter, it) }
-                }
-            }
-        }
-        if (!hasMorePending) {
-            pendingChatPublicationAnchor = null
-            pendingChatPublicationFollowBottom = false
-            pendingChatPublicationScrollGeneration = userScrollGeneration
-        }
-    }
-
-    private fun expectedChatMutationRevision(): Long =
-        pendingChatMutations.lastOrNull()?.revision ?: chatMutationRevision
-
-    private fun dispatchChatMutationSideEffects(mutation: ChatViewModel.ChatMutation) {
-        when (mutation) {
-            is ChatViewModel.ChatMutation.Append -> {
-                mutation.messages.forEach { message ->
-                    chatMessageListener?.invoke(message)
-                    messageDialog?.newMessage(message)
-                    replyDialog?.newMessage(message)
-                }
-            }
-            is ChatViewModel.ChatMutation.Prepend -> {
-                chatHistoryListener?.invoke(mutation.messages)
-                messageDialog?.addMessages(mutation.messages)
-                replyDialog?.addMessages(mutation.messages)
-            }
-            is ChatViewModel.ChatMutation.Clear -> Unit
-        }
-    }
-
-    private suspend fun synchronizeChatAdapterToSnapshot() {
-        val currentAdapter = adapter ?: return
-        if (!chatAdapterReady) return
-        val currentBinding = _binding ?: return
-        val snapshot = viewModel.chatSnapshot()
-        if (!shouldSynchronizeChatSnapshot(
-                chatMutationRevision,
-                snapshot.revision,
-            )
-        ) {
-            return
-        }
-
-        pendingChatMutations.clear()
-
-        if (_binding !== currentBinding || adapter !== currentAdapter) return
-        val syncStartedAt = SystemClock.elapsedRealtime()
-        val recyclerView = currentBinding.recyclerView
-        val followBottom = !recyclerView.canScrollVertically(1)
-        val anchor =
-            if (followBottom) null
-            else captureChatViewportAnchor(recyclerView, currentAdapter)
-        pendingChatPublicationAnchor = anchor
-        pendingChatPublicationFollowBottom = followBottom
-        pendingChatPublicationScrollGeneration = userScrollGeneration
-
-        currentAdapter.replaceMessages(
-            snapshot.messages,
-        )
-        chatMutationRevision = snapshot.revision
-        chatSnapshotSyncCount++
-        Log.d(
-            "ChatPerf",
-            "snapshot sync count=$chatSnapshotSyncCount " +
-                "revision=${snapshot.revision} " +
-                "messages=${snapshot.messages.size} " +
-                "durationMs=${SystemClock.elapsedRealtime() - syncStartedAt}",
-        )
-        // The replacement remains staged until its complete renders are ready. The adapter
-        // callback applies bottom/anchor behavior after the atomic dataset publication.
-    }
-
-    private fun captureChatViewportAnchor(
-        recyclerView: RecyclerView,
-        chatAdapter: ChatAdapter,
-    ): ChatViewportAnchor? {
-        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return null
-        val firstPosition = layoutManager.findFirstVisibleItemPosition()
-        if (firstPosition == RecyclerView.NO_POSITION || firstPosition >= chatAdapter.itemCount) return null
-        val firstView = layoutManager.findViewByPosition(firstPosition) ?: return null
-        return ChatViewportAnchor(
-            stableId = chatAdapter.stableIdAt(firstPosition),
-            fallbackPosition = firstPosition,
-            top = firstView.top,
-        )
-    }
-
-    private fun restoreChatViewportAnchor(
-        recyclerView: RecyclerView,
-        chatAdapter: ChatAdapter,
-        anchor: ChatViewportAnchor?,
-    ) {
-        val savedAnchor = anchor ?: return
-        val layoutManager = recyclerView.layoutManager as? LinearLayoutManager ?: return
-        val position = chatAdapter.positionOfStableId(savedAnchor.stableId)
-            .takeIf { it >= 0 }
-            ?: savedAnchor.fallbackPosition.coerceAtMost(chatAdapter.itemCount - 1)
-        if (position >= 0) {
-            layoutManager.scrollToPositionWithOffset(position, savedAnchor.top)
-        }
-    }
 
     private var languageIdentifier: LanguageIdentifier? = null
     private val translators = mutableMapOf<String, Translator>()
@@ -836,7 +638,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         applyChatBackgroundAppearance()
         chatV2ViewportState = restoreChatV2ViewportState(savedInstanceState)
         useChatV2 = false
-        useChatV2Renderer = true
         seenPinnedMessageId = savedInstanceState?.getString(KEY_SEEN_PINNED_MESSAGE_ID)
         displayedPinnedMessageId = savedInstanceState?.getString(KEY_DISPLAYED_PINNED_MESSAGE_ID)
         pinnedMessageMinimized = savedInstanceState?.getBoolean(KEY_PINNED_MESSAGE_MINIMIZED) ?: false
@@ -1063,7 +864,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 // V2 is the only timeline renderer. Live sessions with complete identifiers
                 // use the process-owned v2 session; replay and incomplete live inputs use the
                 // same renderer with an external timeline.
-                useChatV2Renderer = true
                 val accountLogin = requireContext().tokenPrefs().getString(C.USERNAME, null)
                 val isLoggedIn = !accountLogin.isNullOrBlank() &&
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -1115,96 +915,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     val emotePopoutMode = ChatEmotePopoutMode.fromPreference(
                         requireContext().prefs().getString(C.CHAT_EMOTE_POPOUT_MODE, "emote_details"),
                     )
-                    val chatSizing = ChatSizing(
-                        textSizeSp = chatStyle.textSizeSp,
-                        emoteHeightPx = chatStyle.emoteHeightPx,
-                        badgeHeightPx = chatStyle.badgeHeightPx,
+                    val interactionConfiguration = ChatInteractionAdapterConfiguration(
+                        messageTextSize = chatStyle.textSizeSp,
+                        animateGifs = chatStyle.animateGifs,
                     )
-                    val initialMessages = if (isLive) {
-                        emptyList()
-                    } else {
-                        viewModel.chatSnapshot().also { chatMutationRevision = it.revision }.messages
-                    }
-                    val interactionConfiguration = ChatAdapterConfiguration(
-                        localTwitchEmotes = viewModel.localTwitchEmotes,
-                        thirdPartyEmotes = viewModel.thirdPartyEmotes,
-                        globalBadges = viewModel.globalBadges,
-                        channelBadges = viewModel.channelBadges,
-                        cheerEmotes = viewModel.cheerEmotes,
-                        namePaints = viewModel.namePaints,
-                        stvBadges = viewModel.stvBadges,
-                        personalEmoteSets = viewModel.personalEmoteSets,
-                        stvUsers = viewModel.stvUsers,
-                        enableTimestamps = requireContext().prefs().getBoolean(C.CHAT_TIMESTAMPS, false),
-                        timestampFormat = requireContext().prefs().getString(C.CHAT_TIMESTAMP_FORMAT, "0"),
-                        firstMsgVisibility = requireContext().prefs().getString(C.CHAT_FIRST_MSG_VISIBILITY, "0")?.toIntOrNull() ?: 0,
-                        firstChatMsg = getString(R.string.chat_first),
-                        redeemedChatMsg = getString(R.string.redeemed),
-                        redeemedNoMsg = getString(R.string.user_redeemed),
-                        replyMessage = getString(R.string.replying_to_message),
-                        useRandomColors = requireContext().prefs().getBoolean(C.CHAT_RANDOM_COLOR, true),
-                        useReadableColors = requireContext().prefs().getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
-                        isLightTheme = requireContext().obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.isLightTheme)).use {
-                            it.getBoolean(0, false)
-                        },
-                        nameDisplay = requireContext().prefs().getString(C.UI_NAME_DISPLAY, "0"),
-                        useBoldNames = requireContext().prefs().getBoolean(C.CHAT_BOLD_NAMES, false),
-                        showNamePaints = requireContext().prefs().getBoolean(C.CHAT_SHOW_PAINTS, true),
-                        showBadges = requireContext().prefs().getBoolean(C.CHAT_SHOW_BADGES, true),
-                        showSTVBadges = requireContext().prefs().getBoolean(C.CHAT_SHOW_STV_BADGES, true),
-                        showPersonalEmotes = requireContext().prefs().getBoolean(C.CHAT_SHOW_PERSONAL_EMOTES, true),
-                        showSystemMessageEmotes = requireContext().prefs().getBoolean(C.CHAT_SYSTEM_MESSAGE_EMOTES, true),
-                        chatUrl = chatUrl,
-                        fragment = this@ChatFragment,
-                        backgroundColor = chatSurface,
-                        hasCustomBackground = shouldRenderChatBackground(chatAppearance),
-                        messageTextColor = chatAppearance.messageTextColor,
-                        metadataTextColor = chatAppearance.metadataTextColor,
-                        dialogBackgroundColor = MaterialColors.getColor(
-                            requireView(),
-                            com.google.android.material.R.attr.colorSurfaceContainerLow
-                        ),
-                        imageLibrary = "0",
-                        messageTextSize = chatSizing.textSizeSp,
-                        emoteSize = chatSizing.emoteHeightPx,
-                        badgeSize = chatSizing.badgeHeightPx,
-                        inlineIconSize = TypedValue.applyDimension(
-                            TypedValue.COMPLEX_UNIT_DIP,
-                            DEFAULT_CHAT_BADGE_SIZE_DP * requireContext().prefs().getInt(C.CHAT_SIZE_MODIFIER, 100) / 100f,
-                            resources.displayMetrics,
-                        ).toInt(),
-                        emoteQuality = "4",
-                        animateGifs = requireContext().prefs().getBoolean(C.ANIMATED_EMOTES, true),
-                        enableOverlayEmotes = requireContext().prefs().getBoolean(C.CHAT_ZERO_WIDTH, true),
-                        translateMessage = this@ChatFragment::onTranslateMessageClicked,
-                        showLanguageDownloadDialog = this@ChatFragment::showLanguageDownloadDialog,
-                        channelId = channelId,
-                        loggedInUser = if (enableMessaging) accountLogin else null,
-                        messageClickListener = { channelId ->
-                            (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
-                            editText.clearFocus()
-                            MessageClickedDialog.newInstance(
-                                messagingEnabled = messagingEnabled,
-                                channelId = channelId,
-                                channelLogin = channelLogin,
-                            ).show(this@ChatFragment.childFragmentManager, "messageDialog")
-                        },
-                        replyClickListener = {
-                            (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
-                            editText.clearFocus()
-                            ReplyClickedDialog.newInstance(messagingEnabled).show(this@ChatFragment.childFragmentManager, "replyDialog")
-                        },
-                        imageClickListener = { url, name, format, isAnimated, source, thirdParty, emoteId ->
-                            (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
-                            editText.clearFocus()
-                            ImageClickedDialog.newInstance(url, name, format, isAnimated, source, thirdParty, emoteId).show(this@ChatFragment.childFragmentManager, "imageDialog")
-                        },
-                        profilePopoutGesture = profilePopoutGesture,
-                        emotePopoutMode = emotePopoutMode,
+                    interactionAdapterFactory = ChatInteractionAdapterFactory(
+                        configuration = interactionConfiguration,
+                        onOpenReplyThread = { openReplyInteraction() },
                     )
-                    interactionAdapterFactory = ChatInteractionAdapterFactory(interactionConfiguration)
-                    adapter = null
-                    if (useChatV2Renderer) {
+                    run {
                         val app = requireContext().applicationContext as XtraApp
                         val activeSessionSource = if (useChatV2) chatV2ActiveSessions() else emptyFlow()
                         if (useChatV2) viewModel.bindV2SessionSource(activeSessionSource)
@@ -1323,84 +1042,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         it.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                                 super.onScrollStateChanged(recyclerView, newState)
-                                if (useChatV2Renderer) {
-                                    if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
-                                        userGestureActive = true
-                                        chatV2Renderer?.onUserScroll()
-                                    } else if (newState == RecyclerView.SCROLL_STATE_IDLE && userGestureActive) {
-                                        chatV2Renderer?.onUserScroll()
-                                        userGestureActive = false
-                                    }
-                                    return
-                                }
                                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
-                                    // Programmatic scrolls caused by publication enter SETTLING,
-                                    // not DRAGGING. Only a real user drag invalidates a staged
-                                    // viewport restore.
-                                    userScrollGeneration++
-                                }
-                                isChatTouched = newState != RecyclerView.SCROLL_STATE_IDLE
-                                if (newState != RecyclerView.SCROLL_STATE_IDLE) {
-                                    recyclerView.removeCallbacks(chatAdapterUpdateRunnable)
-                                    chatAdapterUpdatePosted = false
-                                }
-                                adapter?.setAnimationsPaused(newState != RecyclerView.SCROLL_STATE_IDLE)
-                                val offset = recyclerView.computeVerticalScrollOffset()
-                                if (offset < 0) {
-                                    btnDown.isVisible = false
-                                } else {
-                                    val extent = recyclerView.computeVerticalScrollExtent()
-                                    val range = recyclerView.computeVerticalScrollRange()
-                                    val percentage = (100f * offset / (range - extent).toFloat())
-                                    btnDown.isVisible = percentage < 100f
-                                }
-                                if (showChatStatus && chatStatus.isGone) {
-                                    chatStatus.visibility = View.VISIBLE
-                                    chatStatus.postDelayed({ chatStatus.visibility = View.GONE }, 5000)
-                                }
-                                if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                                    if (chatSnapshotSyncPending && chatAdapterReady) {
-                                        chatSnapshotSyncPending = false
-                                        viewLifecycleOwner.lifecycleScope.launch {
-                                            synchronizeChatAdapterToSnapshot()
-                                        }
-                                    } else if (pendingChatMutations.isNotEmpty()) {
-                                        scheduleChatAdapterUpdate()
-                                    }
+                                    userGestureActive = true
+                                    chatV2Renderer?.onUserScroll()
+                                } else if (newState == RecyclerView.SCROLL_STATE_IDLE && userGestureActive) {
+                                    chatV2Renderer?.onUserScroll()
+                                    userGestureActive = false
                                 }
                             }
                         })
                     }
-                    val chatAdapter = adapter
-                    viewLifecycleOwner.lifecycleScope.launch {
-                        if (!isLive && !useChatV2Renderer && _binding?.recyclerView === recyclerView && chatAdapter === adapter) {
-                            recyclerView.adapter = chatAdapter
-                            chatAdapterReady = true
-                            pendingChatPublicationFollowBottom = !recyclerView.canScrollVertically(1)
-                            pendingChatPublicationAnchor = null
-                            pendingChatPublicationScrollGeneration = userScrollGeneration
-                            chatAdapter?.appendMessages(
-                                initialMessages,
-                                0,
-                            )
-                            if (chatSnapshotSyncPending) {
-                                chatSnapshotSyncPending = false
-                                viewLifecycleOwner.lifecycleScope.launch {
-                                    synchronizeChatAdapterToSnapshot()
-                                }
-                            } else if (pendingChatMutations.isNotEmpty() && !isChatTouched) {
-                                scheduleChatAdapterUpdate()
-                            }
-                        }
-                    }
                     btnDown.setOnClickListener {
                         view.post {
-                            if (useChatV2Renderer) {
-                                chatV2Renderer?.jumpToNewest()
-                            } else {
-                                val lastIndex = adapter?.itemCount?.minus(1) ?: RecyclerView.NO_POSITION
-                                recyclerView.scrollToPosition(lastIndex)
-                            }
+                            chatV2Renderer?.jumpToNewest()
                             it.visibility = View.GONE
                         }
                     }
@@ -1842,9 +1496,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.reloadMessages.collectLatest {
                                 if (it) {
-                                    adapter?.let { adapter ->
-                                        adapter.notifyCatalogChanged()
-                                    }
                                     messageDialog?.adapter?.let { adapter ->
                                         val size = synchronized(adapter.messages) {
                                             adapter.messages.size
@@ -1980,53 +1631,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }
                         }
                     }
-                    if (!useChatV2Renderer) {
-                        viewLifecycleOwner.lifecycleScope.launch {
-                            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                                synchronizeChatAdapterToSnapshot()
-                                viewModel.chatMutations.collect { mutation ->
-                                    if (chatSnapshotSyncPending) {
-                                        dispatchChatMutationSideEffects(mutation)
-                                        return@collect
-                                    }
-
-                                    val expectedRevision = expectedChatMutationRevision()
-                                    when (chatMutationAction(expectedRevision, mutation.revision)) {
-                                        ChatMutationAction.IGNORE -> return@collect
-                                        ChatMutationAction.SYNCHRONIZE_SNAPSHOT -> {
-                                            chatMutationGapCount++
-                                            Log.d(
-                                                "ChatPerf",
-                                                "mutation gap count=$chatMutationGapCount " +
-                                                    "displayed=$chatMutationRevision " +
-                                                    "expected=$expectedRevision " +
-                                                    "incoming=${mutation.revision}",
-                                            )
-                                            pendingChatMutations.clear()
-                                            if (chatAdapterReady && !isChatTouched) {
-                                                synchronizeChatAdapterToSnapshot()
-                                            } else {
-                                                chatSnapshotSyncPending = true
-                                            }
-                                            return@collect
-                                        }
-                                        ChatMutationAction.APPLY_INCREMENTAL -> Unit
-                                    }
-                                    dispatchChatMutationSideEffects(mutation)
-
-                                    if (isChatTouched) {
-                                        pendingChatMutations.clear()
-                                        chatSnapshotSyncPending = true
-                                        return@collect
-                                    }
-
-                                    pendingChatMutations.addLast(mutation)
-                                    scheduleChatAdapterUpdate()
-                                }
-                            }
-                        }
-                    }
-                    if (useChatV2Renderer && !useChatV2) {
+                    if (!useChatV2) {
                         viewLifecycleOwner.lifecycleScope.launch {
                             repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 synchronizeV2ReplaySnapshot()
@@ -2039,11 +1644,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
                             viewModel.updateUserMessages.collectLatest { userId ->
-                                if (!useChatV2Renderer) {
-                                    adapter?.let { adapter ->
-                                        adapter.notifyUserMessages(userId)
-                                    }
-                                }
                                 messageDialog?.updateUserMessages(userId)
                                 replyDialog?.updateUserMessages(userId)
                             }
@@ -2054,7 +1654,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.translateAllMessages.collectLatest {
                                     if (it != null) {
-                                        adapter?.translateAllMessages = it
                                         chatV2Renderer?.setTranslateAllMessages(it)
                                     }
                                 }
@@ -2510,11 +2109,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onResume() {
         super.onResume()
         applyChatBackgroundAppearance()
-        adapter?.refreshChatHighlightSettings()
-        if (useChatV2Renderer) {
-            chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
-        }
-        if (useChatV2Renderer && chatV2RendererVisible) chatV2Renderer?.setVisible(true)
+        chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
+        if (chatV2RendererVisible) chatV2Renderer?.setVisible(true)
         val args = requireArguments()
         val channelId = args.getString(KEY_CHANNEL_ID)
         val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
@@ -2607,13 +2203,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onPause() {
-        if (useChatV2Renderer) chatV2Renderer?.setVisible(false)
+        chatV2Renderer?.setVisible(false)
         super.onPause()
     }
 
     fun setV2RendererVisible(visible: Boolean) {
         chatV2RendererVisible = visible
-        if (useChatV2Renderer) chatV2Renderer?.setVisible(visible)
+        chatV2Renderer?.setVisible(visible)
     }
 
     fun reconnect() {
@@ -3703,6 +3299,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         binding.editText.clearFocus()
     }
 
+    private fun openReplyInteraction() {
+        hideChatInputForDialog()
+        if (childFragmentManager.findFragmentByTag("replyDialog") == null) {
+            ReplyClickedDialog.newInstance(messagingEnabled).show(childFragmentManager, "replyDialog")
+        }
+    }
+
     private fun onV2MessageLongClick(message: V2ChatMessage) {
         selectedV2Message = message
         hideChatInputForDialog()
@@ -3718,11 +3321,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         rows: List<ChatRowUiModel>,
     ) {
         viewModel.reconcileV2ChatUsers(messages)
-        val previousIds = v2KnownMessageIds
         val currentIds = messages.mapNotNull { it.id.value }.toSet()
         v2KnownMessageIds = currentIds
         if (selectedV2Message != null) {
-            messageDialog?.updateV2Messages(messages.map(::v2MessageToLegacy), rows)
+            val legacyMessages = messages.map(::v2MessageToLegacy)
+            messageDialog?.updateV2Messages(legacyMessages, rows)
+            replyDialog?.updateV2Messages(legacyMessages, rows)
         }
     }
 
@@ -3745,12 +3349,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     .hideSoftInputFromWindow(currentBinding.editText.windowToken, 0)
                 currentBinding.editText.clearFocus()
                 toggleEmoteMenu(false)
-                if (useChatV2Renderer) {
-                    chatV2Renderer?.jumpToNewest()
-                } else {
-                    val lastIndex = synchronized(viewModel.chatMessages) { viewModel.chatMessages.lastIndex }
-                    if (lastIndex >= 0) currentBinding.recyclerView.scrollToPosition(lastIndex)
-                }
+                chatV2Renderer?.jumpToNewest()
             }
             is ChatSendResult.Failure -> {
                 if (currentBinding.editText.text.isBlank()) {
@@ -3852,7 +3451,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
         val reply = message.reply?.let {
             com.github.andreyasadchy.xtra.model.chat.Reply(
-                threadParentId = it.parentMessageId.value,
+                threadParentId = it.legacyThreadParentId(),
                 userLogin = it.parentUserLogin,
                 userName = it.parentUserName,
                 message = it.parentMessageBody,
@@ -3897,19 +3496,20 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
         selectedPinnedMessage?.let { pinnedMessage ->
             selectedPinnedMessage = null
-            return if (useChatV2Renderer) {
-                interactionAdapterFactory?.createMessageClickedChatAdapter(
-                    sourceMessages = listOf(pinnedMessage),
-                    selectedMessageOverride = pinnedMessage,
-                )
-            } else {
-                adapter?.createMessageClickedChatAdapter(
-                    selectedMessageOverride = pinnedMessage,
-                )
-            }
+            val pinnedV2 = replayMessageToV2(pinnedMessage)
+            val row = chatV2Renderer?.compileForInteraction(pinnedV2) ?: ChatRowCompiler().compile(pinnedV2)
+            val app = requireContext().applicationContext as XtraApp
+            return interactionAdapterFactory?.createMessageClickedChatAdapter(
+                sourceMessages = listOf(pinnedMessage),
+                selectedMessageOverride = pinnedMessage,
+                v2Rows = listOf(row),
+                v2Assets = app.xtraModule.chatAssetRepository,
+                v2EmoteClick = ::onV2EmoteClick,
+                v2GifClick = ::onV2GifClick,
+            )
         }
         val clicked = selectedV2Message
-        if (!useChatV2Renderer || clicked == null) return adapter?.createMessageClickedChatAdapter()
+        if (clicked == null) return null
         val canonicalMessages = chatV2Renderer?.currentMessages().orEmpty()
         val history = if (clicked.user != null) {
             canonicalMessages.filter { matchesV2MessageUser(it, clicked) }
@@ -3932,7 +3532,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
-        if (!useChatV2Renderer) return adapter?.createReplyClickedChatAdapter()
         val app = requireContext().applicationContext as XtraApp
         return interactionAdapterFactory?.createReplyClickedChatAdapter(
             sourceMessages = chatV2Renderer?.currentMessages().orEmpty().map(::v2MessageToLegacy),
@@ -4032,14 +3631,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         translateMessage(message, chatMessage, tag)
                     }
                     .addOnFailureListener {
-                        val previousTranslation = chatMessage.translatedMessage
                         chatMessage.translatedMessage = getString(R.string.translate_failed_id)
                         chatMessage.translationFailed = true
                         chatMessage.messageLanguage = null
                         syncV2Translation(chatMessage)
-                        adapter?.updateMessageContent(chatMessage)
-                        messageDialog?.updateTranslation(chatMessage, previousTranslation)
-                        replyDialog?.updateTranslation(chatMessage, previousTranslation)
                     }
             }
         }
@@ -4061,45 +3656,33 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         entry.value.close()
                     }
                     translators[sourceLanguage] = it
-                }
+                    }
                 translator.translate(message)
                     .addOnSuccessListener { text ->
                         val languageName = Locale.forLanguageTag(sourceLanguage).displayLanguage
-                        val previousTranslation = chatMessage.translatedMessage
                         chatMessage.translatedMessage = getString(R.string.translated_message, languageName, text)
                         chatMessage.translationFailed = false
                         chatMessage.messageLanguage = null
                         syncV2Translation(chatMessage)
-                        adapter?.updateMessageContent(chatMessage)
-                        messageDialog?.updateTranslation(chatMessage, previousTranslation)
-                        replyDialog?.updateTranslation(chatMessage, previousTranslation)
                     }
                     .addOnFailureListener {
                         val languageName = Locale.forLanguageTag(sourceLanguage).displayLanguage
-                        val previousTranslation = chatMessage.translatedMessage
                         chatMessage.translatedMessage = getString(R.string.translate_failed, languageName)
                         chatMessage.translationFailed = true
                         chatMessage.messageLanguage = sourceLanguage
                         syncV2Translation(chatMessage)
-                        adapter?.updateMessageContent(chatMessage)
-                        messageDialog?.updateTranslation(chatMessage, previousTranslation)
-                        replyDialog?.updateTranslation(chatMessage, previousTranslation)
                     }
             }
         } else {
-            val previousTranslation = chatMessage.translatedMessage
             chatMessage.translatedMessage = getString(R.string.translate_failed_id)
             chatMessage.translationFailed = true
             chatMessage.messageLanguage = null
             syncV2Translation(chatMessage)
-            adapter?.updateMessageContent(chatMessage)
-            messageDialog?.updateTranslation(chatMessage, previousTranslation)
-            replyDialog?.updateTranslation(chatMessage, previousTranslation)
         }
     }
 
     private fun syncV2Translation(chatMessage: ChatMessage) {
-        if (!useChatV2Renderer || chatMessage.id.isNullOrBlank()) return
+        if (chatMessage.id.isNullOrBlank()) return
         chatMessage.translatedMessage?.let { v2Translations[chatMessage.id!!] = it }
             ?: v2Translations.remove(chatMessage.id!!)
         chatV2Renderer?.invalidatePresentation()
@@ -4136,14 +3719,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             translator.translate(message)
                                 .addOnSuccessListener { text ->
                                     val languageName = Locale.forLanguageTag(sourceLanguage).displayLanguage
-                                    val previousTranslation = chatMessage.translatedMessage
                                     chatMessage.translatedMessage = getString(R.string.translated_message, languageName, text)
                                     chatMessage.translationFailed = false
                                     chatMessage.messageLanguage = null
                                     syncV2Translation(chatMessage)
-                                    adapter?.updateMessageContent(chatMessage)
-                                    messageDialog?.updateTranslation(chatMessage, previousTranslation)
-                                    replyDialog?.updateTranslation(chatMessage, previousTranslation)
                                 }
                         }
                     }
@@ -4216,7 +3795,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         chatBackgroundRequest?.dispose()
         chatBackgroundRequest = null
         viewModel.clearV2SessionSource()
-        adapter = null
         interactionAdapterFactory = null
         chatIdentityPopup?.dismiss()
         chatIdentityPopup = null
@@ -4225,7 +3803,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         chatIdentityBadgeUrl = null
         backPressedCallback.remove()
         backPressedCallbackAdded = false
-        _binding?.recyclerView?.removeCallbacks(chatAdapterUpdateRunnable)
         _binding?.recommendationStrip?.adapter = null
         recommendationAdapter?.submitList(emptyList())
         recommendationAdapter = null
@@ -4244,10 +3821,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         currentRecommendationQuery = null
         currentUserRecommendations = emptyList()
         currentUsernameQuery = null
-        chatAdapterUpdatePosted = false
-        chatAdapterReady = false
-        chatSnapshotSyncPending = false
-        pendingChatMutations.clear()
         disposeChannelPointsIconRequest()
         channelPointsBalanceAnimator?.cancel()
         channelPointsBalanceAnimator = null
@@ -4471,37 +4044,5 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
 internal fun shouldCaptureReplayComposerState(mode: ChatViewModel.ActiveChatMode): Boolean =
     mode !is ChatViewModel.ActiveChatMode.VideoReplay
-
-internal enum class ChatMutationAction {
-    IGNORE,
-    APPLY_INCREMENTAL,
-    SYNCHRONIZE_SNAPSHOT,
-}
-
-internal fun expectedChatMutationRevision(
-    displayedRevision: Long,
-    pendingRevision: Long?,
-): Long = pendingRevision ?: displayedRevision
-
-internal fun coalesceChatAppendMutations(
-    mutations: List<ChatViewModel.ChatMutation.Append>,
-): ChatViewModel.ChatMutation.Append {
-    require(mutations.isNotEmpty())
-    return ChatViewModel.ChatMutation.Append(
-        revision = mutations.last().revision,
-        messages = mutations.flatMap { it.messages },
-        trimCount = mutations.sumOf { it.trimCount },
-    )
-}
-
-internal fun chatMutationAction(displayedRevision: Long, mutationRevision: Long): ChatMutationAction =
-    when {
-        mutationRevision <= displayedRevision -> ChatMutationAction.IGNORE
-        mutationRevision == displayedRevision + 1 -> ChatMutationAction.APPLY_INCREMENTAL
-        else -> ChatMutationAction.SYNCHRONIZE_SNAPSHOT
-    }
-
-internal fun shouldSynchronizeChatSnapshot(displayedRevision: Long, snapshotRevision: Long): Boolean =
-    snapshotRevision > displayedRevision
 
 
