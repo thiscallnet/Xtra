@@ -330,7 +330,27 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
     }
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
-        return interactionAdapter?.createReplyClickedChatAdapter()
+        val identity = interactionIdentity ?: return interactionAdapter?.createReplyClickedChatAdapter()
+        val renderer = adapter.renderer(identity) ?: return interactionAdapter?.createReplyClickedChatAdapter()
+        return interactionAdapter?.createReplyClickedChatAdapter(
+            v2Rows = viewModel.snapshot(identity).map { renderer.compile(it.message) },
+            v2Assets = renderer.assets,
+            v2EmoteClick = { interaction ->
+                openImageInteraction(
+                    interaction.url,
+                    interaction.name,
+                    interaction.url?.substringAfterLast('.', "webp"),
+                    interaction.animated,
+                    null,
+                    interaction.provider != ChatAssetProvider.TWITCH,
+                    interaction.id.takeIf { interaction.provider == ChatAssetProvider.TWITCH },
+                )
+            },
+            v2GifClick = { interaction ->
+                ImageClickedDialog.newGifInstance(interaction.url, interaction.description)
+                    .show(childFragmentManager, COMBINED_IMAGE_DIALOG_TAG)
+            },
+        )
     }
 
     override fun onReplyClicked(replyId: String?, userLogin: String?, userName: String?, message: String?) {

@@ -27,6 +27,11 @@ import com.github.andreyasadchy.xtra.model.chat.STVUser
 import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
+import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
+import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
+import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
 import com.github.andreyasadchy.xtra.util.chat.setChatMessageBackground
 import com.github.andreyasadchy.xtra.util.chat.isHighlightedMessage
@@ -86,6 +91,10 @@ class ReplyClickedChatAdapter(
     private val savedLocalEmotes: MutableMap<String, ByteArray>,
     private val loggedInUser: String?,
     var selectedMessage: ChatMessage?,
+    private val v2Rows: List<ChatRowUiModel>? = null,
+    private val v2Assets: ChatAssetRepository? = null,
+    private val v2EmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
+    private val v2GifClick: ((ChatGifInteraction) -> Unit)? = null,
 ) : RecyclerView.Adapter<ReplyClickedChatAdapter.ViewHolder>() {
 
     val threadParentId = selectedMessage?.reply?.threadParentId
@@ -100,13 +109,41 @@ class ReplyClickedChatAdapter(
     var messageClickListener: ((ChatMessage, ChatMessage?) -> Unit)? = null
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        return ViewHolder(LayoutInflater.from(parent.context).inflate(R.layout.chat_list_item, parent, false))
+        val itemView = v2Assets?.let {
+            ChatMessageTextView(parent.context, it).apply {
+                setMessageTextSizeSp(messageTextSize)
+                setAnimateGifs(animateGifs)
+                layoutParams = RecyclerView.LayoutParams(-1, -2)
+            }
+        } ?: LayoutInflater.from(parent.context).inflate(R.layout.chat_list_item, parent, false)
+        return ViewHolder(itemView)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val chatMessage = synchronized(messages) {
             messages.getOrNull(position)
         } ?: return
+        val v2Row = v2Rows?.firstOrNull { it.id.value == chatMessage.id }
+        if (v2Row != null && holder.textView is ChatMessageTextView) {
+            val v2View = holder.textView as ChatMessageTextView
+            v2View.setInteractionCallbacks(
+                onMessageLongClick = null,
+                onEmoteClick = v2EmoteClick,
+                onGifClick = v2GifClick,
+            )
+            v2View.setMessageClickCallback {
+                if (chatMessage != selectedMessage) {
+                    messageClickListener?.invoke(chatMessage, selectedMessage)
+                    selectedMessage = chatMessage
+                    setChatMessageBackground(v2View, R.color.chatMessageSelected)
+                }
+            }
+            v2View.bind(v2Row)
+            if (chatMessage == selectedMessage) {
+                setChatMessageBackground(v2View, R.color.chatMessageSelected)
+            }
+            return
+        }
         val result = ChatAdapterUtils.prepareChatMessage(
             chatMessage, fragment.requireContext(), holder.textView, enableTimestamps, timestampFormat, firstMsgVisibility, firstChatMsg,
             redeemedChatMsg, redeemedNoMsg, replyMessage, { url, name, format, isAnimated, source, thirdParty, emoteId -> imageClick(url, name, format, isAnimated, source, thirdParty, emoteId) },

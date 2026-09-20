@@ -8,7 +8,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import java.util.Random
 
 /**
- * Creates the small legacy-format adapters used inside message/reply dialogs.
+ * Creates the adapters used inside message/reply dialogs.
  *
  * The live timeline is rendered by Chat v2. Keeping this factory separate means those dialogs
  * can retain their existing UI without constructing the legacy timeline adapter for live chat.
@@ -100,6 +100,10 @@ internal class ChatInteractionAdapterFactory(
     fun createReplyClickedChatAdapter(
         sourceMessages: List<ChatMessage> = defaultMessages,
         selectedMessageOverride: ChatMessage? = selectedMessage,
+        v2Rows: List<ChatRowUiModel>? = null,
+        v2Assets: ChatAssetRepository? = null,
+        v2EmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
+        v2GifClick: ((ChatGifInteraction) -> Unit)? = null,
     ): ReplyClickedChatAdapter = ReplyClickedChatAdapter(
         sourceMessages,
         configuration.localTwitchEmotes,
@@ -154,5 +158,9 @@ internal class ChatInteractionAdapterFactory(
         savedLocalEmotes,
         configuration.loggedInUser,
         selectedMessageOverride,
+        v2Rows,
+        v2Assets,
+        v2EmoteClick,
+        v2GifClick,
     )
 }

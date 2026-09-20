@@ -836,7 +836,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         applyChatBackgroundAppearance()
         chatV2ViewportState = restoreChatV2ViewportState(savedInstanceState)
         useChatV2 = false
-        useChatV2Renderer = false
+        useChatV2Renderer = true
         seenPinnedMessageId = savedInstanceState?.getString(KEY_SEEN_PINNED_MESSAGE_ID)
         displayedPinnedMessageId = savedInstanceState?.getString(KEY_DISPLAYED_PINNED_MESSAGE_ID)
         pinnedMessageMinimized = savedInstanceState?.getBoolean(KEY_PINNED_MESSAGE_MINIMIZED) ?: false
@@ -1060,7 +1060,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
                 val isLive = args.getBoolean(KEY_IS_LIVE)
                 useChatV2 = shouldUseChatV2ForLive(isLive, channelId, channelLogin)
-                useChatV2Renderer = useChatV2 || !isLive
+                // V2 is the only timeline renderer. Live sessions with complete identifiers
+                // use the process-owned v2 session; replay and incomplete live inputs use the
+                // same renderer with an external timeline.
+                useChatV2Renderer = true
                 val accountLogin = requireContext().tokenPrefs().getString(C.USERNAME, null)
                 val isLoggedIn = !accountLogin.isNullOrBlank() &&
                         (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -1200,15 +1203,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         emotePopoutMode = emotePopoutMode,
                     )
                     interactionAdapterFactory = ChatInteractionAdapterFactory(interactionConfiguration)
-                    adapter = if (useChatV2Renderer) {
-                        null
-                    } else {
-                        // The initial snapshot is rendered off-main before the adapter is attached.
-                        // This prevents RecyclerView from ever binding an uncached message.
-                        ChatAdapter(initialMessages = emptyList(), configuration = interactionConfiguration).also {
-                            it.onMessagesPublished = ::onChatMessagesPublished
-                        }
-                    }
+                    adapter = null
                     if (useChatV2Renderer) {
                         val app = requireContext().applicationContext as XtraApp
                         val activeSessionSource = if (useChatV2) chatV2ActiveSessions() else emptyFlow()
@@ -3938,8 +3933,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
         if (!useChatV2Renderer) return adapter?.createReplyClickedChatAdapter()
+        val app = requireContext().applicationContext as XtraApp
         return interactionAdapterFactory?.createReplyClickedChatAdapter(
             sourceMessages = chatV2Renderer?.currentMessages().orEmpty().map(::v2MessageToLegacy),
+            v2Rows = chatV2Renderer?.currentRows().orEmpty(),
+            v2Assets = app.xtraModule.chatAssetRepository,
+            v2EmoteClick = ::onV2EmoteClick,
+            v2GifClick = ::onV2GifClick,
         )
     }
 
