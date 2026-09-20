@@ -89,6 +89,8 @@ import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.roundToInt
 
+private val CHAT_INLINE_TOKEN_REGEX = Regex("\\s+|\\S+")
+
 object ChatAdapterUtils {
 
     class ChatImagePrefetchTracker(private val maxEntries: Int = 512) {
@@ -1210,16 +1212,48 @@ object ChatAdapterUtils {
         var wasMentioned = false
         try {
             var builderIndex = startIndex
-            val split = builder.substring(builderIndex).split(" ")
+            // Keep whitespace as tokens. The old split(" ") loop implicitly consumed one
+            // separator in every branch, which made the mutable builder index drift as soon
+            // as a message contained repeated/irregularly separated emotes.
+            val split = CHAT_INLINE_TOKEN_REGEX
+                .findAll(builder.substring(builderIndex))
+                .map { it.value }
+                .toList()
+            var previousWhitespaceLength = 0
             var previousImage: Image? = null
-            val twitchEmotes = chatMessage.emotes?.map {
-                val realBegin = message.offsetByCodePoints(0, it.begin)
-                val realEnd = if (it.begin == realBegin) {
-                    it.end
-                } else {
-                    it.end + realBegin - it.begin
+            fun normalizedTwitchRange(emote: TwitchEmote): Pair<Int, Int>? {
+                fun valid(begin: Int, end: Int): Boolean =
+                    begin >= 0 && end >= begin && end < message.length
+
+                fun looksLikeToken(begin: Int, end: Int): Boolean {
+                    if (!valid(begin, end)) return false
+                    val before = message.getOrNull(begin - 1)
+                    val after = message.getOrNull(end + 1)
+                    return !message.substring(begin, end + 1).isBlank() &&
+                        (before == null || before.isWhitespace()) &&
+                        (after == null || after.isWhitespace())
                 }
-                catalogIndexes.twitchEmotesById[it.id]?.let { emote ->
+
+                val direct = emote.begin to emote.end
+                val codePointAdjusted = runCatching {
+                    val begin = message.offsetByCodePoints(0, emote.begin)
+                    val end = if (emote.begin == begin) {
+                        emote.end
+                    } else {
+                        emote.end + begin - emote.begin
+                    }
+                    begin to end
+                }.getOrNull()
+                val candidates = listOfNotNull(direct, codePointAdjusted).distinct()
+                return candidates.firstOrNull { (begin, end) ->
+                    val token = message.substring(begin, end + 1)
+                    (emote.name.isNullOrBlank() || token == emote.name) && looksLikeToken(begin, end)
+                } ?: candidates.firstOrNull { (begin, end) -> looksLikeToken(begin, end) }
+            }
+
+            val twitchEmotes = chatMessage.emotes?.mapNotNull { sourceEmote ->
+                val (realBegin, realEnd) = normalizedTwitchRange(sourceEmote) ?: return@mapNotNull null
+                catalogIndexes.twitchEmotesById[sourceEmote.id]?.let { emote ->
                     TwitchEmote(
                         id = emote.id,
                         name = emote.name,
@@ -1231,12 +1265,17 @@ object ChatAdapterUtils {
                         setId = emote.setId,
                         ownerId = emote.ownerId
                     )
-                } ?: TwitchEmote(id = it.id, begin = realBegin, end = realEnd)
+                } ?: TwitchEmote(id = sourceEmote.id, begin = realBegin, end = realEnd)
             }?.sortedBy { it.begin }?.toMutableList()
             val personalEmotes = if (showPersonalEmotes) {
                 stvUser?.emoteSetId?.let(catalogIndexes.personalEmotesBySet::get)
             } else null
             for (value in split) {
+                if (value.firstOrNull()?.isWhitespace() == true) {
+                    builderIndex += value.length
+                    previousWhitespaceLength = value.length
+                    continue
+                }
                 if (chatMessage.bits != null) {
                     val bitsCount = value.takeLastWhile { it.isDigit() }
                     val bitsName = value.substringBeforeLast(bitsCount)
@@ -1270,9 +1309,9 @@ object ChatAdapterUtils {
                                 start = builderIndex,
                                 end = builderIndex + 1
                             ))
-                            builderIndex += 1
+                            val bitsStart = builderIndex + 1
                             if (!emote.color.isNullOrBlank()) {
-                                builder.setSpan(ForegroundColorSpan(getSavedColor(emote.color, savedColors, useReadableColors, isLightTheme)), builderIndex, builderIndex + bitsCount.length, SPAN_EXCLUSIVE_EXCLUSIVE)
+                                builder.setSpan(ForegroundColorSpan(getSavedColor(emote.color, savedColors, useReadableColors, isLightTheme)), bitsStart, bitsStart + bitsCount.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                             }
                             if (!twitchEmotes.isNullOrEmpty()) {
                                 val removed = bitsName.length - 1
@@ -1282,7 +1321,8 @@ object ChatAdapterUtils {
                                 }
                             }
                             previousImage = null
-                            builderIndex += bitsCount.length + 1
+                            builderIndex = bitsStart + bitsCount.length
+                            previousWhitespaceLength = 0
                             continue
                         }
                     }
@@ -1290,8 +1330,9 @@ object ChatAdapterUtils {
                 val emote = personalEmotes?.get(value)
                     ?: catalogIndexes.thirdPartyEmotesByName[value]
                 if (emote != null) {
-                    if (emote.isOverlayEmote && enableOverlayEmotes && previousImage != null) {
-                        builder.replace(builderIndex - 1, builderIndex + value.length, "")
+                    if (emote.isOverlayEmote && enableOverlayEmotes && previousImage != null && previousWhitespaceLength > 0) {
+                        val removeStart = builderIndex - previousWhitespaceLength
+                        builder.replace(removeStart, builderIndex + value.length, "")
                         val image = Image(
                             localData = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl)?.first },
                             localDataUrl = emote.localData?.let { getLocalEmoteData(emote.name!!, it, savedLocalEmotes, chatUrl)?.second },
@@ -1310,7 +1351,7 @@ object ChatAdapterUtils {
                             end = previousImage.end
                         )
                         if (!twitchEmotes.isNullOrEmpty()) {
-                            val removed = value.length + 1
+                            val removed = value.length + previousWhitespaceLength
                             twitchEmotes.forEach {
                                 it.begin -= removed
                                 it.end -= removed
@@ -1318,6 +1359,8 @@ object ChatAdapterUtils {
                         }
                         previousImage.overlayEmote = image
                         previousImage = image
+                        builderIndex = removeStart
+                        previousWhitespaceLength = 0
                         continue
                     } else {
                         builder.replace(builderIndex, builderIndex + value.length, ".")
@@ -1357,7 +1400,8 @@ object ChatAdapterUtils {
                             }
                         }
                         previousImage = image
-                        builderIndex += 2
+                        builderIndex += 1
+                        previousWhitespaceLength = 0
                         continue
                     }
                 }
@@ -1421,14 +1465,16 @@ object ChatAdapterUtils {
                         }
                     }
                     previousImage = image
-                    builderIndex += 2
+                    builderIndex += 1
+                    previousWhitespaceLength = 0
                     continue
                 }
                 if (Patterns.WEB_URL.matcher(value).matches()) {
                     val url = if (value.startsWith("http")) value else "https://$value"
                     builder.setSpan(URLSpan(url), builderIndex, builderIndex + value.length, SPAN_EXCLUSIVE_EXCLUSIVE)
                     previousImage = null
-                    builderIndex += value.length + 1
+                    builderIndex += value.length
+                    previousWhitespaceLength = 0
                     continue
                 }
                 if (value.startsWith('@') && useBoldNames) {
@@ -1444,7 +1490,8 @@ object ChatAdapterUtils {
                     wasMentioned = true
                 }
                 previousImage = null
-                builderIndex += value.length + 1
+                builderIndex += value.length
+                previousWhitespaceLength = 0
             }
         } catch (e: Exception) {
 

@@ -22,9 +22,11 @@ import androidx.core.text.getSpans
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.Image
 import com.github.andreyasadchy.xtra.model.chat.ImageKind
 import com.github.andreyasadchy.xtra.model.chat.NamePaint
+import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.ui.view.CenteredImageSpan
 import com.github.andreyasadchy.xtra.ui.view.NamePaintImageSpan
 import com.github.andreyasadchy.xtra.util.chat.ChatAdapterUtils
@@ -38,6 +40,93 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ChatAdapterUtilsInstrumentationTest {
+
+    @Test
+    fun repeatedLegacyEmotesPreserveEverySlotAndSeparator() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val activity = instrumentation.startActivitySync(
+            Intent(instrumentation.targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        ) as MainActivity
+        val fragment = androidx.fragment.app.Fragment()
+        lateinit var adapter: ChatAdapter
+        instrumentation.runOnMainSync {
+            activity.supportFragmentManager.beginTransaction()
+                .add(android.R.id.content, fragment, "legacy-emote-spam")
+                .commitNow()
+            adapter = createDirectTestAdapter(
+                fragment,
+                thirdPartyEmotes = listOf(Emote(name = "spam", source = Emote.GLOBAL_BTTV)),
+            )
+        }
+        val context = activity
+        val message = ChatMessage(
+            type = ChatMessage.USER_MESSAGE,
+            userName = "viewer",
+            message = "spam\tspam  spam",
+        )
+        val holder = adapter.ViewHolder(TextView(context))
+        try {
+            runBlocking { adapter.prepareDirectMessage(message) }
+            adapter.setDirectMessage(message)
+            adapter.onBindViewHolder(holder, 0)
+
+            val content = holder.textView.text as android.text.Spanned
+            val spans = content.getSpans<CenteredImageSpan>(0, content.length)
+            assertEquals("viewer: .\t.  .", content.toString())
+            assertEquals(3, spans.size)
+            assertEquals(listOf(".", ".", "."), spans.map { content.subSequence(content.getSpanStart(it), content.getSpanEnd(it)).toString() })
+        } finally {
+            adapter.releaseDirectViewHolder(holder)
+            instrumentation.runOnMainSync {
+                if (fragment.isAdded) activity.supportFragmentManager.beginTransaction().remove(fragment).commitNow()
+                if (!activity.isFinishing) activity.finish()
+            }
+        }
+    }
+
+    @Test
+    fun legacyTwitchEmotesAfterUnicodeUseTheirActualMessageOffsets() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val activity = instrumentation.startActivitySync(
+            Intent(instrumentation.targetContext, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        ) as MainActivity
+        val fragment = androidx.fragment.app.Fragment()
+        lateinit var adapter: ChatAdapter
+        val twitch = TwitchEmote(id = "25", name = "Kappa")
+        instrumentation.runOnMainSync {
+            activity.supportFragmentManager.beginTransaction()
+                .add(android.R.id.content, fragment, "legacy-unicode-emotes")
+                .commitNow()
+            adapter = createDirectTestAdapter(fragment, localTwitchEmotes = listOf(twitch))
+        }
+        val context = activity
+        val message = ChatMessage(
+            type = ChatMessage.USER_MESSAGE,
+            userName = "viewer",
+            message = "\uD83D\uDE00 Kappa Kappa",
+            // Twitch IRC ranges are UTF-16 offsets: the emoji occupies two code units.
+            emotes = listOf(
+                TwitchEmote(id = "25", begin = 3, end = 7),
+                TwitchEmote(id = "25", begin = 9, end = 13),
+            ),
+        )
+        val holder = adapter.ViewHolder(TextView(context))
+        try {
+            runBlocking { adapter.prepareDirectMessage(message) }
+            adapter.setDirectMessage(message)
+            adapter.onBindViewHolder(holder, 0)
+
+            val content = holder.textView.text as android.text.Spanned
+            assertEquals("viewer: 😀 . .", content.toString())
+            assertEquals(2, content.getSpans<CenteredImageSpan>(0, content.length).size)
+        } finally {
+            adapter.releaseDirectViewHolder(holder)
+            instrumentation.runOnMainSync {
+                if (fragment.isAdded) activity.supportFragmentManager.beginTransaction().remove(fragment).commitNow()
+                if (!activity.isFinishing) activity.finish()
+            }
+        }
+    }
 
     @Test
     fun legacyEmoteLongPressConsumesSpanActionUp() {
@@ -393,10 +482,14 @@ class ChatAdapterUtilsInstrumentationTest {
         )
     }
 
-    private fun createDirectTestAdapter(fragment: androidx.fragment.app.Fragment) = ChatAdapter(
+    private fun createDirectTestAdapter(
+        fragment: androidx.fragment.app.Fragment,
+        localTwitchEmotes: List<TwitchEmote> = emptyList(),
+        thirdPartyEmotes: List<Emote> = emptyList(),
+    ) = ChatAdapter(
         initialMessages = emptyList(),
-        localTwitchEmotes = emptyList(),
-        thirdPartyEmotes = emptyList(),
+        localTwitchEmotes = localTwitchEmotes,
+        thirdPartyEmotes = thirdPartyEmotes,
         globalBadges = emptyList(),
         channelBadges = emptyList(),
         cheerEmotes = emptyList(),
