@@ -56,6 +56,8 @@ import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.fragment.app.viewModels
+import androidx.media3.common.C as Media3C
+import androidx.media3.common.Player
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -132,12 +134,16 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     protected val viewModel: PlayerViewModel by viewModels { PlayerViewModelFactory }
     protected var chatFragment: ChatFragment? = null
     protected open val playbackService: BasePlaybackService? = null
+    protected open fun liveBufferHealthPlayer(): Player? = null
     protected val xtraModule
         get() = (requireContext().applicationContext as XtraApp).xtraModule
     protected open val supportsLiveCaptions: Boolean = false
     protected var started = false
 
     private var nativeSubtitleCues: List<Cue> = emptyList()
+    private val liveBufferHealthTrend = LiveBufferHealthTrend()
+    private var hasEstablishedLiveBufferHealth = false
+    private var lastLiveBufferHealthOffsetMs: Long? = null
 
     private var isPortrait = false
     protected var isMaximized = true
@@ -1580,6 +1586,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             !liveRewindStreamOffline &&
             !liveRewindSwitching &&
             !liveRewindReturningLive
+        val currentPlayer = liveBufferHealthPlayer()
+        updateLiveBufferHealth(
+            player = currentPlayer,
+            shouldShow = !isBehindLive && currentPlayer?.playWhenReady == true,
+        )
         val positionTimeText = if (isBehindLive) {
             DateUtils.formatElapsedTime(displayedPositionMs / 1000L)
         } else {
@@ -1625,6 +1636,89 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             binding.playerControls.liveTimeGroup.isClickable = false
             binding.playerControls.liveTimeGroup.isFocusable = false
         }
+    }
+
+    protected fun updateLiveBufferHealth(
+        player: Player?,
+        shouldShow: Boolean,
+    ) {
+        val nowMs = SystemClock.elapsedRealtime()
+        val isLiveVideo = shouldShow && player?.playWhenReady == true &&
+            player.isCurrentMediaItemLive && player.videoSize.width > 0 && player.videoSize.height > 0
+        if (!isLiveVideo) {
+            hasEstablishedLiveBufferHealth = false
+            lastLiveBufferHealthOffsetMs = null
+            liveBufferHealthTrend.update(null, null, nowMs)
+        }
+        val state = player?.playbackState
+        val currentOffsetMs = player?.currentLiveOffset?.takeIf { it != Media3C.TIME_UNSET && it >= 0L }
+        if (isLiveVideo && state == androidx.media3.common.Player.STATE_READY) {
+            if (player.totalBufferedDuration >= 0L && currentOffsetMs != null) {
+                hasEstablishedLiveBufferHealth = true
+                lastLiveBufferHealthOffsetMs = currentOffsetMs
+            } else {
+                hasEstablishedLiveBufferHealth = false
+                lastLiveBufferHealthOffsetMs = null
+            }
+        }
+        val allowBuffering = isLiveVideo && hasEstablishedLiveBufferHealth &&
+            state == androidx.media3.common.Player.STATE_BUFFERING
+        val reading = if (isLiveVideo && (state == androidx.media3.common.Player.STATE_READY || allowBuffering)) {
+            val offsetMs = currentOffsetMs ?: lastLiveBufferHealthOffsetMs.takeIf { allowBuffering }
+            if (offsetMs != null && player.totalBufferedDuration >= 0L) {
+                lastLiveBufferHealthOffsetMs = currentOffsetMs ?: lastLiveBufferHealthOffsetMs
+                liveBufferHealthTrend.update(player.totalBufferedDuration, offsetMs, nowMs)
+            } else {
+                liveBufferHealthTrend.update(null, null, nowMs)
+            }
+        } else {
+            if (!allowBuffering) {
+                hasEstablishedLiveBufferHealth = false
+                lastLiveBufferHealthOffsetMs = null
+            }
+            liveBufferHealthTrend.update(null, null, nowMs)
+        }
+
+        val healthView = binding.playerControls.bufferHealthGroup
+        val wasVisible = healthView.isVisible
+        if (reading == null) {
+            healthView.visibility = View.GONE
+        } else {
+            val trendSuffix = if (reading.isDecreasing) "↓" else ""
+            healthView.visibility = View.VISIBLE
+            healthView.text = "${reading.bufferSeconds}s$trendSuffix / ${reading.liveOffsetSeconds}s"
+            val buffered = resources.getQuantityString(
+                R.plurals.player_buffered_seconds,
+                reading.bufferSeconds,
+                reading.bufferSeconds,
+            )
+            val trendDescription = if (reading.isDecreasing) {
+                getString(R.string.player_buffer_decreasing)
+            } else {
+                ""
+            }
+            val behindLive = resources.getQuantityString(
+                R.plurals.player_live_behind_seconds,
+                reading.liveOffsetSeconds,
+                reading.liveOffsetSeconds,
+            )
+            healthView.contentDescription = getString(
+                R.string.player_buffer_health_description,
+                buffered,
+                trendDescription,
+                behindLive,
+            )
+        }
+        if (healthView.isVisible != wasVisible) {
+            binding.playerControls.root.refreshAvailabilityIfChanged()
+        }
+    }
+
+    protected fun resetLiveBufferHealth() {
+        hasEstablishedLiveBufferHealth = false
+        lastLiveBufferHealthOffsetMs = null
+        liveBufferHealthTrend.reset()
+        if (view != null) binding.playerControls.bufferHealthGroup.visibility = View.GONE
     }
 
     private fun updateLiveRewindUi() {

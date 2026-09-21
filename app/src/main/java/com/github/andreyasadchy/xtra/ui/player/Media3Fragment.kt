@@ -8,6 +8,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.SurfaceView
@@ -26,6 +27,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.common.Format
 import androidx.media3.common.C as Media3C
+import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -102,6 +104,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     private var renderedPositionSecond = Long.MIN_VALUE
     private var renderedDurationMs = Long.MIN_VALUE
     private var renderedPlaybackChrome: PlaybackChromeState? = null
+    private val liveBufferHealthTrend = LiveBufferHealthTrend()
+    private var hasEstablishedLiveBufferHealth = false
+    private var lastLiveBufferHealthOffsetMs: Long? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
     private val useTextureVideoOutput = USE_TEXTURE_VIDEO_OUTPUT
     private val videoOutputOwner = VideoOutputOwner<Player, View>(
@@ -265,6 +270,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             }
             logVideoSurfaceBinding("controller_connected", controller, videoOutputView)
             val listener = object : Player.Listener {
+
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    resetLiveBufferHealth()
+                    updateProgress()
+                }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {
@@ -1139,6 +1149,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     override fun updateProgress() {
+        val currentPlayer = player
+        updateLiveBufferHealth(
+            currentPlayer,
+            shouldShow = videoType == BasePlaybackService.STREAM &&
+                !isLiveRewindActiveOrSwitching() && currentPlayer?.playWhenReady == true,
+        )
         if (isLiveRewindAvailable()) {
             updateLiveRewindProgress()
             return
@@ -1151,7 +1167,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 progressBar.setBufferedPosition(player?.bufferedPosition ?: 0)
                 root.removeCallbacks(updateProgressAction)
                 player?.let { player ->
-                    if (player.isPlaying) {
+                    if (player.playWhenReady && (player.isPlaying || player.playbackState == Player.STATE_BUFFERING)) {
                         val speed = player.playbackParameters.speed
                         val delay = if (speed > 0f) {
                             (progressBar.preferredUpdateDelay / speed).toLong().coerceIn(200L..1000L)
@@ -1163,6 +1179,85 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 }
             }
         }
+    }
+
+    private fun updateLiveBufferHealth(
+        currentPlayer: Player?,
+        shouldShow: Boolean,
+    ) {
+        val nowMs = SystemClock.elapsedRealtime()
+        val isLiveVideo = shouldShow && currentPlayer?.playWhenReady == true &&
+            currentPlayer.isCurrentMediaItemLive &&
+            currentPlayer.videoSize.width > 0 && currentPlayer.videoSize.height > 0
+        if (!isLiveVideo) {
+            resetLiveBufferHealth()
+            liveBufferHealthTrend.update(null, null, nowMs)
+        }
+        val state = currentPlayer?.playbackState
+        val currentOffsetMs = currentPlayer?.currentLiveOffset?.takeIf { it != Media3C.TIME_UNSET && it >= 0L }
+        if (isLiveVideo && state == Player.STATE_READY) {
+            if (currentPlayer.totalBufferedDuration >= 0L && currentOffsetMs != null) {
+                hasEstablishedLiveBufferHealth = true
+                lastLiveBufferHealthOffsetMs = currentOffsetMs
+            } else {
+                hasEstablishedLiveBufferHealth = false
+                lastLiveBufferHealthOffsetMs = null
+            }
+        }
+        val allowBuffering = isLiveVideo && hasEstablishedLiveBufferHealth && state == Player.STATE_BUFFERING
+        val reading = if (isLiveVideo && (state == Player.STATE_READY || allowBuffering)) {
+            val offsetMs = currentOffsetMs ?: lastLiveBufferHealthOffsetMs.takeIf { allowBuffering }
+            if (offsetMs != null && currentPlayer.totalBufferedDuration >= 0L) {
+                lastLiveBufferHealthOffsetMs = currentOffsetMs ?: lastLiveBufferHealthOffsetMs
+                liveBufferHealthTrend.update(currentPlayer.totalBufferedDuration, offsetMs, nowMs)
+            } else {
+                liveBufferHealthTrend.update(null, null, nowMs)
+            }
+        } else {
+            if (!allowBuffering) resetLiveBufferHealth()
+            liveBufferHealthTrend.update(null, null, nowMs)
+        }
+
+        val healthView = binding.playerControls.bufferHealthGroup
+        val wasVisible = healthView.isVisible
+        if (reading == null) {
+            healthView.visibility = View.GONE
+        } else {
+            healthView.visibility = View.VISIBLE
+            val trendSuffix = if (reading.isDecreasing) "↓" else ""
+            healthView.text = "${reading.bufferSeconds}s$trendSuffix / ${reading.liveOffsetSeconds}s"
+            val buffered = resources.getQuantityString(
+                R.plurals.player_buffered_seconds,
+                reading.bufferSeconds,
+                reading.bufferSeconds,
+            )
+            val trendDescription = if (reading.isDecreasing) {
+                getString(R.string.player_buffer_decreasing)
+            } else {
+                ""
+            }
+            val behindLive = resources.getQuantityString(
+                R.plurals.player_live_behind_seconds,
+                reading.liveOffsetSeconds,
+                reading.liveOffsetSeconds,
+            )
+            healthView.contentDescription = getString(
+                R.string.player_buffer_health_description,
+                buffered,
+                trendDescription,
+                behindLive,
+            )
+        }
+        if (healthView.isVisible != wasVisible) {
+            binding.playerControls.root.refreshAvailabilityIfChanged()
+        }
+    }
+
+    private fun resetLiveBufferHealth() {
+        hasEstablishedLiveBufferHealth = false
+        lastLiveBufferHealthOffsetMs = null
+        liveBufferHealthTrend.reset()
+        if (view != null) binding.playerControls.bufferHealthGroup.visibility = View.GONE
     }
 
     private data class PlaybackChromeState(

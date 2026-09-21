@@ -814,6 +814,16 @@ Metadata text</string>
     <string name="player_playing">Playing</string>
     <string name="player_viewers">%1$s. Open viewer list</string>
     <string name="player_position">Position %1$s</string>
+    <string name="player_buffer_decreasing">, decreasing</string>
+    <string name="player_buffer_health_description">%1$s%2$s; %3$s.</string>
+    <plurals name="player_buffered_seconds">
+        <item quantity="one">1 second buffered</item>
+        <item quantity="other">%d seconds buffered</item>
+    </plurals>
+    <plurals name="player_live_behind_seconds">
+        <item quantity="one">1 second behind live</item>
+        <item quantity="other">%d seconds behind live</item>
+    </plurals>
     <string name="player_uptime">Stream uptime %1$s</string>
     <string name="player_duration">Duration %1$s</string>
     <string name="player_lock_controls">Lock player controls</string>

@@ -1598,7 +1598,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         val frame = frames[id] ?: return@filterTo false
         when (id) {
             HudElementId.STREAM_INFO -> listOf(R.id.channelAvatar, R.id.channel, R.id.title, R.id.category, R.id.viewersLayout).any(::isShown)
-            HudElementId.TIME_STATUS -> isShown(R.id.liveTimeGroup)
+            HudElementId.TIME_STATUS -> isShown(R.id.liveTimeGroup) || isShown(R.id.bufferHealthGroup)
             HudElementId.CAPTIONS -> listOf(R.id.liveCaptions, R.id.subtitles).any(::isShown)
             else -> hasBoundAction(frame)
         }
@@ -1828,6 +1828,11 @@ class PlayerHudLayout @JvmOverloads constructor(
             text = PREVIEW_LIVE_TIME
             contentDescription = context.getString(R.string.player_position, PREVIEW_LIVE_TIME)
         }
+        findViewById<TextView>(R.id.bufferHealthGroup)?.apply {
+            visibility = VISIBLE
+            text = "5s↓ / 8s"
+            contentDescription = "5 seconds buffered, decreasing, 8 seconds behind live"
+        }
         findViewById<HudTimelineContent>(R.id.timelineContent)?.apply {
             setLiveRewindEnabled(true)
         }
@@ -1836,6 +1841,7 @@ class PlayerHudLayout @JvmOverloads constructor(
     private fun restoreRuntimeContent() {
         findViewById<View>(R.id.channelAvatar)?.background = null
         findViewById<View>(R.id.liveTimeGroup)?.visibility = GONE
+        findViewById<View>(R.id.bufferHealthGroup)?.visibility = GONE
         findViewById<HudTimelineContent>(R.id.timelineContent)?.setLiveRewindEnabled(false)
         refreshAvailability()
     }

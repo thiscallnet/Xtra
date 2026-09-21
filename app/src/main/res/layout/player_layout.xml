@@ -189,10 +189,15 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:tag="TIME_STATUS">
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="40dp">
         <TextView
             android:id="@+id/liveTimeGroup"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
             android:fontFeatureSettings="tnum"
             android:gravity="center_vertical|start"
             android:includeFontPadding="false"
@@ -206,6 +211,20 @@
             android:textSize="12sp"
             android:visibility="gone"
             tools:text="32:23 · LIVE" />
+        <TextView
+            android:id="@+id/bufferHealthGroup"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:fontFeatureSettings="tnum"
+            android:gravity="center_vertical|start"
+            android:includeFontPadding="false"
+            android:maxLines="1"
+            android:textColor="@android:color/white"
+            android:textSize="11sp"
+            android:visibility="gone"
+            tools:text="5s↓ / 8s" />
+        </FrameLayout>
     </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 
     <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="SEEK_BACK">

@@ -26,6 +26,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.StatFs
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import android.view.KeyEvent
@@ -52,6 +53,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsManifest
@@ -80,6 +82,9 @@ import com.github.andreyasadchy.xtra.ui.player.clip.HlsClipSnapshotMapper
 import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
+import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
+import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackSpeedControl
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.MediaButtonReceiver
 import com.github.andreyasadchy.xtra.util.NetworkUtils
@@ -165,6 +170,9 @@ class ExoPlayerService : BasePlaybackService() {
     private var vodClipSnapshot: ClipSnapshot? = null
     private var vodClipPreparation: Deferred<ClipPreparationRepository.PreparedLiveClip>? = null
     private val diagnostics = PlaybackVideoDiagnosticsStore()
+    private var adaptiveLiveController: AdaptiveLivePlaybackController? = null
+    private var adaptiveLiveSpeedControl: AdaptiveLivePlaybackSpeedControl? = null
+    private var adaptiveLiveSampleJob: Job? = null
 
     private data class PlaybackSourceSnapshot(
         val sourceUrl: String,
@@ -238,6 +246,14 @@ class ExoPlayerService : BasePlaybackService() {
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     diagnostics.resetForNewMedia()
+                    adaptiveLiveController?.reset(
+                        initialPolicy = LivePlaybackPolicies.forLowLatency(
+                            prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                        ),
+                        enabled = type == STREAM &&
+                            prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                    )
+                    applyAdaptiveLivePolicy()
                     if (mediaItem != null) {
                         diagnostics.update {
                             it.copy(
@@ -644,6 +660,15 @@ class ExoPlayerService : BasePlaybackService() {
                     }
                 }
             }
+            val initialLivePolicy = LivePlaybackPolicies.forLowLatency(
+                prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+            )
+            val adaptiveEnabled = type == STREAM && initialLivePolicy.lowLatency
+            adaptiveLiveController = AdaptiveLivePlaybackController(initialLivePolicy, adaptiveEnabled)
+            adaptiveLiveSpeedControl = AdaptiveLivePlaybackSpeedControl(
+                DefaultLivePlaybackSpeedControl.Builder().build(),
+            )
+            applyAdaptiveLivePolicy()
             val player = ExoPlayer.Builder(this).apply {
                 setRenderersFactory(
                     LiveCaptionRenderersFactory(
@@ -653,16 +678,37 @@ class ExoPlayerService : BasePlaybackService() {
                     ),
                 )
                 setLoadControl(
-                    LivePlaybackPolicies.forLowLatency(
-                        prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
-                    ).buffers.buildLoadControl()
+                    if (adaptiveEnabled) {
+                        AdaptiveLiveLoadControl(
+                            controller = adaptiveLiveController!!,
+                            initialPolicy = initialLivePolicy,
+                            onPolicyChanged = ::applyAdaptiveLivePolicy,
+                        )
+                    } else {
+                        initialLivePolicy.buffers.buildLoadControl()
+                    }
                 )
+                setLivePlaybackSpeedControl(adaptiveLiveSpeedControl!!)
                 setAudioAttributes(AudioAttributes.DEFAULT, prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false))
                 setHandleAudioBecomingNoisy(true)
                 setSeekBackIncrementMs((prefs().getString(C.PLAYER_REWIND, "10")?.toLongOrNull() ?: 10) * 1000)
                 setSeekForwardIncrementMs((prefs().getString(C.PLAYER_FORWARD, "10")?.toLongOrNull() ?: 10) * 1000)
             }.build()
             this.player = player
+            adaptiveLiveSampleJob = lifecycleScope.launch {
+                while (true) {
+                    delay(5_000L)
+                    val currentPlayer = this@ExoPlayerService.player ?: continue
+                    if (type == STREAM && currentPlayer.isCurrentWindowLive && currentPlayer.isPlaying) {
+                        adaptiveLiveController?.onStableSample(
+                            bufferedMs = currentPlayer.totalBufferedDuration,
+                            realtimeMs = SystemClock.elapsedRealtime(),
+                        )?.let { changed ->
+                            if (changed) applyAdaptiveLivePolicy()
+                        }
+                    }
+                }
+            }
             player.addListener(playerListener)
             player.addAnalyticsListener(object : AnalyticsListener {
                 override fun onVideoDecoderInitialized(
@@ -784,6 +830,11 @@ class ExoPlayerService : BasePlaybackService() {
             }
             start(restorePauseState)
         }
+    }
+
+    private fun applyAdaptiveLivePolicy() {
+        val targetOffsetMs = adaptiveLiveController?.currentPolicy()?.targetOffsetMs ?: return
+        adaptiveLiveSpeedControl?.setAdaptiveTargetLiveOffsetUs(targetOffsetMs * 1_000L)
     }
 
     private fun start(restorePauseState: Boolean) {
@@ -3029,6 +3080,8 @@ class ExoPlayerService : BasePlaybackService() {
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
         primaryStreamRestoreJob = null
+        adaptiveLiveSampleJob?.cancel()
+        adaptiveLiveSampleJob = null
         adController.reset()
         videoOutputState.clear()
         player?.release()

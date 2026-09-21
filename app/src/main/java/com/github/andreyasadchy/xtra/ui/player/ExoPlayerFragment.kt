@@ -28,6 +28,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionParameters
@@ -64,6 +65,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
     override val supportsLiveClipping = true
     override val supportsLiveCaptions = true
     override var playbackService: ExoPlayerService? = null
+    override fun liveBufferHealthPlayer(): Player? = playbackService?.player
     private var serviceConnection: ServiceConnection? = null
     private var playerListener: Player.Listener? = null
     private var serviceSetupJob: Job? = null
@@ -188,6 +190,11 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
         super.onStart()
         logVideoSurfaceBinding("on_start", playbackService?.player, videoOutputView)
         val listener = object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                resetLiveBufferHealth()
+                updateProgress()
+            }
+
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
                     onLiveRewindPlaybackError()
@@ -980,6 +987,11 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
             updateLiveRewindProgress()
             return
         }
+        updateLiveBufferHealth(
+            player = playbackService?.player,
+            shouldShow = playbackService?.type == BasePlaybackService.STREAM &&
+                playbackService?.player?.playWhenReady == true,
+        )
         with(binding.playerControls) {
             if (root.isVisible && !progressBar.isPressed) {
                 val currentPosition = playbackService?.player?.currentPosition ?: 0
@@ -989,7 +1001,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                 progressBar.setBufferedPosition(playbackService?.player?.bufferedPosition ?: 0)
                 root.removeCallbacks(updateProgressAction)
                 playbackService?.player?.let { player ->
-                    if (player.isPlaying) {
+                    if (player.playWhenReady && (player.isPlaying || player.playbackState == Player.STATE_BUFFERING)) {
                         val speed = player.playbackParameters.speed
                         val delay = if (speed > 0f) {
                             (progressBar.preferredUpdateDelay / speed).toLong().coerceIn(200L..1000L)

@@ -257,6 +257,11 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # Player accessibility status is currently English-only until translated.
     "player_playing",
     "player_move_chat",
+    # Live playback status is currently English-only until translated.
+    "player_buffered_seconds",
+    "player_live_behind_seconds",
+    "player_buffer_decreasing",
+    "player_buffer_health_description",
     # Live-rewind labels currently use the default English wording until
     # their translations are reviewed by native speakers.
     "player_live_tap_seek_back",
