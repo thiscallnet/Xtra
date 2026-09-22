@@ -4,11 +4,13 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.text.SpannableStringBuilder
+import android.text.style.StyleSpan
 import android.text.format.DateUtils
 import android.text.method.LinkMovementMethod
 import android.text.util.Linkify
@@ -397,6 +399,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var composerOverlayState: ComposerOverlayState? = null
     private var pendingComposerText: String? = null
     private var composerSubmissionInProgress = false
+    private var moderatorActionInFlight = false
     private var compactPickerPreferenceListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     private var pendingChatSendResult: ChatSendResult? = null
 
@@ -448,6 +451,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
     private var recommendationAdapter: EmoteRecommendationAdapter? = null
     private var userRecommendationAdapter: ChatUserRecommendationAdapter? = null
+    private var commandRecommendationAdapter: ChatCommandSuggestionAdapter? = null
     private var emoteAutocompleteEnabled = true
     private var emoteRecommendationsEnabled = true
     private var usernameRecommendationsEnabled = true
@@ -459,6 +463,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var currentRecommendationQuery: String? = null
     private var currentUserRecommendations = emptyList<UsernameRecommendation>()
     private var currentUsernameQuery: String? = null
+    private var currentCommandRecommendations = emptyList<ChatCommandDescriptor>()
 
     private data class RecommendationInput(
         val text: String = "",
@@ -1165,6 +1170,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             recommendationStrip.adapter = null
                             recommendationStrip.isVisible = false
                         }
+                        commandRecommendationAdapter = ChatCommandSuggestionAdapter(
+                            clickListener = ::insertRecommendedCommand,
+                        )
+                        commandRecommendationStrip.layoutManager = LinearLayoutManager(
+                            requireContext(),
+                            LinearLayoutManager.HORIZONTAL,
+                            false,
+                        )
+                        commandRecommendationStrip.adapter = commandRecommendationAdapter
                         if (usernameRecommendationsEnabled) {
                             ensureUserRecommendationAdapter()
                         } else {
@@ -1288,13 +1302,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }
                         }
                         editText.addTextChangedListener(onTextChanged = { text, _, _, _ ->
+                            updateCommandRecommendations()
                             if (emoteRecommendationsEnabled || usernameRecommendationsEnabled) updateRecommendationInput()
                             chatInputEmoteRenderer?.render()
                             updateComposerButtons()
                         })
                         editText.onSelectionChangedListener = { _, _ ->
+                            updateCommandRecommendations()
                             if (emoteRecommendationsEnabled || usernameRecommendationsEnabled) updateRecommendationInput()
                         }
+                        updateCommandRecommendations()
                         if (emoteRecommendationsEnabled || usernameRecommendationsEnabled) updateRecommendationInput()
                         editText.setTokenizer(SpaceTokenizer())
                         editText.setOnKeyListener { _, keyCode, event ->
@@ -2507,6 +2524,64 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         updateRecommendationInput()
     }
 
+    private fun updateCommandRecommendations() {
+        val currentBinding = _binding ?: return
+        val input = currentBinding.editText.text
+        val token = ChatInputToken.aroundCursor(input, currentBinding.editText.selectionStart)
+        val commandToken = token?.takeIf { it.start == 0 && it.text.startsWith('/') }
+        currentBinding.editText.suppressAutocomplete = commandToken != null
+        if (commandToken != null) currentBinding.editText.dismissDropDown()
+        val recommendations = commandToken?.let {
+            ChatCommandCatalog.suggestions(it.text, viewModel.hasCurrentModeratorRole())
+        }.orEmpty()
+        currentCommandRecommendations = recommendations
+        commandRecommendationAdapter?.submitList(recommendations)
+        updateRecommendationVisibility()
+    }
+
+    private fun insertRecommendedCommand(command: ChatCommandDescriptor) {
+        val current = binding.editText
+        val token = ChatInputToken.aroundCursor(current.text, current.selectionStart)
+            ?.takeIf { it.start == 0 && it.text.startsWith('/') }
+            ?: return
+        val replacement = ChatInputToken.replaceRange(
+            text = current.text,
+            start = token.start,
+            end = token.end,
+            replacement = command.name,
+            cursor = current.selectionStart,
+        ) ?: return
+        current.setText(replacement.text)
+        current.setSelection(replacement.cursor.coerceIn(0, current.length()))
+        updateCommandRecommendations()
+    }
+
+    private fun showChatCommandHelp() {
+        val body = SpannableStringBuilder()
+        fun appendSection(title: String) {
+            if (body.isNotEmpty()) body.append('\n')
+            val start = body.length
+            body.append(title).append('\n')
+            body.setSpan(StyleSpan(Typeface.BOLD), start, body.length - 1, 0)
+        }
+        fun appendCommand(command: ChatCommandDescriptor) {
+            body.append(command.usage).append('\n')
+            body.append("  ").append(getString(command.descriptionResource)).append('\n')
+        }
+
+        appendSection(getString(R.string.chat_command_help_available_heading))
+        ChatCommandCatalog.executable.forEach(::appendCommand)
+        appendSection(getString(R.string.chat_command_help_moderation_heading))
+        ChatCommandCatalog.moderator.forEach(::appendCommand)
+        body.append('\n').append(getString(R.string.chat_command_help_unavailable_note))
+
+        requireContext().getAlertDialogBuilder()
+            .setTitle(R.string.chat_command_help_title)
+            .setMessage(body)
+            .setPositiveButton(R.string.chat_command_help_close, null)
+            .show()
+    }
+
     private fun ensureUserRecommendationAdapter() {
         if (userRecommendationAdapter != null) return
         val currentBinding = _binding ?: return
@@ -2533,11 +2608,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun updateRecommendationVisibility() {
         val currentBinding = _binding ?: return
         val visible = messagingEnabled && currentBinding.messageView.isVisible
-        val showUserRecommendations = usernameRecommendationsEnabled &&
+        val showCommandRecommendations = currentCommandRecommendations.isNotEmpty() && visible
+        val showUserRecommendations = !showCommandRecommendations && usernameRecommendationsEnabled &&
                 currentUserRecommendations.isNotEmpty() &&
                 visible
+        currentBinding.commandRecommendationStrip.isVisible = showCommandRecommendations
         currentBinding.userRecommendationStrip.isVisible = showUserRecommendations
-        currentBinding.recommendationStrip.isVisible = !showUserRecommendations &&
+        currentBinding.recommendationStrip.isVisible = !showCommandRecommendations &&
+                !showUserRecommendations &&
                 emoteRecommendationsEnabled &&
                 currentRecommendations.isNotEmpty() &&
                 visible
@@ -3222,7 +3300,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         "${drop.id}:${drop.isClaimable}"
 
     private fun sendMessage(replyId: String? = null): Boolean {
-        if (!messagingEnabled || composerSubmissionInProgress) return false
+        if (!messagingEnabled || composerSubmissionInProgress || moderatorActionInFlight) return false
         with(binding) {
             val overlay = composerOverlayState
             if (overlay != null) {
@@ -3257,13 +3335,31 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }
                 return true
             }
+            val text = EmojiPickerCatalog.replaceAliases(editText.text).trim()
+            if (text.equals("/help", ignoreCase = true)) {
+                (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .hideSoftInputFromWindow(editText.windowToken, 0)
+                editText.clearFocus()
+                toggleEmoteMenu(false)
+                editText.text.clear()
+                showChatCommandHelp()
+                updateComposerButtons()
+                return true
+            }
+            if (ChatCommandCatalog.isModeratorCommand(text)) {
+                if (!requireContext().prefs().getBoolean(C.DEBUG_API_COMMANDS, true)) {
+                    Snackbar.make(binding.root, R.string.chat_api_commands_disabled, Snackbar.LENGTH_LONG).show()
+                    return true
+                }
+                showModeratorCommandConfirmation(text)
+                return true
+            }
             if (viewModel.isSlowModeBlocked()) {
                 return false
             }
             (requireContext().getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager).hideSoftInputFromWindow(editText.windowToken, 0)
             editText.clearFocus()
             toggleEmoteMenu(false)
-            val text = EmojiPickerCatalog.replaceAliases(editText.text).trim()
             return if (text.isNotEmpty()) {
                 pendingChatSubmission = PendingChatSubmission(text = text, replyId = replyId)
                 composerSubmissionInProgress = true
@@ -3530,6 +3626,93 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             v2GifClick = ::onV2GifClick,
         )
     }
+
+    private fun showModeratorCommandConfirmation(text: String) {
+        val parts = text.trim().split(Regex("\\s+"), limit = 4)
+        if (parts.size < 2) {
+            Snackbar.make(binding.root, R.string.chat_command_requires_username, Snackbar.LENGTH_LONG).show()
+            return
+        }
+        val command = parts[0].lowercase(Locale.ROOT)
+        val targetLogin = parts[1].removePrefix("@").lowercase(Locale.ROOT)
+        val durationToken = parts.getOrNull(2)
+        val request = when (command) {
+            "/ban" -> ChatModeratorActionRequest(
+                action = ChatModeratorAction.BAN,
+                targetLogin = targetLogin,
+                reason = parts.drop(2).joinToString(" ").takeIf(String::isNotBlank),
+            )
+            "/unban", "/untimeout" -> ChatModeratorActionRequest(
+                action = ChatModeratorAction.REMOVE,
+                targetLogin = targetLogin,
+            )
+            "/timeout" -> {
+                val isDuration = durationToken != null &&
+                    durationToken in resources.getStringArray(R.array.moderator_timeout_durations)
+                if (durationToken != null && !isDuration && durationToken.matches(Regex("\\d+[smhd]"))) {
+                    Snackbar.make(
+                        binding.root,
+                        R.string.chat_command_timeout_duration_invalid,
+                        Snackbar.LENGTH_LONG,
+                    ).show()
+                    return
+                }
+                ChatModeratorActionRequest(
+                    action = ChatModeratorAction.TIMEOUT,
+                    targetLogin = targetLogin,
+                    duration = if (isDuration) durationToken else "10m",
+                    reason = if (isDuration) parts.getOrNull(3) else parts.drop(2).joinToString(" ").takeIf(String::isNotBlank),
+                )
+            }
+            else -> return
+        }
+        val displayName = targetLogin
+        val (title, message) = when (request.action) {
+            ChatModeratorAction.BAN -> R.string.moderator_action_confirm_ban_title to
+                getString(R.string.moderator_action_confirm_ban_message, displayName)
+            ChatModeratorAction.TIMEOUT -> R.string.moderator_action_confirm_timeout_title to
+                getString(R.string.moderator_action_confirm_timeout_message, displayName, request.duration.orEmpty())
+            ChatModeratorAction.REMOVE -> R.string.moderator_action_confirm_remove_title to
+                getString(R.string.moderator_action_confirm_remove_message, displayName)
+        }
+        requireContext().getAlertDialogBuilder()
+            .setTitle(title)
+            .setMessage(message)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                if (!viewModel.hasCurrentModeratorRole()) {
+                    Snackbar.make(binding.root, R.string.moderator_action_could_not_verify, Snackbar.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                moderatorActionInFlight = true
+                binding.send.isEnabled = false
+                viewLifecycleOwner.lifecycleScope.launch {
+                    try {
+                        when (val result = viewModel.performModeratorAction(request)) {
+                            ChatModeratorActionResult.Success -> {
+                                if (binding.editText.text.toString().trim() == text.trim()) binding.editText.text.clear()
+                                Snackbar.make(binding.root, R.string.moderator_action_success, Snackbar.LENGTH_LONG).show()
+                            }
+                            is ChatModeratorActionResult.Failure ->
+                                Snackbar.make(
+                                    binding.root,
+                                    getString(R.string.moderator_action_failed, result.message),
+                                    Snackbar.LENGTH_LONG,
+                                ).show()
+                        }
+                    } finally {
+                        moderatorActionInFlight = false
+                        if (_binding != null) binding.send.isEnabled = true
+                    }
+                }
+            }
+            .show()
+    }
+
+    override fun onCurrentChatViewerRole() = viewModel.viewerRoleInChannel
+
+    override suspend fun onModeratorAction(request: ChatModeratorActionRequest) =
+        viewModel.performModeratorAction(request)
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
         val app = requireContext().applicationContext as XtraApp
@@ -3804,6 +3987,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         backPressedCallback.remove()
         backPressedCallbackAdded = false
         _binding?.recommendationStrip?.adapter = null
+        _binding?.commandRecommendationStrip?.adapter = null
+        commandRecommendationAdapter?.submitList(emptyList())
+        commandRecommendationAdapter = null
         recommendationAdapter?.submitList(emptyList())
         recommendationAdapter = null
         _binding?.userRecommendationStrip?.adapter = null
@@ -3819,6 +4005,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         chatInputEmoteRenderer = null
         currentRecommendations = emptyList()
         currentRecommendationQuery = null
+        currentCommandRecommendations = emptyList()
         currentUserRecommendations = emptyList()
         currentUsernameQuery = null
         disposeChannelPointsIconRequest()

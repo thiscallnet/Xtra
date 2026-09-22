@@ -228,6 +228,17 @@
         </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/commandRecommendationStrip"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:background="?attr/colorSurfaceContainer"
+            android:clipToPadding="false"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone"
+            tools:listitem="@layout/item_chat_command_suggestion" />
+
+        <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recommendationStrip"
             android:layout_width="match_parent"
             android:layout_height="56dp"

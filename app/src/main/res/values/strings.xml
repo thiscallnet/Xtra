@@ -960,6 +960,30 @@ Metadata text</string>
     <string name="user_card_follow">Follow</string>
     <string name="user_card_unfollow">Unfollow</string>
     <string name="user_card_whisper">Whisper</string>
+    <string name="user_card_moderator_tools">Moderator tools</string>
+    <string name="moderator_tools_title">Moderator tools</string>
+    <string name="moderator_action_timeout">Timeout…</string>
+    <string name="moderator_action_ban">Ban…</string>
+    <string name="moderator_action_remove">Remove ban or timeout…</string>
+    <string name="moderator_action_confirm_ban_title">Ban user?</string>
+    <string name="moderator_action_confirm_ban_message">Ban %1$s from this chat?</string>
+    <string name="moderator_action_confirm_timeout_title">Timeout user?</string>
+    <string name="moderator_action_confirm_timeout_message">Timeout %1$s for %2$s?</string>
+    <string name="moderator_action_confirm_remove_title">Remove ban or timeout?</string>
+    <string name="moderator_action_confirm_remove_message">Allow %1$s to chat again?</string>
+    <string name="moderator_action_reason_hint">Reason (optional)</string>
+    <string name="moderator_action_timeout_title">Choose timeout duration</string>
+    <string name="moderator_action_success">Moderator action completed.</string>
+    <string name="moderator_action_rejected">Twitch rejected the moderator action.</string>
+    <string name="moderator_action_failed">Could not apply moderator action: %1$s</string>
+    <string name="moderator_action_could_not_verify">Couldn’t verify your moderator access for this live chat.</string>
+    <string-array name="moderator_timeout_durations" translatable="false">
+        <item>10s</item>
+        <item>1m</item>
+        <item>10m</item>
+        <item>1h</item>
+        <item>1d</item>
+    </string-array>
     <string name="user_card_follow_failed">Couldn’t update follow status</string>
     <string name="user_partner">Partner</string>
     <string name="user_affiliate">Affiliate</string>
@@ -983,6 +1007,23 @@ Metadata text</string>
     <string name="show_copy_fullmsg">Copy full IRC messages</string>
     <string name="chat_disconnect">Disconnecting from %1$s - %2$s</string>
     <string name="chat_send_msg_error">Error sending message - %s</string>
+    <string name="chat_command_help_title">Chat commands</string>
+    <string name="chat_command_help_available_heading">Available</string>
+    <string name="chat_command_help_moderation_heading">Moderator commands</string>
+    <string name="chat_command_help_suggestion">Show chat command help</string>
+    <string name="chat_command_me_suggestion">Send an action message</string>
+    <string name="chat_command_ban_help">Permanently block a user from this chat.</string>
+    <string name="chat_command_unban_help">Remove a user’s ban from this chat.</string>
+    <string name="chat_command_timeout_help">Temporarily restrict a user. Durations: 10s, 1m, 10m, 1h, or 1d.</string>
+    <string name="chat_command_untimeout_help">Remove a timeout from a user.</string>
+    <string name="chat_command_requires_username">Command requires a username.</string>
+    <string name="chat_command_timeout_duration_invalid">Choose 10s, 1m, 10m, 1h, or 1d for the timeout duration.</string>
+    <string name="chat_command_help_unavailable_note">Moderator commands work only in a live chat where your account is a moderator or broadcaster.</string>
+    <string name="chat_command_moderator_required">Xtra couldn’t verify your moderator role in this chat. The command was not sent. See /help for details.</string>
+    <string name="chat_command_moderator_confirmation_required">Confirm moderator commands in the chat composer before they run.</string>
+    <string name="chat_command_help_close">Close</string>
+    <string name="chat_command_help_use_composer">Use /help in the chat composer.</string>
+    <string name="chat_api_commands_disabled">Chat commands are disabled in API command settings. This command was not sent.</string>
     <string name="moderators">Moderators</string>
     <string name="vips">VIPs</string>
     <string name="viewers">Viewers</string>

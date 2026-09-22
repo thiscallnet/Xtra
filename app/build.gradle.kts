@@ -97,6 +97,7 @@ android {
         versionName = applicationVersionName
         buildConfigField("int", "CI_VERSION_CODE_BASE", defaultVersionCode.toString())
         buildConfigField("boolean", "PERF_DIAGNOSTICS", "false")
+        buildConfigField("boolean", "MODERATOR_TOOLS_ENABLED", "true")
         manifestPlaceholders["profileableByShell"] = "false"
         buildConfigField(
             "String",

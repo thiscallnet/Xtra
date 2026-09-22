@@ -251,6 +251,19 @@
                     android:insetRight="0dp" />
             </LinearLayout>
 
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/moderatorToolsButton"
+                style="?attr/bottomSheetButtonStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/user_card_moderator_tools"
+                android:textAllCaps="false"
+                android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/userActionRow" />
+
         </androidx.constraintlayout.widget.ConstraintLayout>
 
         <LinearLayout

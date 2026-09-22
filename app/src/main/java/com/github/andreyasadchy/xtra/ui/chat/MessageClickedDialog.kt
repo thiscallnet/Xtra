@@ -6,10 +6,14 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
 import android.os.Bundle
+import android.text.InputFilter
+import android.text.InputType
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
+import android.widget.LinearLayout
 import androidx.core.content.ContextCompat.getSystemService
 import androidx.core.view.isVisible
 import androidx.fragment.app.viewModels
@@ -26,6 +30,7 @@ import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.DialogChatMessageClickBinding
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.ui.User
@@ -45,6 +50,9 @@ import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.time.Instant
 
+private const val MODERATOR_ROLE_MAX_AGE_MS = 60_000L
+private const val MODERATOR_REASON_MAX_LENGTH = 500
+
 class MessageClickedDialog : BottomSheetDialogFragment() {
 
     interface OnButtonClickListener {
@@ -54,6 +62,9 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         fun onViewProfileClicked(id: String?, login: String?, name: String?, channelImage: String?)
         fun onTranslateMessageClicked(chatMessage: ChatMessage, languageTag: String?)
         fun onWhisperClicked(userLogin: String)
+        fun onCurrentChatViewerRole(): kotlinx.coroutines.flow.StateFlow<ChatViewerRoleSnapshot>? = null
+        suspend fun onModeratorAction(request: ChatModeratorActionRequest): ChatModeratorActionResult =
+            ChatModeratorActionResult.Failure("Moderator actions are unavailable in this chat.")
     }
 
     companion object {
@@ -88,6 +99,8 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
     private val badgeAdapter = UserCardBadgeAdapter()
     private var userCardUser: User? = null
     private var followRequestInFlight = false
+    private var moderatorActionInFlight = false
+    private var currentChatViewerRole = ChatViewerRoleSnapshot()
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -249,6 +262,19 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             }
             if (requireContext().prefs().getBoolean(C.DEBUG_CHAT_FULL_MSG, false)) {
                 copyFullMsg.visibility = View.VISIBLE
+            }
+        }
+        if (BuildConfig.MODERATOR_TOOLS_ENABLED) {
+            val roleFlow = listener.onCurrentChatViewerRole()
+            viewLifecycleOwner.lifecycleScope.launch {
+                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    if (roleFlow != null) {
+                        roleFlow.collectLatest { roleSnapshot ->
+                                currentChatViewerRole = roleSnapshot
+                                userCardUser?.let(::renderUserActions)
+                            }
+                    }
+                }
             }
         }
         viewLifecycleOwner.lifecycleScope.launch {
@@ -505,8 +531,154 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                 dismiss()
             }
         }
+
+        moderatorToolsButton.isVisible = canShowModeratorTools(user)
+        moderatorToolsButton.setText(R.string.user_card_moderator_tools)
+        moderatorToolsButton.setOnClickListener {
+            if (!canShowModeratorTools(user)) {
+                moderatorToolsButton.isVisible = false
+                return@setOnClickListener
+            }
+            showModeratorActionScaffold(user)
+        }
     }
 
+    private fun canShowModeratorTools(user: User): Boolean {
+        if (!BuildConfig.MODERATOR_TOOLS_ENABLED || user.id.isNullOrBlank() || user.login.isNullOrBlank()) return false
+        val channelId = requireArguments().getString(KEY_CHANNEL_ID)?.takeIf(String::isNotBlank) ?: return false
+        val viewerId = requireContext().tokenPrefs().getString(C.USER_ID, null)?.takeIf(String::isNotBlank) ?: return false
+        val viewerLogin = requireContext().tokenPrefs().getString(C.USERNAME, null)
+            ?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotBlank) ?: return false
+        if (TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank()) return false
+        val observedAgeMs = System.currentTimeMillis() - currentChatViewerRole.observedAtMs
+        return currentChatViewerRole.channelId == channelId && currentChatViewerRole.viewerId == viewerId &&
+            currentChatViewerRole.viewerLogin == viewerLogin && currentChatViewerRole.sessionGeneration > 0L &&
+            observedAgeMs in 0..MODERATOR_ROLE_MAX_AGE_MS &&
+            currentChatViewerRole.role in setOf(ChatViewerRole.MODERATOR, ChatViewerRole.BROADCASTER)
+    }
+
+    private fun showModeratorActionScaffold(user: User) {
+        val actions = arrayOf(
+            getString(R.string.moderator_action_timeout),
+            getString(R.string.moderator_action_ban),
+            getString(R.string.moderator_action_remove),
+        )
+        requireContext().getAlertDialogBuilder()
+            .setTitle(R.string.moderator_tools_title)
+            .setItems(actions) { _, which ->
+                if (!canShowModeratorTools(user)) {
+                    showModeratorVerificationError()
+                    return@setItems
+                }
+                when (which) {
+                    0 -> showTimeoutDurations(user)
+                    1 -> showModeratorActionConfirmation(user, ChatModeratorAction.BAN)
+                    2 -> showModeratorActionConfirmation(user, ChatModeratorAction.REMOVE)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showTimeoutDurations(user: User) {
+        val durations = resources.getStringArray(R.array.moderator_timeout_durations)
+        requireContext().getAlertDialogBuilder()
+            .setTitle(R.string.moderator_action_timeout_title)
+            .setItems(durations) { _, index ->
+                if (canShowModeratorTools(user)) {
+                    showModeratorActionConfirmation(user, ChatModeratorAction.TIMEOUT, durations[index])
+                } else {
+                    showModeratorVerificationError()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showModeratorActionConfirmation(
+        user: User,
+        action: ChatModeratorAction,
+        duration: String? = null,
+    ) {
+        val displayName = user.name?.takeIf(String::isNotBlank) ?: user.login.orEmpty()
+        val (title, message) = when (action) {
+            ChatModeratorAction.BAN -> R.string.moderator_action_confirm_ban_title to
+                getString(R.string.moderator_action_confirm_ban_message, displayName)
+            ChatModeratorAction.TIMEOUT -> R.string.moderator_action_confirm_timeout_title to
+                getString(R.string.moderator_action_confirm_timeout_message, displayName, duration.orEmpty())
+            ChatModeratorAction.REMOVE -> R.string.moderator_action_confirm_remove_title to
+                getString(R.string.moderator_action_confirm_remove_message, displayName)
+        }
+        val reasonInput = if (action == ChatModeratorAction.REMOVE) null else EditText(requireContext()).apply {
+            hint = getString(R.string.moderator_action_reason_hint)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf(InputFilter.LengthFilter(MODERATOR_REASON_MAX_LENGTH))
+            maxLines = 3
+        }
+        val builder = requireContext().getAlertDialogBuilder()
+            .setTitle(title)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val request = ChatModeratorActionRequest(
+                    action = action,
+                    targetId = user.id.orEmpty(),
+                    targetLogin = user.login.orEmpty(),
+                    duration = duration,
+                    reason = reasonInput?.text?.toString()?.trim()?.takeIf(String::isNotEmpty),
+                )
+                dispatchModeratorAction(user, request)
+            }
+        if (reasonInput != null) {
+            val container = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                val padding = (resources.displayMetrics.density * 24).toInt()
+                setPadding(padding, 0, padding, 0)
+                addView(android.widget.TextView(context).apply {
+                    text = message
+                })
+                addView(reasonInput)
+            }
+            builder.setView(container)
+        } else {
+            builder.setMessage(message)
+        }
+        builder.show()
+    }
+
+    private fun dispatchModeratorAction(user: User, request: ChatModeratorActionRequest) {
+        if (moderatorActionInFlight || userCardUser?.id != request.targetId || !canShowModeratorTools(user)) {
+            showModeratorVerificationError()
+            return
+        }
+        moderatorActionInFlight = true
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val currentUser = userCardUser
+                if (currentUser == null || currentUser.id != request.targetId || !canShowModeratorTools(currentUser)) {
+                    showModeratorVerificationError()
+                    return@launch
+                }
+                when (val result = listener.onModeratorAction(request)) {
+                    ChatModeratorActionResult.Success ->
+                        Snackbar.make(binding.root, R.string.moderator_action_success, Snackbar.LENGTH_LONG).show()
+                    is ChatModeratorActionResult.Failure ->
+                        Snackbar.make(
+                            binding.root,
+                            getString(R.string.moderator_action_failed, result.message),
+                            Snackbar.LENGTH_LONG,
+                        ).show()
+                }
+            } finally {
+                moderatorActionInFlight = false
+            }
+        }
+    }
+
+    private fun showModeratorVerificationError() {
+        if (_binding != null) {
+            Snackbar.make(binding.root, R.string.moderator_action_could_not_verify, Snackbar.LENGTH_LONG).show()
+        }
+    }
     private fun handleFollowResult(result: MessageClickedViewModel.FollowResult) {
         if (result.userId.isBlank() || result.userId != userCardUser?.id) {
             viewModel.followResult.value = null

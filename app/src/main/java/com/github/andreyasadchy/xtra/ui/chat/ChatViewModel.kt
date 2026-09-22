@@ -71,6 +71,7 @@ import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakReward
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import com.github.andreyasadchy.xtra.repository.auth.AuthSessionStore
 import com.github.andreyasadchy.xtra.repository.ChatIdentityCampaignRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
@@ -174,6 +175,10 @@ import java.util.zip.InflaterOutputStream
 import javax.net.ssl.X509TrustManager
 import kotlin.coroutines.coroutineContext
 import kotlin.time.Instant
+
+private const val MODERATOR_ROLE_MAX_AGE_MS = 60_000L
+private const val MODERATOR_REASON_MAX_LENGTH = 500
+private val MODERATOR_TIMEOUT_DURATIONS = setOf("10s", "1m", "10m", "1h", "1d")
 
 internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
     currentStreamId ?: initialStreamId
@@ -346,11 +351,16 @@ class ChatViewModel(
     )
 
     private val emoteRecommendationEngine = EmoteRecommendationEngine()
+    private val authSessionStore = AuthSessionStore(applicationContext.prefs(), applicationContext.tokenPrefs())
     private val emoteUsageViewerId = MutableStateFlow(currentEmoteUsageViewerId())
     private val emoteUsageViewerPreferenceListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == C.USER_ID) {
-                emoteUsageViewerId.value = currentEmoteUsageViewerId()
+            if (key == C.USER_ID || key == C.USERNAME || key == C.GQL_TOKEN_WEB) {
+                if (key == C.USER_ID) {
+                    emoteUsageViewerId.value = currentEmoteUsageViewerId()
+                }
+                _viewerRoleInChannel.value = ChatViewerRoleSnapshot()
+                if (BuildConfig.MODERATOR_TOOLS_ENABLED && started) startChatUserPresenceRefresh()
             }
         }
 
@@ -712,6 +722,8 @@ class ChatViewModel(
     val pinnedChatMessage: StateFlow<PinnedChatMessage?> = _pinnedChatMessage
     private val _slowModeState = MutableStateFlow(SlowModeState())
     val slowModeState: StateFlow<SlowModeState> = _slowModeState
+    private val _viewerRoleInChannel = MutableStateFlow(ChatViewerRoleSnapshot())
+    val viewerRoleInChannel: StateFlow<ChatViewerRoleSnapshot> = _viewerRoleInChannel
     val raid = MutableStateFlow<Raid?>(null)
     val raidClicked = MutableStateFlow<Raid?>(null)
     var raidClosed = false
@@ -1202,6 +1214,7 @@ class ChatViewModel(
     }
 
     fun startReplay(channelId: String?, channelLogin: String?, chatUrl: String? = null, videoId: String? = null, createdAt: String?, startTime: Int = 0, getCurrentPosition: () -> Long?, getCurrentSpeed: () -> Float?) {
+        _viewerRoleInChannel.value = ChatViewerRoleSnapshot()
         if (!videoId.isNullOrBlank()) {
             activeChatMode = ActiveChatMode.VideoReplay(videoId, createdAt)
         }
@@ -2054,6 +2067,10 @@ class ChatViewModel(
         updateSlowModeCountdown()
     }
 
+    fun invalidateViewerRoleInChannel(channelId: String) {
+        if (activeChannelId == channelId) _viewerRoleInChannel.value = ChatViewerRoleSnapshot()
+    }
+
     private fun updateSlowModeApplicabilityFromBadges(badges: List<Badge>?) {
         if (badges == null) return
         val badgeSets = badges.map { it.setId }
@@ -2195,12 +2212,39 @@ class ChatViewModel(
     private fun startChatUserPresenceRefresh() {
         chatUserPresenceRefreshJob?.cancel()
         chatUserPresenceRefreshJob = null
-        if (!chatUsernameRecommendationsEnabled || !chatUserPresenceAutocompleteActive) return
+        val autocompleteNeedsPresence = chatUsernameRecommendationsEnabled && chatUserPresenceAutocompleteActive
+        val loadModeratorRole = BuildConfig.MODERATOR_TOOLS_ENABLED && !liveChatReadOnly
+        if (!autocompleteNeedsPresence && !loadModeratorRole) return
         val expectedChannelId = activeChannelId ?: return
         val expectedChannelLogin = activeChannelLogin?.takeIf(String::isNotBlank) ?: return
+        val expectedViewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+        val expectedViewerLogin = applicationContext.tokenPrefs().getString(C.USERNAME, null)
+        val expectedSessionGeneration = predictionSessionToken
+        val presenceLoadStillCurrent = {
+            if (loadModeratorRole) {
+                chatPresenceSessionStillCurrent(
+                    expectedChannelId,
+                    expectedChannelLogin,
+                    expectedViewerId,
+                    expectedViewerLogin,
+                    expectedSessionGeneration,
+                )
+            } else {
+                chatUserPresenceLoadStillCurrent(expectedChannelId, expectedChannelLogin)
+            }
+        }
+        if (loadModeratorRole && expectedViewerId == expectedChannelId) {
+            publishModeratorRoleFromPresence(
+                presence = null,
+                channelId = expectedChannelId,
+                viewerId = expectedViewerId,
+                viewerLogin = expectedViewerLogin,
+                sessionGeneration = expectedSessionGeneration,
+            )
+        }
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val cacheAge = System.currentTimeMillis() - chatUserPresenceLoadedAtMillis
-        val initialDelay = if (chatUserPresenceLoadedAtMillis > 0L &&
+        val initialDelay = if (!BuildConfig.MODERATOR_TOOLS_ENABLED && chatUserPresenceLoadedAtMillis > 0L &&
             cacheAge < CHAT_USER_PRESENCE_CACHE_TTL_MILLIS
         ) {
             CHAT_USER_PRESENCE_CACHE_TTL_MILLIS - cacheAge
@@ -2211,19 +2255,29 @@ class ChatViewModel(
         refreshJob = viewModelScope.launch {
             try {
                 if (initialDelay > 0L) delay(initialDelay)
-                while (isActive && chatUserPresenceLoadStillCurrent(expectedChannelId, expectedChannelLogin)) {
-                    loadChatUserPresence(networkLibrary, expectedChannelLogin)?.let { presence ->
-                        if (chatUserPresenceLoadStillCurrent(expectedChannelId, expectedChannelLogin)) {
+                while (isActive && presenceLoadStillCurrent() &&
+                    (loadModeratorRole || chatUsernameRecommendationsEnabled && chatUserPresenceAutocompleteActive)
+                ) {
+                    val presence = loadChatUserPresence(networkLibrary, expectedChannelLogin)
+                    if (presenceLoadStillCurrent()) {
+                        if (loadModeratorRole) {
+                            publishModeratorRoleFromPresence(
+                                presence = presence,
+                                channelId = expectedChannelId,
+                                viewerId = expectedViewerId,
+                                viewerLogin = expectedViewerLogin,
+                                sessionGeneration = expectedSessionGeneration,
+                            )
+                        }
+                        if (presence != null && chatUsernameRecommendationsEnabled && chatUserPresenceAutocompleteActive) {
                             applyChatUserPresence(presence)
                         }
                     }
-                    delay(
-                        if (chatUserPresenceLoadedAtMillis > 0L) {
+                    delay(if (loadModeratorRole) {
+                        CHAT_USER_PRESENCE_REFRESH_INTERVAL_MILLIS
+                    } else if (chatUserPresenceLoadedAtMillis > 0L) {
                             CHAT_USER_PRESENCE_CACHE_TTL_MILLIS
-                        } else {
-                            CHAT_USER_PRESENCE_REFRESH_INTERVAL_MILLIS
-                        },
-                    )
+                        } else CHAT_USER_PRESENCE_REFRESH_INTERVAL_MILLIS)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -2239,7 +2293,7 @@ class ChatViewModel(
     private suspend fun loadChatUserPresence(
         networkLibrary: String?,
         channelLogin: String,
-    ): List<ChatUserSuggestion>? = try {
+    ): ChatUserPresenceSnapshot? = try {
         val response = graphQLRepository.loadQueryUserChatters(
             networkLibrary = networkLibrary,
             headers = TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = true),
@@ -2251,6 +2305,9 @@ class ChatViewModel(
             null
         } ?: return null
         val users = LinkedHashMap<String, ChatUserSuggestion>()
+        fun <T> logins(values: List<T>?, login: (T) -> String?): Set<String> = values.orEmpty()
+            .mapNotNull { login(it)?.trim()?.takeIf(String::isNotBlank)?.lowercase(Locale.ROOT) }
+            .toSet()
         fun add(login: String?) {
             val normalized = login?.trim()?.takeIf(String::isNotBlank) ?: return
             val key = normalized.lowercase(Locale.ROOT)
@@ -2267,22 +2324,29 @@ class ChatViewModel(
         chatters.moderators?.forEach { add(it.login) }
         chatters.vips?.forEach { add(it.login) }
         chatters.viewers?.forEach { add(it.login) }
-        users.values.toList()
+        ChatUserPresenceSnapshot(
+            broadcasters = logins(chatters.broadcasters) { it.login },
+            moderators = logins(chatters.moderators) { it.login },
+            vips = logins(chatters.vips) { it.login },
+            viewers = logins(chatters.viewers) { it.login },
+            suggestions = users.values.toList(),
+        )
     } catch (e: CancellationException) {
         throw e
     } catch (_: Exception) {
         null
     }
 
-    private fun applyChatUserPresence(presence: List<ChatUserSuggestion>) {
-        if (!chatUsernameRecommendationsEnabled) return
-        chatUserPresence = presence
+    private fun applyChatUserPresence(presence: ChatUserPresenceSnapshot) {
+        if (!chatUsernameRecommendationsEnabled || !chatUserPresenceAutocompleteActive) return
+        val suggestions = presence.suggestions
+        chatUserPresence = suggestions
         chatUserPresenceLoadedAtMillis = System.currentTimeMillis()
         if (hasV2ChatUserTimeline) {
             reconcileV2ChatUsers(latestV2ChatMessages)
             return
         }
-        val presenceKeys = presence.mapTo(HashSet()) { it.login.lowercase(Locale.ROOT) }
+        val presenceKeys = suggestions.mapTo(HashSet()) { it.login.lowercase(Locale.ROOT) }
         var changed = false
         synchronized(chatUserRecords) {
             val iterator = chatUserRecords.iterator()
@@ -2293,7 +2357,7 @@ class ChatViewModel(
                     changed = true
                 }
             }
-            presence.forEach { presentUser ->
+            suggestions.forEach { presentUser ->
                 val key = presentUser.login.lowercase(Locale.ROOT)
                 val current = chatUserRecords[key]
                 val next = current?.copy(
@@ -2313,6 +2377,142 @@ class ChatViewModel(
         }
         if (changed) scheduleChatUserAvatarLoad()
     }
+
+    private fun publishModeratorRoleFromPresence(
+        presence: ChatUserPresenceSnapshot?,
+        channelId: String,
+        viewerId: String?,
+        viewerLogin: String?,
+        sessionGeneration: Long,
+    ) {
+        if (!BuildConfig.MODERATOR_TOOLS_ENABLED) return
+        val authenticatedUserId = authSessionStore.readPrivateGqlCredential()?.userId
+        if (authenticatedUserId.isNullOrBlank() || authenticatedUserId != viewerId) {
+            _viewerRoleInChannel.value = ChatViewerRoleSnapshot()
+            return
+        }
+        val normalizedLogin = viewerLogin?.trim()?.lowercase(Locale.ROOT)
+        val role = when {
+            !viewerId.isNullOrBlank() && channelId == viewerId -> ChatViewerRole.BROADCASTER
+            presence != null && !normalizedLogin.isNullOrBlank() && normalizedLogin in presence.moderators ->
+                ChatViewerRole.MODERATOR
+            else -> ChatViewerRole.UNKNOWN
+        }
+        _viewerRoleInChannel.value = ChatViewerRoleSnapshot(
+            channelId = channelId,
+            viewerId = viewerId,
+            viewerLogin = normalizedLogin,
+            role = role,
+            observedAtMs = System.currentTimeMillis(),
+            sessionGeneration = sessionGeneration,
+        )
+    }
+
+    fun hasCurrentModeratorRole(): Boolean = currentModeratorChannelId() != null
+
+    private fun currentModeratorChannelId(): String? {
+        if (!BuildConfig.MODERATOR_TOOLS_ENABLED || !started || liveChatReadOnly ||
+            activeChatMode !is ActiveChatMode.Live
+        ) return null
+        val channelId = activeChannelId?.takeIf(String::isNotBlank) ?: return null
+        val viewerId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
+            ?.takeIf(String::isNotBlank) ?: return null
+        val viewerLogin = applicationContext.tokenPrefs().getString(C.USERNAME, null)
+            ?.trim()?.lowercase(Locale.ROOT)?.takeIf(String::isNotBlank) ?: return null
+        val authenticatedUserId = authSessionStore.readPrivateGqlCredential()?.userId
+        if (authenticatedUserId != viewerId) return null
+        if (TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = true)[C.HEADER_TOKEN].isNullOrBlank()) {
+            return null
+        }
+        val role = _viewerRoleInChannel.value
+        val age = System.currentTimeMillis() - role.observedAtMs
+        if (role.channelId != channelId || role.viewerId != viewerId || role.viewerLogin != viewerLogin ||
+            role.sessionGeneration != predictionSessionToken || age !in 0..MODERATOR_ROLE_MAX_AGE_MS ||
+            role.role !in setOf(ChatViewerRole.MODERATOR, ChatViewerRole.BROADCASTER)
+        ) return null
+        return channelId
+    }
+
+    suspend fun performModeratorAction(request: ChatModeratorActionRequest): ChatModeratorActionResult {
+        val channelId = currentModeratorChannelId()
+            ?: return ChatModeratorActionResult.Failure(
+                applicationContext.getString(R.string.chat_command_moderator_required),
+            )
+        val targetLogin = request.targetLogin.trim().removePrefix("@").lowercase(Locale.ROOT)
+        if (!targetLogin.matches(Regex("[a-z0-9_]{1,25}"))) {
+            return ChatModeratorActionResult.Failure("Enter a valid Twitch username.")
+        }
+        val duration = request.duration?.takeIf { it in MODERATOR_TIMEOUT_DURATIONS }
+        if (request.action == ChatModeratorAction.TIMEOUT && duration == null) {
+            return ChatModeratorActionResult.Failure("Choose a supported timeout duration.")
+        }
+        val reason = request.reason?.trim()?.takeIf(String::isNotEmpty)
+        if (reason != null && reason.length > MODERATOR_REASON_MAX_LENGTH) {
+            return ChatModeratorActionResult.Failure("Reason must be 500 characters or fewer.")
+        }
+        if (currentModeratorChannelId() != channelId) {
+            return ChatModeratorActionResult.Failure(
+                applicationContext.getString(R.string.chat_command_moderator_required),
+            )
+        }
+        val headers = TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = true)
+        if (headers[C.HEADER_TOKEN].isNullOrBlank()) {
+            return ChatModeratorActionResult.Failure("Sign in to Twitch in Xtra before using moderator tools.")
+        }
+        return try {
+            val response = when (request.action) {
+                ChatModeratorAction.BAN -> graphQLRepository.banUser(
+                    applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers,
+                    channelId,
+                    targetLogin,
+                    reason = reason,
+                )
+                ChatModeratorAction.TIMEOUT -> graphQLRepository.banUser(
+                    applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers,
+                    channelId,
+                    targetLogin,
+                    duration = duration,
+                    reason = reason,
+                )
+                ChatModeratorAction.REMOVE -> graphQLRepository.unbanUser(
+                    applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers,
+                    channelId,
+                    targetLogin,
+                )
+            }
+            val gqlErrors = response.errors.orEmpty()
+            if (gqlErrors.isEmpty()) {
+                ChatModeratorActionResult.Success
+            } else {
+                val message = gqlErrors
+                    .mapNotNull { it.message?.trim()?.takeIf(String::isNotEmpty) }
+                    .joinToString(" ")
+                    .take(500)
+                    .takeIf(String::isNotBlank)
+                    ?: applicationContext.getString(R.string.moderator_action_rejected)
+                ChatModeratorActionResult.Failure(message)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            ChatModeratorActionResult.Failure("Twitch could not complete the moderator action. Try again.")
+        }
+    }
+
+    private fun chatPresenceSessionStillCurrent(
+        channelId: String,
+        channelLogin: String,
+        viewerId: String?,
+        viewerLogin: String?,
+        sessionGeneration: Long,
+    ): Boolean = started &&
+            activeChannelId == channelId && activeChannelLogin.equals(channelLogin, ignoreCase = true) &&
+            predictionSessionToken == sessionGeneration &&
+            applicationContext.tokenPrefs().getString(C.USER_ID, null) == viewerId &&
+            applicationContext.tokenPrefs().getString(C.USERNAME, null).equals(viewerLogin, ignoreCase = true)
 
     private fun chatUserPresenceLoadStillCurrent(
         expectedChannelId: String,
@@ -2500,8 +2700,10 @@ class ChatViewModel(
     private fun clearChatUserSuggestions() {
         chatUserAvatarLoadJob?.cancel()
         chatUserAvatarLoadJob = null
-        chatUserPresenceRefreshJob?.cancel()
-        chatUserPresenceRefreshJob = null
+        if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
+            chatUserPresenceRefreshJob?.cancel()
+            chatUserPresenceRefreshJob = null
+        }
         synchronized(chatUserRecords) {
             chatUserRecords.clear()
             recordedChatUserMessageIds.clear()
@@ -2523,6 +2725,7 @@ class ChatViewModel(
             if (chatUserPresenceAutocompleteActive) startChatUserPresenceRefresh()
         } else {
             clearChatUserSuggestions()
+            if (BuildConfig.MODERATOR_TOOLS_ENABLED && started) startChatUserPresenceRefresh()
         }
     }
 
@@ -2536,7 +2739,7 @@ class ChatViewModel(
         chatUserPresenceAutocompleteActive = active
         if (active) {
             startChatUserPresenceRefresh()
-        } else {
+        } else if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
             chatUserPresenceRefreshJob?.cancel()
             chatUserPresenceRefreshJob = null
         }
@@ -3754,6 +3957,7 @@ class ChatViewModel(
                 !activeChannelLogin.equals(channelLogin, ignoreCase = true)
         stopLiveChat()
         if (channelChanged) {
+            _viewerRoleInChannel.value = ChatViewerRoleSnapshot()
             clearChatUserSuggestions()
             synchronized(userEmotes) { userEmotes.clear() }
             loadedUserEmotes = false
@@ -3782,7 +3986,9 @@ class ChatViewModel(
         }
         activeChannelId = channelId
         activeChannelLogin = channelLogin
-        if (chatUserPresenceAutocompleteActive) startChatUserPresenceRefresh()
+        if (chatUserPresenceAutocompleteActive || BuildConfig.MODERATOR_TOOLS_ENABLED) {
+            startChatUserPresenceRefresh()
+        }
         if (!predictionPreferenceListenerRegistered) {
             applicationContext.prefs().registerOnSharedPreferenceChangeListener(predictionPreferenceListener)
             predictionPreferenceListenerRegistered = true
@@ -4294,6 +4500,7 @@ class ChatViewModel(
         predictionSnapshotJob?.cancel()
         predictionSnapshotJob = null
         resetSlowModeState()
+        _viewerRoleInChannel.value = ChatViewerRoleSnapshot()
         _connectionState.value = ConnectionState.IDLE
         watchStreakSession++
         lastWatchStreakReconciliationElapsedRealtime = null
@@ -6705,43 +6912,78 @@ class ChatViewModel(
         useApiChatMessages: Boolean,
         onResult: (ChatSendResult) -> Unit = {},
     ) {
-        if (replyId != null) {
-            sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, replyId = replyId, onResult = onResult)
-        } else {
-            if (useApiCommands) {
-                if (message.toString().startsWith("/")) {
-                    viewModelScope.launch {
-                        try {
-                            onResult(
-                                sendCommand(
-                                    message,
-                                    networkLibrary,
-                                    gqlHeaders,
-                                    helixHeaders,
-                                    accountId,
-                                    channelId,
-                                    channelLogin,
-                                    useApiChatMessages,
-                                ),
-                            )
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            onResult(ChatSendResult.Failure(e.message ?: "Unable to send command"))
-                        }
-                    }
-                } else {
-                    sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = onResult)
-                }
-            } else {
-                if (message.toString() == "/dc" || message.toString() == "/disconnect") {
-                    disconnect()
-                    onResult(ChatSendResult.Success())
-                } else {
-                    sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = onResult)
+        val text = message.toString()
+        val command = text.takeIf { it.startsWith('/') }
+            ?.takeWhile { !it.isWhitespace() }
+        if (command != null && ChatCommandCatalog.isModeratorCommand(text)) {
+            onResult(
+                ChatSendResult.Failure(
+                    applicationContext.getString(R.string.chat_command_moderator_confirmation_required),
+                ),
+            )
+            return
+        }
+        if (command.equals("/dc", ignoreCase = true) || command.equals("/disconnect", ignoreCase = true)) {
+            disconnect()
+            onResult(ChatSendResult.Success())
+            return
+        }
+        if (command.equals("/help", ignoreCase = true)) {
+            onResult(ChatSendResult.Failure(applicationContext.getString(R.string.chat_command_help_use_composer)))
+            return
+        }
+        if (command.equals("/me", ignoreCase = true)) {
+            sendMessage(
+                message,
+                networkLibrary,
+                gqlHeaders,
+                helixHeaders,
+                accountId,
+                channelId,
+                useApiChatMessages,
+                replyId = replyId,
+                onResult = onResult,
+            )
+            return
+        }
+        if (command != null) {
+            if (!useApiCommands) {
+                onResult(ChatSendResult.Failure(applicationContext.getString(R.string.chat_api_commands_disabled)))
+                return
+            }
+            viewModelScope.launch {
+                try {
+                    onResult(
+                        sendCommand(
+                            message,
+                            networkLibrary,
+                            gqlHeaders,
+                            helixHeaders,
+                            accountId,
+                            channelId,
+                            channelLogin,
+                            useApiChatMessages,
+                        ),
+                    )
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    onResult(ChatSendResult.Failure(e.message ?: "Unable to send command"))
                 }
             }
+            return
         }
+        sendMessage(
+            message,
+            networkLibrary,
+            gqlHeaders,
+            helixHeaders,
+            accountId,
+            channelId,
+            useApiChatMessages,
+            replyId = replyId,
+            onResult = onResult,
+        )
     }
 
     private fun sendMessage(
@@ -6949,8 +7191,7 @@ class ChatViewModel(
         }
         val trimmedMessage = message.toString().trim()
         val commandsRequiringArgument = setOf(
-            "/announce", "/ban", "/unban", "/commercial", "/delete", "/mod", "/unmod",
-            "/raid", "/timeout", "/untimeout", "/vip", "/unvip", "/w", "/me",
+            "/announce", "/commercial", "/delete", "/mod", "/unmod", "/raid", "/vip", "/unvip", "/w", "/me",
         )
         if (command.lowercase() in commandsRequiringArgument && trimmedMessage == command) {
             complete(ChatSendResult.Failure("Command requires an argument"))
@@ -6973,54 +7214,6 @@ class ChatViewModel(
                         } else {
                             if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                                 helixRepository.sendAnnouncement(networkLibrary, helixHeaders, channelId, accountId, splits[1], splits[0].substringAfter("/announce", "").ifBlank { null })
-                            } else null
-                        }?.let {
-                            onMessage(ChatMessage(systemMsg = it))
-                        }
-                    }
-                }
-            }
-            command.equals("/ban", true) -> {
-                val splits = message.split(" ", limit = 3)
-                if (splits.size >= 2) {
-                    viewModelScope.launch {
-                        if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                            graphQLRepository.banUser(networkLibrary, gqlHeaders, channelId, splits[1],
-                                reason = if (splits.size >= 3) splits[2] else null
-                            ).also { response ->
-                            }.takeIf { !it.errors.isNullOrEmpty() }?.toString()
-                        } else {
-                            if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                                val targetId = helixRepository.getUsers(
-                                    networkLibrary = networkLibrary,
-                                    headers = helixHeaders,
-                                    logins = listOf(splits[1])
-                                ).data.firstOrNull()?.id
-                                helixRepository.banUser(networkLibrary, helixHeaders, channelId, accountId, targetId,
-                                    reason = if (splits.size >= 3) splits[2] else null
-                                )
-                            } else null
-                        }?.let {
-                            onMessage(ChatMessage(systemMsg = it))
-                        }
-                    }
-                }
-            }
-            command.equals("/unban", true) -> {
-                val splits = message.split(" ")
-                if (splits.size >= 2) {
-                    viewModelScope.launch {
-                        if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                            graphQLRepository.unbanUser(networkLibrary, gqlHeaders, channelId, splits[1]).also { response ->
-                            }.takeIf { !it.errors.isNullOrEmpty() }?.toString()
-                        } else {
-                            if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                                val targetId = helixRepository.getUsers(
-                                    networkLibrary = networkLibrary,
-                                    headers = helixHeaders,
-                                    logins = listOf(splits[1])
-                                ).data.firstOrNull()?.id
-                                helixRepository.unbanUser(networkLibrary, helixHeaders, channelId, accountId, targetId)
                             } else null
                         }?.let {
                             onMessage(ChatMessage(systemMsg = it))
@@ -7344,56 +7537,6 @@ class ChatViewModel(
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         started = true
                         sendMessage(message, networkLibrary, gqlHeaders, helixHeaders, accountId, channelId, useApiChatMessages, onResult = ::complete)
-                    }
-                }
-            }
-            command.equals("/timeout", true) -> {
-                val splits = message.split(" ", limit = 4)
-                if (splits.size >= 2) {
-                    viewModelScope.launch {
-                        if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                            graphQLRepository.banUser(networkLibrary, gqlHeaders, channelId, splits[1],
-                                duration = if (splits.size >= 3) splits[2] else "10m",
-                                reason = if (splits.size >= 4) splits[3] else null
-                            ).also { response ->
-                            }.takeIf { !it.errors.isNullOrEmpty() }?.toString()
-                        } else {
-                            if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                                val targetId = helixRepository.getUsers(
-                                    networkLibrary = networkLibrary,
-                                    headers = helixHeaders,
-                                    logins = listOf(splits[1])
-                                ).data.firstOrNull()?.id
-                                helixRepository.banUser(networkLibrary, helixHeaders, channelId, accountId, targetId,
-                                    duration = if (splits.size >= 3) splits[2] else "600",
-                                    reason = if (splits.size >= 4) splits[3] else null
-                                )
-                            } else null
-                        }?.let {
-                            onMessage(ChatMessage(systemMsg = it))
-                        }
-                    }
-                }
-            }
-            command.equals("/untimeout", true) -> {
-                val splits = message.split(" ")
-                if (splits.size >= 2) {
-                    viewModelScope.launch {
-                        if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                            graphQLRepository.unbanUser(networkLibrary, gqlHeaders, channelId, splits[1]).also { response ->
-                            }.takeIf { !it.errors.isNullOrEmpty() }?.toString()
-                        } else {
-                            if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
-                                val targetId = helixRepository.getUsers(
-                                    networkLibrary = networkLibrary,
-                                    headers = helixHeaders,
-                                    logins = listOf(splits[1])
-                                ).data.firstOrNull()?.id
-                                helixRepository.unbanUser(networkLibrary, helixHeaders, channelId, accountId, targetId)
-                            } else null
-                        }?.let {
-                            onMessage(ChatMessage(systemMsg = it))
-                        }
                     }
                 }
             }
