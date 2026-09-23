@@ -142,6 +142,12 @@ class HudLayoutEngine(
         val safe = safeRect
         val compact = safe.height < 260f * density
         val globalScale = HudScale.clampGlobal(profile.globalScale)
+        val defaultBottomRowIds = HudDefaultLayout.defaultBottomRowIds(
+            safeRect = safe,
+            profile = profile,
+            availability = availability,
+            density = density,
+        )
         val compactTransportVisualHeight = if (compact) {
             listOf(
                 HudElementId.SEEK_BACK,
@@ -197,10 +203,16 @@ class HudLayoutEngine(
             val placement = resolvedPlacements[id] ?: return@mapNotNull null
             if (!placement.enabled || id !in availability) return@mapNotNull null
             val elementScale = if (spec.isMovable) spec.clampScale(placement.scale) else 1f
+            val usesDefaultBottomSize = id in defaultBottomRowIds && id !in profile.placements
             val measuredSize = if (id == HudElementId.STREAM_INFO || id == HudElementId.TIME_STATUS) {
                 measuredSizes[id] ?: spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
             } else {
-                spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
+                val size = if (usesDefaultBottomSize) {
+                    HudSize(HudDefaultLayout.DEFAULT_BOTTOM_CONTROL_SIZE, HudDefaultLayout.DEFAULT_BOTTOM_CONTROL_SIZE)
+                } else {
+                    spec.visualSize(compact)
+                }
+                HudSize(size.width * density, size.height * density)
             }
             val baseWidth = measuredSize.width
             val baseSize = HudSize(baseWidth, measuredSize.height)

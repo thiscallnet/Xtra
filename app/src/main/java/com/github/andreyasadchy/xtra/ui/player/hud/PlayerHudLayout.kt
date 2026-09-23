@@ -1212,7 +1212,8 @@ class PlayerHudLayout @JvmOverloads constructor(
         findViewById<HudTimelineContent>(R.id.timelineContent)?.measure(
             MeasureSpec.makeMeasureSpec(safe.width.roundToInt().coerceAtLeast(1), MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(
-                (48f * density).roundToInt().coerceAtMost(safe.height.roundToInt().coerceAtLeast(1)),
+                (HudDefaultLayout.TIMELINE_TOUCH_TARGET_HEIGHT * density).roundToInt()
+                    .coerceAtMost(safe.height.roundToInt().coerceAtLeast(1)),
                 MeasureSpec.EXACTLY,
             ),
         )

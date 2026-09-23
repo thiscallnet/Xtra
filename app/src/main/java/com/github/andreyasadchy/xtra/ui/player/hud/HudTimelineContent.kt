@@ -96,7 +96,8 @@ class HudTimelineContent @JvmOverloads constructor(
         val height = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY) {
             MeasureSpec.getSize(heightMeasureSpec)
         } else {
-            (48f * resources.displayMetrics.density).roundToInt().coerceAtLeast(1)
+            (HudDefaultLayout.TIMELINE_TOUCH_TARGET_HEIGHT * resources.displayMetrics.density)
+                .roundToInt().coerceAtLeast(1)
         }
         val position = findViewById<View>(com.github.andreyasadchy.xtra.R.id.position)
         val duration = findViewById<View>(com.github.andreyasadchy.xtra.R.id.duration)

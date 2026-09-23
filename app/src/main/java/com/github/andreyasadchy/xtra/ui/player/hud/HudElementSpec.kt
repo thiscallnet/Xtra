@@ -32,8 +32,8 @@ object HudElementRegistry {
         HudElementSpec(
             HudElementId.TIME_STATUS,
             pivot = HudPivot.TOP_START,
-            normalVisualSize = HudSize(160f, 24f),
-            compactVisualSize = HudSize(112f, 24f),
+            normalVisualSize = HudSize(160f, 48f),
+            compactVisualSize = HudSize(112f, 48f),
             minimumHitSize = HudSize(0f, 0f),
             isInteractive = false,
         ),
