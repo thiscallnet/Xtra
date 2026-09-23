@@ -55,12 +55,7 @@ class MediaPlayerFragment : PlayerFragment() {
             override fun onPrepared(player: MediaPlayer) {
                 clearPlayerError()
                 val duration = player.duration.takeIf { it != -1 }?.toLong() ?: 0
-                binding.playerControls.progressBar.setDuration(duration)
-                binding.playerControls.duration.text = DateUtils.formatElapsedTime(duration / 1000)
-                binding.playerControls.duration.contentDescription = getString(
-                    R.string.player_duration,
-                    binding.playerControls.duration.text,
-                )
+                updateFiniteTimelineDuration(duration)
                 updatePlayingState()
                 chatFragment?.startReplayChatLoad()
                 pendingLiveRewindChatPositionMs?.let { positionMs ->
@@ -273,6 +268,7 @@ class MediaPlayerFragment : PlayerFragment() {
                         }
                     }
                     playbackService?.player?.let { player ->
+                        updateFiniteTimelineDuration(runCatching { player.duration.toLong() }.getOrNull() ?: 0L)
                         setPipActions(player.isPlaying)
                     }
                 }

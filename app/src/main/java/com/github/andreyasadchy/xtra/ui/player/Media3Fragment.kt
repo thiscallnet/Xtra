@@ -641,6 +641,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 if (canEnterPictureInPicture()) {
                     requireView().keepScreenOn = player.isPlaying
                 }
+                if (videoType == VIDEO || videoType == CLIP || videoType == OFFLINE_VIDEO) {
+                    val duration = player.duration.takeIf { it != Media3C.TIME_UNSET } ?: 0L
+                    updateDurationIfNeeded(duration)
+                }
                 updateProgress()
                 renderPlaybackChrome()
             }
@@ -1281,6 +1285,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     private fun updateDurationIfNeeded(durationMs: Long) {
+        val showTimeLabels =
+            (videoType == VIDEO || videoType == CLIP || videoType == OFFLINE_VIDEO) && durationMs > 0L
+        binding.playerControls.position.visibility = if (showTimeLabels) View.VISIBLE else View.GONE
+        binding.playerControls.duration.visibility = if (showTimeLabels) View.VISIBLE else View.GONE
         if (durationMs == renderedDurationMs) {
             return
         }

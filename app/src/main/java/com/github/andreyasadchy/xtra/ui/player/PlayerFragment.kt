@@ -2116,9 +2116,40 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         return false
     }
 
+    private fun isFiniteTimelinePlayback(): Boolean = when (playbackService?.type) {
+        BasePlaybackService.VIDEO,
+        BasePlaybackService.CLIP,
+        BasePlaybackService.OFFLINE_VIDEO -> true
+        else -> false
+    }
+
+    protected fun initializeTimelinePresentation() {
+        val showTimeline = isFiniteTimelinePlayback()
+        with(binding.playerControls) {
+            progressBar.visibility = if (showTimeline) View.VISIBLE else View.GONE
+            position.visibility = View.GONE
+            duration.visibility = View.GONE
+        }
+    }
+
+    protected fun updateFiniteTimelineDuration(durationMs: Long) {
+        val finite = isFiniteTimelinePlayback()
+        val normalizedDuration = durationMs.coerceAtLeast(0L)
+        val showLabels = finite && normalizedDuration > 0L
+        with(binding.playerControls) {
+            position.visibility = if (showLabels) View.VISIBLE else View.GONE
+            duration.visibility = if (showLabels) View.VISIBLE else View.GONE
+            if (!finite) return@with
+            progressBar.setDuration(normalizedDuration)
+            duration.text = DateUtils.formatElapsedTime(normalizedDuration / 1000L)
+            duration.contentDescription = getString(R.string.player_duration, duration.text)
+        }
+    }
+
     @SuppressLint("RepeatOnLifecycleWrongUsage") // start() runs once after service binding and resets with the view lifecycle.
     fun start() {
         with(binding) {
+            initializeTimelinePresentation()
             clearPlayerError()
             if (playbackService?.type != BasePlaybackService.OFFLINE_VIDEO) {
                 viewModel.isFollowingChannel(

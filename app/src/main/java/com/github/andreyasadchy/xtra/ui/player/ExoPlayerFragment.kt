@@ -192,6 +192,11 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 resetLiveBufferHealth()
+                updateDurationIfNeeded(
+                    playbackService?.player?.duration
+                        ?.takeIf { it != androidx.media3.common.C.TIME_UNSET }
+                        ?: 0L,
+                )
                 updateProgress()
             }
 
@@ -264,13 +269,8 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                         binding.playerControls.playPause.visibility = View.GONE
                     }
                 }
-                val duration = playbackService?.player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                binding.playerControls.progressBar.setDuration(duration)
-                binding.playerControls.duration.text = DateUtils.formatElapsedTime(duration / 1000)
-                binding.playerControls.duration.contentDescription = getString(
-                    R.string.player_duration,
-                    binding.playerControls.duration.text,
-                )
+                val duration = playbackService?.player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0L
+                updateDurationIfNeeded(duration)
                 updateProgress()
             }
 
@@ -287,13 +287,8 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
             }
 
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-                val duration = playbackService?.player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                binding.playerControls.progressBar.setDuration(duration)
-                binding.playerControls.duration.text = DateUtils.formatElapsedTime(duration / 1000)
-                binding.playerControls.duration.contentDescription = getString(
-                    R.string.player_duration,
-                    binding.playerControls.duration.text,
-                )
+                val duration = playbackService?.player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0L
+                updateDurationIfNeeded(duration)
                 updateProgress()
                 if (reason == Player.DISCONTINUITY_REASON_SEEK) {
                     if (chatFragment?.context != null) { // TODO
@@ -327,13 +322,8 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
             }
 
             override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                val duration = playbackService?.player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                binding.playerControls.progressBar.setDuration(duration)
-                binding.playerControls.duration.text = DateUtils.formatElapsedTime(duration / 1000)
-                binding.playerControls.duration.contentDescription = getString(
-                    R.string.player_duration,
-                    binding.playerControls.duration.text,
-                )
+                val duration = playbackService?.player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0L
+                updateDurationIfNeeded(duration)
                 updateProgress()
                 if (playbackService?.type == BasePlaybackService.VIDEO) {
                     refreshClipAvailability()
@@ -553,6 +543,9 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                             }
                         }
                         connectedService.player?.let { player ->
+                            updateDurationIfNeeded(
+                                player.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0L,
+                            )
                             setPipActions(player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE && player.playWhenReady)
                         }
                     }
@@ -980,6 +973,10 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
 
     override fun changeVolume(volume: Float) {
         playbackService?.player?.volume = volume
+    }
+
+    private fun updateDurationIfNeeded(durationMs: Long) {
+        updateFiniteTimelineDuration(durationMs)
     }
 
     override fun updateProgress() {

@@ -1378,6 +1378,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     updateViewerCount(requireArguments().getInt(KEY_VIEWER_COUNT).takeIf { it != -1 })
                     startStreamUptimeTicker()
                 } else {
+                    val showFiniteTimeline = videoType == VIDEO || videoType == CLIP || videoType == OFFLINE_VIDEO
+                    progressBar.visibility = if (showFiniteTimeline) View.VISIBLE else View.GONE
+                    position.visibility = View.GONE
+                    duration.visibility = View.GONE
                     speed.visibility = View.VISIBLE
                     speed.setOnClickListener {
                         showController(force = true)
