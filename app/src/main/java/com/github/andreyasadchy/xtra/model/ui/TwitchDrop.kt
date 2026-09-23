@@ -21,6 +21,10 @@ data class TwitchDrop(
     // Claim IDs are session credentials returned by Twitch. Never persist them.
     @Transient
     val dropInstanceId: String? = null,
+    // DropCurrentSessionContext can report progress before Inventory exposes the drop.
+    // Such rows are presentation-only and must never be claimed or persisted as inventory.
+    @Transient
+    val sessionOnly: Boolean = false,
     val currentMinutesWatched: Int,
     val requiredMinutesWatched: Int,
     val isClaimed: Boolean,
@@ -38,7 +42,8 @@ data class TwitchDrop(
         }
 
     val isClaimable: Boolean
-        get() = !isClaimed &&
+        get() = !sessionOnly &&
+            !isClaimed &&
             !dropInstanceId.isNullOrBlank() &&
             requiredMinutesWatched > 0 &&
             currentMinutesWatched >= requiredMinutesWatched
@@ -102,7 +107,7 @@ data class TwitchChannelDrop(
     val isEventBased: Boolean,
 ) {
     val isWatchTimeDrop: Boolean
-        get() = requiredMinutesWatched > 0
+        get() = !isEventBased && requiredMinutesWatched > 0
 
     val isSubscriptionDrop: Boolean
         get() = requiredSubs > 0

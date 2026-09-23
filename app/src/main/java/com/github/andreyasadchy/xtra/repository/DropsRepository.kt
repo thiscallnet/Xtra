@@ -10,11 +10,13 @@ import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDropCampaign
+import com.github.andreyasadchy.xtra.model.ui.TwitchChannelDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.chat.CurrentDropSessionResult
 import com.github.andreyasadchy.xtra.util.chat.DropProgressUpdate
 import com.github.andreyasadchy.xtra.util.chat.GqlDropsParser
 import com.github.andreyasadchy.xtra.util.prefs
@@ -30,6 +32,7 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.concurrent.ConcurrentHashMap
 
 data class DropsInventoryState(
     val drops: List<TwitchDrop> = emptyList(),
@@ -68,6 +71,7 @@ class DropsRepository(
         loadSemaphore = channelDropSemaphore,
     )
     private val campaignDetails = mutableMapOf<String, TwitchDropCampaign>()
+    private val channelCatalogReconcileAttempts = ConcurrentHashMap<String, String>()
     private val _inventory = MutableStateFlow(DropsInventoryState())
     private val _dashboard = MutableStateFlow<List<TwitchDropCampaign>>(emptyList())
     private val _dashboardError = MutableStateFlow<Throwable?>(null)
@@ -306,12 +310,15 @@ class DropsRepository(
 
     suspend fun refreshChannelDrops(
         channelId: String?,
+        currentSession: CurrentDropSessionResult? = null,
+        currentSessionKey: String? = null,
+        isSessionCurrent: () -> Boolean = { true },
     ): List<TwitchDrop> {
         val id = channelId?.takeIf { it.isNotBlank() } ?: return emptyList()
         val headers = TwitchApiHelper.getGQLHeaders(context, true)
         if (headers[C.HEADER_TOKEN].isNullOrBlank()) return emptyList()
 
-        val available = refreshChannelDropCatalog(id)
+        var available = refreshChannelDropCatalog(id)
         val availableIds = available?.flatMap { campaign ->
             listOf(campaign.id) + campaign.drops.map { it.id }
         }?.toSet()
@@ -320,15 +327,22 @@ class DropsRepository(
         // channel projection unnecessarily stale. The cache owns only bookkeeping; network
         // work runs in its keyed request scope.
         val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-        val currentIds = channelDropIds.get(channelCacheKey(id)) {
-            try {
-                GqlDropsParser.parseCurrentDropIds(
-                    graphQLRepository.loadCurrentDrop(networkLibrary, headers, id),
-                )
-            } catch (error: CancellationException) {
-                throw error
-            } catch (_: Exception) {
-                null
+        val effectiveSession = currentSession.takeIf { currentSession == null || isSessionCurrent() }
+        val sessionProgress = (effectiveSession as? CurrentDropSessionResult.Present)?.progress
+        val currentIds = when (effectiveSession) {
+            is CurrentDropSessionResult.Present -> setOf(effectiveSession.progress.dropId)
+            CurrentDropSessionResult.None,
+            is CurrentDropSessionResult.Unavailable -> emptySet()
+            null -> channelDropIds.get(channelCacheKey(id)) {
+                try {
+                    GqlDropsParser.parseCurrentDropIds(
+                        graphQLRepository.loadCurrentDrop(networkLibrary, headers, id),
+                    )
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    null
+                }
             }
         }
         val channelIds = when {
@@ -337,18 +351,182 @@ class DropsRepository(
             currentIds != null -> currentIds
             else -> emptySet()
         }
-        if (channelIds.isEmpty()) return emptyList()
-        return projectDropsForChannel(inventory.value.drops, channelIds)
+
+        val projected = if (channelIds.isEmpty()) {
+            emptyList()
+        } else {
+            projectDropsForChannel(inventory.value.drops, channelIds)
+        }
+        val progress = sessionProgress ?: return projected
+        val inventoryDrop = projected.firstOrNull { it.id == progress.dropId }
+        if (inventoryDrop != null) {
+            if (!isSessionCurrent()) return projected
+            return projected.map { drop ->
+                if (drop.id == progress.dropId) {
+                    drop.copy(
+                        currentMinutesWatched = maxOf(
+                            drop.currentMinutesWatched,
+                            progress.currentMinutesWatched,
+                        ),
+                    )
+                } else {
+                    drop
+                }
+            }
+        }
+
+        fun matchingCatalogDrops(campaigns: List<TwitchChannelDropCampaign>?): List<Pair<TwitchChannelDropCampaign, TwitchChannelDrop>> =
+            campaigns.orEmpty().flatMap { campaign ->
+                campaign.drops
+                    .filter { it.id == progress.dropId && it.isWatchTimeDrop }
+                    .map { campaign to it }
+            }
+
+        var catalogMatches = matchingCatalogDrops(available)
+        val reconciliationKey = "${channelCacheKey(id)}:${progress.dropId}"
+        val sessionKey = currentSessionKey.orEmpty()
+        var shouldReconcileCatalog = false
+        if (catalogMatches.isEmpty() && available != null) {
+            channelCatalogReconcileAttempts.compute(reconciliationKey) { _, previousSession ->
+                if (previousSession == sessionKey) {
+                    previousSession
+                } else {
+                    shouldReconcileCatalog = true
+                    sessionKey
+                }
+            }
+        }
+        if (shouldReconcileCatalog) {
+            logDiagnostics {
+                event(
+                    category = DiagnosticsCategory.DROPS,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "DropsRepository",
+                    event = "session_drop_catalog_refreshed",
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, id),
+                        DiagnosticsField(DiagnosticsFieldKey.DROP_ID, progress.dropId),
+                    ),
+                )
+            }
+            available = refreshChannelDropCatalog(id, force = true)
+            catalogMatches = matchingCatalogDrops(available)
+        }
+
+        if (!isSessionCurrent()) return projected
+
+        if (catalogMatches.isEmpty()) {
+            logDiagnostics {
+                event(
+                    category = DiagnosticsCategory.DROPS,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "DropsRepository",
+                    event = "session_drop_unmatched",
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, id),
+                        DiagnosticsField(DiagnosticsFieldKey.DROP_ID, progress.dropId),
+                        DiagnosticsField(DiagnosticsFieldKey.COUNT, available?.sumOf { it.drops.size }?.toString() ?: "unknown"),
+                    ),
+                )
+            }
+            return projected
+        }
+
+        val distinctMatches = catalogMatches.distinct()
+        if (distinctMatches.size != 1) {
+            logDiagnostics {
+                event(
+                    category = DiagnosticsCategory.DROPS,
+                    severity = DiagnosticsSeverity.WARN,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "DropsRepository",
+                    event = "session_drop_ambiguous",
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, id),
+                        DiagnosticsField(DiagnosticsFieldKey.DROP_ID, progress.dropId),
+                        DiagnosticsField(DiagnosticsFieldKey.COUNT, distinctMatches.size.toString()),
+                    ),
+                )
+            }
+            return projected
+        }
+
+        val (campaign, catalogDrop) = distinctMatches.single()
+        val benefit = catalogDrop.benefits.firstOrNull()
+        if (progress.requiredMinutesWatched != null &&
+            progress.requiredMinutesWatched != catalogDrop.requiredMinutesWatched
+        ) {
+            logDiagnostics {
+                event(
+                    category = DiagnosticsCategory.DROPS,
+                    severity = DiagnosticsSeverity.WARN,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "DropsRepository",
+                    event = "session_drop_requirement_mismatch",
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.DROP_ID, progress.dropId),
+                        DiagnosticsField(
+                            DiagnosticsFieldKey.PROGRESS,
+                            "${progress.currentMinutesWatched}/${progress.requiredMinutesWatched}",
+                        ),
+                        DiagnosticsField(DiagnosticsFieldKey.COUNT, catalogDrop.requiredMinutesWatched.toString()),
+                    ),
+                )
+            }
+        }
+        val sessionDrop = TwitchDrop(
+            id = catalogDrop.id,
+            campaignId = campaign.id,
+            campaignName = campaign.name ?: campaign.localizedTitle,
+            gameName = campaign.gameName,
+            name = catalogDrop.name,
+            rewardName = benefit?.name,
+            imageUrl = benefit?.imageUrl ?: campaign.imageUrl,
+            dropInstanceId = null,
+            sessionOnly = true,
+            currentMinutesWatched = progress.currentMinutesWatched,
+            requiredMinutesWatched = catalogDrop.requiredMinutesWatched,
+            isClaimed = false,
+            benefits = catalogDrop.benefits,
+            campaignStartTime = catalogDrop.startTime ?: campaign.startTime,
+            campaignEndTime = catalogDrop.endTime ?: campaign.endTime,
+            imageSource = TwitchDropImageSource.ORIGINAL,
+        )
+        logDiagnostics {
+            event(
+                category = DiagnosticsCategory.DROPS,
+                transport = DiagnosticsTransport.LOCAL,
+                operation = "DropsRepository",
+                event = "session_drop_projected",
+                fields = listOf(
+                    DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, id),
+                    DiagnosticsField(DiagnosticsFieldKey.DROP_ID, progress.dropId),
+                    DiagnosticsField(
+                        DiagnosticsFieldKey.PROGRESS,
+                        "${progress.currentMinutesWatched}/${catalogDrop.requiredMinutesWatched}",
+                    ),
+                ),
+            )
+        }
+        return projected + sessionDrop
     }
 
     suspend fun refreshCurrentDropProgress(
         channelId: String?,
-    ): DropProgressUpdate? {
-        val id = channelId?.takeIf { it.isNotBlank() } ?: return null
+    ): CurrentDropSessionResult {
+        val id = channelId?.takeIf { it.isNotBlank() }
+            ?: return CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.QUERY_FAILED,
+            )
         val headers = TwitchApiHelper.getGQLHeaders(context, true)
-        if (headers[C.HEADER_TOKEN].isNullOrBlank()) return null
+        if (headers[C.HEADER_TOKEN].isNullOrBlank()) {
+            return CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.QUERY_FAILED,
+            )
+        }
 
-        return try {
+        logCurrentDropSessionEvent("current_session_poll", id)
+        val result = try {
             val body = channelDropSemaphore.withPermit {
                 graphQLRepository.loadCurrentDrop(
                     networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
@@ -356,33 +534,57 @@ class DropsRepository(
                     channelId = id,
                 )
             }
-            GqlDropsParser.parseCurrentDropProgress(body).also { progress ->
-                if (progress != null) {
-                    logDiagnostics {
-                        event(
-                        category = DiagnosticsCategory.PROGRESSION,
-                        transport = DiagnosticsTransport.LOCAL,
-                        operation = "DropsRepository",
-                        event = "progress_updated",
-                        fields = listOf(
-                            DiagnosticsField(DiagnosticsFieldKey.DROP_ID, progress.dropId),
-                            DiagnosticsField(
-                                DiagnosticsFieldKey.PROGRESS,
-                                "${progress.currentMinutesWatched}/${progress.requiredMinutesWatched ?: "?"}",
-                            ),
-                        ),
-                        )
-                    }
-                }
-            }
+            GqlDropsParser.parseCurrentDropSession(body)
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
-            null
+            CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.QUERY_FAILED,
+            )
         }
+        when (result) {
+            is CurrentDropSessionResult.Present -> logDiagnostics {
+                event(
+                    category = DiagnosticsCategory.PROGRESSION,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "DropsRepository",
+                    event = "current_session_present",
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, id),
+                        DiagnosticsField(DiagnosticsFieldKey.DROP_ID, result.progress.dropId),
+                        DiagnosticsField(
+                            DiagnosticsFieldKey.PROGRESS,
+                            "${result.progress.currentMinutesWatched}/${result.progress.requiredMinutesWatched ?: "?"}",
+                        ),
+                    ),
+                )
+            }
+            CurrentDropSessionResult.None -> logCurrentDropSessionEvent("current_session_none", id)
+            is CurrentDropSessionResult.Unavailable -> logDiagnostics {
+                event(
+                    category = DiagnosticsCategory.PROGRESSION,
+                    severity = DiagnosticsSeverity.WARN,
+                    transport = DiagnosticsTransport.LOCAL,
+                    operation = "DropsRepository",
+                    event = if (result.reason == CurrentDropSessionResult.Unavailable.Reason.SCHEMA_CHANGED) {
+                        "current_session_schema_failed"
+                    } else {
+                        "current_session_request_failed"
+                    },
+                    code = result.reason.name.lowercase(),
+                    fields = listOf(DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, id)),
+                )
+            }
+        }
+        return result
     }
 
-    suspend fun applyDropProgress(update: DropProgressUpdate): Boolean = progressMutex.withLock {
+    suspend fun applyDropProgress(
+        update: DropProgressUpdate,
+        expectedUserId: String? = currentUserId(),
+        isStillCurrent: () -> Boolean = { true },
+    ): Boolean = progressMutex.withLock {
+        if (currentUserId() != expectedUserId || !isStillCurrent()) return@withLock false
         val current = _inventory.value
         var changed = false
         val drops = current.drops.map { drop ->
@@ -390,7 +592,9 @@ class DropsRepository(
                 drop
             } else {
                 val currentMinutes = maxOf(drop.currentMinutesWatched, update.currentMinutesWatched)
-                val requiredMinutes = update.requiredMinutesWatched ?: drop.requiredMinutesWatched
+                val requiredMinutes = drop.requiredMinutesWatched.takeIf { it > 0 }
+                    ?: update.requiredMinutesWatched
+                    ?: drop.requiredMinutesWatched
                 if (currentMinutes != drop.currentMinutesWatched ||
                     requiredMinutes != drop.requiredMinutesWatched
                 ) {
@@ -405,6 +609,7 @@ class DropsRepository(
             }
         }
         if (changed) {
+            if (currentUserId() != expectedUserId || !isStillCurrent()) return@withLock false
             logDiagnostics {
                 event(
                 category = DiagnosticsCategory.PROGRESSION,
@@ -420,8 +625,10 @@ class DropsRepository(
                 ),
                 )
             }
-            _inventory.value = current.copy(drops = drops, error = null)
-            persistCachedState(currentUserId())
+            // Session progress does not validate the Inventory claim identifiers or
+            // claimed state, so it must not clear an Inventory refresh failure.
+            _inventory.value = current.copy(drops = drops)
+            persistCachedState(expectedUserId)
         }
         changed
     }
@@ -515,6 +722,7 @@ class DropsRepository(
         cacheMutex.withLock {
             if (!dropsCacheMustReload(cacheAccountId, userId)) return@withLock
             cacheAccountId = userId
+            channelCatalogReconcileAttempts.clear()
             val cached = runCatching { metadataCache.readDrops(userId) }.getOrNull()
             _inventory.value = if (cached == null) {
                 DropsInventoryState(authenticated = true)
@@ -541,6 +749,7 @@ class DropsRepository(
             dashboardLoaded = false
             channelDropIds.clear()
             channelDropCatalog.clear()
+            channelCatalogReconcileAttempts.clear()
             campaignDetails.clear()
             lastInventoryRefreshElapsed = 0L
             lastDashboardRefreshElapsed = 0L
@@ -560,6 +769,18 @@ class DropsRepository(
 
     private fun currentUserId(): String? =
         context.tokenPrefs().getString(C.USER_ID, null)?.takeIf { it.isNotBlank() }
+
+    private fun logCurrentDropSessionEvent(eventName: String, channelId: String) {
+        logDiagnostics {
+            event(
+                category = DiagnosticsCategory.PROGRESSION,
+                transport = DiagnosticsTransport.LOCAL,
+                operation = "DropsRepository",
+                event = eventName,
+                fields = listOf(DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, channelId)),
+            )
+        }
+    }
 
     private fun channelCacheKey(channelId: String): String =
         "${currentUserId().orEmpty()}:$channelId"

@@ -93,6 +93,7 @@ import com.github.andreyasadchy.xtra.util.chat.EventSubChatConnectionStatus
 import com.github.andreyasadchy.xtra.util.chat.EventSubUtils
 import com.github.andreyasadchy.xtra.util.chat.EventSubWebSocket
 import com.github.andreyasadchy.xtra.util.chat.DropProgressUpdate
+import com.github.andreyasadchy.xtra.util.chat.CurrentDropSessionResult
 import com.github.andreyasadchy.xtra.util.chat.GqlDropsParser
 import com.github.andreyasadchy.xtra.util.chat.GqlPredictionParser
 import com.github.andreyasadchy.xtra.util.chat.GqlPredictionSnapshot
@@ -150,6 +151,7 @@ import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
@@ -260,12 +262,29 @@ data class DropsUiState(
             ?: drops
                 .asSequence()
                 .filter {
-                    !it.isClaimed &&
+                    (it.sessionOnly || !it.isClaimed) &&
                         it.requiredMinutesWatched > 0
                 }
                 .maxByOrNull { it.progressPercent }
 
 }
+
+private fun useInventoryDropState(
+    drops: List<TwitchDrop>,
+    inventory: List<TwitchDrop>,
+    allowClaimIds: Boolean = true,
+): List<TwitchDrop> = drops.asSequence()
+    .filterNot(TwitchDrop::sessionOnly)
+    .map { drop ->
+        val inventoryDrop = inventory.firstOrNull { it.id == drop.id } ?: return@map drop
+        drop.copy(
+            currentMinutesWatched = inventoryDrop.currentMinutesWatched,
+            requiredMinutesWatched = inventoryDrop.requiredMinutesWatched,
+            dropInstanceId = inventoryDrop.dropInstanceId.takeIf { allowClaimIds },
+            isClaimed = inventoryDrop.isClaimed,
+        )
+    }
+    .toList()
 
 internal fun appendChatMessageToHistory(
     messages: MutableList<ChatMessage>,
@@ -803,6 +822,10 @@ class ChatViewModel(
     val watchStreakShare: Flow<WatchStreakShareResult> = watchStreakShareEvents.receiveAsFlow()
     private val _dropsUiState = MutableStateFlow(DropsUiState())
     val dropsUiState: StateFlow<DropsUiState> = _dropsUiState
+    private val dropsSessionGeneration = AtomicLong()
+
+    @Volatile
+    private var dropsStreamLive = true
     private val dropClaimEvents = Channel<DropClaimResult>(Channel.BUFFERED)
     val dropClaimResults: Flow<DropClaimResult> = dropClaimEvents.receiveAsFlow()
 
@@ -3896,6 +3919,13 @@ class ChatViewModel(
         }
     }
 
+    private fun clearSessionOnlyDrops() {
+        dropsSessionGeneration.incrementAndGet()
+        _dropsUiState.update { state ->
+            state.copy(drops = state.drops.filterNot(TwitchDrop::sessionOnly))
+        }
+    }
+
     private fun startDrops(
         networkLibrary: String?,
         gqlHeaders: Map<String, String>,
@@ -3904,6 +3934,7 @@ class ChatViewModel(
     ) {
         dropsJob?.cancel()
         dropsJob = null
+        clearSessionOnlyDrops()
 
         if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             _dropsUiState.value = DropsUiState()
@@ -3920,50 +3951,209 @@ class ChatViewModel(
             return
         }
 
+        val expectedSessionToken = predictionSessionToken
+        val expectedAccountId = applicationContext.tokenPrefs().getString(C.USER_ID, null)
         dropsJob = viewModelScope.launch {
             var nextDelayMillis = 0L
+            var retainedSessionProgress: DropProgressUpdate? = null
+            var currentSessionResult: CurrentDropSessionResult? = null
+            var retainedSessionProgressAt = 0L
+            var nextInventoryRefreshAt = 0L
+            var inventoryFailureCount = 0
+            var observedSessionGeneration = dropsSessionGeneration.get()
 
             while (
                 isActive &&
                 activeChannelId == expectedChannelId &&
-                activeChannelLogin == expectedChannelLogin
+                activeChannelLogin == expectedChannelLogin &&
+                predictionSessionToken == expectedSessionToken
             ) {
                 if (nextDelayMillis > 0L) {
                     delay(nextDelayMillis)
                 }
 
                 try {
-                    val inventory = dropsRepository.refreshInventory()
-                    if (inventory.error != null) {
-                        _dropsUiState.update {
-                            it.copy(drops = emptyList(), lastError = inventory.error.message)
+                    if (applicationContext.tokenPrefs().getString(C.USER_ID, null) != expectedAccountId) {
+                        _dropsUiState.value = DropsUiState()
+                        return@launch
+                    }
+                    val currentGeneration = dropsSessionGeneration.get()
+                    if (currentGeneration != observedSessionGeneration) {
+                        retainedSessionProgress = null
+                        currentSessionResult = null
+                        retainedSessionProgressAt = 0L
+                        observedSessionGeneration = currentGeneration
+                    }
+                    val showDropsNow = applicationContext.prefs().getBoolean(C.CHAT_DROPS_SHOW, true)
+                    val now = SystemClock.elapsedRealtime()
+                    if (showDropsNow && dropsStreamLive) {
+                        when (val result = dropsRepository.refreshCurrentDropProgress(expectedChannelId)) {
+                            is CurrentDropSessionResult.Present -> {
+                                if (dropsSessionGeneration.get() == observedSessionGeneration) {
+                                    dropsRepository.applyDropProgress(
+                                        result.progress,
+                                        expectedUserId = expectedAccountId,
+                                    ) {
+                                        dropsSessionGeneration.get() == observedSessionGeneration &&
+                                            activeChannelId == expectedChannelId &&
+                                            predictionSessionToken == expectedSessionToken &&
+                                            applicationContext.tokenPrefs().getString(C.USER_ID, null) == expectedAccountId
+                                    }
+                                    val previous = _dropsUiState.value.drops.firstOrNull {
+                                        it.sessionOnly && it.id == result.progress.dropId
+                                    }
+                                    val progress = if (previous == null) {
+                                        result.progress
+                                    } else {
+                                        result.progress.copy(
+                                            currentMinutesWatched = maxOf(
+                                                result.progress.currentMinutesWatched,
+                                                previous.currentMinutesWatched,
+                                            ),
+                                        )
+                                    }
+                                    retainedSessionProgress = progress
+                                    currentSessionResult = CurrentDropSessionResult.Present(progress)
+                                    retainedSessionProgressAt = SystemClock.elapsedRealtime()
+                                } else {
+                                    retainedSessionProgress = null
+                                    currentSessionResult = null
+                                    retainedSessionProgressAt = 0L
+                                }
+                            }
+                            CurrentDropSessionResult.None -> {
+                                if (dropsSessionGeneration.get() == observedSessionGeneration) {
+                                    retainedSessionProgress = null
+                                    currentSessionResult = result
+                                    retainedSessionProgressAt = 0L
+                                }
+                            }
+                            is CurrentDropSessionResult.Unavailable -> {
+                                if (retainedSessionProgressAt > 0L &&
+                                    SystemClock.elapsedRealtime() - retainedSessionProgressAt >
+                                    DROPS_SESSION_PROGRESS_STALE_MILLIS
+                                ) {
+                                    retainedSessionProgress = null
+                                    retainedSessionProgressAt = 0L
+                                }
+                                currentSessionResult = retainedSessionProgress?.let {
+                                    CurrentDropSessionResult.Present(it)
+                                } ?: result
+                            }
                         }
-                        nextDelayMillis = if (nextDelayMillis < DROPS_RETRY_MILLIS) {
-                            DROPS_RETRY_MILLIS
+                        val generationAfterPoll = dropsSessionGeneration.get()
+                        if (generationAfterPoll != observedSessionGeneration) {
+                            retainedSessionProgress = null
+                            currentSessionResult = null
+                            retainedSessionProgressAt = 0L
+                            observedSessionGeneration = generationAfterPoll
+                        }
+                    } else {
+                        retainedSessionProgress = null
+                        currentSessionResult = if (showDropsNow) {
+                            CurrentDropSessionResult.None
                         } else {
-                            DROPS_MAX_RETRY_MILLIS
+                            null
                         }
-                        continue
+                        retainedSessionProgressAt = 0L
                     }
 
+                    var inventoryError = dropsRepository.inventory.value.error
+                    if (now >= nextInventoryRefreshAt) {
+                        val inventory = dropsRepository.refreshInventory()
+                        inventoryError = inventory.error
+                        if (inventoryError == null) {
+                            inventoryFailureCount = 0
+                            nextInventoryRefreshAt = now + DROPS_REFRESH_MILLIS
+                        } else {
+                            inventoryFailureCount++
+                            val retryDelay = if (inventoryFailureCount == 1) {
+                                DROPS_RETRY_MILLIS
+                            } else {
+                                DROPS_MAX_RETRY_MILLIS
+                            }
+                            nextInventoryRefreshAt = now + retryDelay
+                        }
+                    }
+
+                    val generationBeforeProjection = dropsSessionGeneration.get()
+                    if (generationBeforeProjection != observedSessionGeneration) {
+                        retainedSessionProgress = null
+                        currentSessionResult = null
+                        retainedSessionProgressAt = 0L
+                        observedSessionGeneration = generationBeforeProjection
+                    }
+
+                    if (applicationContext.tokenPrefs().getString(C.USER_ID, null) != expectedAccountId) {
+                        _dropsUiState.value = DropsUiState()
+                        return@launch
+                    }
                     if (
                         activeChannelId != expectedChannelId ||
-                        activeChannelLogin != expectedChannelLogin
+                        activeChannelLogin != expectedChannelLogin ||
+                        predictionSessionToken != expectedSessionToken
                     ) {
                         return@launch
                     }
 
-                    val showDropsNow = applicationContext.prefs().getBoolean(C.CHAT_DROPS_SHOW, true)
                     val drops = if (showDropsNow) {
                         dropsRepository.refreshChannelDrops(
                             expectedChannelId,
+                            currentSessionResult,
+                            currentSessionKey = "$expectedSessionToken:${streamId.orEmpty()}",
+                            isSessionCurrent = {
+                                    dropsSessionGeneration.get() == observedSessionGeneration &&
+                                    dropsStreamLive &&
+                                    predictionSessionToken == expectedSessionToken &&
+                                    activeChannelId == expectedChannelId &&
+                                    applicationContext.tokenPrefs().getString(C.USER_ID, null) == expectedAccountId
+                            },
                         )
                     } else {
                         emptyList()
                     }
-                    _dropsUiState.update { it.copy(drops = drops, lastError = null) }
+                    val safeDrops = if (inventoryError == null) {
+                        drops
+                    } else {
+                        drops.map { it.copy(dropInstanceId = null) }
+                    }
+                    _dropsUiState.update { currentState ->
+                        if (applicationContext.tokenPrefs().getString(C.USER_ID, null) != expectedAccountId) {
+                            DropsUiState()
+                        } else {
+                            val committedDrops = if (dropsSessionGeneration.get() != observedSessionGeneration) {
+                                useInventoryDropState(
+                                    safeDrops,
+                                    dropsRepository.inventory.value.drops,
+                                    allowClaimIds = inventoryError == null,
+                                )
+                            } else {
+                                val latestSessionProgress = currentState.drops
+                                    .firstOrNull { it.sessionOnly && it.id == retainedSessionProgress?.dropId }
+                                    ?.currentMinutesWatched
+                                if (latestSessionProgress == null) {
+                                    safeDrops
+                                } else {
+                                    safeDrops.map { drop ->
+                                        if (drop.sessionOnly && drop.id == retainedSessionProgress?.dropId) {
+                                            drop.copy(
+                                                currentMinutesWatched = maxOf(
+                                                    drop.currentMinutesWatched,
+                                                    latestSessionProgress,
+                                                ),
+                                            )
+                                        } else {
+                                            drop
+                                        }
+                                    }
+                                }
+                            }
+                            currentState.copy(drops = committedDrops, lastError = inventoryError?.message)
+                        }
+                    }
 
                     if (
+                        inventoryError == null &&
                         applicationContext.prefs().getBoolean(
                             C.CHAT_DROPS_AUTO_CLAIM,
                             false,
@@ -3978,20 +4168,24 @@ class ChatViewModel(
                 } catch (e: Exception) {
                     if (
                         activeChannelId != expectedChannelId ||
-                        activeChannelLogin != expectedChannelLogin
+                        activeChannelLogin != expectedChannelLogin ||
+                        predictionSessionToken != expectedSessionToken
                     ) {
                         return@launch
                     }
-                    _dropsUiState.update {
-                        it.copy(lastError = e.message)
+                    val inventoryFailed = dropsRepository.inventory.value.error != null
+                    _dropsUiState.update { state ->
+                        state.copy(
+                            drops = if (inventoryFailed) {
+                                state.drops.map { it.copy(dropInstanceId = null) }
+                            } else {
+                                state.drops
+                            },
+                            lastError = e.message,
+                        )
                     }
 
-                    nextDelayMillis = when {
-                        nextDelayMillis < DROPS_RETRY_MILLIS ->
-                            DROPS_RETRY_MILLIS
-                        else ->
-                            DROPS_MAX_RETRY_MILLIS
-                    }
+                    nextDelayMillis = DROPS_REFRESH_MILLIS
                 }
             }
         }
@@ -5156,7 +5350,9 @@ class ChatViewModel(
                 playbackMessage.live?.let {
                     if (it) {
                         watchCreditLive = true
+                        this@ChatViewModel.dropsStreamLive = true
                         this@ChatViewModel.streamId = null
+                        this@ChatViewModel.clearSessionOnlyDrops()
                         Log.d(WatchCreditTelemetry.LOG_TAG, "watch credit stream-up received; refreshing broadcastId")
                         refreshWatchCreditStreamId("stream-up")
                         onMessage(ChatMessage(
@@ -5165,7 +5361,9 @@ class ChatViewModel(
                         ))
                     } else {
                         watchCreditLive = false
+                        this@ChatViewModel.dropsStreamLive = false
                         this@ChatViewModel.streamId = null
+                        this@ChatViewModel.clearSessionOnlyDrops()
                         Log.d(WatchCreditTelemetry.LOG_TAG, "watch credit stream-down received; heartbeat paused")
                         onMessage(ChatMessage(
                             type = ChatMessage.NOTICE_MESSAGE,
@@ -5456,7 +5654,9 @@ class ChatViewModel(
                 Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes Drops event ignored for inactive watch session")
                 return
             }
-            when (message.optString("type").lowercase(Locale.US)) {
+            val eventType = message.optString("type").lowercase(Locale.US)
+            if (eventType == "drop-progress" && !dropsStreamLive) return
+            when (eventType) {
                 "drop-progress" -> {
                     GqlDropsParser.parseDropProgressMessage(message)?.let {
                         if (diagnosticsLogger?.isEnabled == true) {
@@ -5501,12 +5701,41 @@ class ChatViewModel(
             val previous = _dropsUiState.value.drops.firstOrNull { it.id == update.dropId }
             val showDrops = applicationContext.prefs().getBoolean(C.CHAT_DROPS_SHOW, true)
             val autoClaimDrops = applicationContext.prefs().getBoolean(C.CHAT_DROPS_AUTO_CLAIM, false)
-            val changed = dropsRepository.applyDropProgress(update)
+            val changed = dropsRepository.applyDropProgress(
+                update,
+                expectedUserId = accountId,
+                isStillCurrent = { isActiveWatchCreditSession() && dropsStreamLive },
+            )
+            if (!isActiveWatchCreditSession() || !dropsStreamLive) return
             if (!changed) {
-                // The account inventory can lag behind Hermes when a campaign starts.
-                // Refresh instead of silently losing the first real progress event.
-                if (previous == null && (showDrops || autoClaimDrops)) {
-                    refreshDropsAfterEvent()
+                if (previous?.sessionOnly == true) {
+                    _dropsUiState.update { state ->
+                        state.copy(
+                            drops = state.drops.map { drop ->
+                                if (drop.sessionOnly && drop.id == update.dropId) {
+                                    drop.copy(
+                                        currentMinutesWatched = maxOf(
+                                            drop.currentMinutesWatched,
+                                            update.currentMinutesWatched,
+                                        ),
+                                    )
+                                } else {
+                                    drop
+                                }
+                            },
+                        )
+                    }
+                    val required = previous.requiredMinutesWatched
+                    if (required > 0 && update.currentMinutesWatched >= required) {
+                        refreshDropsAfterEvent(confirmSessionDropId = update.dropId)
+                    }
+                    return
+                }
+                // Inventory can lag behind the active session. Rebuild the channel
+                // projection from the event, but require CurrentDropSessionContext to
+                // establish a session-only row.
+                if ((previous == null || previous.sessionOnly) && (showDrops || autoClaimDrops)) {
+                    refreshDropsAfterEvent(confirmSessionDropId = update.dropId)
                 }
                 return
             }
@@ -5526,7 +5755,8 @@ class ChatViewModel(
                                     drop.currentMinutesWatched,
                                     update.currentMinutesWatched,
                                 ),
-                                requiredMinutesWatched = update.requiredMinutesWatched
+                                requiredMinutesWatched = drop.requiredMinutesWatched.takeIf { it > 0 }
+                                    ?: update.requiredMinutesWatched
                                     ?: drop.requiredMinutesWatched,
                             )
                         }
@@ -5542,30 +5772,118 @@ class ChatViewModel(
             // The event does not include the claim instance id. Refresh once at completion so
             // the existing claim UI can become actionable immediately.
             if (previous == null || isComplete && previous.dropInstanceId.isNullOrBlank()) {
-                refreshDropsAfterEvent()
+                refreshDropsAfterEvent(confirmSessionDropId = update.dropId.takeIf { previous == null })
             }
         }
 
-        private suspend fun refreshDropsAfterEvent() {
+        private suspend fun refreshDropsAfterEvent(confirmSessionDropId: String? = null) {
             if (!isActiveWatchCreditSession()) return
+            val expectedGeneration = dropsSessionGeneration.get()
             try {
                 val inventory = dropsRepository.refreshInventory(force = true)
-                if (inventory.error != null) return
+                if (!isActiveWatchCreditSession() || dropsSessionGeneration.get() != expectedGeneration) return
                 val showDrops = applicationContext.prefs().getBoolean(C.CHAT_DROPS_SHOW, true)
+                val currentSession = if (showDrops && dropsStreamLive && confirmSessionDropId != null) {
+                    dropsRepository.refreshCurrentDropProgress(channelId).let { result ->
+                        if (result is CurrentDropSessionResult.Present &&
+                            result.progress.dropId != confirmSessionDropId
+                        ) {
+                            null
+                        } else {
+                            result
+                        }
+                    }
+                } else {
+                    null
+                }
+                if (!isActiveWatchCreditSession() || dropsSessionGeneration.get() != expectedGeneration) return
+                (currentSession as? CurrentDropSessionResult.Present)?.progress?.let { progress ->
+                    dropsRepository.applyDropProgress(
+                        progress,
+                        expectedUserId = accountId,
+                        isStillCurrent = {
+                            isActiveWatchCreditSession() &&
+                                dropsSessionGeneration.get() == expectedGeneration &&
+                                dropsStreamLive
+                        },
+                    )
+                }
                 val drops = if (showDrops) {
-                    dropsRepository.refreshChannelDrops(channelId)
+                    dropsRepository.refreshChannelDrops(
+                        channelId,
+                        currentSession,
+                        currentSessionKey = "$sessionToken:${this@ChatViewModel.streamId.orEmpty()}",
+                        isSessionCurrent = {
+                            isActiveWatchCreditSession() &&
+                                dropsStreamLive &&
+                                dropsSessionGeneration.get() == expectedGeneration
+                        },
+                    )
                 } else {
                     emptyList()
                 }
+                if (!isActiveWatchCreditSession() || dropsSessionGeneration.get() != expectedGeneration) return
+                val safeDrops = if (inventory.error == null) {
+                    drops
+                } else {
+                    drops.map { it.copy(dropInstanceId = null) }
+                    }
                 if (isActiveWatchCreditSession()) {
-                    _dropsUiState.update { it.copy(drops = drops, lastError = null) }
+                    _dropsUiState.update { currentState ->
+                        if (!isActiveWatchCreditSession()) {
+                            DropsUiState()
+                        } else if (dropsSessionGeneration.get() != expectedGeneration) {
+                            currentState.copy(
+                                drops = useInventoryDropState(
+                                    safeDrops,
+                                    dropsRepository.inventory.value.drops,
+                                    allowClaimIds = inventory.error == null,
+                                ),
+                            )
+                        } else {
+                            val committedDrops = (currentSession as? CurrentDropSessionResult.Present)
+                                ?.progress?.let { progress ->
+                                    val previousProgress = currentState.drops
+                                        .firstOrNull { it.sessionOnly && it.id == progress.dropId }
+                                        ?.currentMinutesWatched
+                                    if (previousProgress == null) {
+                                        safeDrops
+                                    } else {
+                                        safeDrops.map { drop ->
+                                            if (drop.sessionOnly && drop.id == progress.dropId) {
+                                                drop.copy(
+                                                    currentMinutesWatched = maxOf(
+                                                        drop.currentMinutesWatched,
+                                                        previousProgress,
+                                                    ),
+                                                )
+                                            } else {
+                                                drop
+                                            }
+                                        }
+                                    }
+                                }
+                                ?: safeDrops
+                            currentState.copy(
+                                drops = committedDrops,
+                                lastError = if (inventory.error == null) null else currentState.lastError,
+                            )
+                    }
                 }
-                if (applicationContext.prefs().getBoolean(C.CHAT_DROPS_AUTO_CLAIM, false)) {
+                }
+                if (inventory.error == null &&
+                    applicationContext.prefs().getBoolean(C.CHAT_DROPS_AUTO_CLAIM, false)
+                ) {
                     dropsRepository.autoClaimCompletedDrops()
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
+                if (isActiveWatchCreditSession() && dropsRepository.inventory.value.error != null) {
+                    _dropsUiState.update { state ->
+                        state.copy(drops = state.drops.map { it.copy(dropInstanceId = null) })
+                    }
+                }
                 Log.e(WatchCreditTelemetry.LOG_TAG, "Drops event refresh failed", error)
             }
         }
@@ -5573,7 +5891,8 @@ class ChatViewModel(
         private fun isActiveWatchCreditSession(): Boolean =
             sessionToken == predictionSessionToken &&
                     activeChannelLogin == channelLogin &&
-                    activeChannelId == channelId
+                    activeChannelId == channelId &&
+                    applicationContext.tokenPrefs().getString(C.USER_ID, null) == accountId
 
         private suspend fun refreshWatchCreditStreamId(reason: String): String? {
             if (!isLoggedIn || accountId.isNullOrBlank()) {
@@ -5599,6 +5918,9 @@ class ChatViewModel(
                 if (!resolvedStreamId.isNullOrBlank()) {
                     val previousStreamId = this@ChatViewModel.streamId
                     this@ChatViewModel.streamId = resolvedStreamId
+                    if (!previousStreamId.isNullOrBlank() && previousStreamId != resolvedStreamId) {
+                        this@ChatViewModel.clearSessionOnlyDrops()
+                    }
                     Log.d(
                         WatchCreditTelemetry.LOG_TAG,
                         "broadcastId refreshed reason=$reason changed=${previousStreamId != resolvedStreamId}",
@@ -5666,12 +5988,6 @@ class ChatViewModel(
                         fields = listOf(DiagnosticsField(DiagnosticsFieldKey.LIVE, watchCreditLive.toString())),
                     )
                 }
-                val progress = dropsRepository.refreshCurrentDropProgress(channelId)
-                Log.d(
-                    WatchCreditTelemetry.LOG_TAG,
-                    "current drop progress queried dropId=${progress?.dropId ?: "none"} currentMinutes=${progress?.currentMinutesWatched ?: "none"} requiredMinutes=${progress?.requiredMinutesWatched ?: "none"}",
-                )
-                progress?.let { publishDropProgress(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -7970,6 +8286,7 @@ class ChatViewModel(
 
     companion object {
         private const val DROPS_REFRESH_MILLIS = 60_000L
+        private const val DROPS_SESSION_PROGRESS_STALE_MILLIS = DROPS_REFRESH_MILLIS * 2
         private const val DROPS_RETRY_MILLIS = 120_000L
         private const val DROPS_MAX_RETRY_MILLIS = 300_000L
         private const val CHAT_IDENTITY_CACHE_TTL_MS = 5 * 60 * 1000L

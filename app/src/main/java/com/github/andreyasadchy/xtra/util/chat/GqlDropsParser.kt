@@ -16,6 +16,19 @@ data class DropProgressUpdate(
     val requiredMinutesWatched: Int? = null,
 )
 
+sealed interface CurrentDropSessionResult {
+    data class Present(val progress: DropProgressUpdate) : CurrentDropSessionResult
+
+    data object None : CurrentDropSessionResult
+
+    data class Unavailable(val reason: Reason) : CurrentDropSessionResult {
+        enum class Reason {
+            QUERY_FAILED,
+            SCHEMA_CHANGED,
+        }
+    }
+}
+
 data class DropClaimUpdate(
     val dropId: String?,
     val claimed: Boolean,
@@ -374,20 +387,49 @@ internal object GqlDropsParser {
 
     fun parseCurrentDropIds(body: String): Set<String>? = parseDropIds(body, "currentDrop")
 
-    fun parseCurrentDropProgress(body: String): DropProgressUpdate? {
-        val root = runCatching { JSONObject(body) }.getOrNull() ?: return null
-        if (hasErrors(root)) return null
-        val session = root
-            .optJSONObject("data")
-            ?.optJSONObject("currentUser")
-            ?.optJSONObject("dropCurrentSession")
-            ?: return null
-        return parseDropProgress(
+    fun parseCurrentDropSession(body: String): CurrentDropSessionResult {
+        val root = runCatching { JSONObject(body) }.getOrNull()
+            ?: return CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.SCHEMA_CHANGED,
+            )
+        if (hasErrors(root)) {
+            return CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.QUERY_FAILED,
+            )
+        }
+        val data = root.optJSONObject("data")
+            ?: return CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.SCHEMA_CHANGED,
+            )
+        val user = data.optJSONObject("currentUser")
+            ?: return CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.SCHEMA_CHANGED,
+            )
+        if (!user.has("dropCurrentSession")) {
+            return CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.SCHEMA_CHANGED,
+            )
+        }
+        val sessionValue = user.opt("dropCurrentSession")
+        if (sessionValue == null || sessionValue == JSONObject.NULL) {
+            return CurrentDropSessionResult.None
+        }
+        val session = sessionValue as? JSONObject
+            ?: return CurrentDropSessionResult.Unavailable(
+                CurrentDropSessionResult.Unavailable.Reason.SCHEMA_CHANGED,
+            )
+        val progress = parseDropProgress(
             dropId = session.optionalString("dropID", "dropId", "id"),
             current = session.optionalInt("currentMinutesWatched", "current_progress_min"),
             required = session.optionalInt("requiredMinutesWatched", "required_progress_min"),
+        ) ?: return CurrentDropSessionResult.Unavailable(
+            CurrentDropSessionResult.Unavailable.Reason.SCHEMA_CHANGED,
         )
+        return CurrentDropSessionResult.Present(progress)
     }
+
+    fun parseCurrentDropProgress(body: String): DropProgressUpdate? =
+        (parseCurrentDropSession(body) as? CurrentDropSessionResult.Present)?.progress
 
     fun parseDropProgressMessage(message: JSONObject): DropProgressUpdate? {
         if (!message.optString("type").equals("drop-progress", ignoreCase = true)) {

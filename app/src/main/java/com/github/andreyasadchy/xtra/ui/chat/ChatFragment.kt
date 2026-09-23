@@ -3065,7 +3065,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             if (state.claimingDropId != null || drop == null) return@setOnClickListener
             if (drop.isClaimable) {
                 viewModel.claimDrop(drop)
-            } else {
+            } else if (!drop.sessionOnly) {
                 findNavController().navigate(
                     R.id.action_global_dropsDetailFragment,
                     null,
@@ -3142,7 +3142,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             R.string.drops_view_image,
             rewardName ?: getString(R.string.drops),
         )
-        callout.isClickable = !isClaiming
+        callout.isClickable = !isClaiming && !drop.sessionOnly
         callout.alpha = if (isClaiming) 0.65f else 1f
         updateDropImage(drop.imageUrl, drop.imageSource)
         callout.isVisible = true
