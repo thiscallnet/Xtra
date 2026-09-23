@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.core.view.isVisible
 import com.github.andreyasadchy.xtra.model.chat.Poll
 import com.github.andreyasadchy.xtra.model.chat.Prediction
@@ -17,6 +18,7 @@ import com.github.andreyasadchy.xtra.databinding.ViewPinnedChatMessageBinding
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowView
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGiftSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
@@ -24,19 +26,35 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSubscription
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatUser
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPalette
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransport
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransportConfig
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatEventProcessor
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineStore
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ModerationNoticeCoalescer
 import com.google.android.material.color.MaterialColors
 import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /** Debug-only deterministic fixture for reviewing the event family as one screen. */
 class ChatEventFixtureActivity : AppCompatActivity() {
     private val rows = ArrayList<ChatMessageTextView>()
+    private val fixtureScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private lateinit var contentRoot: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         val themeName = intent.getStringExtra(EXTRA_THEME)?.lowercase()
@@ -44,9 +62,11 @@ class ChatEventFixtureActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         val scale = intent.getFloatExtra(EXTRA_SCALE, 1f).coerceIn(0.75f, 1.75f)
+        val moderationFixture = intent.getBooleanExtra(EXTRA_MODERATION_FIXTURE, false)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
+        contentRoot = root
         val surface = MaterialColors.getColor(root, com.google.android.material.R.attr.colorSurface)
         root.setBackgroundColor(surface)
         ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
@@ -66,14 +86,6 @@ class ChatEventFixtureActivity : AppCompatActivity() {
         val scroll = ScrollView(this).apply { addView(root) }
         setContentView(scroll)
 
-        val compiler = ChatRowCompiler(
-            background = { surface },
-            eventPalette = { kind, baseColor ->
-                resolveChatEventPalette(kind, baseColor) { attribute ->
-                    MaterialColors.getColor(root, attribute)
-                }
-            },
-        )
         val catalog = ChatCatalogSnapshot(
             revision = 1,
             channelPointRewards = mapOf("hydrate" to ChatReward("Hydrate", 420)),
@@ -122,10 +134,32 @@ class ChatEventFixtureActivity : AppCompatActivity() {
             pinnedMessageProgress.progress = 620
             pinnedMessageProgress.isVisible = true
         }
-        root.addView(pinnedMessage.root)
-        root.addView(happeningNow)
+        if (!moderationFixture) {
+            root.addView(pinnedMessage.root)
+            root.addView(happeningNow)
+        }
 
-        fixtureMessages().forEach { message ->
+        if (moderationFixture) {
+            lifecycleScope.launch { renderRows(moderationActionFixtureMessages(), ChatCatalogSnapshot(revision = 1)) }
+        } else {
+            renderRows(fixtureMessages(), catalog)
+        }
+    }
+
+    private fun renderRows(messages: List<ChatMessage>, catalog: ChatCatalogSnapshot) {
+        val root = contentRoot
+        val scale = intent.getFloatExtra(EXTRA_SCALE, 1f).coerceIn(0.75f, 1.75f)
+        val surface = MaterialColors.getColor(root, com.google.android.material.R.attr.colorSurface)
+        val compiler = ChatRowCompiler(
+            background = { surface },
+            eventPalette = { kind, baseColor ->
+                resolveChatEventPalette(kind, baseColor) { attribute ->
+                    MaterialColors.getColor(root, attribute)
+                }
+            },
+        )
+        val catalog = ChatCatalogSnapshot(revision = 1)
+        messages.forEach { message ->
             ChatMessageTextView(this, (application as XtraApp).xtraModule.chatAssetRepository).also { view ->
                 view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * scale)
                 view.layoutParams = LinearLayout.LayoutParams(
@@ -142,6 +176,7 @@ class ChatEventFixtureActivity : AppCompatActivity() {
     override fun onDestroy() {
         rows.forEach(ChatMessageTextView::recycle)
         rows.clear()
+        fixtureScope.cancel()
         super.onDestroy()
     }
 
@@ -236,6 +271,145 @@ class ChatEventFixtureActivity : AppCompatActivity() {
         ),
         message("normal-2", "ChatViewer", "Another normal chat line"),
     )
+
+    /** Debug-only Twitch-format fixture; it exercises the production EventSub parser and row factory. */
+    private suspend fun moderationActionFixtureMessages(): List<ChatMessage> {
+        val transport = TwitchChatTransport(
+            config = TwitchChatTransportConfig(
+                channelId = "fixture-channel",
+                channelLogin = "amy19b",
+                useEventSub = true,
+                enableModerationActionNotices = true,
+                showClearChat = true,
+                moderatorBanMessage = { moderator, target ->
+                    getString(R.string.chat_mod_action_ban).format(moderator, target)
+                },
+                moderatorTimeoutMessage = { moderator, target, _ ->
+                    getString(R.string.chat_mod_action_timeout).format(moderator, target, "1 minute")
+                },
+                moderatorUnbanMessage = { moderator, target ->
+                    getString(R.string.chat_mod_action_unban).format(moderator, target)
+                },
+                moderatorActionReason = { reason ->
+                    getString(R.string.chat_mod_action_reason).format(reason)
+                },
+            ),
+            trustManager = (application as XtraApp).xtraModule.trustManager,
+        )
+        val session = ChatSessionKey("fixture-channel", generation = 1L)
+        val now = "2026-09-23T10:00:00Z"
+        val timeout = requireNotNull(TwitchChatEventParser.fromEventSubBan(
+            JSONObject(
+                """
+                {
+                  "user_id":"viewer-17",
+                  "user_login":"cool_user",
+                  "user_name":"Cool_User",
+                  "moderator_user_id":"mod-4",
+                  "moderator_user_login":"mod_user",
+                  "moderator_user_name":"Mod_User",
+                  "reason":"Offensive language",
+                  "banned_at":"2026-09-23T10:00:00Z",
+                  "ends_at":"2026-09-23T10:01:00Z",
+                  "is_permanent":false
+                }
+                """.trimIndent(),
+            ),
+            timestamp = now,
+            notificationId = "fixture-timeout-1",
+        ))
+        val ban = requireNotNull(TwitchChatEventParser.fromEventSubBan(
+            JSONObject(
+                """
+                {
+                  "user_id":"viewer-21",
+                  "user_login":"repeat_user",
+                  "user_name":"Repeat_User",
+                  "moderator_user_id":"mod-4",
+                  "moderator_user_name":"Mod_User",
+                  "reason":"Repeated spam",
+                  "banned_at":"2026-09-23T10:01:00Z",
+                  "ends_at":null,
+                  "is_permanent":true
+                }
+                """.trimIndent(),
+            ),
+            timestamp = "2026-09-23T10:01:00Z",
+            notificationId = "fixture-ban-1",
+        ))
+        val unban = requireNotNull(TwitchChatEventParser.fromEventSubUnban(
+            JSONObject(
+                """
+                {
+                  "user_id":"viewer-33",
+                  "user_login":"returning_user",
+                  "user_name":"Returning_User",
+                  "moderator_user_id":"mod-4",
+                  "moderator_user_name":"Mod_User"
+                }
+                """.trimIndent(),
+            ),
+            timestamp = "2026-09-23T10:02:00Z",
+            notificationId = "fixture-unban-1",
+        ))
+
+        val timeline = ChatTimelineStore(fixtureScope)
+        val processor = ChatEventProcessor(fixtureScope, timeline)
+        processor.activate(session)
+        val clearAt = timeout.occurredAtMs
+        val chatter = ChatMessage(
+            id = ChatMessageId("fixture-cleared-message"),
+            channelId = session.channelId,
+            timestampMs = clearAt - 100L,
+            user = ChatUser(id = timeout.targetId, login = timeout.targetLogin, displayName = timeout.target, color = null),
+            badges = emptyList(),
+            segments = listOf(ChatSegment.Text("Spam message removed by the timeout")),
+            rawText = "Spam message removed by the timeout",
+            kind = ChatMessageKind.CHAT,
+        )
+        processor.submit(session, ChatEvent.Message(chatter))
+        awaitTimeline(timeline) { messages -> messages.any { it.id == chatter.id } }
+
+        val clearEvent = ChatEvent.ClearUser(
+            userId = timeout.targetId,
+            userLogin = timeout.targetLogin,
+            userName = timeout.target,
+            eventId = "fixture-clear-1",
+            receivedAtMs = clearAt,
+            timeoutSeconds = 60,
+            displayMode = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatModerationDisplayMode.HIDE,
+        )
+        val noticeCoalescer = ModerationNoticeCoalescer(fixtureScope)
+        noticeCoalescer.clear(
+            event = clearEvent,
+            emitClear = { processor.submit(session, clearEvent) },
+            emitFallback = {
+                transport.moderationSystemMessage(session, clearEvent)?.let { processor.submit(session, it) }
+            },
+        )
+        awaitTimeline(timeline) { messages -> messages.none { it.id == chatter.id } }
+
+        val timeoutMessage = requireNotNull(transport.moderatorActionSystemMessage(session, timeout))
+        noticeCoalescer.action(timeout) {
+            processor.submit(session, timeoutMessage)
+        }
+        requireNotNull(transport.moderatorActionSystemMessage(session, ban)).let { processor.submit(session, it) }
+        requireNotNull(transport.moderatorActionSystemMessage(session, unban)).let { processor.submit(session, it) }
+        delay(1_100L)
+        return awaitTimeline(timeline) { messages -> messages.size >= 3 }
+    }
+
+    private suspend fun awaitTimeline(
+        timeline: ChatTimelineStore,
+        predicate: (List<ChatMessage>) -> Boolean,
+    ): List<ChatMessage> {
+        repeat(100) {
+            val messages = timeline.snapshot()
+            if (predicate(messages)) return messages
+            delay(10L)
+        }
+        error("Moderator action fixture did not reach its expected timeline state")
+    }
 
     private fun fixtureHappeningNowState() = HappeningNowView.RenderState(
         gift = HappeningNowGift(
@@ -346,5 +520,6 @@ class ChatEventFixtureActivity : AppCompatActivity() {
     companion object {
         const val EXTRA_THEME = "event_theme"
         const val EXTRA_SCALE = "event_scale"
+        const val EXTRA_MODERATION_FIXTURE = "moderation_fixture"
     }
 }

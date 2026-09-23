@@ -291,6 +291,8 @@ class ChatRowCompiler(
             message.rewardId != null && firstMessageVisibility < 2 -> ChatEventKind.CHANNEL_POINTS
             !isSuppressedFirstChatter && message.kind == ChatMessageKind.ANNOUNCEMENT -> ChatEventKind.ANNOUNCEMENT
             !isSuppressedFirstChatter && message.kind == ChatMessageKind.RAID -> ChatEventKind.RAID
+            !isSuppressedReward && !isSuppressedFirstChatter &&
+                noticeType == "moderator_action" -> ChatEventKind.MODERATION
             !isSuppressedReward && !isSuppressedFirstChatter && (
                 message.kind == ChatMessageKind.NOTICE ||
                     message.kind == ChatMessageKind.SYSTEM ||
@@ -316,7 +318,8 @@ class ChatRowCompiler(
         val mutedColor = colors.mutedTextColor(eventBackground)
         val systemEvent = eventKind == ChatEventKind.ANNOUNCEMENT ||
             eventKind == ChatEventKind.RAID ||
-            eventKind == ChatEventKind.NOTICE
+            eventKind == ChatEventKind.NOTICE ||
+            eventKind == ChatEventKind.MODERATION
         val resolvedSegments = resolveSegments(
             message.segments,
             catalog,
@@ -582,6 +585,7 @@ class ChatRowCompiler(
             )
             ChatEventKind.ANNOUNCEMENT,
             ChatEventKind.RAID,
+            ChatEventKind.MODERATION,
             ChatEventKind.NOTICE,
             -> {
                 val title = when (eventKind) {
@@ -589,7 +593,9 @@ class ChatRowCompiler(
                     ChatEventKind.RAID -> labels.raid
                     else -> message.systemText?.trim()?.takeIf { it.isNotBlank() } ?: labels.notice
                 }
-                val systemDetail = if (eventKind == ChatEventKind.NOTICE) emptyList() else {
+                val systemDetail = if (
+                    eventKind == ChatEventKind.NOTICE || eventKind == ChatEventKind.MODERATION
+                ) emptyList() else {
                     message.systemText?.trim()?.takeIf { it.isNotBlank() }?.let {
                         listOf<ChatPiece>(ChatPiece.Text(it, color = mutedColor))
                     }.orEmpty()
@@ -602,7 +608,15 @@ class ChatRowCompiler(
                 ChatEventPresentation(
                     kind = eventKind,
                     visualStyle = ChatEventVisualStyle.NOTICE,
-                    icon = ChatPiece.Icon(R.drawable.ic_chat_speaker_muted, tint = headingColor, sizeDp = ChatEventVisualTokens.iconSizeDp),
+                    icon = ChatPiece.Icon(
+                        drawableRes = if (eventKind == ChatEventKind.MODERATION) {
+                            R.drawable.ic_chat_moderation
+                        } else {
+                            R.drawable.ic_chat_speaker_muted
+                        },
+                        tint = headingColor,
+                        sizeDp = ChatEventVisualTokens.iconSizeDp,
+                    ),
                     titlePieces = listOf(ChatPiece.Text(title, color = headingColor, bold = true)),
                     metadataPieces = withSource(systemDetail),
                     bodyPieces = bodyPieces,

@@ -52,6 +52,7 @@ enum class ChatEventKind {
     FIRST_CHATTER,
     ANNOUNCEMENT,
     RAID,
+    MODERATION,
     NOTICE,
 }
 

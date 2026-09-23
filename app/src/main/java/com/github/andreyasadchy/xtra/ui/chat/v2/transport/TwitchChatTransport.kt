@@ -26,8 +26,11 @@ import com.github.andreyasadchy.xtra.model.chat.Emote as LegacyEmote
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGiftParser
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.repository.EventSubSubscriptionSpec
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
@@ -41,14 +44,37 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.net.ssl.X509TrustManager
 
-internal fun eventSubSubscriptionTypes(enableRewardRedemptions: Boolean): List<String> = buildList {
-    add("channel.chat.message")
-    add("channel.chat.notification")
-    add("channel.chat.clear")
-    add("channel.chat.clear_user_messages")
-    add("channel.chat.message_delete")
-    add("channel.chat_settings.update")
-    if (enableRewardRedemptions) add("channel.channel_points_custom_reward_redemption.add")
+internal fun eventSubSubscriptions(
+    channelId: String,
+    userId: String?,
+    enableRewardRedemptions: Boolean,
+    enableModerationActionNotices: Boolean,
+): List<EventSubSubscriptionSpec> = buildList {
+    val chatCondition = buildMap {
+        put("broadcaster_user_id", channelId)
+        userId?.takeIf(String::isNotBlank)?.let { put("user_id", it) }
+    }
+    listOf(
+        "channel.chat.message",
+        "channel.chat.notification",
+        "channel.chat.clear",
+        "channel.chat.clear_user_messages",
+        "channel.chat.message_delete",
+        "channel.chat_settings.update",
+    ).forEach { add(EventSubSubscriptionSpec(type = it, condition = chatCondition)) }
+    if (enableRewardRedemptions) {
+        add(
+            EventSubSubscriptionSpec(
+                type = "channel.channel_points_custom_reward_redemption.add",
+                condition = chatCondition,
+            ),
+        )
+    }
+    if (enableModerationActionNotices) {
+        val channelCondition = mapOf("broadcaster_user_id" to channelId)
+        add(EventSubSubscriptionSpec(type = "channel.ban", condition = channelCondition))
+        add(EventSubSubscriptionSpec(type = "channel.unban", condition = channelCondition))
+    }
 }
 
 data class TwitchChatTransportConfig(
@@ -63,6 +89,8 @@ data class TwitchChatTransportConfig(
     val enableHermesRewards: Boolean = true,
     /** EventSub redemption events require broadcaster/moderator redemption scopes. */
     val enableRewardRedemptions: Boolean = false,
+    /** Actor-attributed ban notices use the optional channel:moderate EventSub scope. */
+    val enableModerationActionNotices: Boolean = false,
     val enableSevenTv: Boolean = true,
     /** Reports this channel's presence through the v2-owned 7TV socket. */
     val updateSevenTvPresence: (suspend (sessionId: String?, self: Boolean) -> Unit)? = null,
@@ -80,6 +108,10 @@ data class TwitchChatTransportConfig(
     val chatTimeoutMessage: ((String, Int) -> String)? = null,
     val chatBanMessage: ((String) -> String)? = null,
     val chatUserMessagesClearedMessage: ((String) -> String)? = null,
+    val moderatorBanMessage: ((String, String) -> String)? = null,
+    val moderatorTimeoutMessage: ((String, String, Long?) -> String)? = null,
+    val moderatorUnbanMessage: ((String, String) -> String)? = null,
+    val moderatorActionReason: ((String) -> String)? = null,
 )
 
 /**
@@ -90,7 +122,7 @@ data class TwitchChatTransportConfig(
 class TwitchChatTransport(
     private val config: TwitchChatTransportConfig,
     private val trustManager: Lazy<X509TrustManager>,
-    private val createSubscription: suspend (Map<String, String>, String?, String, String?) -> Unit = { _, _, _, _ -> },
+    private val createSubscription: suspend (Map<String, String>, EventSubSubscriptionSpec, String?) -> Unit = { _, _, _ -> },
 ) : com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport {
     override fun events(session: ChatSessionKey): Flow<ChatEvent> = if (config.useEventSub) {
         eventSubEvents(session).catch { error ->
@@ -182,6 +214,7 @@ class TwitchChatTransport(
 
     private fun eventSubEvents(session: ChatSessionKey): Flow<ChatEvent> = callbackFlow {
         val flowScope = this
+        val moderationNotices = ModerationNoticeCoalescer(flowScope)
         val socket = EventSubWebSocket(
             trustManager = trustManager,
             listener = object : EventSubWebSocket.Listener {
@@ -196,15 +229,19 @@ class TwitchChatTransport(
 
                 override suspend fun onWelcomeMessage(sessionId: String) {
                     flowScope.launch {
-                        eventSubSubscriptionTypes(config.enableRewardRedemptions).forEach { type ->
+                        eventSubSubscriptions(
+                            channelId = config.channelId,
+                            userId = config.accountId,
+                            enableRewardRedemptions = config.enableRewardRedemptions,
+                            enableModerationActionNotices = config.enableModerationActionNotices,
+                        ).forEach { subscription ->
                             try {
-                                createSubscription(config.helixHeaders, config.accountId, type, sessionId)
+                                createSubscription(config.helixHeaders, subscription, sessionId)
                             } catch (error: CancellationException) {
                                 throw error
                             } catch (error: Throwable) {
-                                if (type !in REWARD_REDEMPTION_SUBSCRIPTION) throw error
-                                // This optional capability must not tear down otherwise valid
-                                // EventSub chat subscriptions. Hermes remains the fallback.
+                                if (subscription.type !in OPTIONAL_SUBSCRIPTIONS) throw error
+                                // Optional capabilities must not tear down otherwise valid chat.
                             }
                         }
                     }
@@ -240,8 +277,16 @@ class TwitchChatTransport(
                     val clearEvent = applyModerationDisplay(
                         TwitchChatEventParser.fromEventSubClear(event, timestamp, notificationId),
                     )
-                    flowScope.send(clearEvent)
-                    moderationSystemMessage(session, clearEvent)?.let { flowScope.send(it) }
+                    if (config.enableModerationActionNotices && clearEvent is ChatEvent.ClearUser) {
+                        moderationNotices.clear(
+                            event = clearEvent,
+                            emitClear = { flowScope.send(clearEvent) },
+                            emitFallback = { moderationSystemMessage(session, clearEvent)?.let { flowScope.send(it) } },
+                        )
+                    } else {
+                        flowScope.send(clearEvent)
+                        moderationSystemMessage(session, clearEvent)?.let { flowScope.send(it) }
+                    }
                 }
 
                 override suspend fun onMessageDelete(event: org.json.JSONObject, timestamp: String?) {
@@ -251,6 +296,31 @@ class TwitchChatTransport(
                     flowScope.send(deleteEvent)
                     if (shouldShowDeletionNotice(deleteEvent)) {
                         systemMessage(session, "delete-${deleteEvent.eventId ?: timestamp ?: System.nanoTime()}", config.messageDeletedMessage)?.let { flowScope.send(it) }
+                    }
+                }
+
+                override suspend fun onChannelBan(
+                    event: org.json.JSONObject,
+                    timestamp: String?,
+                    notificationId: String?,
+                ) {
+                    if (!config.enableModerationActionNotices) return
+                    val action = TwitchChatEventParser.fromEventSubBan(event, timestamp, notificationId) ?: return
+                    val message = moderatorActionSystemMessage(session, action) ?: return
+                    moderationNotices.action(action) {
+                        flowScope.send(message)
+                    }
+                }
+
+                override suspend fun onChannelUnban(
+                    event: org.json.JSONObject,
+                    timestamp: String?,
+                    notificationId: String?,
+                ) {
+                    if (!config.enableModerationActionNotices) return
+                    val action = TwitchChatEventParser.fromEventSubUnban(event, timestamp, notificationId) ?: return
+                    moderatorActionSystemMessage(session, action)?.let { message ->
+                        moderationNotices.action(action) { flowScope.send(message) }
                     }
                 }
 
@@ -458,7 +528,7 @@ class TwitchChatTransport(
         )
     }
 
-    private fun moderationSystemMessage(session: ChatSessionKey, event: ChatEvent): ChatEvent.Message? {
+    internal fun moderationSystemMessage(session: ChatSessionKey, event: ChatEvent): ChatEvent.Message? {
         if (!config.showClearChat) return null
         if (event is ChatEvent.ClearUser && event.displayMode == ChatModerationDisplayMode.STRIKETHROUGH) return null
         val text = when (event) {
@@ -483,6 +553,33 @@ class TwitchChatTransport(
             suffix = "$prefix-${event.eventId ?: event.receivedAtMs}",
             text = text,
             timestampMs = event.receivedAtMs + 1,
+        )
+    }
+
+    internal fun moderatorActionSystemMessage(
+        session: ChatSessionKey,
+        action: TwitchModeratorActionNotice,
+    ): ChatEvent.Message? {
+        if (!config.showClearChat || !config.enableModerationActionNotices) return null
+        val message = when (action.kind) {
+            TwitchModeratorActionKind.BAN -> config.moderatorBanMessage?.invoke(action.moderator, action.target)
+            TwitchModeratorActionKind.TIMEOUT -> config.moderatorTimeoutMessage?.invoke(
+                action.moderator,
+                action.target,
+                action.durationSeconds,
+            )
+            TwitchModeratorActionKind.REMOVE -> config.moderatorUnbanMessage?.invoke(action.moderator, action.target)
+        } ?: return null
+        val text = action.reason?.let { reason ->
+            message + (config.moderatorActionReason?.invoke(reason) ?: "\nReason: $reason")
+        } ?: message
+        return systemMessage(
+            session = session,
+            suffix = "moderator-action-${action.eventId ?: "${action.kind.name}-${action.occurredAtMs}"}",
+            text = text,
+            timestampMs = action.occurredAtMs,
+            noticeType = "moderator_action",
+            messageId = "moderator-action-${action.eventId ?: "${action.kind.name}-${action.targetId ?: action.targetLogin}-${action.occurredAtMs}"}",
         )
     }
 
@@ -517,11 +614,12 @@ class TwitchChatTransport(
         text: String?,
         timestampMs: Long? = null,
         noticeType: String? = null,
+        messageId: String? = null,
     ): ChatEvent.Message? =
         text?.takeIf { it.isNotBlank() }?.let {
             ChatEvent.Message(
                 message = ChatMessage(
-                    id = ChatMessageId("system-$suffix-${session.generation}"),
+                    id = ChatMessageId(messageId ?: "system-$suffix-${session.generation}"),
                     channelId = config.channelId,
                     timestampMs = timestampMs ?: System.currentTimeMillis(),
                     user = null,
@@ -535,7 +633,158 @@ class TwitchChatTransport(
         }
 
     private companion object {
-        val REWARD_REDEMPTION_SUBSCRIPTION = listOf("channel.channel_points_custom_reward_redemption.add")
+        val OPTIONAL_SUBSCRIPTIONS = setOf(
+            "channel.channel_points_custom_reward_redemption.add",
+            "channel.ban",
+            "channel.unban",
+        )
+    }
+}
+
+/** Delays only generic clear text while pairing it one-to-one with an actor ban event. */
+internal class ModerationNoticeCoalescer(
+    private val scope: CoroutineScope,
+    private val gracePeriodMs: Long = 1_000L,
+    private val correlationWindowMs: Long = 5_000L,
+    private val now: () -> Long = System::currentTimeMillis,
+) {
+    private data class PendingClear(
+        val eventId: String?,
+        val targetId: String?,
+        val targetLogin: String?,
+        val eventTimestampMs: Long,
+        val emit: suspend () -> Unit,
+        var job: Job? = null,
+    )
+
+    private data class ActionRecord(
+        val id: String?,
+        val targetId: String?,
+        val targetLogin: String?,
+        val eventTimestampMs: Long,
+        val observedAtMs: Long,
+    )
+
+    private val mutex = Mutex()
+    private val pendingClears = mutableListOf<PendingClear>()
+    private val recentActions = mutableListOf<ActionRecord>()
+    private val recentClearIds = linkedSetOf<String>()
+    private val recentActionIds = linkedSetOf<String>()
+
+    suspend fun clear(
+        event: ChatEvent.ClearUser,
+        emitClear: suspend () -> Unit,
+        emitFallback: suspend () -> Unit,
+    ) {
+        var isDuplicate = false
+        var fallbackImmediately = false
+        mutex.withLock {
+            pruneRecentActions(now())
+            if (rememberId(recentClearIds, event.eventId)) {
+                isDuplicate = true
+                return@withLock
+            }
+            val target = ModerationTarget(event.userId, event.userLogin)
+            val matchedAction = recentActions
+                .asSequence()
+                .filter {
+                    ModerationTarget(it.targetId, it.targetLogin).matches(target) &&
+                        withinWindow(it.eventTimestampMs, event.receivedAtMs)
+                }
+                .minByOrNull { kotlin.math.abs(it.eventTimestampMs - event.receivedAtMs) }
+            if (matchedAction != null) {
+                recentActions.remove(matchedAction)
+            } else if (target.isKnown) {
+                val pending = PendingClear(
+                    eventId = event.eventId,
+                    targetId = event.userId,
+                    targetLogin = event.userLogin,
+                    eventTimestampMs = event.receivedAtMs,
+                    emit = emitFallback,
+                )
+                pendingClears += pending
+                pending.job = scope.launch {
+                    delay(gracePeriodMs)
+                    val shouldEmit = mutex.withLock { pendingClears.remove(pending) }
+                    if (shouldEmit) pending.emit()
+                }
+            } else {
+                // Without an identity we cannot safely pair the events; preserve the generic notice.
+                fallbackImmediately = true
+            }
+        }
+        if (isDuplicate) return
+        emitClear()
+        if (fallbackImmediately) emitFallback()
+    }
+
+    suspend fun action(action: TwitchModeratorActionNotice, emitAction: suspend () -> Unit) {
+        val isDuplicate = mutex.withLock {
+            pruneRecentActions(now())
+            if (rememberId(recentActionIds, action.eventId)) {
+                true
+            } else if (action.kind == TwitchModeratorActionKind.REMOVE) {
+                false
+            } else {
+                val target = ModerationTarget(action.targetId, action.targetLogin)
+                val matchingClear = pendingClears
+                    .asSequence()
+                    .filter {
+                        ModerationTarget(it.targetId, it.targetLogin).matches(target) &&
+                            withinWindow(it.eventTimestampMs, action.occurredAtMs)
+                    }
+                    .minByOrNull { kotlin.math.abs(it.eventTimestampMs - action.occurredAtMs) }
+                if (matchingClear != null) {
+                    pendingClears.remove(matchingClear)
+                    matchingClear.job?.cancel()
+                } else if (target.isKnown) {
+                    recentActions += ActionRecord(
+                        id = action.eventId,
+                        targetId = action.targetId,
+                        targetLogin = action.targetLogin,
+                        eventTimestampMs = action.occurredAtMs,
+                        observedAtMs = now(),
+                    )
+                }
+                false
+            }
+        }
+        if (!isDuplicate) emitAction()
+    }
+
+    private fun pruneRecentActions(timestampMs: Long) {
+        recentActions.removeAll { timestampMs - it.observedAtMs > correlationWindowMs }
+        if (recentActions.size > MAX_RECENT_EVENTS) {
+            recentActions.subList(0, recentActions.size - MAX_RECENT_EVENTS).clear()
+        }
+    }
+
+    private fun rememberId(ids: LinkedHashSet<String>, id: String?): Boolean {
+        if (id.isNullOrBlank()) return false
+        if (!ids.add(id)) return true
+        while (ids.size > MAX_RECENT_IDS) ids.remove(ids.first())
+        return false
+    }
+
+    private fun withinWindow(firstMs: Long, secondMs: Long): Boolean =
+        kotlin.math.abs(firstMs - secondMs) <= correlationWindowMs
+
+    private data class ModerationTarget(val id: String?, val login: String?) {
+        val isKnown: Boolean get() = !id.isNullOrBlank() || !login.isNullOrBlank()
+
+        fun matches(other: ModerationTarget): Boolean {
+            val ownId = id?.takeIf(String::isNotBlank)
+            val otherId = other.id?.takeIf(String::isNotBlank)
+            if (ownId != null && otherId != null) return ownId == otherId
+            val ownLogin = login?.takeIf(String::isNotBlank)
+            val otherLogin = other.login?.takeIf(String::isNotBlank)
+            return ownLogin != null && otherLogin != null && ownLogin.equals(otherLogin, ignoreCase = true)
+        }
+    }
+
+    private companion object {
+        const val MAX_RECENT_IDS = 128
+        const val MAX_RECENT_EVENTS = 64
     }
 }
 

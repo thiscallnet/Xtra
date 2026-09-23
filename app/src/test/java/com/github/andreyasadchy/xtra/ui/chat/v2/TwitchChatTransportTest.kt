@@ -1,7 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.SevenTvPresenceReporter
-import com.github.andreyasadchy.xtra.ui.chat.v2.transport.eventSubSubscriptionTypes
+import com.github.andreyasadchy.xtra.ui.chat.v2.transport.eventSubSubscriptions
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
@@ -11,9 +11,21 @@ import org.junit.Test
 class TwitchChatTransportTest {
     @Test
     fun restrictedRewardSubscriptionIsOptIn() {
-        assertFalse(eventSubSubscriptionTypes(false).contains(REWARD_SUBSCRIPTION))
-        assertTrue(eventSubSubscriptionTypes(true).contains(REWARD_SUBSCRIPTION))
-        assertTrue(eventSubSubscriptionTypes(false).contains("channel.chat.message"))
+        val withoutRewards = eventSubSubscriptions(
+            channelId = "channel-id",
+            userId = "user-id",
+            enableRewardRedemptions = false,
+            enableModerationActionNotices = false,
+        )
+        val withRewards = eventSubSubscriptions(
+            channelId = "channel-id",
+            userId = "user-id",
+            enableRewardRedemptions = true,
+            enableModerationActionNotices = false,
+        )
+        assertFalse(withoutRewards.any { it.type == REWARD_SUBSCRIPTION })
+        assertTrue(withRewards.any { it.type == REWARD_SUBSCRIPTION })
+        assertTrue(withoutRewards.any { it.type == "channel.chat.message" })
     }
 
     @Test

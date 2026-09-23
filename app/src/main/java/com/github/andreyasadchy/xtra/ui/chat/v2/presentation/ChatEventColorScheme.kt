@@ -27,6 +27,7 @@ internal fun resolveChatEventPalette(
     val surfaceColor = when (kind) {
         ChatEventKind.WATCH_STREAK,
         ChatEventKind.SUBSCRIPTION,
+        ChatEventKind.MODERATION,
         -> blendChatEventSurface(baseColor, fillColor, EVENT_SURFACE_ALPHA)
 
         ChatEventKind.CHANNEL_POINTS,
@@ -59,6 +60,7 @@ internal fun chatEventFillAttribute(kind: ChatEventKind): Int =
         ChatEventKind.RAID,
         ChatEventKind.NOTICE,
         -> R.attr.chatMessageNoticeColor
+        ChatEventKind.MODERATION -> com.google.android.material.R.attr.colorOnSurfaceVariant
     }
 
 private fun chatEventRailAttribute(kind: ChatEventKind): Int =
@@ -74,6 +76,7 @@ private fun chatEventRailAttribute(kind: ChatEventKind): Int =
         ChatEventKind.RAID,
         ChatEventKind.NOTICE,
         -> chatEventFillAttribute(kind)
+        ChatEventKind.MODERATION -> com.google.android.material.R.attr.colorOnSurfaceVariant
     }
 
 private const val EVENT_SURFACE_ALPHA = 0x18

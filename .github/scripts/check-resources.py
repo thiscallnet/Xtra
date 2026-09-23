@@ -650,6 +650,11 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_command_moderator_confirmation_required",
     "chat_command_help_close",
     "chat_command_help_use_composer",
+    "chat_mod_action_ban",
+    "chat_mod_action_timeout",
+    "chat_mod_action_timeout_unknown",
+    "chat_mod_action_unban",
+    "chat_mod_action_reason",
     "chat_api_commands_disabled",
 }
 

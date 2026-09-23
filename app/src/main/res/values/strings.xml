@@ -932,6 +932,11 @@ Metadata text</string>
     <string name="chat_clear_user">Messages from %s have been cleared by a moderator.</string>
     <string name="chat_timeout">%1$s has been timed out for %2$s.</string>
     <string name="chat_ban">%s has been permanently banned.</string>
+    <string name="chat_mod_action_ban">%1$s banned %2$s.</string>
+    <string name="chat_mod_action_timeout">%1$s timed out %2$s for %3$s.</string>
+    <string name="chat_mod_action_timeout_unknown">%1$s timed out %2$s.</string>
+    <string name="chat_mod_action_unban">%1$s removed %2$s’s ban or timeout.</string>
+    <string name="chat_mod_action_reason">\nReason: %1$s</string>
     <string name="chat_clearmsg">Message deleted from %1$s\: %2$s</string>
     <string name="chat_message_deleted" translatable="false">Message deleted.</string>
     <string name="chat_first">First Time Chatter</string>

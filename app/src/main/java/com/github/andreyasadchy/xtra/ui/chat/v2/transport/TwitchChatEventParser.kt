@@ -26,6 +26,24 @@ import org.json.JSONArray
 import org.json.JSONObject
 import kotlin.time.Instant
 
+internal enum class TwitchModeratorActionKind {
+    BAN,
+    TIMEOUT,
+    REMOVE,
+}
+
+internal data class TwitchModeratorActionNotice(
+    val kind: TwitchModeratorActionKind,
+    val moderator: String,
+    val target: String,
+    val reason: String?,
+    val durationSeconds: Long?,
+    val targetId: String?,
+    val targetLogin: String?,
+    val occurredAtMs: Long,
+    val eventId: String?,
+)
+
 /**
  * Protocol-to-domain normalization for the production transport bridge.
  *
@@ -189,6 +207,73 @@ object TwitchChatEventParser {
             )
             else -> ChatEvent.Clear(eventId, receivedAt)
         }
+    }
+
+    internal fun fromEventSubBan(
+        event: JSONObject,
+        timestamp: String?,
+        notificationId: String?,
+    ): TwitchModeratorActionNotice? {
+        val targetId = event.optString("user_id").takeIf { it.isNotBlank() }
+        val targetLogin = event.optString("user_login").takeIf { it.isNotBlank() }
+        val target = event.optString("user_name").takeIf { it.isNotBlank() }
+            ?: targetLogin
+            ?: targetId
+            ?: return null
+        val moderator = event.optString("moderator_user_name").takeIf { it.isNotBlank() }
+            ?: event.optString("moderator_user_login").takeIf { it.isNotBlank() }
+            ?: event.optString("moderator_user_id").takeIf { it.isNotBlank() }
+            ?: return null
+        val bannedAt = event.optString("banned_at").takeIf { it.isNotBlank() }
+        val endsAt = event.optString("ends_at").takeIf { it.isNotBlank() }
+        val durationSeconds = if (bannedAt != null && endsAt != null) {
+            val duration = parseTimestamp(endsAt) - parseTimestamp(bannedAt)
+            duration.takeIf { it > 0L }?.div(1_000L)
+        } else {
+            null
+        }
+        val isPermanent = event.optBooleanOrNull("is_permanent") ?: (durationSeconds == null)
+        return TwitchModeratorActionNotice(
+            kind = if (isPermanent) TwitchModeratorActionKind.BAN else TwitchModeratorActionKind.TIMEOUT,
+            moderator = moderator,
+            target = target,
+            reason = event.optString("reason").takeIf { it.isNotBlank() },
+            durationSeconds = durationSeconds,
+            targetId = targetId,
+            targetLogin = targetLogin,
+            occurredAtMs = parseTimestamp(timestamp ?: bannedAt),
+            eventId = notificationId?.takeIf { it.isNotBlank() }
+                ?: "ban-${targetId ?: targetLogin ?: target}-${bannedAt ?: timestamp.orEmpty()}-$endsAt-$isPermanent",
+        )
+    }
+
+    internal fun fromEventSubUnban(
+        event: JSONObject,
+        timestamp: String?,
+        notificationId: String?,
+    ): TwitchModeratorActionNotice? {
+        val targetId = event.optString("user_id").takeIf { it.isNotBlank() }
+        val targetLogin = event.optString("user_login").takeIf { it.isNotBlank() }
+        val target = event.optString("user_name").takeIf { it.isNotBlank() }
+            ?: targetLogin
+            ?: targetId
+            ?: return null
+        val moderator = event.optString("moderator_user_name").takeIf { it.isNotBlank() }
+            ?: event.optString("moderator_user_login").takeIf { it.isNotBlank() }
+            ?: event.optString("moderator_user_id").takeIf { it.isNotBlank() }
+            ?: return null
+        return TwitchModeratorActionNotice(
+            kind = TwitchModeratorActionKind.REMOVE,
+            moderator = moderator,
+            target = target,
+            reason = null,
+            durationSeconds = null,
+            targetId = targetId,
+            targetLogin = targetLogin,
+            occurredAtMs = parseTimestamp(timestamp),
+            eventId = notificationId?.takeIf { it.isNotBlank() }
+                ?: "unban-${targetId ?: targetLogin ?: target}-${timestamp.orEmpty()}",
+        )
     }
 
     fun fromEventSubSettings(event: JSONObject, timestamp: String?, channelId: String): ChatEvent.SettingsUpdated =

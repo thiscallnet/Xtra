@@ -767,6 +767,7 @@ class XtraModule(application: Application) {
             transportFactory = { spec: LiveChatSessionSpec ->
                 val scopes = appContext.tokenPrefs().getString(C.TOKEN_SCOPES, null)
                     .orEmpty().split(Regex("\\s+")).filter(String::isNotBlank).toSet()
+                val showClearChat = appContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_CHAT, true)
                 val accountId = appContext.tokenPrefs().getString(C.USER_ID, null)
                 val helixHeaders = TwitchApiHelper.getHelixHeaders(appContext)
                 val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -799,6 +800,8 @@ class XtraModule(application: Application) {
                                 !accountId.isNullOrBlank() && (
                             "channel:read:redemptions" in scopes || "channel:manage:redemptions" in scopes
                         ),
+                        enableModerationActionNotices = !spec.legacySupplementalSockets &&
+                                !accountId.isNullOrBlank() && showClearChat && "channel:moderate" in scopes,
                         enableSevenTv = appContext.prefs().getBoolean(C.CHAT_ENABLE_STV, true),
                         updateSevenTvPresence = sevenTvPresence?.let { reporter ->
                             { sessionId, self -> reporter.update(sessionId, self) }
@@ -807,7 +810,7 @@ class XtraModule(application: Application) {
                         networkLibrary = network,
                         showUserNotices = appContext.prefs().getBoolean(C.CHAT_SHOW_USER_NOTICE, true),
                         showClearMessages = appContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_MSG, true),
-                        showClearChat = appContext.prefs().getBoolean(C.CHAT_SHOW_CLEAR_CHAT, true),
+                        showClearChat = showClearChat,
                         moderationDisplayMode = {
                             ChatModerationDisplayMode.fromPreference(
                                 appContext.prefs().getString(C.CHAT_MODERATION_DISPLAY, "notice"),
@@ -826,12 +829,36 @@ class XtraModule(application: Application) {
                         chatUserMessagesClearedMessage = { login ->
                             appContext.getString(R.string.chat_clear_user).format(login)
                         },
+                        moderatorBanMessage = { moderator, target ->
+                            appContext.getString(R.string.chat_mod_action_ban).format(moderator, target)
+                        },
+                        moderatorTimeoutMessage = { moderator, target, durationSeconds ->
+                            if (durationSeconds != null) {
+                                val duration = TwitchApiHelper.getDurationFromSeconds(
+                                    appContext,
+                                    durationSeconds.toString(),
+                                )?.takeIf(String::isNotBlank)
+                                if (duration != null) {
+                                    appContext.getString(R.string.chat_mod_action_timeout).format(moderator, target, duration)
+                                } else {
+                                    appContext.getString(R.string.chat_mod_action_timeout_unknown).format(moderator, target)
+                                }
+                            } else {
+                                appContext.getString(R.string.chat_mod_action_timeout_unknown).format(moderator, target)
+                            }
+                        },
+                        moderatorUnbanMessage = { moderator, target ->
+                            appContext.getString(R.string.chat_mod_action_unban).format(moderator, target)
+                        },
+                        moderatorActionReason = { reason ->
+                            appContext.getString(R.string.chat_mod_action_reason).format(reason)
+                        },
                     ),
                     trustManager = trustManager,
-                    createSubscription = { headers, userId, type, sessionId ->
+                    createSubscription = { headers, subscription, sessionId ->
                         helixRepository.createEventSubSubscription(
-                            network, headers, userId, spec.channelId, type, sessionId,
-                        )?.let { error("EventSub $type rejected: $it") }
+                            network, headers, subscription, sessionId,
+                        )?.let { error("EventSub ${subscription.type} rejected: $it") }
                     },
                 )
             },

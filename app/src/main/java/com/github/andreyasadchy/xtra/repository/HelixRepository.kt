@@ -1584,7 +1584,26 @@ class HelixRepository(
         }
 
     suspend fun createEventSubSubscription(networkLibrary: String?, headers: Map<String, String>, userId: String?, channelId: String?, type: String?, sessionId: String?): String? =
-        createEventSubSubscriptionResult(networkLibrary, headers, userId, channelId, type, sessionId)
+        createEventSubSubscription(
+            networkLibrary,
+            headers,
+            EventSubSubscriptionSpec(
+                type = type.orEmpty(),
+                condition = buildMap {
+                    channelId?.takeIf(String::isNotBlank)?.let { put("broadcaster_user_id", it) }
+                    if (type != "stream.online") userId?.takeIf(String::isNotBlank)?.let { put("user_id", it) }
+                },
+            ),
+            sessionId,
+        )
+
+    suspend fun createEventSubSubscription(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        spec: EventSubSubscriptionSpec,
+        sessionId: String?,
+    ): String? =
+        createEventSubSubscriptionResult(networkLibrary, headers, spec, sessionId)
             .takeUnless { it.success }
             ?.errorMessage
 
@@ -1731,6 +1750,24 @@ class HelixRepository(
         channelId: String?,
         type: String?,
         sessionId: String?,
+    ): EventSubSubscriptionResult = createEventSubSubscriptionResult(
+        networkLibrary,
+        headers,
+        EventSubSubscriptionSpec(
+            type = type.orEmpty(),
+            condition = buildMap {
+                channelId?.takeIf(String::isNotBlank)?.let { put("broadcaster_user_id", it) }
+                if (type != "stream.online") userId?.takeIf(String::isNotBlank)?.let { put("user_id", it) }
+            },
+        ),
+        sessionId,
+    )
+
+    suspend fun createEventSubSubscriptionResult(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        spec: EventSubSubscriptionSpec,
+        sessionId: String?,
     ): EventSubSubscriptionResult = withHelixDiagnostics(
         "helix_create_event_sub_subscription_result",
         isSuccessful = EventSubSubscriptionResult::success,
@@ -1738,13 +1775,10 @@ class HelixRepository(
     ) { withContext(Dispatchers.IO) {
         val url = "https://api.twitch.tv/helix/eventsub/subscriptions"
         val body = buildJsonObject {
-            put("type", type)
-            put("version", "1")
+            put("type", spec.type)
+            put("version", spec.version)
             putJsonObject("condition") {
-                put("broadcaster_user_id", channelId)
-                if (type != "stream.online") {
-                    put("user_id", userId)
-                }
+                spec.condition.forEach { (name, value) -> put(name, value) }
             }
             putJsonObject("transport") {
                 put("method", "websocket")

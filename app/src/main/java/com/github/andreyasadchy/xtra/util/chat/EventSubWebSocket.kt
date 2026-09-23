@@ -335,6 +335,8 @@ class EventSubWebSocket(
         suspend fun onClearChat(event: JSONObject, timestamp: String?, notificationId: String?) {}
         suspend fun onClearUserMessages(event: JSONObject, timestamp: String?, notificationId: String?) {}
         suspend fun onMessageDelete(event: JSONObject, timestamp: String?) {}
+        suspend fun onChannelBan(event: JSONObject, timestamp: String?, notificationId: String?) {}
+        suspend fun onChannelUnban(event: JSONObject, timestamp: String?, notificationId: String?) {}
         suspend fun onRoomState(event: JSONObject, timestamp: String?) {}
         suspend fun onStreamOnline(event: JSONObject, timestamp: String?) {}
         suspend fun onDisconnect(message: String, fullMsg: String?) {}
@@ -381,6 +383,8 @@ class EventSubWebSocket(
                                     "channel.chat.clear" -> listener.onClearChat(event, timestamp, messageId)
                                     "channel.chat.clear_user_messages" -> listener.onClearUserMessages(event, timestamp, messageId)
                                     "channel.chat.message_delete" -> listener.onMessageDelete(event, timestamp)
+                                    "channel.ban" -> listener.onChannelBan(event, timestamp, messageId)
+                                    "channel.unban" -> listener.onChannelUnban(event, timestamp, messageId)
                                     "channel.chat_settings.update" -> listener.onRoomState(event, timestamp)
                                     "stream.online" -> listener.onStreamOnline(event, timestamp)
                                 }
