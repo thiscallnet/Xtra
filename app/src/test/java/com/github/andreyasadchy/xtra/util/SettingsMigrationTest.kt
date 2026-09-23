@@ -264,6 +264,21 @@ class SettingsMigrationTest {
     }
 
     @Test
+    fun `current schema keeps custom navigation when following tabs are absent`() {
+        val navigation = "0:1:1,4:0:0,1:0:0,2:0:1,3:0:0,5:0:1,6:0:1"
+        val preferences = MemoryPreferences(
+            mutableMapOf(
+                C.SETTINGS_VERSION to C.SETTINGS_SCHEMA_VERSION,
+                C.UI_NAVIGATION_TAB_LIST to navigation,
+            ),
+        )
+
+        SettingsMigration.migratePreferences(preferences, freshInstall = false)
+
+        assertEquals(navigation, preferences.getString(C.UI_NAVIGATION_TAB_LIST, null))
+    }
+
+    @Test
     fun `redesigned target values remain stable when migration is applied again`() {
         val density = SettingsMigration.migratedDensity(null, reducedPadding = true, compactText = false)
         val profile = SettingsMigration.migratedProfilePictureStyle(null, roundUserImage = false)

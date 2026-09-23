@@ -17,6 +17,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.util.WeakHashMap
 
 private val preferencesCache = WeakHashMap<Context, PreferenceSet>()
+private const val PROXY_PREFERENCES_NAME = "proxy_credentials"
 
 private data class PreferenceSet(
     val raw: SharedPreferences,
@@ -31,7 +32,7 @@ private fun Context.preferenceSet(): PreferenceSet {
         preferencesCache.getOrPut(context) {
             val raw = PreferenceManager.getDefaultSharedPreferences(context)
             val token = KeystorePreferences(context.getSharedPreferences("prefs2", Context.MODE_PRIVATE), "xtra-token-prefs")
-            val proxy = KeystorePreferences(context.getSharedPreferences("proxy_credentials", Context.MODE_PRIVATE), "xtra-proxy-prefs")
+            val proxy = KeystorePreferences(context.getSharedPreferences(PROXY_PREFERENCES_NAME, Context.MODE_PRIVATE), "xtra-proxy-prefs")
             PreferenceSet(raw, token, proxy, DeveloperGatedPreferences(ProxyAwarePreferences(raw, proxy)))
         }
     }
@@ -44,6 +45,10 @@ fun Context.prefs(): SharedPreferences = preferenceSet().combined
 fun Context.tokenPrefs(): SharedPreferences = preferenceSet().token
 
 fun Context.proxyPrefs(): SharedPreferences = preferenceSet().proxy
+
+/** Raw encrypted backing values for crash-safe rollback; callers must not decrypt or re-encrypt them. */
+internal fun Context.proxyPrefsBacking(): SharedPreferences =
+    (applicationContext ?: this).getSharedPreferences(PROXY_PREFERENCES_NAME, Context.MODE_PRIVATE)
 
 private class ProxyAwarePreferences(
     private val delegate: SharedPreferences,

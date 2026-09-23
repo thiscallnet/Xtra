@@ -111,6 +111,11 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # technical support output and Android falls back to the default wording.
     "settings_diagnostics_live",
     "settings_diagnostics_live_summary",
+    # Backup and restore result messages are shipped in English until localized.
+    "settings_backup_complete",
+    "settings_restore_complete",
+    "settings_restore_archive_authoritative",
+    "settings_operation_failed",
     "diagnostics_enable",
     "diagnostics_enable_summary",
     "diagnostics_account_context",

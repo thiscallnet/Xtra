@@ -100,6 +100,7 @@ import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsFragment
 import com.github.andreyasadchy.xtra.ui.settings.openTabCustomization
 import com.github.andreyasadchy.xtra.ui.settings.resolveNavigationTabList
+import com.github.andreyasadchy.xtra.ui.settings.SettingsRestoreCoordinator
 import com.github.andreyasadchy.xtra.ui.tv.applyTvSafePadding
 import com.github.andreyasadchy.xtra.ui.tv.disableTvClippingUpTree
 import com.github.andreyasadchy.xtra.ui.team.TeamFragmentDirections
@@ -199,7 +200,39 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = prefs()
-        migrateSettings()
+        val app = application as XtraApp
+        val restoringSettings = app.hasPendingSettingsRestoreMigration
+        try {
+            migrateSettings()
+            if (restoringSettings) app.completeRestoredSettingsMigration()
+        } catch (error: Exception) {
+            if (!restoringSettings) throw error
+            app.rollbackRestoredSettingsMigration(error)
+            startActivity(Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            })
+            kotlin.system.exitProcess(1)
+        }
+        SettingsRestoreCoordinator.takeResult(this)?.let { result ->
+            val message = if (result.succeeded) {
+                getString(
+                    if (result.message == "archive_authoritative") {
+                        R.string.settings_restore_archive_authoritative
+                    } else {
+                        R.string.settings_restore_complete
+                    },
+                )
+            } else {
+                getString(R.string.settings_operation_failed, result.message ?: "Unknown error")
+            }
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            if (result.succeeded) {
+                val restoredLanguage = prefs.getString(C.UI_LANGUAGE, "")
+                AppCompatDelegate.setApplicationLocales(
+                    LocaleListCompat.forLanguageTags(restoredLanguage?.takeIf { it != "auto" }),
+                )
+            }
+        }
         UpdateCheckScheduler.schedule(this)
         LiveNotificationScheduler.migrateMode(this)
         applyTheme()

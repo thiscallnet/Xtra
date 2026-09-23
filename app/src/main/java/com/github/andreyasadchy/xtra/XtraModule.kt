@@ -93,6 +93,7 @@ import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
 import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
+import com.github.andreyasadchy.xtra.ui.settings.SettingsRestoreCoordinator
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -338,6 +339,7 @@ class XtraModule(application: Application) {
             buildDatabase(application)
         } catch (error: Exception) {
             if (!pendingRestore) throw error
+            SettingsRestoreCoordinator.markDatabaseValidationFailed(application, error.message)
             DatabaseRestoreRecovery.rollback(application)
             buildDatabase(application)
         }
@@ -348,10 +350,13 @@ class XtraModule(application: Application) {
                 // Opening the database forces Room's complete schema validation
                 // before the retained pre-restore files are discarded.
                 candidate.openHelper.writableDatabase
-                DatabaseRestoreRecovery.complete(application)
+                if (!SettingsRestoreCoordinator.hasPending(application)) {
+                    DatabaseRestoreRecovery.complete(application)
+                }
                 candidate
             } catch (error: Exception) {
                 candidate.close()
+                SettingsRestoreCoordinator.markDatabaseValidationFailed(application, error.message)
                 DatabaseRestoreRecovery.rollback(application)
                 buildDatabase(application)
             }

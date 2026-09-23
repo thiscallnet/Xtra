@@ -56,6 +56,15 @@ internal object DatabaseRestoreRecovery {
         }
     }
 
+    /** Keeps the current preferences file available while a fresh process applies restored values. */
+    fun preservePreferencesForRollback(context: Context) {
+        val plan = requireNotNull(readPlan(context)) { "Restore plan is missing" }
+        if (!plan.preferences.selected || !plan.preferences.existed) return
+        val target = preferencesFile(context, "")
+        val previous = preferencesFile(context, RESTORE_OLD_SUFFIX)
+        if (!previous.exists()) target.copyTo(previous)
+    }
+
     /** Repairs interrupted swaps before Room can create/open the live database path. */
     fun recoverBeforeDatabaseOpen(context: Context) {
         val stateFileExists = stateFile(context).exists() ||

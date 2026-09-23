@@ -742,9 +742,6 @@ class SettingsActivity : AppCompatActivity() {
                     }
                     viewModel.restoreSettings(
                         list = list,
-                        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                        helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext())
                     )
                 }
             }
@@ -1992,6 +1989,23 @@ class SettingsActivity : AppCompatActivity() {
             super.onViewCreated(view, savedInstanceState)
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    launch {
+                        viewModel.settingsOperationResult.collect { result ->
+                            when (result) {
+                                SettingsViewModel.SettingsOperationResult.BackupCompleted -> Snackbar.make(
+                                    view,
+                                    R.string.settings_backup_complete,
+                                    Snackbar.LENGTH_LONG,
+                                ).show()
+                                SettingsViewModel.SettingsOperationResult.RestoreStaged -> Unit
+                                is SettingsViewModel.SettingsOperationResult.Failed -> Snackbar.make(
+                                    view,
+                                    getString(R.string.settings_operation_failed, result.reason),
+                                    Snackbar.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
+                    }
                     viewModel.liveNotificationResult.collectLatest { result ->
                         findPreference<SwitchPreferenceCompat>("live_notifications_enabled")?.isChecked = result.enabled
                         updateLiveNotificationsSummary()

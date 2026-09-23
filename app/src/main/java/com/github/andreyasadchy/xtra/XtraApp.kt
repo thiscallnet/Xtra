@@ -19,6 +19,8 @@ import coil3.network.NetworkResponseBody
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.util.DebugLogger
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.settings.SettingsRestoreCoordinator
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.MainLooperStallWatchdog
 import com.github.andreyasadchy.xtra.util.coil.CacheControlCacheStrategy
@@ -56,6 +58,11 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         private set
     private var startedActivityCount = 0
     private var backgroundStartedElapsedMs: Long? = null
+    private var restoreMigrationPending = false
+    private var deferredStartupTasksStarted = false
+
+    internal val hasPendingSettingsRestoreMigration: Boolean
+        get() = restoreMigrationPending
 
     override fun onCreate() {
         super.onCreate()
@@ -77,7 +84,51 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
             )
         }
         MainLooperStallWatchdog.start()
+        val pendingSettingsRestore = SettingsRestoreCoordinator.installPendingDatabase(this)
         xtraModule = XtraModule(this)
+        if (pendingSettingsRestore) {
+            val database = xtraModule.database
+            try {
+                SettingsRestoreCoordinator.finishAfterDatabaseValidation(this)
+            } catch (error: Exception) {
+                database.close()
+                runCatching { com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery.rollback(this) }
+                SettingsRestoreCoordinator.failAfterBootstrap(this, error.message)
+                startActivity(android.content.Intent(this, MainActivity::class.java).apply {
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                })
+                kotlin.system.exitProcess(1)
+            }
+        }
+        restoreMigrationPending = SettingsRestoreCoordinator.hasPendingSettingsMigration(this)
+        registerActivityLifecycleCallbacks(createActivityLifecycleCallbacks())
+        if (!restoreMigrationPending) startDeferredStartupTasks()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            val conscrypt = Conscrypt.newProvider()
+            Security.insertProviderAt(conscrypt, 1)
+        }
+    }
+
+    internal fun completeRestoredSettingsMigration() {
+        if (!restoreMigrationPending) return
+        SettingsRestoreCoordinator.completeAfterSettingsMigration(this)
+        restoreMigrationPending = false
+        startDeferredStartupTasks()
+    }
+
+    internal fun rollbackRestoredSettingsMigration(error: Throwable) {
+        if (!restoreMigrationPending) throw error
+        xtraModule.database.close()
+        runCatching { com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery.rollback(this) }
+            .exceptionOrNull()
+            ?.let(error::addSuppressed)
+        SettingsRestoreCoordinator.failAfterBootstrap(this, error.message)
+        restoreMigrationPending = false
+    }
+
+    private fun startDeferredStartupTasks() {
+        if (deferredStartupTasksStarted) return
+        deferredStartupTasksStarted = true
         // Chat notification bubbles are temporarily disabled. Clear state left by older builds.
         applicationScope.launch(Dispatchers.IO) {
             xtraModule.chatBubbleManager.retire()
@@ -104,7 +155,9 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                     )
                 }
         }
-        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+    }
+
+    private fun createActivityLifecycleCallbacks(): ActivityLifecycleCallbacks = object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: android.app.Activity) {
                 val wasInBackground = startedActivityCount == 0
                 startedActivityCount += 1
@@ -137,12 +190,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
             override fun onActivityPaused(activity: android.app.Activity) = Unit
             override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) = Unit
             override fun onActivityDestroyed(activity: android.app.Activity) = Unit
-        })
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            val conscrypt = Conscrypt.newProvider()
-            Security.insertProviderAt(conscrypt, 1)
         }
-    }
 
     internal fun scheduleAccountScopedStateCleanup(userId: String?, login: String?) {
         val sessionStore = AuthSessionStore(prefs(), tokenPrefs())

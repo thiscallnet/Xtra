@@ -640,6 +640,10 @@ Metadata text</string>
     <string name="settings_wait_for_stream">Wait for stream to start</string>
     <string name="settings_capture_restarts">Capture stream restarts</string>
     <string name="settings_backup_action">Back up Xtra</string>
+    <string name="settings_backup_complete">Xtra backup created.</string>
+    <string name="settings_restore_complete">Xtra backup restored.</string>
+    <string name="settings_restore_archive_authoritative">Xtra backup restored. The archive was used; separately selected files were ignored.</string>
+    <string name="settings_operation_failed">Operation failed: %1$s</string>
     <string name="settings_backup_summary" translatable="false">Manual backups include local playback and download records. Keep the selected destination private.</string>
     <string name="settings_restore_action">Restore backup</string>
     <string name="settings_reset_action">Reset settings to defaults</string>
