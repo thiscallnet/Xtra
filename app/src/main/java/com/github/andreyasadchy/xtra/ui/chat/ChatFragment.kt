@@ -2567,7 +2567,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         currentBinding.editText.suppressAutocomplete = commandToken != null
         if (commandToken != null) currentBinding.editText.dismissDropDown()
         val recommendations = commandToken?.let {
-            ChatCommandCatalog.suggestions(it.text, viewModel.hasCurrentModeratorRole())
+            val args = requireArguments()
+            ChatCommandCatalog.suggestions(
+                it.text,
+                viewModel.hasCurrentModeratorRole(
+                    channelId = args.getString(KEY_CHANNEL_ID),
+                    channelLogin = args.getString(KEY_CHANNEL_LOGIN),
+                    moderationAllowed = canModerateCurrentChat(),
+                ),
+            )
         }.orEmpty()
         currentCommandRecommendations = recommendations
         commandRecommendationAdapter?.submitList(recommendations)
@@ -2590,6 +2598,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         current.setSelection(replacement.cursor.coerceIn(0, current.length()))
         updateCommandRecommendations()
     }
+
+    private fun canModerateCurrentChat(): Boolean =
+        requireArguments().getBoolean(KEY_IS_LIVE) &&
+            viewModel.activeChatMode is ChatViewModel.ActiveChatMode.Live &&
+            messagingEnabled
 
     private fun showChatCommandHelp() {
         val body = SpannableStringBuilder()
@@ -3938,7 +3951,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 binding.send.isEnabled = false
                 viewLifecycleOwner.lifecycleScope.launch {
                     try {
-                        when (val result = viewModel.performModeratorAction(request)) {
+                        val args = requireArguments()
+                        when (val result = viewModel.performModeratorAction(
+                            request = request,
+                            channelId = args.getString(KEY_CHANNEL_ID),
+                            channelLogin = args.getString(KEY_CHANNEL_LOGIN),
+                            moderationAllowed = canModerateCurrentChat(),
+                        )) {
                             ChatModeratorActionResult.Success -> {
                                 if (binding.editText.text.toString().trim() == text.trim()) binding.editText.text.clear()
                                 Snackbar.make(binding.root, R.string.moderator_action_success, Snackbar.LENGTH_LONG).show()
@@ -3961,11 +3980,23 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onCurrentChatViewerRole() = viewModel.viewerRoleInChannel
 
-    override fun onRequestCurrentChatViewerRoleVerification() =
-        viewModel.requestCurrentChatViewerRoleVerification()
+    override fun onRequestCurrentChatViewerRoleVerification(force: Boolean) {
+        val args = requireArguments()
+        viewModel.requestCurrentChatViewerRoleVerification(
+            channelId = args.getString(KEY_CHANNEL_ID),
+            channelLogin = args.getString(KEY_CHANNEL_LOGIN),
+            moderationAllowed = canModerateCurrentChat(),
+            force = force,
+        )
+    }
 
     override suspend fun onModeratorAction(request: ChatModeratorActionRequest) =
-        viewModel.performModeratorAction(request)
+        viewModel.performModeratorAction(
+            request = request,
+            channelId = requireArguments().getString(KEY_CHANNEL_ID),
+            channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+            moderationAllowed = canModerateCurrentChat(),
+        )
 
     override fun onCreateReplyClickedChatAdapter(): ReplyClickedChatAdapter? {
         val app = requireContext().applicationContext as XtraApp

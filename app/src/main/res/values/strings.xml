@@ -1024,6 +1024,8 @@ Metadata text</string>
     <string name="moderator_action_rejected">Twitch rejected the moderator action.</string>
     <string name="moderator_action_failed">Could not apply moderator action: %1$s</string>
     <string name="moderator_action_could_not_verify">Couldn’t verify your moderator access for this live chat.</string>
+    <string name="moderator_role_checking">Checking moderator access…</string>
+    <string name="moderator_role_retry">Couldn’t verify moderator access. Tap to retry.</string>
     <string-array name="moderator_timeout_durations" translatable="false">
         <item>10s</item>
         <item>1m</item>

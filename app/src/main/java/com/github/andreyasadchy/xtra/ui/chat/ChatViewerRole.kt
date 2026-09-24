@@ -12,11 +12,14 @@ enum class ChatViewerRole {
 
 data class ChatViewerRoleSnapshot(
     val channelId: String? = null,
+    val channelLogin: String? = null,
     val viewerId: String? = null,
     val viewerLogin: String? = null,
     val role: ChatViewerRole = ChatViewerRole.UNKNOWN,
     val observedAtMs: Long = 0L,
     val sessionGeneration: Long = 0L,
+    val verificationInProgress: Boolean = false,
+    val verificationFailed: Boolean = false,
 )
 
 enum class ChatModeratorAction {

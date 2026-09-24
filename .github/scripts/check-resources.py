@@ -669,6 +669,8 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "moderator_action_rejected",
     "moderator_action_failed",
     "moderator_action_could_not_verify",
+    "moderator_role_checking",
+    "moderator_role_retry",
     "chat_command_help_title",
     "chat_command_help_available_heading",
     "chat_command_help_moderation_heading",

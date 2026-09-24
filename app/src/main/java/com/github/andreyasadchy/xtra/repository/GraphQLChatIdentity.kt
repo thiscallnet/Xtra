@@ -82,6 +82,30 @@ internal const val CHAT_IDENTITY_QUERY = """
     }
 """
 
+/** Role returned for the authenticated viewer in one specific Twitch channel. */
+internal data class ChatViewerRoleData(
+    val isBroadcaster: Boolean,
+    val isModerator: Boolean,
+)
+
+/**
+ * Use Twitch's channel-self role field directly. Badge fields are presentation data and must not
+ * grant access to moderation actions.
+ */
+internal const val CHAT_VIEWER_ROLE_QUERY = """
+    query ChatViewerRoleQuery(${'$'}channelLogin: String!) {
+      channel: user(login: ${'$'}channelLogin) {
+        id
+        self {
+          isModerator
+        }
+      }
+      currentUser {
+        id
+      }
+    }
+"""
+
 internal const val CHAT_EARNED_BADGES_CHANNEL_DATA_QUERY = """
     query Chat_EarnedBadges_ChannelData(${'$'}channelID: ID!) {
       currentChannelViewer(channelID: ${'$'}channelID) {
@@ -271,6 +295,49 @@ suspend fun GraphQLRepository.loadChatIdentity(
         canUseCustomNameColor = currentUser.booleanOrNull("hasPrime") == true ||
             currentUser.objectOrNull("turboStatus")?.booleanOrNull("hasActiveTurbo") == true,
         subscriptionMonths = subscription?.months,
+    )
+}
+
+/** Loads the authenticated viewer's role in [channelLogin], without using a cached chat roster. */
+internal suspend fun GraphQLRepository.loadChatViewerRole(
+    networkLibrary: String?,
+    headers: Map<String, String>,
+    viewerId: String,
+    channelId: String,
+    channelLogin: String,
+): ChatViewerRoleData {
+    val identity = executeRawOperation(
+        networkLibrary = networkLibrary,
+        headers = headers,
+        operationName = "ChatViewerRoleQuery",
+        query = CHAT_VIEWER_ROLE_QUERY,
+        variables = buildJsonObject { put("channelLogin", channelLogin) },
+    ).dataOrThrow("ChatViewerRoleQuery")
+
+    val currentUser = identity.objectOrNull("currentUser")
+        ?: throw ChatIdentityGraphQlException("Chat Viewer Role did not return the logged-in user")
+    if (currentUser.stringOrNull("id") != viewerId) {
+        throw ChatIdentityGraphQlException("Chat Viewer Role returned an unexpected viewer")
+    }
+
+    val channel = identity.objectOrNull("channel")
+        ?: throw ChatIdentityGraphQlException("Chat Viewer Role did not return the requested channel")
+    if (channel.stringOrNull("id") != channelId) {
+        throw ChatIdentityGraphQlException("Chat Viewer Role returned an unexpected channel")
+    }
+    val isBroadcaster = viewerId == channelId
+    val isModerator = if (isBroadcaster) {
+        false
+    } else {
+        val channelSelf = channel.objectOrNull("self")
+            ?: throw ChatIdentityGraphQlException("Chat Viewer Role did not return the channel viewer")
+        channelSelf.booleanOrNull("isModerator")
+            ?: throw ChatIdentityGraphQlException("Chat Viewer Role returned no moderator status")
+    }
+
+    return ChatViewerRoleData(
+        isBroadcaster = isBroadcaster,
+        isModerator = isModerator,
     )
 }
 
