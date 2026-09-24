@@ -1,8 +1,12 @@
 package com.github.andreyasadchy.xtra.ui.player
 
+import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.Timeline
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.chunk.MediaChunk
 import androidx.media3.exoplayer.source.chunk.MediaChunkIterator
@@ -11,6 +15,7 @@ import androidx.media3.exoplayer.trackselection.ExoTrackSelection
 import androidx.media3.exoplayer.trackselection.ForwardingTrackSelection
 import androidx.media3.exoplayer.trackselection.TrackSelection
 import androidx.media3.exoplayer.upstream.BandwidthMeter
+import com.github.andreyasadchy.xtra.BuildConfig
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.floor
 
@@ -30,11 +35,11 @@ data class DesiredHlsQuality(
             }
         }
 
+    @OptIn(UnstableApi::class)
     fun matches(format: Format): Boolean {
         val labelMatches = format.label.equals(name, ignoreCase = true)
         val bitrateMatches = bitrate == null || format.bitrate <= 0 || format.bitrate <= bitrate
-        val codecsMatch = codecs.isNullOrBlank() || format.codecs.isNullOrBlank() ||
-            format.codecs.equals(codecs, ignoreCase = true)
+        val codecsMatch = videoCodecsMatch(codecs, format.codecs)
         val variantMatches = bitrateMatches && codecsMatch
         if (labelMatches && variantMatches) return true
 
@@ -42,6 +47,27 @@ data class DesiredHlsQuality(
             variantMatches
         return format.height == height && floor(format.frameRate).toInt() <= fps && variantMatches
     }
+
+    @OptIn(UnstableApi::class)
+    private fun videoCodecsMatch(desiredCodecs: String?, formatCodecs: String?): Boolean {
+        if (desiredCodecs.isNullOrBlank() || formatCodecs.isNullOrBlank()) return true
+
+        val desiredVideoCodecs = videoCodecTokens(desiredCodecs)
+        val formatVideoCodecs = videoCodecTokens(formatCodecs)
+        if (desiredVideoCodecs.isEmpty() || formatVideoCodecs.isEmpty()) return true
+
+        return desiredVideoCodecs.any(formatVideoCodecs::contains)
+    }
+
+    @OptIn(UnstableApi::class)
+    private fun videoCodecTokens(codecs: String): Set<String> =
+        codecs.split(',')
+            .asSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .filter { MimeTypes.getTrackTypeOfCodec(it) == C.TRACK_TYPE_VIDEO }
+            .map(String::lowercase)
+            .toSet()
 
     companion object {
         private val QUALITY_DIMENSIONS = Regex("(\\d+)p(\\d+)?", RegexOption.IGNORE_CASE)
@@ -107,6 +133,7 @@ private class SmoothHlsTrackSelection(
 ) : ForwardingTrackSelection(adaptiveSelection) {
     private var effectiveIndex = adaptiveSelection.selectedIndex
     private var effectiveReason = adaptiveSelection.selectionReason
+    private var lastLoggedDesired: DesiredHlsQuality? = null
 
     override fun updateSelectedTrack(
         playbackPositionUs: Long,
@@ -139,6 +166,31 @@ private class SmoothHlsTrackSelection(
         effectiveIndex = manualIndex ?: autoIndex
         effectiveReason = if (manualIndex != null) C.SELECTION_REASON_MANUAL
         else adaptiveSelection.selectionReason
+
+        val desiredChanged = desired != lastLoggedDesired
+        lastLoggedDesired = desired
+        if (desiredChanged && !desired.isAuto && (BuildConfig.DEBUG || BuildConfig.PERF_DIAGNOSTICS)) {
+            val candidates = (0 until length()).joinToString(prefix = "[", postfix = "]") { index ->
+                val format = getFormat(index)
+                val excluded = isTrackExcluded(index, nowMs)
+                "${format.label ?: "?"}:${format.width}x${format.height}@${format.frameRate}fps/" +
+                    "${format.bitrate}bps/${format.codecs ?: "?"}/excluded=$excluded"
+            }
+            val requestedMatches = (0 until length()).any { desired.matches(getFormat(it)) }
+            val decision = when {
+                manualIndex != null -> "manual"
+                requestedMatches -> "adaptive-fallback-all-matches-excluded"
+                else -> "adaptive-fallback-no-match"
+            }
+            Log.i(
+                QUALITY_SELECTION_TAG,
+                "desired=${desired.name} codecs=${desired.codecs ?: "?"} " +
+                    "bitrate=${desired.bitrate ?: -1} candidates=$candidates " +
+                    "auto=${describeFormat(getFormat(autoIndex))} " +
+                    "manual=${manualIndex?.let { describeFormat(getFormat(it)) } ?: "none"} " +
+                    "effective=${describeFormat(getFormat(effectiveIndex))} decision=$decision",
+            )
+        }
     }
 
     override fun getSelectedIndex(): Int = effectiveIndex
@@ -155,4 +207,12 @@ private class SmoothHlsTrackSelection(
         playbackPositionUs: Long,
         queue: List<MediaChunk>,
     ): Int = queue.size
+
+    private fun describeFormat(format: Format): String =
+        "${format.label ?: "?"}:${format.width}x${format.height}@${format.frameRate}fps/" +
+            "${format.bitrate}bps/${format.codecs ?: "?"}"
+
+    private companion object {
+        const val QUALITY_SELECTION_TAG = "SmoothHlsQuality"
+    }
 }
