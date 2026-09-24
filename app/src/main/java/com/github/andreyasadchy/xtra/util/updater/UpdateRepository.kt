@@ -144,6 +144,7 @@ class UpdateRepository(
     }
 
     fun check(networkLibrary: String?, url: String = C.DEFAULT_UPDATE_URL, automatic: Boolean = false) {
+        if (isRateLimitCooldownActive()) return
         val generation = resetGeneration.get()
         if (checkJob?.isActive == true || _state.value is UpdateState.Checking || _state.value.isLongRunningUpdateOperation()) return
         lastCheckNetworkLibrary = networkLibrary
@@ -167,6 +168,7 @@ class UpdateRepository(
             try {
                     ready.await()
                     ensureCurrentCheck(generation)
+                    if (isRateLimitCooldownActive()) return@withLock
                     val checkStart = installLock.withLock {
                         if (activeInstallSessionId != null ||
                             _state.value is UpdateState.Checking ||
@@ -198,16 +200,18 @@ class UpdateRepository(
                         ensureCurrentCheck(generation)
                         val release = (parsed as? ReleaseParseResult.Success)?.release
                             ?: throw UpdateException((parsed as ReleaseParseResult.Failure).error, stage = UpdateStage.PARSE)
-                        when (val history = fetchReleaseHistory(url, networkLibrary, generation)) {
-                            is ReleaseHistoryResult.Complete -> updateReleaseHistory(
-                                releases = listOf(release) + history.releases,
-                                complete = true,
-                            )
-                            is ReleaseHistoryResult.Partial -> updateReleaseHistory(
-                                releases = listOf(release) + history.releases,
-                                complete = false,
-                            )
-                            ReleaseHistoryResult.Unavailable -> markReleaseHistoryIncomplete()
+                        if (!_releaseHistoryComplete.value || _releaseHistory.value.none { it.id == release.id }) {
+                            when (val history = fetchReleaseHistory(url, networkLibrary, generation)) {
+                                is ReleaseHistoryResult.Complete -> updateReleaseHistory(
+                                    releases = listOf(release) + history.releases,
+                                    complete = true,
+                                )
+                                is ReleaseHistoryResult.Partial -> updateReleaseHistory(
+                                    releases = listOf(release) + history.releases,
+                                    complete = false,
+                                )
+                                ReleaseHistoryResult.Unavailable -> markReleaseHistoryIncomplete()
+                            }
                         }
                         ensureCurrentCheck(generation)
                         val now = System.currentTimeMillis()
@@ -321,6 +325,9 @@ class UpdateRepository(
                         }
                         val errorStage = (error as? UpdateException)?.stage ?: stage
                         val cause = UpdateErrorMapper.fromThrowable(error)
+                        if (cause == UpdateError.RateLimited) {
+                            markRateLimited((error as? UpdateException)?.retryAtMillis)
+                        }
                         publishCheckResult(generation, checkStart.installSessionId) {
                             _state.value = UpdateState.Error(
                                 stage = errorStage,
@@ -382,14 +389,15 @@ class UpdateRepository(
         networkLibrary: String?,
         url: String = C.DEFAULT_UPDATE_URL,
         force: Boolean = false,
-    ) {
-        if (!force && !automaticCheckIsDue()) return
+    ): Boolean {
+        if (isRateLimitCooldownActive() || (!force && !automaticCheckIsDue())) return false
         if (checkJob?.isActive == true || _state.value is UpdateState.Checking ||
             _state.value.isLongRunningUpdateOperation()
-        ) return
+        ) return false
         lastCheckNetworkLibrary = networkLibrary
         lastCheckUrl = url
         checkInternal(networkLibrary, url, automatic = true, generation = resetGeneration.get())
+        return true
     }
 
     suspend fun awaitReady() {
@@ -414,6 +422,7 @@ class UpdateRepository(
 
     private fun automaticCheckIsDue(): Boolean {
         if (!settingsPreferences.getBoolean(C.UPDATE_CHECK_ENABLED, true)) return false
+        if (isRateLimitCooldownActive()) return false
         val now = System.currentTimeMillis()
         val lastSuccessful = preferences.getLong(C.UPDATE_LAST_CHECKED, 0L)
         val lastAttempted = preferences.getLong(C.UPDATE_LAST_ATTEMPTED, 0L)
@@ -1235,6 +1244,10 @@ class UpdateRepository(
                 throw cancellation
             } catch (error: Throwable) {
                 runCatching { android.util.Log.w(TAG, "Could not load update history page $page", error) }
+                val updateError = error as? UpdateException
+                if (updateError?.error == UpdateError.RateLimited) {
+                    markRateLimited(updateError.retryAtMillis)
+                }
                 return releases.takeIf { it.isNotEmpty() }
                     ?.let(ReleaseHistoryResult::Partial)
                     ?: ReleaseHistoryResult.Unavailable
@@ -1914,14 +1927,33 @@ class UpdateRepository(
     }
 
     private fun markSuccessful(now: Long) {
-        preferences.edit { putLong(C.UPDATE_LAST_CHECKED, now) }
+        val rateLimitedUntil = preferences.getLong(C.UPDATE_RATE_LIMITED_UNTIL, 0L)
+        preferences.edit {
+            putLong(C.UPDATE_LAST_CHECKED, now)
+            if (rateLimitedUntil <= now) remove(C.UPDATE_RATE_LIMITED_UNTIL)
+        }
     }
+
+    private fun markRateLimited(retryAtMillis: Long?) {
+        val now = System.currentTimeMillis()
+        preferences.edit {
+            putLong(
+                C.UPDATE_RATE_LIMITED_UNTIL,
+                retryAtMillis ?: now + RATE_LIMIT_COOLDOWN_MILLIS,
+            )
+        }
+    }
+
+    private fun isRateLimitCooldownActive(now: Long = System.currentTimeMillis()): Boolean =
+        preferences.getLong(C.UPDATE_RATE_LIMITED_UNTIL, 0L) > now
 
     companion object {
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
         private const val UPDATE_NOTIFICATION_ID = 4201
         private const val INSTALL_NOTIFICATION_ID = 4202
         private const val TAG = "UpdateRepository"
+        // Used only when GitHub omits both Retry-After and X-RateLimit-Reset.
+        private const val RATE_LIMIT_COOLDOWN_MILLIS = 60L * 60L * 1_000L
         private const val DAY_MILLIS = 86_400_000L
         private const val NOT_NOW_MILLIS = DAY_MILLIS
         private const val MAX_RELEASE_HISTORY_PAGES = 20

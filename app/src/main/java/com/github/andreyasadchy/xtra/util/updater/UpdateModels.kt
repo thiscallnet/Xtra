@@ -347,4 +347,5 @@ class UpdateException(
     val error: UpdateError,
     cause: Throwable? = null,
     val stage: UpdateStage? = null,
+    val retryAtMillis: Long? = null,
 ) : Exception(error.toString(), cause)

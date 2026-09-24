@@ -20,6 +20,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.chromium.net.CronetEngine
 import java.io.IOException
+import java.text.ParsePosition
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
 import java.util.concurrent.ExecutorService
 
 /** The only component that knows how GitHub release data is fetched. */
@@ -113,7 +117,12 @@ class ReleaseClient(
                 timeout.stop()
             }
         }
-        return parseResponse(response.info.httpStatusCode, response.body.decodeToString())
+        val headers = response.info.headers.asList.groupBy({ it.key }, { it.value })
+        return parseResponse(
+            response.info.httpStatusCode,
+            response.body.decodeToString(),
+            headers,
+        )
     }
 
     private suspend fun fetchWithCronet(url: String): JsonElement {
@@ -131,7 +140,11 @@ class ReleaseClient(
                 timeout.stop()
             }
         }
-        return parseResponse(response.info.httpStatusCode, response.body.decodeToString())
+        return parseResponse(
+            response.info.httpStatusCode,
+            response.body.decodeToString(),
+            response.info.allHeaders,
+        )
     }
 
     private suspend fun fetchWithOkHttp(url: String): JsonElement {
@@ -141,13 +154,21 @@ class ReleaseClient(
                 .header("User-Agent", "Xtra/${BuildConfig.VERSION_NAME}")
                 .build()
         ).executeAsync().use { response ->
-            parseResponse(response.code, response.body.string())
+            parseResponse(response.code, response.body.string(), response.headers.toMultimap())
         }
     }
 
-    private fun parseResponse(statusCode: Int, body: String): JsonElement {
+    private fun parseResponse(
+        statusCode: Int,
+        body: String,
+        headers: Map<String, List<String>> = emptyMap(),
+    ): JsonElement {
         if (statusCode !in 200..299) {
-            throw UpdateException(UpdateErrorMapper.fromHttpCode(statusCode))
+            val error = UpdateErrorMapper.fromHttpCode(statusCode)
+            throw UpdateException(
+                error = error,
+                retryAtMillis = if (error == UpdateError.RateLimited) rateLimitRetryAt(headers) else null,
+            )
         }
         return try {
             json.parseToJsonElement(body)
@@ -155,6 +176,42 @@ class ReleaseClient(
             throw UpdateException(UpdateError.InvalidResponse, error, UpdateStage.PARSE)
         }
     }
+
+    private fun rateLimitRetryAt(headers: Map<String, List<String>>): Long {
+        val now = System.currentTimeMillis()
+        val retryAfter = headers.firstHeader("Retry-After")?.let(::parseRetryAfter)
+        val rateLimitReset = headers.firstHeader("X-RateLimit-Reset")
+            ?.toLongOrNull()
+            ?.let { seconds -> seconds.takeIf { it >= 0L && it <= Long.MAX_VALUE / 1_000L }?.times(1_000L) }
+        val serverRetryAt = listOfNotNull(retryAfter, rateLimitReset).maxOrNull()
+        return if (serverRetryAt == null) {
+            now + FALLBACK_RATE_LIMIT_COOLDOWN_MILLIS
+        } else {
+            maxOf(now + MINIMUM_RATE_LIMIT_COOLDOWN_MILLIS, serverRetryAt)
+        }
+    }
+
+    private fun parseRetryAfter(value: String): Long? {
+        val trimmed = value.trim()
+        trimmed.toLongOrNull()?.let { seconds ->
+            if (seconds >= 0L && seconds <= Long.MAX_VALUE / 1_000L) {
+                val now = System.currentTimeMillis()
+                val delayMillis = seconds * 1_000L
+                return now + delayMillis.coerceAtMost(Long.MAX_VALUE - now)
+            }
+        }
+        val formatter = SimpleDateFormat(HTTP_DATE_PATTERN, Locale.US).apply {
+            isLenient = false
+            timeZone = TimeZone.getTimeZone("GMT")
+        }
+        val position = ParsePosition(0)
+        return formatter.parse(trimmed, position)
+            ?.takeIf { position.index == trimmed.length }
+            ?.time
+    }
+
+    private fun Map<String, List<String>>.firstHeader(name: String): String? =
+        entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value?.firstOrNull()
 
     private fun historyUrl(url: String, page: Int): String? {
         val baseUrl = when {
@@ -178,6 +235,9 @@ private fun JsonObject.changelogApiUrl(): String? =
         ?.let { match -> "https://api.github.com/repos/${match.groupValues[1]}/compare/${match.groupValues[2]}" }
 
 internal const val RELEASE_HISTORY_PAGE_SIZE = 100
+private const val HTTP_DATE_PATTERN = "EEE, dd MMM yyyy HH:mm:ss zzz"
+private const val MINIMUM_RATE_LIMIT_COOLDOWN_MILLIS = 60L * 1_000L
+private const val FALLBACK_RATE_LIMIT_COOLDOWN_MILLIS = 60L * 60L * 1_000L
 
 private fun JsonObject.metadataUrl(): String? = runCatching {
     this["assets"]?.jsonArray?.firstNotNullOfOrNull { element: JsonElement ->

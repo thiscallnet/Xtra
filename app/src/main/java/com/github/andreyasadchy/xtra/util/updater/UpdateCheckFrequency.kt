@@ -16,7 +16,7 @@ enum class UpdateCheckFrequency(
     ;
 
     companion object {
-        val DEFAULT = EVERY_6_HOURS
+        val DEFAULT = DAILY
 
         fun fromPreference(value: String?): UpdateCheckFrequency =
             entries.firstOrNull { it.preferenceValue == value } ?: DEFAULT

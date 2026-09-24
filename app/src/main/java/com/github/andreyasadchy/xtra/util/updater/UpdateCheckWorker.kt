@@ -18,13 +18,15 @@ class UpdateCheckWorker(
         if (application.isInForeground) return Result.success()
 
         val repository = application.xtraModule.updateRepository
-        repository.checkIfDueAndWait(
+        val checked = repository.checkIfDueAndWait(
             application.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             C.DEFAULT_UPDATE_URL,
             force = runAttemptCount > 0,
         )
-        return if (repository.state.value is UpdateState.Error &&
-            (repository.state.value as UpdateState.Error).retryable
+        return if (checked && repository.state.value is UpdateState.Error &&
+            (repository.state.value as UpdateState.Error).let { error ->
+                error.retryable && error.cause != UpdateError.RateLimited
+            }
         ) {
             Result.retry()
         } else {

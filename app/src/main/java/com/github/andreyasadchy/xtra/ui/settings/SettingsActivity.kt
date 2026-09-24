@@ -1530,6 +1530,7 @@ class SettingsActivity : AppCompatActivity() {
                         context.tokenPrefs().edit {
                             remove(C.UPDATE_LAST_CHECKED)
                             remove(C.UPDATE_LAST_ATTEMPTED)
+                            remove(C.UPDATE_RATE_LIMITED_UNTIL)
                             remove(C.UPDATE_IGNORED_VERSION)
                         }
                         AppCompatDelegate.setApplicationLocales(LocaleListCompat.getEmptyLocaleList())
