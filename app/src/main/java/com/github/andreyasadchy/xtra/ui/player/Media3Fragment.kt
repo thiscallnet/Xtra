@@ -33,7 +33,6 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
-import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.common.text.Cue
@@ -70,7 +69,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.floor
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
@@ -291,7 +289,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     val showPlayButton = Util.shouldShowPlayButton(player)
                     setPipActions(!showPlayButton)
                     updateProgress()
-                    controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
+                    controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
                     if (useController) {
                         showController(show = videoType != STREAM || showPlayButton)
                     }
@@ -302,7 +300,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     val showPlayButton = Util.shouldShowPlayButton(player)
                     setPipActions(!showPlayButton)
                     updateProgress()
-                    controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
+                    controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
                     if (useController) {
                         showController(show = videoType != STREAM || showPlayButton)
                     }
@@ -857,7 +855,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
         primaryStreamRestoreJob = null
-        pendingSourceSwitchQuality.capture(viewModel.quality?.name)
+        pendingSourceSwitchQuality.capture(viewModel.quality)
         viewModel.usingAlternateStream = false
         viewModel.resetAdController()
         viewModel.playingAds = false
@@ -1032,7 +1030,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         val oldQualities = viewModel.qualities
         val oldQuality = viewModel.quality
         val oldUpdateQualities = viewModel.updateQualities
-        pendingSourceSwitchQuality.capture(viewModel.quality?.name)
+        pendingSourceSwitchQuality.capture(viewModel.quality)
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
@@ -1492,57 +1490,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         }
     }
 
-    private fun shouldResetEmulatorStreamDecoder(
-        previous: VideoQuality?,
-        next: VideoQuality,
-        mediaSourceRebuilt: Boolean,
-    ): Boolean =
-        previous != null &&
-                isAndroidEmulator() &&
-                videoType == STREAM &&
-                viewModel.qualities?.any { it.name == AUTO_QUALITY } == true &&
-                next.name != AUDIO_ONLY_QUALITY &&
-                next.name != CHAT_ONLY_QUALITY &&
-                (previous.name != next.name || previous.url != next.url) &&
-                !isLiveRewindActiveOrSwitching() &&
-                !mediaSourceRebuilt
-
-    private fun applyTrackSelectionParameters(
-        player: Player,
-        parameters: TrackSelectionParameters,
-        forceVideoDecoderReset: Boolean,
-        previousQuality: VideoQuality?,
-        nextQuality: VideoQuality,
-    ) {
-        if (!forceVideoDecoderReset) {
-            player.trackSelectionParameters = parameters
-            return
-        }
-
-        val playWhenReady = player.playWhenReady
-        val positionMs = player.currentPosition
-        val mediaItemIndex = player.currentMediaItemIndex
-        Log.i(
-            "VideoSurface",
-            "quality_reset backend=media3 renderer=${videoOutputView.javaClass.simpleName} " +
-                    "from=${previousQuality?.name} to=${nextQuality.name} position=$positionMs",
-        )
-
-        // The Android emulator's adaptive AVC decoder can retain a corrupt
-        // buffer layout when a manual HLS quality switch reuses the codec.
-        // Stop without removing the media item so Media3 releases that codec,
-        // then prepare with the new selection at the existing position.
-        player.stop()
-        player.trackSelectionParameters = parameters
-        if (mediaItemIndex != androidx.media3.common.C.INDEX_UNSET) {
-            player.seekTo(mediaItemIndex, positionMs)
-        } else {
-            player.seekTo(positionMs)
-        }
-        player.prepare()
-        player.playWhenReady = playWhenReady
-    }
-
     override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
         val previousQuality = viewModel.quality
         viewModel.previousQuality = previousQuality
@@ -1550,31 +1497,26 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         viewModel.quality?.let { quality ->
             player?.let { player ->
                 player.currentMediaItem?.let { mediaItem ->
-                    var mediaSourceRebuilt = false
                     when (quality.name) {
                         AUTO_QUALITY -> {
-                            val forceDecoderReset = shouldResetEmulatorStreamDecoder(previousQuality, quality, false)
+                            xtraModule.streamMedia3Runtime.qualitySelectionPolicy.set(
+                                quality.name,
+                                quality.bitrate,
+                                quality.codecs,
+                            )
                             viewModel.playlistUrl?.let { uri ->
+                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                    setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                                    clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                                }.build()
                                 if (mediaItem.localConfiguration?.uri != uri) {
                                     val position = player.currentPosition
                                     player.setMediaItem(mediaItem.buildUpon().setUri(uri).build())
                                     player.prepare()
                                     player.seekTo(position)
-                                    mediaSourceRebuilt = true
                                 }
                                 viewModel.playlistUrl = null
-                            } ?: run {
-                                if (!forceDecoderReset) player.prepare()
                             }
-                            val actualForceDecoderReset = shouldResetEmulatorStreamDecoder(
-                                previousQuality,
-                                quality,
-                                mediaSourceRebuilt,
-                            )
-                            applyTrackSelectionParameters(player, player.trackSelectionParameters.buildUpon().apply {
-                                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
-                            }.build(), actualForceDecoderReset, previousQuality, quality)
                             setVideoOutputVisible(true)
                         }
                         AUDIO_ONLY_QUALITY -> {
@@ -1617,58 +1559,24 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                         }
                         else -> {
                             if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
-                                val forceDecoderReset = shouldResetEmulatorStreamDecoder(previousQuality, quality, false)
+                                xtraModule.streamMedia3Runtime.qualitySelectionPolicy.set(
+                                    quality.name,
+                                    quality.bitrate,
+                                    quality.codecs,
+                                )
                                 viewModel.playlistUrl?.let { uri ->
                                     player.currentMediaItem?.let {
+                                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                            setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                                            clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                                        }.build()
                                         val position = player.currentPosition
                                         player.setMediaItem(it.buildUpon().setUri(uri).build())
                                         player.prepare()
                                         player.seekTo(position)
                                         viewModel.playlistUrl = null
-                                        mediaSourceRebuilt = true
                                     }
-                                } ?: run {
-                                    if (!forceDecoderReset) player.prepare()
                                 }
-                                val actualForceDecoderReset = shouldResetEmulatorStreamDecoder(
-                                    previousQuality,
-                                    quality,
-                                    mediaSourceRebuilt,
-                                )
-                                applyTrackSelectionParameters(player, player.trackSelectionParameters.buildUpon().apply {
-                                    setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                    if (!player.currentTracks.isEmpty) {
-                                        player.currentTracks.groups.find { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }?.let { trackGroup ->
-                                            val selectedQuality = quality.name?.split("p")
-                                            val targetResolution = selectedQuality?.getOrNull(0)?.takeWhile { it.isDigit() }?.toIntOrNull()
-                                            val targetFps = selectedQuality?.getOrNull(1)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 30
-                                            val targetBitrate = quality.bitrate
-                                            if (trackGroup.mediaTrackGroup.length > 0) {
-                                                if (targetResolution != null) {
-                                                    val formats = mutableListOf<Pair<Int, Format>>()
-                                                    for (i in 0 until trackGroup.mediaTrackGroup.length) {
-                                                        formats.add(i to trackGroup.mediaTrackGroup.getFormat(i))
-                                                    }
-                                                    val list = formats
-                                                        .sortedByDescending { it.second.bitrate }
-                                                        .sortedByDescending { it.second.frameRate }
-                                                        .sortedByDescending { it.second.height }
-                                                    list.find {
-                                                        (targetResolution == it.second.height
-                                                                && targetFps >= floor(it.second.frameRate)
-                                                                && (targetBitrate == null || targetBitrate >= it.second.bitrate))
-                                                                || targetResolution > it.second.height
-                                                                || it == list.last()
-                                                    }?.first?.let { index ->
-                                                        setOverrideForType(TrackSelectionOverride(trackGroup.mediaTrackGroup, index))
-                                                    }
-                                                } else {
-                                                    setOverrideForType(TrackSelectionOverride(trackGroup.mediaTrackGroup, 0))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }.build(), actualForceDecoderReset, previousQuality, quality)
                                 setVideoOutputVisible(true)
                             } else {
                                 player.currentMediaItem?.let {
@@ -1908,14 +1816,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     // playlist is loading. On later refreshes, keep the
                     // current selection too, otherwise setDefaultQuality()
                     // can silently put the player back on Auto.
-                    val qualityNameToRestore = pendingSourceSwitchQuality.consume()
-                        ?: viewModel.quality?.name
+                    val qualityToRestore = pendingSourceSwitchQuality.consume()
                     setDefaultQuality()
-                    val restoredQuality = qualityNameToRestore?.let { name ->
-                        viewModel.qualities?.firstOrNull {
-                            it.name.equals(name, ignoreCase = true)
-                        } ?: findQuality(name)
-                    }
+                    val restoredQuality = qualityToRestore?.resolve(viewModel.qualities, ::findQuality)
                     changePlayerMode()
                     if (restoredQuality != null) {
                         changeQuality(restoredQuality, persistSavedQuality = false)

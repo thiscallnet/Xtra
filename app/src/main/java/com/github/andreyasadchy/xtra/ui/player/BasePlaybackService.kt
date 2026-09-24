@@ -418,14 +418,13 @@ abstract class BasePlaybackService : LifecycleService() {
         val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-        quality = pendingSourceSwitchQuality.consume()?.let { name ->
-            qualities?.firstOrNull { it.name.equals(name, ignoreCase = true) }
-                ?: findQuality(name)
+        quality = pendingSourceSwitchQuality.consume()?.let { identity ->
+            identity.resolve(qualities) { name -> findQuality(name) }
         } ?: resolveDefaultQualityForNetwork(cellular)
     }
 
     protected fun rememberQualityForSourceSwitch() {
-        pendingSourceSwitchQuality.capture(quality?.name)
+        pendingSourceSwitchQuality.capture(quality)
     }
 
     protected fun clearRememberedSourceSwitchQuality() {

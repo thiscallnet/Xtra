@@ -66,6 +66,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.TimeBar
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.RecyclerView
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
@@ -2113,31 +2114,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun getQualities(): List<Pair<String, VideoQuality>>? {
         val qualities = viewModel.qualities
         return if (!qualities.isNullOrEmpty()) {
-            val hideCodecs = qualities.all {
-                val codec = it.codecs?.substringBefore('.')
-                codec == "avc1" || codec == "mp4a" || codec.isNullOrBlank()
-            }
-            qualities.map { quality ->
-                when (quality.name) {
-                    "auto" -> getString(R.string.auto)
-                    "source" -> getString(R.string.source)
-                    "audio_only" -> getString(R.string.audio_only)
-                    "chat_only" -> getString(R.string.chat_only)
-                    else -> {
-                        if (hideCodecs) {
-                            quality.name.toString()
-                        } else {
-                            val codec = quality.codecs?.substringBefore('.')
-                            val codecName = when {
-                                codec == "av01" -> "AV1"
-                                codec == "hev1" || codec == "hvc1" -> "H.265"
-                                codec == "avc1" || codec.isNullOrBlank() -> "H.264"
-                                else -> codec
-                            }
-                            "${quality.name} $codecName"
-                        }
-                    }
-                } to quality
+            videoQualityDisplayNames(qualities) { name ->
+                when (name) {
+                    AUTO_QUALITY -> getString(R.string.auto)
+                    SOURCE_QUALITY -> getString(R.string.source)
+                    AUDIO_ONLY_QUALITY -> getString(R.string.audio_only)
+                    CHAT_ONLY_QUALITY -> getString(R.string.chat_only)
+                    else -> null
+                }
             }
         } else null
     }
@@ -2835,6 +2819,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun toggleController() {
+        if (BuildConfig.DEBUG && !requireContext().isTelevision()) {
+            if (hudVisibility.toggle()) {
+                updateProgress()
+            } else {
+                hideController()
+            }
+            return
+        }
         if (requireContext().isTelevision() || !controllerHideOnTouch) {
             hudVisibility.show(force = true)
             showController(force = true)

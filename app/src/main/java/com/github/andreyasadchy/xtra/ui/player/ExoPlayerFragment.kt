@@ -223,7 +223,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                 }
                 setPipActions(!showPlayButton)
                 updateProgress()
-                controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
+                controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
                 if (useController) {
                     showController(show = (playbackService?.type != BasePlaybackService.STREAM && playbackState == Player.STATE_ENDED) || showPlayButton)
                 }
@@ -249,7 +249,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                 }
                 setPipActions(!showPlayButton)
                 updateProgress()
-                controllerAutoHide = !requireContext().isTelevision() && !showPlayButton
+                controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
                 if (useController) {
                     showController(show = (playbackService?.type != BasePlaybackService.STREAM && playbackService?.player?.playbackState == Player.STATE_ENDED) || showPlayButton)
                 }

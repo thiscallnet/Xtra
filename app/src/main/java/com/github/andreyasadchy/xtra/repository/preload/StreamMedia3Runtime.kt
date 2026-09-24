@@ -16,10 +16,13 @@ import androidx.media3.exoplayer.source.preload.PreloadException
 import androidx.media3.exoplayer.source.preload.PreloadMediaSource
 import androidx.media3.exoplayer.source.preload.PreloadManagerListener
 import androidx.media3.exoplayer.source.preload.TargetPreloadStatusControl
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.ui.player.StreamHlsMediaSourceFactory
+import com.github.andreyasadchy.xtra.ui.player.SmoothHlsQualityPolicy
+import com.github.andreyasadchy.xtra.ui.player.SmoothHlsTrackSelectionFactory
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.C
@@ -64,6 +67,7 @@ class StreamMedia3Runtime(
     private val elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val configurationStore: StreamPlaybackConfigurationStore = StreamPlaybackConfigurationStore(context),
 ) {
+    val qualitySelectionPolicy = SmoothHlsQualityPolicy()
     companion object {
         private const val TAG = "StreamMedia3"
         const val PRELOAD_TARGET_BYTES = 32 * 1024 * 1024
@@ -443,6 +447,12 @@ class StreamMedia3Runtime(
         val captionAudioSink = xtraModule.liveCaptionManager.createAudioBufferSinkSession()
         val builder = DefaultPreloadManager.Builder(context, statusControl)
             .setMediaSourceFactory(hlsFactory)
+            .setTrackSelectorFactory { selectorContext ->
+                DefaultTrackSelector(
+                    selectorContext,
+                    SmoothHlsTrackSelectionFactory(qualitySelectionPolicy),
+                )
+            }
             .setLoadControl(loadControl)
             .setRenderersFactory(
                 LiveCaptionRenderersFactory(

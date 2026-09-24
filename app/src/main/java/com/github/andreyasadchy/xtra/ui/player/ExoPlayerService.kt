@@ -62,6 +62,7 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
@@ -132,6 +133,7 @@ import kotlin.time.Duration.Companion.seconds
 @OptIn(UnstableApi::class)
 class ExoPlayerService : BasePlaybackService() {
 
+    private val qualitySelectionPolicy = SmoothHlsQualityPolicy()
     var player: ExoPlayer? = null
     private var session: MediaSession? = null
     private var notificationManager: NotificationManager? = null
@@ -670,6 +672,12 @@ class ExoPlayerService : BasePlaybackService() {
             )
             applyAdaptiveLivePolicy()
             val player = ExoPlayer.Builder(this).apply {
+                setTrackSelector(
+                    DefaultTrackSelector(
+                        this@ExoPlayerService,
+                        SmoothHlsTrackSelectionFactory(qualitySelectionPolicy),
+                    ),
+                )
                 setRenderersFactory(
                     LiveCaptionRenderersFactory(
                         context = this@ExoPlayerService,
@@ -2196,57 +2204,6 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
-    private fun shouldResetEmulatorStreamDecoder(
-        previous: VideoQuality?,
-        next: VideoQuality,
-        mediaSourceRebuilt: Boolean,
-    ): Boolean =
-        previous != null &&
-                isAndroidEmulator() &&
-                type == STREAM &&
-                canUseLiveSource(type, liveRewindActive, liveRewindTransitioning) &&
-                qualities?.any { it.name == AUTO_QUALITY } == true &&
-                next.name != AUDIO_ONLY_QUALITY &&
-                next.name != CHAT_ONLY_QUALITY &&
-                (previous.name != next.name || previous.url != next.url) &&
-                !mediaSourceRebuilt
-
-    private fun applyVideoTrackParameters(
-        player: ExoPlayer,
-        parameters: TrackSelectionParameters,
-        forceDecoderReset: Boolean,
-        previousQuality: VideoQuality?,
-        nextQuality: VideoQuality,
-    ) {
-        if (!forceDecoderReset) {
-            player.trackSelectionParameters = parameters
-            return
-        }
-
-        val playWhenReady = player.playWhenReady
-        val positionMs = player.currentPosition
-        val mediaItemIndex = player.currentMediaItemIndex
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                "VideoSurface",
-                "quality_reset backend=legacy_exoplayer " +
-                        "from=${previousQuality?.name} to=${nextQuality.name} position=$positionMs",
-            )
-        }
-
-        // Stop before applying the new resolution so the emulator cannot reuse
-        // its current adaptive decoder configuration for the new HLS track.
-        player.stop()
-        player.trackSelectionParameters = parameters
-        if (mediaItemIndex != androidx.media3.common.C.INDEX_UNSET) {
-            player.seekTo(mediaItemIndex, positionMs)
-        } else {
-            player.seekTo(positionMs)
-        }
-        player.prepare()
-        player.playWhenReady = playWhenReady
-    }
-
     fun changeQuality(
         selectedQuality: VideoQuality?,
         resetLiveClipGeneration: Boolean = true,
@@ -2263,33 +2220,24 @@ class ExoPlayerService : BasePlaybackService() {
         quality?.let { quality ->
             player?.let { player ->
                 player.currentMediaItem?.let { mediaItem ->
-                    var mediaSourceRebuilt = false
                     when (quality.name) {
                         AUTO_QUALITY -> {
-                            val forceDecoderReset = shouldResetEmulatorStreamDecoder(oldQuality, quality, false)
+                            qualitySelectionPolicy.set(quality.name, quality.bitrate, quality.codecs)
                             if (restorePlaylist) {
                                 restorePlaylist = false
                                 playlistUrl?.let { uri ->
+                                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                        setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                                        clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                                    }.build()
                                     if (mediaItem.localConfiguration?.uri != uri.toUri()) {
                                         val position = player.currentPosition
                                         setQualityMediaItem(player, mediaItem, uri)
                                         player.prepare()
                                         player.seekTo(position)
-                                        mediaSourceRebuilt = true
                                     }
                                 }
-                            } else if (!forceDecoderReset) {
-                                player.prepare()
                             }
-                            val actualForceDecoderReset = shouldResetEmulatorStreamDecoder(
-                                oldQuality,
-                                quality,
-                                mediaSourceRebuilt,
-                            )
-                            applyVideoTrackParameters(player, player.trackSelectionParameters.buildUpon().apply {
-                                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
-                            }.build(), actualForceDecoderReset, oldQuality, quality)
                         }
                         AUDIO_ONLY_QUALITY -> {
                             setProxyMediaPlaylist(false)
@@ -2312,58 +2260,20 @@ class ExoPlayerService : BasePlaybackService() {
                         }
                         else -> {
                             if (qualities?.find { it.name == AUTO_QUALITY } != null) {
-                                val forceDecoderReset = shouldResetEmulatorStreamDecoder(oldQuality, quality, false)
+                                qualitySelectionPolicy.set(quality.name, quality.bitrate, quality.codecs)
                                 if (restorePlaylist) {
                                     restorePlaylist = false
                                     playlistUrl?.let { uri ->
+                                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                            setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                                            clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                                        }.build()
                                         val position = player.currentPosition
                                         setQualityMediaItem(player, mediaItem, uri)
                                         player.prepare()
                                         player.seekTo(position)
-                                        mediaSourceRebuilt = true
                                     }
-                                } else if (!forceDecoderReset) {
-                                    player.prepare()
                                 }
-                                val actualForceDecoderReset = shouldResetEmulatorStreamDecoder(
-                                    oldQuality,
-                                    quality,
-                                    mediaSourceRebuilt,
-                                )
-                                applyVideoTrackParameters(player, player.trackSelectionParameters.buildUpon().apply {
-                                    setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                    if (!player.currentTracks.isEmpty) {
-                                        player.currentTracks.groups.find { it.type == androidx.media3.common.C.TRACK_TYPE_VIDEO }?.let { trackGroup ->
-                                            val selectedQuality = quality.name?.split("p")
-                                            val targetResolution = selectedQuality?.getOrNull(0)?.takeWhile { it.isDigit() }?.toIntOrNull()
-                                            val targetFps = selectedQuality?.getOrNull(1)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 30
-                                            val targetBitrate = quality.bitrate
-                                            if (trackGroup.mediaTrackGroup.length > 0) {
-                                                if (targetResolution != null) {
-                                                    val formats = mutableListOf<Pair<Int, Format>>()
-                                                    for (i in 0 until trackGroup.mediaTrackGroup.length) {
-                                                        formats.add(i to trackGroup.mediaTrackGroup.getFormat(i))
-                                                    }
-                                                    val list = formats
-                                                        .sortedByDescending { it.second.bitrate }
-                                                        .sortedByDescending { it.second.frameRate }
-                                                        .sortedByDescending { it.second.height }
-                                                    list.find {
-                                                        (targetResolution == it.second.height
-                                                                && targetFps >= floor(it.second.frameRate)
-                                                                && (targetBitrate == null || targetBitrate >= it.second.bitrate))
-                                                                || targetResolution > it.second.height
-                                                                || it == list.last()
-                                                    }?.first?.let { index ->
-                                                        setOverrideForType(TrackSelectionOverride(trackGroup.mediaTrackGroup, index))
-                                                    }
-                                                } else {
-                                                    setOverrideForType(TrackSelectionOverride(trackGroup.mediaTrackGroup, 0))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }.build(), actualForceDecoderReset, oldQuality, quality)
                             } else {
                                 player.currentMediaItem?.let { mediaItem ->
                                     quality.url?.let { qualityUri ->
