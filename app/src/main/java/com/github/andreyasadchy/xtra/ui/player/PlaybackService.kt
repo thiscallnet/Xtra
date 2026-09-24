@@ -24,6 +24,9 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.Format
+import androidx.media3.common.Tracks
+import androidx.media3.common.Timeline
+import androidx.media3.common.VideoSize
 import androidx.media3.common.C as Media3C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -189,7 +192,10 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    diagnostics.resetForNewMedia()
+                    diagnostics.resetForNewMedia(
+                        preserveConfirmedVideoQuality =
+                            viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
+                    )
                     if (mediaItem != null) {
                         diagnostics.update {
                             it.copy(
@@ -214,6 +220,15 @@ class PlaybackService : MediaSessionService() {
                 override fun onRenderedFirstFrame() {
                     streamStartupTrace?.markFirstFrame()
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFirstFrame(it.channelLogin) }
+                    diagnostics.recordRenderedFirstFrame(player.currentTracks)
+                }
+
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    diagnostics.recordRenderedVideoSize(videoSize.width, videoSize.height, player.currentTracks)
+                }
+
+                override fun onTracksChanged(tracks: Tracks) {
+                    diagnostics.confirmPendingRenderedVideoSizeAfterTracksChanged(tracks)
                 }
 
                 override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -251,6 +266,31 @@ class PlaybackService : MediaSessionService() {
                 }
             }
 
+            override fun onVideoInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                val inputUri = runCatching {
+                    eventTime.timeline
+                        .getWindow(eventTime.windowIndex, Timeline.Window())
+                        .mediaItem.localConfiguration?.uri?.toString()
+                }.getOrNull()
+                val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+                if (inputUri != null && currentUri != null && inputUri != currentUri) return
+                diagnostics.recordVideoInputFormat(format)
+                val quality = diagnostics.confirmedVideoQuality() ?: return
+                mediaSession?.broadcastCustomCommand(
+                    SessionCommand(VIDEO_INPUT_FORMAT_CHANGED, Bundle.EMPTY),
+                    Bundle().apply {
+                        inputUri?.let { putString(VIDEO_QUALITY_URI, it) }
+                        putString(VIDEO_QUALITY_NAME, quality.name)
+                        putString(VIDEO_QUALITY_CODECS, quality.codecs)
+                        quality.bitrate?.let { putInt(VIDEO_QUALITY_BITRATE, it) }
+                    },
+                )
+            }
+
             override fun onDroppedVideoFrames(
                 eventTime: AnalyticsListener.EventTime,
                 droppedFrames: Int,
@@ -268,19 +308,21 @@ class PlaybackService : MediaSessionService() {
             ) {
                 val format = mediaLoadData.trackFormat ?: return
                 when (mediaLoadData.trackType) {
-                    Media3C.TRACK_TYPE_VIDEO -> diagnostics.update {
-                        it.copy(
-                            selectedVideoWidth = format.width.takeIf { value -> value > 0 },
-                            selectedVideoHeight = format.height.takeIf { value -> value > 0 },
-                            videoFrameRate = format.frameRate.takeIf { value -> value > 0f },
-                            videoBitrate = firstPositiveBitrate(
-                                format.averageBitrate,
-                                format.peakBitrate,
-                                format.bitrate,
-                            ),
-                            videoCodec = format.codecs,
-                            videoMimeType = format.sampleMimeType,
-                        )
+                    Media3C.TRACK_TYPE_VIDEO -> {
+                        diagnostics.update {
+                            it.copy(
+                                selectedVideoWidth = format.width.takeIf { value -> value > 0 },
+                                selectedVideoHeight = format.height.takeIf { value -> value > 0 },
+                                videoFrameRate = format.frameRate.takeIf { value -> value > 0f },
+                                videoBitrate = firstPositiveBitrate(
+                                    format.averageBitrate,
+                                    format.peakBitrate,
+                                    format.bitrate,
+                                ),
+                                videoCodec = format.codecs,
+                                videoMimeType = format.sampleMimeType,
+                            )
+                        }
                     }
                     Media3C.TRACK_TYPE_AUDIO -> diagnostics.update {
                         it.copy(
@@ -405,6 +447,9 @@ class PlaybackService : MediaSessionService() {
                             add(SessionCommand(GET_MEDIA_PLAYLIST, Bundle.EMPTY))
                             add(SessionCommand(GET_MULTIVARIANT_PLAYLIST, Bundle.EMPTY))
                             add(SessionCommand(GET_VIDEO_INFO, Bundle.EMPTY))
+                            add(SessionCommand(GET_VIDEO_QUALITY, Bundle.EMPTY))
+                            add(SessionCommand(RESET_VIDEO_INFO_SIZE, Bundle.EMPTY))
+                            add(SessionCommand(VIDEO_INPUT_FORMAT_CHANGED, Bundle.EMPTY))
                         }.build()
                         val playerCommands = connectionResult.availablePlayerCommands.buildUpon()
                             .apply {
@@ -798,6 +843,26 @@ class PlaybackService : MediaSessionService() {
                                     )
                                 )
                             }
+                            GET_VIDEO_QUALITY -> {
+                                val quality = diagnostics.confirmedVideoQuality()
+                                Futures.immediateFuture(
+                                    SessionResult(
+                                        SessionResult.RESULT_SUCCESS,
+                                        Bundle().apply {
+                                            session.player.currentMediaItem?.localConfiguration?.uri?.toString()?.let {
+                                                putString(VIDEO_QUALITY_URI, it)
+                                            }
+                                            quality?.name?.let { putString(VIDEO_QUALITY_NAME, it) }
+                                            quality?.codecs?.let { putString(VIDEO_QUALITY_CODECS, it) }
+                                            quality?.bitrate?.let { putInt(VIDEO_QUALITY_BITRATE, it) }
+                                        },
+                                    ),
+                                )
+                            }
+                            RESET_VIDEO_INFO_SIZE -> {
+                                diagnostics.resetRenderedVideoSize()
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                            }
                             else -> super.onCustomCommand(session, controller, customCommand, args)
                         }
                     }
@@ -1067,6 +1132,7 @@ class PlaybackService : MediaSessionService() {
                     "tapToStartStreamMs=${streamStartupTrace?.tapToStartStreamMs() ?: -1}",
             )
         }
+        diagnostics.resetRenderedVideoSize()
         player.setMediaSource(
             preloaded?.mediaSource ?: runtime.createLiveMediaSource(mediaItem)
         )
@@ -1357,6 +1423,9 @@ class PlaybackService : MediaSessionService() {
         extras: Bundle,
         beginNewPlayback: Boolean = true,
     ) {
+        if (viewingContentType != contentType || viewingContentId != contentId) {
+            diagnostics.resetForNewMedia()
+        }
         finishViewingStats()
         viewingChannelId = extras.getString(CHANNEL_ID)
         viewingChannelLogin = extras.getString(CHANNEL_LOGIN)
@@ -1530,6 +1599,13 @@ class PlaybackService : MediaSessionService() {
         const val GET_MEDIA_PLAYLIST = "getMediaPlaylist"
         const val GET_MULTIVARIANT_PLAYLIST = "getMultivariantPlaylist"
         const val GET_VIDEO_INFO = "getVideoInfo"
+        const val GET_VIDEO_QUALITY = "getVideoQuality"
+        const val RESET_VIDEO_INFO_SIZE = "resetVideoInfoSize"
+        const val VIDEO_INPUT_FORMAT_CHANGED = "videoInputFormatChanged"
+        const val VIDEO_QUALITY_NAME = "videoQualityName"
+        const val VIDEO_QUALITY_URI = "videoQualityUri"
+        const val VIDEO_QUALITY_CODECS = "videoQualityCodecs"
+        const val VIDEO_QUALITY_BITRATE = "videoQualityBitrate"
 
         const val RESULT = "result"
         const val URI = "uri"

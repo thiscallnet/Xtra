@@ -25,7 +25,6 @@ import androidx.core.widget.NestedScrollView
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
-import androidx.media3.common.Format
 import androidx.media3.common.C as Media3C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
@@ -63,6 +62,7 @@ import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.snackbar.Snackbar
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.Futures
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -85,6 +85,31 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             }
         }
     private var playerListener: Player.Listener? = null
+    private val mediaControllerListener = object : MediaController.Listener {
+        override fun onCustomCommand(
+            controller: MediaController,
+            command: SessionCommand,
+            args: Bundle,
+        ): ListenableFuture<SessionResult> {
+            if (command.customAction == PlaybackService.VIDEO_INPUT_FORMAT_CHANGED) {
+                val qualityUri = args.getString(PlaybackService.VIDEO_QUALITY_URI)
+                val currentUri = controller.currentMediaItem?.localConfiguration?.uri?.toString()
+                val qualityName = args.getString(PlaybackService.VIDEO_QUALITY_NAME)
+                if ((qualityUri == null || qualityUri == currentUri) && !qualityName.isNullOrBlank()) {
+                    updateConfirmedVideoQuality(
+                        VideoQuality(
+                            name = qualityName,
+                            codecs = args.getString(PlaybackService.VIDEO_QUALITY_CODECS),
+                            bitrate = args.getInt(PlaybackService.VIDEO_QUALITY_BITRATE)
+                                .takeIf { args.containsKey(PlaybackService.VIDEO_QUALITY_BITRATE) },
+                        ),
+                        controller,
+                    )
+                }
+            }
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+    }
     private var streamRecoveryJob: Job? = null
     private var streamRecoveryAttempt = 0
     private var recoveringBehindLiveWindow = false
@@ -254,7 +279,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 requireContext(),
                 ComponentName(requireContext(), PlaybackService::class.java)
             )
-        ).buildAsync()
+        ).setListener(mediaControllerListener).buildAsync()
         controllerFuture = future
         future.addListener({
             if (controllerFuture !== future || future.isCancelled) {
@@ -428,6 +453,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
 
                 override fun onPlayerError(error: PlaybackException) {
                     Log.e(tag, "Player error", error)
+                    viewModel.pendingVideoQuality = null
                     if (onLiveRewindPlaybackError()) return
                     if (isLiveRewindActiveOrSwitching()) return
                     if (
@@ -577,6 +603,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             }
             controller.addListener(listener)
             playerListener = listener
+            requestCurrentVideoQuality(controller)
             // A listener added after the controller is already prepared does
             // not receive an initial onTracksChanged callback. Retry any
             // quality request that arrived while the controller was connecting.
@@ -782,6 +809,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             if (candidate != null && isAdded && view != null && !isLiveRewindActiveOrSwitching()) {
                 primaryStreamRestoreJob?.cancel()
                 primaryStreamRestoreJob = null
+                pendingSourceSwitchQuality.capture(viewModel.quality)
                 viewModel.usingAlternateStream = true
                 setQualityText()
                 viewModel.qualities = null
@@ -823,6 +851,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 }
                 if (candidate?.verifiedClean == true && isAdded && view != null) {
                     try {
+                        pendingSourceSwitchQuality.capture(viewModel.quality)
                         viewModel.qualities = null
                         viewModel.updateQualities = true
                         viewModel.usingProxy = false
@@ -848,19 +877,33 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         startStreamInternal(url, null)
     }
 
-    private fun startStreamInternal(url: String?, playWhenReady: Boolean?): ListenableFuture<SessionResult>? {
+    override fun onStreamQualityReset() {
+        pendingSourceSwitchQuality.clear()
+    }
+
+    private fun startStreamInternal(
+        url: String?,
+        playWhenReady: Boolean?,
+        preserveQuality: Boolean = false,
+    ): ListenableFuture<SessionResult>? {
         clearPlayerError()
         resetProgressRenderState()
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
         primaryStreamRestoreJob = null
-        pendingSourceSwitchQuality.capture(viewModel.quality)
+        if (preserveQuality) {
+            pendingSourceSwitchQuality.capture(viewModel.quality)
+        } else {
+            pendingSourceSwitchQuality.clear()
+        }
         viewModel.usingAlternateStream = false
         viewModel.resetAdController()
         viewModel.playingAds = false
         viewModel.qualities = null
         viewModel.quality = null
+        viewModel.pendingVideoQuality = null
+        if (!preserveQuality) viewModel.confirmedVideoQuality = null
         viewModel.updateQualities = true
         setQualityText()
         return sendStreamToService(url, playWhenReady)
@@ -868,6 +911,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
 
     private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null): ListenableFuture<SessionResult>? {
         invalidateQualityRequest()
+        viewModel.playlistUrl = null
         return player?.sendCustomCommand(
             SessionCommand(
                 PlaybackService.START_STREAM, Bundle().apply {
@@ -1035,6 +1079,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         val oldQuality = viewModel.quality
         val oldUpdateQualities = viewModel.updateQualities
         pendingSourceSwitchQuality.capture(viewModel.quality)
+        viewModel.playlistUrl = null
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
@@ -1044,6 +1089,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         viewModel.playingAds = false
         viewModel.qualities = null
         viewModel.quality = null
+        viewModel.pendingVideoQuality = null
         viewModel.updateQualities = true
         val result = controller.sendCustomCommand(
             SessionCommand(
@@ -1093,7 +1139,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 null
             }
         } ?: return false
-        val result = startStreamInternal(url, wasPlaying) ?: run {
+        val result = startStreamInternal(url, wasPlaying, preserveQuality = true) ?: run {
             restoreQualityAfterSourceSwitchFailure(
                 qualities = oldQualities,
                 quality = oldQuality,
@@ -1494,10 +1540,69 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         }
     }
 
+    private fun requestCurrentVideoQuality(controller: MediaController) {
+        val request = controller.sendCustomCommand(
+            SessionCommand(PlaybackService.GET_VIDEO_QUALITY, Bundle.EMPTY),
+            Bundle.EMPTY,
+        )
+        request.addListener({
+            val result = runCatching { request.get() }.getOrNull()
+            if (!isAdded || view == null || result?.resultCode != SessionResult.RESULT_SUCCESS) return@addListener
+            val qualityUri = result.extras.getString(PlaybackService.VIDEO_QUALITY_URI)
+            val currentUri = controller.currentMediaItem?.localConfiguration?.uri?.toString()
+            if (qualityUri != null && qualityUri != currentUri) return@addListener
+            val name = result.extras.getString(PlaybackService.VIDEO_QUALITY_NAME)
+                ?.takeIf(String::isNotBlank) ?: return@addListener
+            updateConfirmedVideoQuality(
+                VideoQuality(
+                    name = name,
+                    codecs = result.extras.getString(PlaybackService.VIDEO_QUALITY_CODECS),
+                    bitrate = result.extras.getInt(PlaybackService.VIDEO_QUALITY_BITRATE)
+                        .takeIf { result.extras.containsKey(PlaybackService.VIDEO_QUALITY_BITRATE) },
+                ),
+                controller,
+            )
+        }, ContextCompat.getMainExecutor(requireContext()))
+    }
+
+    private fun updateConfirmedVideoQuality(actualQuality: VideoQuality, controller: MediaController) {
+        viewModel.confirmedVideoQuality = actualQuality
+        viewModel.pendingVideoQuality?.let { requested ->
+            if (requestedVideoQualityMatches(requested, actualQuality, controller)) {
+                viewModel.pendingVideoQuality = null
+            }
+        }
+        setQualityText()
+    }
+
+    private fun requestedVideoQualityMatches(
+        requested: VideoQuality,
+        actual: VideoQuality,
+        currentPlayer: Player,
+    ): Boolean {
+        if (requested.name == AUTO_QUALITY) return true
+        if (requested.name == SOURCE_QUALITY) {
+            val requestedUrl = requested.url ?: return false
+            if (currentPlayer.currentMediaItem?.localConfiguration?.uri?.toString() != requestedUrl) return false
+        } else if (!actual.name.equals(requested.name, ignoreCase = true)) {
+            return false
+        }
+        if (requested.bitrate != null && actual.bitrate != null && actual.bitrate > requested.bitrate) return false
+        val requestedCodecs = requested.codecs?.takeIf(String::isNotBlank) ?: return true
+        val actualCodecs = actual.codecs?.takeIf(String::isNotBlank) ?: return true
+        return requestedCodecs.split(',').map(String::trim).any { wanted ->
+            actualCodecs.split(',').map(String::trim).any { it.equals(wanted, ignoreCase = true) }
+        }
+    }
+
     override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
         val previousQuality = viewModel.quality
         viewModel.previousQuality = previousQuality
         viewModel.quality = selectedQuality
+        viewModel.pendingVideoQuality = selectedQuality
+        if (selectedQuality?.name == AUDIO_ONLY_QUALITY || selectedQuality?.name == CHAT_ONLY_QUALITY) {
+            viewModel.pendingVideoQuality = null
+        }
         viewModel.quality?.let { quality ->
             player?.let { player ->
                 player.currentMediaItem?.let { mediaItem ->
@@ -1508,6 +1613,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                 quality.bitrate,
                                 quality.codecs,
                             )
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                                clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                            }.build()
                             viewModel.playlistUrl?.let { uri ->
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
@@ -1515,6 +1624,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                 }.build()
                                 if (mediaItem.localConfiguration?.uri != uri) {
                                     val position = player.currentPosition
+                                    player.sendCustomCommand(
+                                        SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
+                                        Bundle.EMPTY,
+                                    )
                                     player.setMediaItem(mediaItem.buildUpon().setUri(uri).build())
                                     player.prepare()
                                     player.seekTo(position)
@@ -1540,9 +1653,15 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                             setVideoOutputVisible(false)
                             quality.url?.let {
                                 val position = player.currentPosition
-                                if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
+                                if (viewModel.playlistUrl == null &&
+                                    viewModel.qualities?.find { it.name == AUTO_QUALITY } != null
+                                ) {
                                     viewModel.playlistUrl = mediaItem.localConfiguration?.uri
                                 }
+                                player.sendCustomCommand(
+                                    SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
+                                    Bundle.EMPTY,
+                                )
                                 player.setMediaItem(mediaItem.buildUpon().setUri(it).build())
                                 player.prepare()
                                 player.seekTo(position)
@@ -1568,17 +1687,32 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                     quality.bitrate,
                                     quality.codecs,
                                 )
-                                viewModel.playlistUrl?.let { uri ->
-                                    player.currentMediaItem?.let {
-                                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
-                                            setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                            clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
-                                        }.build()
+                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                    setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                                    clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                                }.build()
+                                val qualityUri = quality.url
+                                player.currentMediaItem?.let { mediaItem ->
+                                    if (!qualityUri.isNullOrBlank() &&
+                                        mediaItem.localConfiguration?.uri?.toString() != qualityUri
+                                    ) {
+                                        if (viewModel.playlistUrl == null) {
+                                            viewModel.playlistUrl = mediaItem.localConfiguration?.uri
+                                        }
                                         val position = player.currentPosition
-                                        player.setMediaItem(it.buildUpon().setUri(uri).build())
+                                        player.sendCustomCommand(
+                                            SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
+                                            Bundle.EMPTY,
+                                        )
+                                        player.setMediaItem(mediaItem.buildUpon().setUri(qualityUri).build())
                                         player.prepare()
                                         player.seekTo(position)
-                                        viewModel.playlistUrl = null
+                                    } else if (qualityUri.isNullOrBlank()) {
+                                        videoQualityTrackOverride(player.currentTracks, quality)?.let { override ->
+                                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                                .setOverrideForType(override)
+                                                .build()
+                                        }
                                     }
                                 }
                                 setVideoOutputVisible(true)
@@ -1586,6 +1720,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                                 player.currentMediaItem?.let {
                                     if (it.localConfiguration?.uri?.toString() != quality.url) {
                                         val position = player.currentPosition
+                                        player.sendCustomCommand(
+                                            SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
+                                            Bundle.EMPTY,
+                                        )
                                         player.setMediaItem(it.buildUpon().setUri(quality.url).build())
                                         player.prepare()
                                         player.seekTo(position)
@@ -1824,10 +1962,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     setDefaultQuality()
                     val restoredQuality = qualityToRestore?.resolve(viewModel.qualities, ::findQuality)
                     changePlayerMode()
-                    if (restoredQuality != null) {
-                        changeQuality(restoredQuality, persistSavedQuality = false)
-                    } else if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
-                        changeQuality(viewModel.quality, persistSavedQuality = false)
+                    (restoredQuality ?: viewModel.quality)?.let {
+                        changeQuality(it, persistSavedQuality = false)
                     }
                     setQualityText()
                     qualityRetryAttempts = 0

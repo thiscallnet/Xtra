@@ -110,6 +110,9 @@ class Media3PlayerViewModel(
 
     var qualities: List<VideoQuality>? = null
     var quality: VideoQuality? = null
+    /** Last rendition reported by the active video decoder input. */
+    var confirmedVideoQuality: VideoQuality? = null
+    var pendingVideoQuality: VideoQuality? = null
     var previousQuality: VideoQuality? = null
     var playlistUrl: Uri? = null
     var updateQualities = false
@@ -117,6 +120,7 @@ class Media3PlayerViewModel(
     var restoreQuality = false
     /** True only when backgrounding temporarily disabled the video track. */
     var videoTrackDisabledForBackground = false
+
     internal val videoOutputState = VideoOutputState()
     var resume = false
     var hidden = false

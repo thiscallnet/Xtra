@@ -3372,7 +3372,15 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
     }
 
     fun setQualityText() {
-        val label = qualityLabel(playbackService?.quality)
+        val selectedQuality = playbackService?.quality
+        val activeQuality = if (selectedQuality?.name == BasePlaybackService.AUDIO_ONLY_QUALITY ||
+            selectedQuality?.name == BasePlaybackService.CHAT_ONLY_QUALITY
+        ) {
+            selectedQuality
+        } else {
+            confirmedRenderedQuality() ?: selectedQuality
+        }
+        val label = qualityLabel(activeQuality)
         if (view != null) {
             val vaftActive = isVaftActive()
             binding.playerControls.quality.apply {
@@ -3389,8 +3397,12 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             }
         }
         (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.let { dialog ->
-            dialog.setQuality(label)
+            dialog.setQuality(qualityLabel(selectedQuality))
         }
+    }
+
+    private fun confirmedRenderedQuality(): VideoQuality? {
+        return (playbackService as? ExoPlayerService)?.confirmedVideoQuality()
     }
 
     fun reapplyNetworkDefaultQuality(cellular: Boolean) {

@@ -37,6 +37,8 @@ import androidx.media3.common.VideoSize
 import androidx.media3.common.text.CueGroup
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.util.Util
+import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.navigation.fragment.findNavController
@@ -68,6 +70,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
     override fun liveBufferHealthPlayer(): Player? = playbackService?.player
     private var serviceConnection: ServiceConnection? = null
     private var playerListener: Player.Listener? = null
+    private var qualityAnalyticsListener: AnalyticsListener? = null
     private var serviceSetupJob: Job? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
     private var clipPreparationJob: Job? = null
@@ -493,6 +496,23 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                         }
                         connectedService.player?.addListener(listener)
                         playerListener = listener
+                        connectedService.player?.let { player ->
+                            val qualityListener = object : AnalyticsListener {
+                                override fun onVideoInputFormatChanged(
+                                    eventTime: AnalyticsListener.EventTime,
+                                    format: androidx.media3.common.Format,
+                                    decoderReuseEvaluation: DecoderReuseEvaluation?,
+                                ) {
+                                    activity?.let { host ->
+                                        ContextCompat.getMainExecutor(host).execute {
+                                            if (isAdded && view != null) setQualityText()
+                                        }
+                                    }
+                                }
+                            }
+                            player.addAnalyticsListener(qualityListener)
+                            qualityAnalyticsListener = qualityListener
+                        }
                         val endTime = connectedService.setSleepTimer(-1)
                         if (endTime > 0L) {
                             val duration = endTime - System.currentTimeMillis()
@@ -1101,12 +1121,18 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
         )
     }
 
+    private fun removeQualityAnalyticsListener() {
+        qualityAnalyticsListener?.let { playbackService?.player?.removeAnalyticsListener(it) }
+        qualityAnalyticsListener = null
+    }
+
     override fun startAudioOnly() {
         if (playbackService != null) {
             playbackService?.startAudioOnly()
             playbackService?.setSleepTimer((activity as? MainActivity)?.getSleepTimerTimeLeft() ?: 0)
             playbackService?.setStopServiceTimer(true)
         }
+        removeQualityAnalyticsListener()
         playerListener?.let { playbackService?.player?.removeListener(it) }
         playerListener = null
         playbackService?.serviceListener = null
@@ -1127,6 +1153,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
         if (deleteStates) {
             viewModel.deletePlaybackStates()
         }
+        removeQualityAnalyticsListener()
         playerListener?.let { playbackService?.player?.removeListener(it) }
         playerListener = null
         playbackService?.serviceListener = null
@@ -1167,6 +1194,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
             playbackService?.setStopServiceTimer(true)
         }
         binding.playerControls.root.removeCallbacks(updateProgressAction)
+        removeQualityAnalyticsListener()
         playerListener?.let { playbackService?.player?.removeListener(it) }
         playerListener = null
         playbackService?.serviceListener = null

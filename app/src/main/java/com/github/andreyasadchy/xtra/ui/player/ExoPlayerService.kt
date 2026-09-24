@@ -43,6 +43,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
+import androidx.media3.common.VideoSize
 import androidx.media3.common.Timeline
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.TrackSelectionParameters
@@ -159,6 +160,7 @@ class ExoPlayerService : BasePlaybackService() {
     private var backupQualities: List<String>? = null
     private var liveRewindPositionOverride: Long? = null
     private var updateQualities = false
+    private var resetQualityOnStreamRefresh = false
     private var created = false
     private var resumeWhenForeground = false
     private val videoOutputState = VideoOutputState()
@@ -194,6 +196,8 @@ class ExoPlayerService : BasePlaybackService() {
 
     fun videoDiagnosticsSnapshot(): PlaybackVideoInfo =
         player?.let(diagnostics::snapshot) ?: diagnostics.snapshot()
+
+    fun confirmedVideoQuality(): VideoQuality? = diagnostics.confirmedVideoQuality()
 
     private fun twitchHlsPlaylistParserFactory(): TwitchHlsPlaylistParserFactory =
         TwitchHlsPlaylistParserFactory(
@@ -247,7 +251,9 @@ class ExoPlayerService : BasePlaybackService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    diagnostics.resetForNewMedia()
+                    diagnostics.resetForNewMedia(
+                        preserveConfirmedVideoQuality = type == STREAM,
+                    )
                     adaptiveLiveController?.reset(
                         initialPolicy = LivePlaybackPolicies.forLowLatency(
                             prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
@@ -279,10 +285,25 @@ class ExoPlayerService : BasePlaybackService() {
                     updateNotification()
                 }
 
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    val currentPlayer = player ?: return
+                    diagnostics.recordRenderedVideoSize(videoSize.width, videoSize.height, currentPlayer.currentTracks)
+                    serviceListener?.updateQualityStatus()
+                }
+
+                override fun onRenderedFirstFrame() {
+                    val currentPlayer = player ?: return
+                    diagnostics.recordRenderedFirstFrame(currentPlayer.currentTracks)
+                    serviceListener?.updateQualityStatus()
+                }
+
                 override fun onTracksChanged(tracks: Tracks) {
+                    val currentPlayer = player ?: return
+                    diagnostics.confirmPendingRenderedVideoSizeAfterTracksChanged(tracks)
+                    serviceListener?.updateQualityStatus()
                     logVideoTracks(
                         reason = "ExoPlayerService.onTracksChanged",
-                        player = player,
+                        player = currentPlayer,
                     )
                     if (!tracks.isEmpty) {
                         if (!loaded) {
@@ -351,12 +372,11 @@ class ExoPlayerService : BasePlaybackService() {
                                     audio?.let { remove(it) }
                                     add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
                                 }
-                            setDefaultQuality(preferredQuality = quality)
+                            setDefaultQuality(preferredQuality = quality.takeIf { !resetQualityOnStreamRefresh })
+                            resetQualityOnStreamRefresh = false
                             serviceListener?.updateQualityStatus()
                             serviceListener?.changePlayerMode()
-                            if (quality?.name == AUDIO_ONLY_QUALITY) {
-                                changeQuality(quality, persistSavedQuality = false)
-                            }
+                            quality?.let { changeQuality(it, persistSavedQuality = false) }
                         }
                         if (reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) {
                             updateQualities = false
@@ -749,19 +769,21 @@ class ExoPlayerService : BasePlaybackService() {
                 ) {
                     val format = mediaLoadData.trackFormat ?: return
                     when (mediaLoadData.trackType) {
-                        androidx.media3.common.C.TRACK_TYPE_VIDEO -> diagnostics.update {
-                            it.copy(
-                                selectedVideoWidth = format.width.takeIf { value -> value > 0 },
-                                selectedVideoHeight = format.height.takeIf { value -> value > 0 },
-                                videoFrameRate = format.frameRate.takeIf { value -> value > 0f },
-                                videoBitrate = firstPositiveBitrate(
-                                    format.averageBitrate,
-                                    format.peakBitrate,
-                                    format.bitrate,
-                                ),
-                                videoCodec = format.codecs,
-                                videoMimeType = format.sampleMimeType,
-                            )
+                        androidx.media3.common.C.TRACK_TYPE_VIDEO -> {
+                            diagnostics.update {
+                                it.copy(
+                                    selectedVideoWidth = format.width.takeIf { value -> value > 0 },
+                                    selectedVideoHeight = format.height.takeIf { value -> value > 0 },
+                                    videoFrameRate = format.frameRate.takeIf { value -> value > 0f },
+                                    videoBitrate = firstPositiveBitrate(
+                                        format.averageBitrate,
+                                        format.peakBitrate,
+                                        format.bitrate,
+                                    ),
+                                    videoCodec = format.codecs,
+                                    videoMimeType = format.sampleMimeType,
+                                )
+                            }
                         }
                         androidx.media3.common.C.TRACK_TYPE_AUDIO -> diagnostics.update {
                             it.copy(
@@ -804,6 +826,14 @@ class ExoPlayerService : BasePlaybackService() {
                             audioMimeType = format.sampleMimeType,
                         )
                     }
+                }
+
+                override fun onVideoInputFormatChanged(
+                    eventTime: AnalyticsListener.EventTime,
+                    format: Format,
+                    decoderReuseEvaluation: DecoderReuseEvaluation?,
+                ) {
+                    diagnostics.recordVideoInputFormat(format)
                 }
             })
             val session = MediaSession(this, "ExoPlayerService")
@@ -1460,6 +1490,17 @@ class ExoPlayerService : BasePlaybackService() {
                             )
                     hlsClipDataSourceFactory = dataSourceFactory
                     liveClipSourceMediaId = "live-clip-${liveClipBufferManager.currentGeneration()}"
+                    if (resetQualityOnStreamRefresh) {
+                        diagnostics.resetRenderedVideoSize()
+                        quality = null
+                        restorePlaylist = false
+                        qualitySelectionPolicy.set(AUTO_QUALITY)
+                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                            setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                            clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                        }.build()
+                        serviceListener?.updateQualityStatus()
+                    }
                     player.setMediaSource(
                         HlsMediaSource.Factory(dataSourceFactory).apply {
                             setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
@@ -2173,8 +2214,11 @@ class ExoPlayerService : BasePlaybackService() {
     fun retry(item: String) {
         when (item) {
             "refreshStream" -> {
+                clearRememberedSourceSwitchQuality()
+                resetQualityOnStreamRefresh = true
+                diagnostics.resetRenderedVideoSize()
                 lifecycleScope.launch {
-                    loadStream()
+                    loadStream(restart = true)
                 }
             }
             "refreshVideo" -> {
@@ -2212,6 +2256,9 @@ class ExoPlayerService : BasePlaybackService() {
     ) {
         val oldQuality = quality
         val qualityChanged = oldQuality?.name != selectedQuality?.name || oldQuality?.url != selectedQuality?.url
+        if (type == STREAM && qualityChanged) {
+            diagnostics.resetRenderedVideoSize()
+        }
         if (type == STREAM && qualityChanged && resetLiveClipGeneration) {
             advanceLiveClipGeneration()
         }
@@ -2224,6 +2271,10 @@ class ExoPlayerService : BasePlaybackService() {
                     when (quality.name) {
                         AUTO_QUALITY -> {
                             qualitySelectionPolicy.set(quality.name, quality.bitrate, quality.codecs)
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                                clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                            }.build()
                             if (restorePlaylist) {
                                 restorePlaylist = false
                                 playlistUrl?.let { uri ->
@@ -2262,18 +2313,25 @@ class ExoPlayerService : BasePlaybackService() {
                         else -> {
                             if (qualities?.find { it.name == AUTO_QUALITY } != null) {
                                 qualitySelectionPolicy.set(quality.name, quality.bitrate, quality.codecs)
-                                if (restorePlaylist) {
-                                    restorePlaylist = false
-                                    playlistUrl?.let { uri ->
-                                        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
-                                            setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
-                                            clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
-                                        }.build()
-                                        val position = player.currentPosition
-                                        setQualityMediaItem(player, mediaItem, uri)
-                                        player.prepare()
-                                        player.seekTo(position)
+                                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                    setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
+                                    clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
+                                }.build()
+                                val qualityUri = quality.url
+                                if (!qualityUri.isNullOrBlank() &&
+                                    mediaItem.localConfiguration?.uri?.toString() != qualityUri
+                                ) {
+                                    if (!playlistUrl.isNullOrBlank()) {
+                                        restorePlaylist = true
                                     }
+                                    val position = player.currentPosition
+                                    setQualityMediaItem(player, mediaItem, qualityUri)
+                                    player.prepare()
+                                    player.seekTo(position)
+                                } else if (qualityUri.isNullOrBlank()) {
+                                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                        videoQualityTrackOverride(player.currentTracks, quality)?.let { setOverrideForType(it) }
+                                    }.build()
                                 }
                             } else {
                                 player.currentMediaItem?.let { mediaItem ->
@@ -2381,6 +2439,10 @@ class ExoPlayerService : BasePlaybackService() {
 
     fun restartPlayer() {
         if (type == STREAM && (liveRewindActive || liveRewindTransitioning)) return
+        if (type == STREAM) {
+            retry("refreshStream")
+            return
+        }
         if (quality?.name != CHAT_ONLY_QUALITY) {
             lifecycleScope.launch {
                 loadStream(restart = true)

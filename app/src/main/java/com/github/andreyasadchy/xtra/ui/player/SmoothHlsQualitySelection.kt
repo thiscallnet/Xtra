@@ -5,6 +5,8 @@ import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.MediaSource
@@ -16,6 +18,7 @@ import androidx.media3.exoplayer.trackselection.ForwardingTrackSelection
 import androidx.media3.exoplayer.trackselection.TrackSelection
 import androidx.media3.exoplayer.upstream.BandwidthMeter
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.model.VideoQuality
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.floor
 
@@ -91,10 +94,42 @@ class SmoothHlsQualityPolicy {
     fun snapshot(): DesiredHlsQuality = desired.get()
 }
 
+internal fun videoQualityTrackOverride(
+    tracks: Tracks,
+    quality: VideoQuality,
+): TrackSelectionOverride? {
+    val desired = DesiredHlsQuality(
+        name = quality.name ?: return null,
+        bitrate = quality.bitrate,
+        codecs = quality.codecs,
+    )
+    if (desired.isAuto || quality.name == BasePlaybackService.AUDIO_ONLY_QUALITY ||
+        quality.name == BasePlaybackService.CHAT_ONLY_QUALITY
+    ) {
+        return null
+    }
+
+    val selected = tracks.groups.asSequence()
+        .filter { it.type == C.TRACK_TYPE_VIDEO }
+        .flatMap { group ->
+            (0 until group.length).asSequence()
+                .filter { group.isTrackSupported(it) }
+                .map { index -> Triple(group, index, group.getTrackFormat(index)) }
+        }
+        .filter { (_, _, format) -> desired.matches(format) }
+        .maxWithOrNull(
+            compareBy<Triple<Tracks.Group, Int, Format>> { it.third.height }
+                .thenBy { it.third.frameRate }
+                .thenBy { it.third.bitrate },
+        ) ?: return null
+
+    return TrackSelectionOverride(selected.first.mediaTrackGroup, selected.second)
+}
+
 /**
- * Keeps Media3's adaptive selection object installed while allowing Xtra to choose the next
- * rendition. Retaining that object lets HLS keep consuming buffered chunks across a quality
- * request instead of treating it as a new primary track selection and seeking the sample queue.
+ * Keeps Media3's adaptive selection object installed for Auto while allowing Xtra to choose a
+ * manual rendition. Manual changes can discard queued chunks from the old rendition so the
+ * selected quality becomes visible without waiting for the previous buffer to drain.
  */
 class SmoothHlsTrackSelectionFactory(
     private val qualityPolicy: SmoothHlsQualityPolicy,
@@ -206,7 +241,16 @@ private class SmoothHlsTrackSelection(
     override fun evaluateQueueSize(
         playbackPositionUs: Long,
         queue: List<MediaChunk>,
-    ): Int = queue.size
+    ): Int {
+        val desired = qualityPolicy.snapshot()
+        if (desired.isAuto || queue.isEmpty()) {
+            return adaptiveSelection.evaluateQueueSize(playbackPositionUs, queue)
+        }
+
+        val selectedFormat = getSelectedFormat()
+        val firstChunkWithDifferentFormat = queue.indexOfFirst { it.trackFormat != selectedFormat }
+        return if (firstChunkWithDifferentFormat == -1) queue.size else firstChunkWithDifferentFormat
+    }
 
     private fun describeFormat(format: Format): String =
         "${format.label ?: "?"}:${format.width}x${format.height}@${format.frameRate}fps/" +

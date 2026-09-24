@@ -2391,7 +2391,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     fun setQualityText() {
-        val label = qualityLabel(viewModel.quality)
+        val selectedLabel = qualityLabel(viewModel.quality)
+        val selectedQuality = viewModel.quality
+        val activeQuality = selectedQuality?.takeIf {
+            it.name == AUDIO_ONLY_QUALITY || it.name == CHAT_ONLY_QUALITY
+        } ?: viewModel.confirmedVideoQuality ?: selectedQuality
+        val label = qualityLabel(activeQuality)
         if (view != null) {
             val vaftActive = isVaftActive()
             binding.playerControls.quality.apply {
@@ -2407,7 +2412,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 }
             }
         }
-        (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setQuality(label)
+        (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setQuality(selectedLabel)
     }
 
     fun updateViewerCount(viewerCount: Int?) {
@@ -2538,9 +2543,21 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun restartPlayer() {
         if (videoType == STREAM && isLiveRewindActiveOrSwitching()) return
         if (viewModel.quality?.name != CHAT_ONLY_QUALITY) {
+            if (videoType == STREAM) {
+                onStreamQualityReset()
+                viewModel.quality = null
+                viewModel.previousQuality = null
+                viewModel.qualities = null
+                viewModel.updateQualities = true
+                viewModel.playlistUrl = null
+                viewModel.streamResult.value = null
+                setQualityText()
+            }
             loadStream()
         }
     }
+
+    protected open fun onStreamQualityReset() = Unit
 
     fun openViewerList() {
         requireArguments().getString(KEY_CHANNEL_LOGIN)?.let { login ->
