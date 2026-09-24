@@ -55,6 +55,7 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.model.chat.TwitchEmoteGroup
 import com.github.andreyasadchy.xtra.model.chat.VideoChatMessage
+import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.gql.chat.ChannelPointContextResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.PinnedChatMessageResponse
 import com.github.andreyasadchy.xtra.model.gql.chat.WatchStreakResponse
@@ -115,6 +116,10 @@ import com.github.andreyasadchy.xtra.util.chat.STVEventApiWebSocket
 import com.github.andreyasadchy.xtra.util.chat.ViewerParticipationCache
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
+import com.github.andreyasadchy.xtra.util.watch.WatchCreditMinute
+import com.github.andreyasadchy.xtra.util.watch.WatchCreditScheduleInput
+import com.github.andreyasadchy.xtra.util.watch.WatchCreditScheduler
+import com.github.andreyasadchy.xtra.util.watch.WatchCreditSession
 import kotlinx.coroutines.cancel
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
@@ -621,6 +626,9 @@ class ChatViewModel(
     private var chatReadJob: Job? = null
     private var chatWriteJob: Job? = null
     private var dropsJob: Job? = null
+    private var watchCreditSchedulerJob: Job? = null
+    private val watchCreditStreamLive = MutableStateFlow<Boolean?>(null)
+    private val watchCreditChatSessionGeneration = AtomicLong(0L)
     private var eventSub: EventSubWebSocket? = null
     private var hermesWebSocket: HermesWebSocket? = null
     private var pubSubJob: Job? = null
@@ -3986,6 +3994,7 @@ class ChatViewModel(
         }
         activeChannelId = channelId
         activeChannelLogin = channelLogin
+        watchCreditStreamLive.value = true
         if (chatUserPresenceAutocompleteActive || BuildConfig.MODERATOR_TOOLS_ENABLED) {
             startChatUserPresenceRefresh()
         }
@@ -4006,6 +4015,14 @@ class ChatViewModel(
         val accountLogin = applicationContext.tokenPrefs().getString(C.USERNAME, null)
         val gqlWebToken = applicationContext.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)?.takeIf { it.isNotBlank() }
         val hasHermesUserAuth = !accountId.isNullOrBlank() && !gqlWebToken.isNullOrBlank()
+        val watchCreditSessionGeneration = watchCreditChatSessionGeneration.get()
+        startWatchCreditScheduler(
+            expectedChannelId = channelId,
+            expectedChannelLogin = channelLogin,
+            userId = accountId,
+            networkLibrary = networkLibrary,
+            chatSessionGeneration = watchCreditSessionGeneration,
+        )
         loggedInUserId = accountId
         loggedInUserLogin = accountLogin
         val isLoggedIn = !accountLogin.isNullOrBlank() && (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank())
@@ -4123,6 +4140,164 @@ class ChatViewModel(
                 loadLatestPrediction(networkLibrary, helixHeaders, channelId)
             }
         }
+    }
+
+    private fun startWatchCreditScheduler(
+        expectedChannelId: String?,
+        expectedChannelLogin: String,
+        userId: String?,
+        networkLibrary: String?,
+        chatSessionGeneration: Long,
+    ) {
+        if (watchCreditSchedulerJob?.isActive == true || userId.isNullOrBlank()) return
+        val app = applicationContext.applicationContext as? XtraApp ?: return
+        val playbackState = app.xtraModule.primaryPlaybackWatchState.state
+        val scheduleInput = combine(playbackState, watchCreditStreamLive) { playback, dropsLive ->
+            val metadata = playback?.metadata
+            val channelMatches = metadata != null &&
+                    if (!expectedChannelId.isNullOrBlank()) {
+                        metadata.normalizedChannelId.equals(expectedChannelId, ignoreCase = true)
+                    } else {
+                        metadata.channelLogin.equals(expectedChannelLogin, ignoreCase = true)
+                    }
+            val broadcastId = metadata?.contentId?.trim()?.takeIf(String::isNotEmpty)
+            val playbackChannelId = metadata?.normalizedChannelId?.takeIf(String::isNotEmpty)
+            val playbackChannelLogin = metadata?.channelLogin?.trim()?.takeIf(String::isNotEmpty)
+                ?: expectedChannelLogin
+            val isLiveContent = metadata?.contentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
+            val session = if (
+                channelMatches && isLiveContent &&
+                !broadcastId.isNullOrBlank() && !playbackChannelId.isNullOrBlank() &&
+                !playbackChannelLogin.isNullOrBlank()
+            ) {
+                WatchCreditSession(
+                    broadcastId = broadcastId,
+                    channelId = playbackChannelId,
+                    channelLogin = playbackChannelLogin,
+                    userId = userId,
+                    playbackSessionId = playback.generation,
+                )
+            } else {
+                null
+            }
+            WatchCreditScheduleInput(
+                session = session,
+                liveEligible = playback?.liveEligible == true && channelMatches && isLiveContent,
+                dropsStreamLive = dropsLive,
+                isPlaying = playback?.isPlaying == true,
+                isBuffering = playback?.isBuffering == true,
+                game = metadata?.categoryName,
+                gameId = metadata?.categoryId,
+            )
+        }.stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(),
+            initialValue = WatchCreditScheduleInput(
+                session = null,
+                liveEligible = false,
+                dropsStreamLive = null,
+                isPlaying = false,
+                isBuffering = true,
+            ),
+        )
+        watchCreditSchedulerJob = WatchCreditScheduler(
+            scope = viewModelScope,
+            input = scheduleInput,
+            onMinuteWatched = { session, minute, game, gameId ->
+                sendScheduledWatchCredit(
+                    session = session,
+                    minute = minute,
+                    game = game,
+                    gameId = gameId,
+                    networkLibrary = networkLibrary,
+                    chatSessionGeneration = chatSessionGeneration,
+                )
+            },
+        ).start()
+    }
+
+    private suspend fun sendScheduledWatchCredit(
+        session: WatchCreditSession,
+        minute: WatchCreditMinute,
+        game: String?,
+        gameId: String?,
+        networkLibrary: String?,
+        chatSessionGeneration: Long,
+    ) {
+        val app = applicationContext.applicationContext as? XtraApp ?: return
+        val playback = app.xtraModule.primaryPlaybackWatchState.state.value
+        val playbackSessionId = session.playbackSessionId ?: return
+        if (playback == null) return
+        if (!isScheduledWatchCreditSessionCurrent(session, chatSessionGeneration) ||
+            playback.metadata.contentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
+            !playback.liveEligible || !playback.isPlaying || playback.isBuffering
+        ) {
+            Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: playback session changed before send")
+            return
+        }
+
+        try {
+            val success = playerRepository.sendMinuteWatched(
+                networkLibrary = networkLibrary,
+                userId = session.userId,
+                streamId = session.broadcastId,
+                channelId = session.channelId,
+                channelLogin = session.channelLogin,
+                playbackSessionId = playbackSessionId,
+                isSessionCurrent = {
+                    isScheduledWatchCreditSessionCurrent(session, chatSessionGeneration)
+                },
+                minutesLogged = minute.minutesLogged,
+                secondsOffset = minute.secondsOffset,
+                game = game,
+                gameId = gameId,
+            )
+            Log.d(
+                WatchCreditTelemetry.LOG_TAG,
+                "watch heartbeat completed success=$success minutes=${minute.minutesLogged}",
+            )
+            if (diagnosticsLogger?.isEnabled == true) {
+                diagnosticsLogger.event(
+                    category = DiagnosticsCategory.PROGRESSION,
+                    transport = DiagnosticsTransport.WATCH_CREDIT,
+                    operation = "WatchProgress",
+                    event = "heartbeat_result",
+                    severity = if (success) DiagnosticsSeverity.INFO else DiagnosticsSeverity.WARN,
+                    code = if (success) "success" else "heartbeat_failed",
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.LIVE, "true"),
+                        DiagnosticsField(DiagnosticsFieldKey.COUNT, minute.minutesLogged.toString()),
+                        DiagnosticsField(DiagnosticsFieldKey.TARGET, minute.secondsOffset.toString()),
+                    ),
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(WatchCreditTelemetry.LOG_TAG, "watch heartbeat failed", e)
+        }
+    }
+
+    private fun isScheduledWatchCreditSessionCurrent(
+        session: WatchCreditSession,
+        chatSessionGeneration: Long,
+    ): Boolean {
+        if (watchCreditChatSessionGeneration.get() != chatSessionGeneration ||
+            watchCreditStreamLive.value != true ||
+            applicationContext.tokenPrefs().getString(C.USER_ID, null) != session.userId
+        ) return false
+
+        val playback = (applicationContext.applicationContext as? XtraApp)
+            ?.xtraModule
+            ?.primaryPlaybackWatchState
+            ?.state
+            ?.value ?: return false
+        return playback.generation == session.playbackSessionId &&
+                playback.liveEligible &&
+                playback.metadata.contentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                playback.metadata.normalizedChannelId.equals(session.channelId, ignoreCase = true) &&
+                playback.metadata.channelLogin.equals(session.channelLogin, ignoreCase = true) &&
+                playback.metadata.contentId == session.broadcastId
     }
 
     private fun clearSessionOnlyDrops() {
@@ -4492,6 +4667,10 @@ class ChatViewModel(
     }
 
     fun stopLiveChat() {
+        watchCreditSchedulerJob?.cancel()
+        watchCreditSchedulerJob = null
+        watchCreditChatSessionGeneration.incrementAndGet()
+        watchCreditStreamLive.value = null
         if (predictionPreferenceListenerRegistered) {
             applicationContext.prefs().unregisterOnSharedPreferenceChangeListener(predictionPreferenceListener)
             predictionPreferenceListenerRegistered = false
@@ -5557,6 +5736,7 @@ class ChatViewModel(
                 playbackMessage.live?.let {
                     if (it) {
                         watchCreditLive = true
+                        this@ChatViewModel.watchCreditStreamLive.value = true
                         this@ChatViewModel.dropsStreamLive = true
                         this@ChatViewModel.streamId = null
                         this@ChatViewModel.clearSessionOnlyDrops()
@@ -5568,6 +5748,7 @@ class ChatViewModel(
                         ))
                     } else {
                         watchCreditLive = false
+                        this@ChatViewModel.watchCreditStreamLive.value = false
                         this@ChatViewModel.dropsStreamLive = false
                         this@ChatViewModel.streamId = null
                         this@ChatViewModel.clearSessionOnlyDrops()
@@ -6144,61 +6325,6 @@ class ChatViewModel(
             } catch (e: Exception) {
                 Log.e(WatchCreditTelemetry.LOG_TAG, "broadcastId refresh failed reason=$reason", e)
                 null
-            }
-        }
-
-        override suspend fun onMinuteWatched() {
-            if (!isActiveWatchCreditSession()) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: inactive watch session")
-                return
-            }
-            if (!watchCreditLive) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: stream is offline")
-                return
-            }
-            var currentStreamId = streamId
-            Log.d(
-                WatchCreditTelemetry.LOG_TAG,
-                "watch heartbeat callback userIdPresent=${!accountId.isNullOrBlank()} channelIdPresent=${!channelId.isNullOrBlank()} channelLoginPresent=${!channelLogin.isNullOrBlank()} streamIdPresent=${!currentStreamId.isNullOrBlank()}",
-            )
-            if (currentStreamId.isNullOrBlank()) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat missing broadcastId; refreshing current stream")
-                currentStreamId = refreshWatchCreditStreamId("heartbeat")
-                if (currentStreamId.isNullOrBlank()) {
-                    Log.w(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: missing broadcastId")
-                    return
-                }
-            }
-            if (!watchCreditLive) {
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: stream went offline during refresh")
-                return
-            }
-            try {
-                val success = playerRepository.sendMinuteWatched(
-                    networkLibrary = networkLibrary,
-                    userId = accountId,
-                    streamId = currentStreamId,
-                    channelId = channelId,
-                    channelLogin = channelLogin,
-                    game = _streamInfo.value?.gameName,
-                    gameId = _streamInfo.value?.gameId,
-                )
-                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat completed success=$success")
-                if (diagnosticsLogger?.isEnabled == true) {
-                    diagnosticsLogger.event(
-                        category = DiagnosticsCategory.PROGRESSION,
-                        transport = DiagnosticsTransport.WATCH_CREDIT,
-                        operation = "WatchProgress",
-                        event = "heartbeat_result",
-                        severity = if (success) DiagnosticsSeverity.INFO else DiagnosticsSeverity.WARN,
-                        code = if (success) "success" else "heartbeat_failed",
-                        fields = listOf(DiagnosticsField(DiagnosticsFieldKey.LIVE, watchCreditLive.toString())),
-                    )
-                }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(WatchCreditTelemetry.LOG_TAG, "watch heartbeat failed", e)
             }
         }
 

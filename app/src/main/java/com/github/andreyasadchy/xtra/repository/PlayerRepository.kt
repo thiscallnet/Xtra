@@ -1129,6 +1129,10 @@ class PlayerRepository(
         streamId: String?,
         channelId: String?,
         channelLogin: String?,
+        playbackSessionId: Long,
+        isSessionCurrent: () -> Boolean,
+        minutesLogged: Int,
+        secondsOffset: Int,
         game: String? = null,
         gameId: String? = null,
     ): Boolean = withContext(Dispatchers.IO) {
@@ -1170,7 +1174,12 @@ class PlayerRepository(
                 channelId = channelId,
                 channelLogin = channelLogin,
                 userId = userId,
+                playbackSessionId = playbackSessionId,
             )
+            if (!isSessionCurrent()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: session ended before discovery")
+                return@withLock false
+            }
             val cachedEndpoint = cachedSpadeEndpoint?.takeIf { it.session == session }
             if (logger?.isEnabled == true) {
                 logger.event(
@@ -1194,6 +1203,10 @@ class PlayerRepository(
                 Log.w(WatchCreditTelemetry.LOG_TAG, "Spade URL discovery failed")
                 return@withLock false
             }
+            if (!isSessionCurrent()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: session ended during discovery")
+                return@withLock false
+            }
             if (cachedEndpoint == null) {
                 cachedSpadeEndpoint = CachedSpadeEndpoint(session, spadeUrl)
                 Log.d(WatchCreditTelemetry.LOG_TAG, "Spade URL discovered and cached host=${urlHost(spadeUrl)}")
@@ -1201,14 +1214,24 @@ class PlayerRepository(
 
             val body = WatchCreditTelemetry.buildMinuteWatchedPayload(
                 session = session,
+                minutesLogged = minutesLogged,
+                secondsOffset = secondsOffset,
                 game = game,
                 gameId = gameId,
             )
             val spadeRequest = "data=" + Base64.encodeToString(body.toByteArray(), Base64.NO_WRAP)
-            if (postMinuteWatched(networkLibrary, spadeUrl, spadeRequest)) {
+            if (!isSessionCurrent()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat skipped: session ended before post")
+                return@withLock false
+            }
+            if (postMinuteWatched(networkLibrary, spadeUrl, spadeRequest, minutesLogged, secondsOffset)) {
                 return@withLock true
             }
 
+            if (!isSessionCurrent()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat retry skipped: session ended after post")
+                return@withLock false
+            }
             if (cachedEndpoint == null) {
                 cachedSpadeEndpoint = null
                 return@withLock false
@@ -1220,13 +1243,21 @@ class PlayerRepository(
                 token,
                 fields = listOf(DiagnosticsField(DiagnosticsFieldKey.STATE, "cached_endpoint_failed")),
             )
+            if (!isSessionCurrent()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat retry skipped: session ended before rediscovery")
+                return@withLock false
+            }
             val retryUrl = discoverSpadeUrl(networkLibrary, channelLogin)
             if (retryUrl.isNullOrBlank()) {
                 Log.w(WatchCreditTelemetry.LOG_TAG, "Spade URL rediscovery failed after heartbeat failure")
                 return@withLock false
             }
+            if (!isSessionCurrent()) {
+                Log.d(WatchCreditTelemetry.LOG_TAG, "watch heartbeat retry skipped: session ended during rediscovery")
+                return@withLock false
+            }
             cachedSpadeEndpoint = CachedSpadeEndpoint(session, retryUrl)
-            val retrySucceeded = postMinuteWatched(networkLibrary, retryUrl, spadeRequest)
+            val retrySucceeded = postMinuteWatched(networkLibrary, retryUrl, spadeRequest, minutesLogged, secondsOffset)
             if (!retrySucceeded) {
                 cachedSpadeEndpoint = null
             }
@@ -1366,6 +1397,8 @@ class PlayerRepository(
         networkLibrary: String?,
         spadeUrl: String,
         spadeRequest: String,
+        minutesLogged: Int,
+        secondsOffset: Int,
     ): Boolean {
         val logger = diagnosticsLogger
         val token = if (logger?.isEnabled == true) {
@@ -1379,6 +1412,8 @@ class PlayerRepository(
                     }
                     add(DiagnosticsField(DiagnosticsFieldKey.HOST, urlHost(spadeUrl)))
                     add(DiagnosticsField(DiagnosticsFieldKey.REQUEST_BYTES, spadeRequest.toByteArray().size.toString()))
+                    add(DiagnosticsField(DiagnosticsFieldKey.COUNT, minutesLogged.toString()))
+                    add(DiagnosticsField(DiagnosticsFieldKey.TARGET, secondsOffset.toString()))
                 },
             )
         } else null

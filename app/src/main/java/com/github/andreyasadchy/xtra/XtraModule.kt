@@ -90,6 +90,7 @@ import com.github.andreyasadchy.xtra.util.isRecentChatHistoryEnabled
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
+import com.github.andreyasadchy.xtra.util.watch.PrimaryPlaybackWatchStateStore
 import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
 import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
@@ -726,6 +727,10 @@ class XtraModule(application: Application) {
 
     val viewingStatsRecorder by lazy {
         ViewingStatsRecorder(viewingStatsRepository)
+    }
+
+    val primaryPlaybackWatchState by lazy {
+        PrimaryPlaybackWatchStateStore()
     }
 
     val chatAssetLoader: ChatAssetLoader by lazy {

@@ -69,25 +69,32 @@ abstract class BasePlaybackService : LifecycleService() {
 
     protected fun beginLiveRewindTransition() {
         liveRewindTransitioning = true
+        updatePrimaryPlaybackWatchState()
     }
 
     protected fun finishLiveRewindTransition() {
         liveRewindTransitioning = false
+        updatePrimaryPlaybackWatchState()
     }
 
     protected fun markLiveRewindActive(vodId: String) {
         liveRewindVodId = vodId
         liveRewindActive = true
+        updatePrimaryPlaybackWatchState()
     }
 
     protected fun clearLiveRewindState() {
         liveRewindActive = false
         liveRewindVodId = null
+        updatePrimaryPlaybackWatchState()
     }
 
     protected val liveRewindTransitionMutex = Mutex()
 
     private val viewingStatsSourceId = "playback-service:primary"
+    private var primaryPlaybackWatchOwnerId: Long? = null
+    private var primaryPlaybackWatchGeneration: Long? = null
+    private var primaryPlaybackWatchReleased = false
 
     var chatUrl: String? = null
     var started = false
@@ -254,19 +261,21 @@ abstract class BasePlaybackService : LifecycleService() {
             OFFLINE_VIDEO -> offlineVideoId?.toString() ?: clipId
             else -> null
         }
+        val metadata = ViewingPlaybackMetadata(
+            channelId = channelId,
+            channelLogin = channelLogin,
+            channelName = channelName,
+            channelImage = channelImage,
+            categoryId = gameId,
+            categoryName = gameName,
+            contentType = contentType,
+            contentId = contentId,
+            title = title,
+        )
+        updatePrimaryPlaybackWatchState(metadata, isPlaying, isBuffering)
         xtraModule.viewingStatsRecorder.update(
             sourceId = viewingStatsSourceId,
-            metadata = ViewingPlaybackMetadata(
-                channelId = channelId,
-                channelLogin = channelLogin,
-                channelName = channelName,
-                channelImage = channelImage,
-                categoryId = gameId,
-                categoryName = gameName,
-                contentType = contentType,
-                contentId = contentId,
-                title = title,
-            ),
+            metadata = metadata,
             isPlaying = isPlaying,
             isBuffering = isBuffering,
         )
@@ -315,7 +324,94 @@ abstract class BasePlaybackService : LifecycleService() {
     protected fun releaseViewingStats() {
         if (::xtraModule.isInitialized) {
             xtraModule.viewingStatsRecorder.release(viewingStatsSourceId)
+            val ownerId = primaryPlaybackWatchOwnerId
+            val generation = primaryPlaybackWatchGeneration
+            if (ownerId != null && generation != null) {
+                xtraModule.primaryPlaybackWatchState.release(ownerId, generation)
+            }
+            primaryPlaybackWatchGeneration = null
+            primaryPlaybackWatchReleased = true
         }
+    }
+
+    protected fun beginPrimaryPlaybackWatchState() {
+        primaryPlaybackWatchReleased = false
+        updatePrimaryPlaybackWatchState(beginNewGeneration = true)
+    }
+
+    private fun updatePrimaryPlaybackWatchState(
+        metadata: ViewingPlaybackMetadata? = currentViewingMetadata(),
+        isPlaying: Boolean = isViewingPlaybackPlaying(),
+        isBuffering: Boolean = isViewingPlaybackBuffering(),
+        beginNewGeneration: Boolean = false,
+    ) {
+        if (!::xtraModule.isInitialized) return
+        metadata ?: return
+        if (primaryPlaybackWatchReleased && !beginNewGeneration) return
+        val liveEligible = metadata.contentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                !liveRewindActive && !liveRewindTransitioning
+        val store = xtraModule.primaryPlaybackWatchState
+        val ownerId = primaryPlaybackWatchOwnerId ?: store.newOwnerId().also {
+            primaryPlaybackWatchOwnerId = it
+        }
+        if (beginNewGeneration) {
+            primaryPlaybackWatchGeneration = store.begin(
+                ownerId = ownerId,
+                metadata = metadata,
+                liveEligible = liveEligible,
+                isPlaying = isPlaying,
+                isBuffering = isBuffering,
+            )
+            return
+        }
+
+        val generation = primaryPlaybackWatchGeneration
+        if (generation != null) {
+            primaryPlaybackWatchGeneration = store.update(
+                ownerId = ownerId,
+                generation = generation,
+                metadata = metadata,
+                isPlaying = isPlaying,
+                isBuffering = isBuffering,
+                liveEligible = liveEligible,
+            )
+        } else if (store.state.value == null) {
+            primaryPlaybackWatchGeneration = store.begin(
+                ownerId = ownerId,
+                metadata = metadata,
+                liveEligible = liveEligible,
+                isPlaying = isPlaying,
+                isBuffering = isBuffering,
+            )
+        }
+    }
+
+    private fun currentViewingMetadata(): ViewingPlaybackMetadata? {
+        val contentType = when (type) {
+            STREAM -> ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
+            VIDEO -> ViewingPlaybackMetadata.CONTENT_TYPE_VOD
+            CLIP -> ViewingPlaybackMetadata.CONTENT_TYPE_CLIP
+            OFFLINE_VIDEO -> ViewingPlaybackMetadata.CONTENT_TYPE_OFFLINE_VIDEO
+            else -> return null
+        }
+        val contentId = when (type) {
+            STREAM -> streamId
+            VIDEO -> videoId
+            CLIP -> clipId ?: videoId
+            OFFLINE_VIDEO -> offlineVideoId?.toString() ?: clipId
+            else -> null
+        }
+        return ViewingPlaybackMetadata(
+            channelId = channelId,
+            channelLogin = channelLogin,
+            channelName = channelName,
+            channelImage = channelImage,
+            categoryId = gameId,
+            categoryName = gameName,
+            contentType = contentType,
+            contentId = contentId,
+            title = title,
+        )
     }
 
     protected fun setDefaultQuality() {

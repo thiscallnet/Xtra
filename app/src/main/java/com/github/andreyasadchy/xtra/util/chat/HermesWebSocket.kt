@@ -21,18 +21,8 @@ import java.util.Locale
 import java.util.Timer
 import javax.net.ssl.X509TrustManager
 import kotlin.concurrent.schedule
-import kotlin.concurrent.scheduleAtFixedRate
 import kotlin.time.Clock
 import kotlin.uuid.Uuid
-
-private const val MINUTE_WATCHED_INTERVAL_MILLIS = 59_000L
-
-internal fun shouldStartMinuteWatchedTimer(
-    listenForDrops: Boolean,
-    userIdPresent: Boolean,
-    gqlTokenPresent: Boolean,
-    authenticationAccepted: Boolean,
-): Boolean = listenForDrops && userIdPresent && gqlTokenPresent && authenticationAccepted
 
 class HermesWebSocket(
     private val channelId: String,
@@ -53,7 +43,6 @@ class HermesWebSocket(
     private var webSocket: WebSocket? = null
     private var pongTimer: Timer? = null
     private var timeout = 15000L
-    private var minuteWatchedTimer: Timer? = null
     private var topics = emptyMap<String, String>()
     private val subscriptionResponseTopics = mutableMapOf<String, String>()
     private val acknowledgedPrivateTopics = mutableSetOf<String>()
@@ -111,8 +100,6 @@ class HermesWebSocket(
         }
         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes disconnect requested")
         pongTimer?.cancel()
-        minuteWatchedTimer?.cancel()
-        minuteWatchedTimer = null
         job?.cancel()
         webSocket?.disconnect()
     }
@@ -124,10 +111,6 @@ class HermesWebSocket(
         privateSubscriptionsSent = false
         subscriptionsSentNotified = false
         subscriptionsReconnected = hasSubscribed
-        if (listenForDrops) {
-            minuteWatchedTimer?.cancel()
-            minuteWatchedTimer = null
-        }
         if (!userId.isNullOrBlank() && !gqlToken.isNullOrBlank() && (listenForPoints || listenForDrops)) {
             val authenticate = JSONObject().apply {
                 put("id", Uuid.random().toHexString().substring(0, 21))
@@ -239,33 +222,6 @@ class HermesWebSocket(
         listener.onSubscriptionsSent(subscriptionsReconnected)
     }
 
-    private suspend fun maybeStartMinuteWatchedTimer() {
-        if (!shouldStartMinuteWatchedTimer(
-                listenForDrops = listenForDrops,
-                userIdPresent = !userId.isNullOrBlank(),
-                gqlTokenPresent = !gqlToken.isNullOrBlank(),
-                authenticationAccepted = authenticationAccepted,
-            )
-        ) {
-            if (!listenForDrops || userId.isNullOrBlank() || gqlToken.isNullOrBlank()) {
-                Log.w(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer not started: missing userId or GQL token")
-            } else {
-                Log.w(
-                    WatchCreditTelemetry.LOG_TAG,
-                    "Hermes minute-watched timer waiting for authentication acknowledgement",
-                )
-            }
-            return
-        }
-        if (minuteWatchedTimer == null) {
-            Log.d(
-                WatchCreditTelemetry.LOG_TAG,
-                "Hermes minute-watched timer starting privateSubscriptionAcks=${acknowledgedPrivateTopics.size}",
-            )
-            startMinuteWatchedTimer()
-        }
-    }
-
     private suspend fun handleAuthenticationResponse(json: JSONObject) {
         val response = json.optJSONObject("authenticateResponse")
         val result = response?.optString("result").orEmpty()
@@ -301,7 +257,6 @@ class HermesWebSocket(
             )
             notifySubscriptionsSent()
         }
-        maybeStartMinuteWatchedTimer()
     }
 
     private suspend fun handleSubscriptionResponse(json: JSONObject) {
@@ -354,7 +309,6 @@ class HermesWebSocket(
                 )
             }
         }
-        maybeStartMinuteWatchedTimer()
     }
 
     private suspend fun startPongTimer() = withContext(Dispatchers.IO) {
@@ -362,31 +316,6 @@ class HermesWebSocket(
             schedule(timeout) {
                 webSocket?.coroutineScope?.launch {
                     webSocket?.reconnect()
-                }
-            }
-        }
-    }
-
-    private suspend fun startMinuteWatchedTimer() = withContext(Dispatchers.IO) {
-        Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer started intervalMs=$MINUTE_WATCHED_INTERVAL_MILLIS")
-        logDiagnostics {
-            event(
-            category = DiagnosticsCategory.PROGRESSION,
-            transport = DiagnosticsTransport.HERMES,
-            operation = "watch_progress",
-            event = "heartbeat_timer_started",
-            fields = listOf(DiagnosticsField(DiagnosticsFieldKey.TARGET, MINUTE_WATCHED_INTERVAL_MILLIS.toString())),
-            )
-        }
-        minuteWatchedTimer = Timer().apply {
-            scheduleAtFixedRate(
-                MINUTE_WATCHED_INTERVAL_MILLIS,
-                MINUTE_WATCHED_INTERVAL_MILLIS,
-            ) {
-                val scope = webSocket?.coroutineScope
-                Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes minute-watched timer fired scopePresent=${scope != null}")
-                scope?.launch {
-                    listener.onMinuteWatched()
                 }
             }
         }
@@ -403,7 +332,6 @@ class HermesWebSocket(
         suspend fun onPointsSpent(message: JSONObject) {}
         suspend fun onClaimAvailable(message: JSONObject? = null) {}
         suspend fun onDropMessage(message: JSONObject) {}
-        suspend fun onMinuteWatched() {}
         suspend fun onRaidUpdate(message: JSONObject, openStream: Boolean) {}
         suspend fun onPollUpdate(message: JSONObject) {}
         suspend fun onPredictionUpdate(message: JSONObject) {}
@@ -548,7 +476,6 @@ class HermesWebSocket(
                         }
                         Log.d(WatchCreditTelemetry.LOG_TAG, "Hermes authentication accepted")
                         sendPrivateSubscriptions()
-                        maybeStartMinuteWatchedTimer()
                     }
                     "reconnect" -> {
                         reconnectCount += 1

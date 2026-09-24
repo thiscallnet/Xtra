@@ -19,6 +19,8 @@ class WatchCreditTelemetryTest {
                 channelLogin = "channel",
                 userId = "user-1",
             ),
+            minutesLogged = 3,
+            secondsOffset = 37,
             clientTimeMillis = 1_704_116_262_123L,
             game = "Game",
             gameId = "1234",
@@ -38,7 +40,8 @@ class WatchCreditTelemetryTest {
         assertEquals("1234", properties["game_id"]?.jsonPrimitive?.content)
         assertEquals("channel", properties["location"]?.jsonPrimitive?.content)
         assertEquals("site", properties["player"]?.jsonPrimitive?.content)
-        assertEquals("1", properties["minutes_logged"]?.jsonPrimitive?.content)
+        assertEquals("3", properties["minutes_logged"]?.jsonPrimitive?.content)
+        assertEquals("37", properties["seconds_offset"]?.jsonPrimitive?.content)
         assertEquals("true", properties["live"]?.jsonPrimitive?.content)
         assertEquals("true", properties["is_live"]?.jsonPrimitive?.content)
         assertEquals("true", properties["logged_in"]?.jsonPrimitive?.content)

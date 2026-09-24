@@ -14,6 +14,12 @@ data class WatchCreditSession(
     val channelId: String,
     val channelLogin: String,
     val userId: String,
+    val playbackSessionId: Long? = null,
+)
+
+internal data class WatchCreditMinute(
+    val minutesLogged: Int,
+    val secondsOffset: Int,
 )
 
 object WatchCreditTelemetry {
@@ -29,33 +35,41 @@ object WatchCreditTelemetry {
 
     fun buildMinuteWatchedPayload(
         session: WatchCreditSession,
+        minutesLogged: Int,
+        secondsOffset: Int,
         clientTimeMillis: Long = System.currentTimeMillis(),
         game: String? = null,
         gameId: String? = null,
-    ): String = buildJsonArray {
-        add(buildJsonObject {
-            put("event", "minute-watched")
-            putJsonObject("properties") {
-                put("broadcast_id", session.broadcastId)
-                put("channel_id", session.channelId)
-                put("channel", session.channelLogin)
-                put("client_time", formatClientTime(clientTimeMillis))
-                // Twitch's current minute-watched payload includes both category
-                // fields, even when the player has not received category metadata yet.
-                put("game", game.orEmpty())
-                put("game_id", gameId.orEmpty())
-                put("hidden", false)
-                put("is_live", true)
-                put("live", true)
-                put("logged_in", true)
-                put("location", "channel")
-                put("minutes_logged", 1)
-                put("muted", false)
-                put("player", "site")
-                put("user_id", session.userId)
-            }
-        })
-    }.toString()
+    ): String {
+        require(minutesLogged > 0) { "minutesLogged must be positive" }
+        require(secondsOffset in 0..59) { "secondsOffset must be in 0..59" }
+        return buildJsonArray {
+            add(buildJsonObject {
+                put("event", "minute-watched")
+                putJsonObject("properties") {
+                    put("broadcast_id", session.broadcastId)
+                    put("channel_id", session.channelId)
+                    put("channel", session.channelLogin)
+                    put("client_time", formatClientTime(clientTimeMillis))
+                    // Twitch's current minute-watched payload includes both category
+                    // fields, even when the player has not received category metadata yet.
+                    put("game", game.orEmpty())
+                    put("game_id", gameId.orEmpty())
+                    put("hidden", false)
+                    put("is_live", true)
+                    put("live", true)
+                    put("logged_in", true)
+                    put("location", "channel")
+                    put("minutes_logged", minutesLogged)
+                    put("muted", false)
+                    put("player", "site")
+                    put("seconds_offset", secondsOffset)
+                    put("user_id", session.userId)
+                }
+            })
+        }
+            .toString()
+    }
 
     fun extractSpadeUrl(content: String): String? = spadeUrlRegex
         .find(content.replace("\\/", "/"))

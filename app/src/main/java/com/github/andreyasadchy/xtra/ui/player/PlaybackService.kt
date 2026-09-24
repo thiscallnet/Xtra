@@ -95,6 +95,9 @@ class PlaybackService : MediaSessionService() {
     private var lastSavedPosition: Long? = null
     private var savePositionTimer: Timer? = null
     private val viewingStatsSourceId = "playback-service:primary"
+    private var primaryPlaybackWatchOwnerId: Long? = null
+    private var primaryPlaybackWatchGeneration: Long? = null
+    private var primaryPlaybackWatchReleased = false
     private var viewingChannelId: String? = null
     private var viewingChannelLogin: String? = null
     private var viewingChannelName: String? = null
@@ -132,6 +135,7 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         xtraModule = (application as XtraApp).xtraModule
+        primaryPlaybackWatchOwnerId = xtraModule.primaryPlaybackWatchState.newOwnerId()
         prefs().registerOnSharedPreferenceChangeListener(mediaPreferenceListener)
         val player = xtraModule.streamMedia3Runtime.buildPlaybackPlayer(this) {
             setAudioAttributes(AudioAttributes.DEFAULT, prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false))
@@ -434,7 +438,7 @@ class PlaybackService : MediaSessionService() {
                                 val extras = liveStreamExtras?.let(::Bundle)
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                                 liveRewindTransitioning = true
-                                val result = startLiveStream(player, extras)
+                                val result = startLiveStream(player, extras, beginNewPlayback = false)
                                 result.addListener({
                                     val succeeded = runCatching { result.get().resultCode == SessionResult.RESULT_SUCCESS }.getOrDefault(false)
                                     if (succeeded) {
@@ -442,6 +446,7 @@ class PlaybackService : MediaSessionService() {
                                         liveRewindVodId = null
                                     }
                                     liveRewindTransitioning = false
+                                    updatePrimaryPlaybackWatchState(player)
                                     refreshMediaButtonPreferences(player)
                                 }, MoreExecutors.directExecutor())
                                 result
@@ -452,6 +457,7 @@ class PlaybackService : MediaSessionService() {
                                     startLiveStream(player, customCommand.customExtras)
                                 } catch (_: Exception) {
                                     liveRewindTransitioning = false
+                                    updatePrimaryPlaybackWatchState(player)
                                     return Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
                                 }
                                 result.addListener({
@@ -463,6 +469,7 @@ class PlaybackService : MediaSessionService() {
                                         liveRewindVodId = null
                                     }
                                     liveRewindTransitioning = false
+                                    updatePrimaryPlaybackWatchState(player)
                                 }, MoreExecutors.directExecutor())
                                 return result
                             }
@@ -486,6 +493,7 @@ class PlaybackService : MediaSessionService() {
                                     Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
                                 } finally {
                                     liveRewindTransitioning = false
+                                    updatePrimaryPlaybackWatchState(player)
                                     refreshMediaButtonPreferences(player)
                                 }
                             }
@@ -720,6 +728,7 @@ class PlaybackService : MediaSessionService() {
                                             Handler(Looper.getMainLooper()).post {
                                                 savePosition()
                                                 runAfterPlaybackPersistence {
+                                                    releasePrimaryPlaybackWatchState()
                                                     mediaSession?.player?.clearMediaItems()
                                                     xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
                                                     pauseAllPlayersAndStopSelf()
@@ -950,6 +959,7 @@ class PlaybackService : MediaSessionService() {
             BasePlaybackService.OFFLINE_VIDEO -> state.offlineVideoId?.toString()
             else -> null
         }
+        beginPrimaryPlaybackWatchState()
 
         if (BuildConfig.DEBUG) {
             Log.d(
@@ -989,7 +999,11 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun startLiveStream(player: ExoPlayer, extras: Bundle): ListenableFuture<SessionResult> {
+    private fun startLiveStream(
+        player: ExoPlayer,
+        extras: Bundle,
+        beginNewPlayback: Boolean = true,
+    ): ListenableFuture<SessionResult> {
         backgroundPlayback = false
         val uri = extras.getString(URI)?.takeIf { it.isNotBlank() }
         val channelLogin = extras.getString(CHANNEL_LOGIN)?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
@@ -1002,6 +1016,7 @@ class PlaybackService : MediaSessionService() {
             ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
             extras.getString(STREAM_ID),
             extras,
+            beginNewPlayback,
         )
         videoId = null
         offlineVideoId = null
@@ -1340,6 +1355,7 @@ class PlaybackService : MediaSessionService() {
         contentType: String,
         contentId: String?,
         extras: Bundle,
+        beginNewPlayback: Boolean = true,
     ) {
         finishViewingStats()
         viewingChannelId = extras.getString(CHANNEL_ID)
@@ -1353,6 +1369,7 @@ class PlaybackService : MediaSessionService() {
         viewingStreamPreview = extras.getString(THUMBNAIL)
         viewingContentType = contentType
         viewingContentId = contentId
+        if (beginNewPlayback) beginPrimaryPlaybackWatchState()
     }
 
     private fun finishViewingStats() {
@@ -1367,21 +1384,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun updateViewingStats(player: Player) {
-        val contentType = viewingContentType ?: return
+        val metadata = viewingMetadata() ?: return
+        updatePrimaryPlaybackWatchState(player)
         xtraModule.viewingStatsRecorder.update(
             sourceId = viewingStatsSourceId,
-            metadata = ViewingPlaybackMetadata(
-                channelId = viewingChannelId,
-                channelLogin = viewingChannelLogin,
-                channelName = viewingChannelName,
-                channelImage = viewingChannelImage,
-                categoryId = viewingCategoryId,
-                categoryName = viewingCategoryName,
-                categoryImage = viewingCategoryImage,
-                contentType = contentType,
-                contentId = viewingContentId,
-                title = viewingTitle,
-            ),
+            metadata = metadata,
             isPlaying = player.isPlaying,
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
         )
@@ -1403,6 +1410,63 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
+    private fun beginPrimaryPlaybackWatchState() {
+        val metadata = viewingMetadata() ?: return
+        primaryPlaybackWatchReleased = false
+        val store = xtraModule.primaryPlaybackWatchState
+        val ownerId = primaryPlaybackWatchOwnerId ?: store.newOwnerId().also {
+            primaryPlaybackWatchOwnerId = it
+        }
+        primaryPlaybackWatchGeneration = store.begin(
+            ownerId = ownerId,
+            metadata = metadata,
+            liveEligible = isLivePlaybackEligible(metadata),
+        )
+    }
+
+    private fun updatePrimaryPlaybackWatchState(player: Player) {
+        val metadata = viewingMetadata() ?: return
+        if (primaryPlaybackWatchReleased) return
+        val store = xtraModule.primaryPlaybackWatchState
+        val ownerId = primaryPlaybackWatchOwnerId ?: store.newOwnerId().also {
+            primaryPlaybackWatchOwnerId = it
+        }
+        val liveEligible = isLivePlaybackEligible(metadata)
+        val generation = primaryPlaybackWatchGeneration
+        if (generation != null) {
+            primaryPlaybackWatchGeneration = store.update(
+                ownerId = ownerId,
+                generation = generation,
+                metadata = metadata,
+                isPlaying = player.isPlaying,
+                isBuffering = player.playbackState == Player.STATE_BUFFERING,
+                liveEligible = liveEligible,
+            )
+        } else if (store.state.value == null) {
+            primaryPlaybackWatchGeneration = store.begin(
+                ownerId = ownerId,
+                metadata = metadata,
+                liveEligible = liveEligible,
+                isPlaying = player.isPlaying,
+                isBuffering = player.playbackState == Player.STATE_BUFFERING,
+            )
+        }
+    }
+
+    private fun isLivePlaybackEligible(metadata: ViewingPlaybackMetadata): Boolean =
+        metadata.contentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                !liveRewindActive && !liveRewindTransitioning
+
+    private fun releasePrimaryPlaybackWatchState() {
+        val ownerId = primaryPlaybackWatchOwnerId
+        val generation = primaryPlaybackWatchGeneration
+        if (ownerId != null && generation != null) {
+            xtraModule.primaryPlaybackWatchState.release(ownerId, generation)
+        }
+        primaryPlaybackWatchGeneration = null
+        primaryPlaybackWatchReleased = true
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
@@ -1416,6 +1480,7 @@ class PlaybackService : MediaSessionService() {
             backgroundPlayback = true
             return
         }
+        releasePrimaryPlaybackWatchState()
         player?.clearMediaItems()
         xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
         runAfterPlaybackPersistence {
@@ -1426,6 +1491,7 @@ class PlaybackService : MediaSessionService() {
     override fun onDestroy() {
         prefs().unregisterOnSharedPreferenceChangeListener(mediaPreferenceListener)
         if (::xtraModule.isInitialized) {
+            releasePrimaryPlaybackWatchState()
             xtraModule.viewingStatsRecorder.release(viewingStatsSourceId)
         }
         backgroundRecoveryTimer?.cancel()

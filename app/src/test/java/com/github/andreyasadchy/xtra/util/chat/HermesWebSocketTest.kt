@@ -2,7 +2,6 @@ package com.github.andreyasadchy.xtra.util.chat
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -35,35 +34,4 @@ class HermesWebSocketTest {
         assertEquals("1234", info.gameId)
     }
 
-    @Test
-    fun dropsTimerDoesNotDependOnChannelPointsSubscription() {
-        assertTrue(
-            shouldStartMinuteWatchedTimer(
-                listenForDrops = true,
-                userIdPresent = true,
-                gqlTokenPresent = true,
-                authenticationAccepted = true,
-            ),
-        )
-    }
-
-    @Test
-    fun dropsTimerRequiresAuthenticationAndCredentials() {
-        assertFalse(
-            shouldStartMinuteWatchedTimer(
-                listenForDrops = true,
-                userIdPresent = true,
-                gqlTokenPresent = true,
-                authenticationAccepted = false,
-            ),
-        )
-        assertFalse(
-            shouldStartMinuteWatchedTimer(
-                listenForDrops = true,
-                userIdPresent = false,
-                gqlTokenPresent = true,
-                authenticationAccepted = true,
-            ),
-        )
-    }
 }
