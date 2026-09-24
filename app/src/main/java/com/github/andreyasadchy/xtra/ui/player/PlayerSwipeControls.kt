@@ -6,6 +6,8 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.media.AudioManager
+import android.os.Build
 import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
@@ -144,19 +146,55 @@ internal enum class SwipeMoveResult {
     CONSUMED,
 }
 
+/** Reads and writes the device's media-stream volume for player swipe gestures. */
+private class SystemMediaVolume(context: Context) {
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+
+    fun currentFraction(): Float? {
+        val manager = audioManager ?: return null
+        val range = volumeRange(manager) ?: return null
+        return ((manager.getStreamVolume(AudioManager.STREAM_MUSIC) - range.first).toFloat() /
+            (range.second - range.first)).coerceIn(0f, 1f)
+    }
+
+    fun setFraction(fraction: Float): Float? {
+        val manager = audioManager ?: return null
+        val range = volumeRange(manager) ?: return null
+        val target = (range.first + fraction.coerceIn(0f, 1f) * (range.second - range.first))
+            .roundToInt()
+            .coerceIn(range.first, range.second)
+        try {
+            manager.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+        } catch (_: SecurityException) {
+            // Keep the HUD tied to the actual value even when Android rejects the change.
+        }
+        return currentFraction()
+    }
+
+    private fun volumeRange(manager: AudioManager): Pair<Int, Int>? {
+        if (manager.isVolumeFixed) return null
+        val min = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            manager.getStreamMinVolume(AudioManager.STREAM_MUSIC)
+        } else {
+            0
+        }
+        val max = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        return (min to max).takeIf { max > min }
+    }
+}
+
 /** Resolves edge swipes and applies values only after a vertical gesture wins the touch. */
 internal class PlayerSwipeGestureController(
     private val context: Context,
     private val window: Window,
     private val brightness: PlayerSwipeBrightnessViewModel,
     private val host: FrameLayout,
-    private val getVolume: () -> Float?,
-    private val setVolume: (Float) -> Unit,
     private val getSpeed: () -> Float?,
     private val setSpeed: (Float) -> Unit,
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
     private val preferences = context.prefs()
+    private val systemMediaVolume = SystemMediaVolume(context)
     private val feedback = SwipeControlFeedbackView(context)
     private val handler = Handler(Looper.getMainLooper())
     private val hideFeedback = Runnable { feedback.visibility = View.GONE }
@@ -198,8 +236,7 @@ internal class PlayerSwipeGestureController(
         if (action == SwipeControlAction.OFF) return false
         val value = when (action) {
             SwipeControlAction.BRIGHTNESS -> brightness.currentBrightness(window)
-            SwipeControlAction.VOLUME -> getVolume()?.takeIf(Float::isFinite)
-                ?: preferences.getInt(C.PLAYER_VOLUME, 100).coerceIn(0, 100) / 100f
+            SwipeControlAction.VOLUME -> systemMediaVolume.currentFraction() ?: return false
             SwipeControlAction.SPEED -> getSpeed()?.takeIf(Float::isFinite)
                 ?: return false
             SwipeControlAction.OFF -> return false
@@ -264,12 +301,7 @@ internal class PlayerSwipeGestureController(
     fun onPointerDown(): Boolean {
         // Do not resume the player with a partial stream after withholding pending moves.
         if (isActive || consumeUntilUp || candidateAction != SwipeControlAction.OFF) {
-            candidateAction = SwipeControlAction.OFF
-            candidateSettings = null
-            isActive = false
-            consumeUntilUp = true
-            handler.removeCallbacks(hideFeedback)
-            feedback.visibility = View.GONE
+            consumeGestureUntilUp()
             return true
         }
         cancelCandidate()
@@ -317,12 +349,19 @@ internal class PlayerSwipeGestureController(
             SwipeControlAction.VOLUME -> {
                 val next = (startValue + deltaFraction * (settings.volumeSensitivity / 50f)).coerceIn(0f, 1f)
                 val nextPercent = (next * 100f).roundToInt().coerceIn(0, 100)
-                if (nextPercent != startVolumePercent) {
-                    setVolume(nextPercent / 100f)
-                    preferences.edit { putInt(C.PLAYER_VOLUME, nextPercent) }
+                val shouldSetVolume = nextPercent != startVolumePercent
+                if (shouldSetVolume) {
                     startVolumePercent = nextPercent
                 }
-                nextPercent / 100f
+                val actual = if (shouldSetVolume) {
+                    systemMediaVolume.setFraction(nextPercent / 100f)
+                } else {
+                    systemMediaVolume.currentFraction()
+                }
+                actual ?: run {
+                    consumeGestureUntilUp()
+                    return
+                }
             }
             SwipeControlAction.SPEED -> {
                 val stepDistance = max(1f, speedZoneHeight * (settings.speedSensitivity / 50f) / 5f)
@@ -374,6 +413,15 @@ internal class PlayerSwipeGestureController(
         candidateSettings = null
         isActive = false
         currentValue = Float.NaN
+    }
+
+    private fun consumeGestureUntilUp() {
+        candidateAction = SwipeControlAction.OFF
+        candidateSettings = null
+        isActive = false
+        consumeUntilUp = true
+        handler.removeCallbacks(hideFeedback)
+        feedback.visibility = View.GONE
     }
 
     private fun clearGesture(hide: Boolean) {

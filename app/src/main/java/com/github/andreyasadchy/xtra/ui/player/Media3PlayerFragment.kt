@@ -645,8 +645,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 window = requireActivity().window,
                 brightness = swipeBrightnessViewModel,
                 host = playerLayout,
-                getVolume = { getCurrentVolume() },
-                setVolume = { changeVolume(it) },
                 getSpeed = { if (videoType == STREAM) null else getCurrentSpeed() },
                 setSpeed = { setPlaybackSpeed(it) },
             )

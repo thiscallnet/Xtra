@@ -758,8 +758,6 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                 window = requireActivity().window,
                 brightness = swipeBrightnessViewModel,
                 host = playerLayout,
-                getVolume = { getCurrentVolume() },
-                setVolume = { changeVolume(it) },
                 getSpeed = {
                     if (playbackService?.type == BasePlaybackService.STREAM) null else getCurrentSpeed()
                 },
