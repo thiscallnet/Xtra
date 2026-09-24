@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.util.chat
 
 import com.github.andreyasadchy.xtra.util.WebSocket
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -17,6 +18,8 @@ class ChatWriteWebSocket(
     private val trustManager: Lazy<X509TrustManager>,
     private val listener: ChatReadWebSocket.Listener,
 ) {
+    private val globalUserState = CompletableDeferred<ChatUtils.IRCMessage>()
+    private val userState = CompletableDeferred<ChatUtils.IRCMessage>()
     private var webSocket: WebSocket? = null
     private var pingTimer: Timer? = null
     private var pongTimer: Timer? = null
@@ -28,6 +31,10 @@ class ChatWriteWebSocket(
             webSocket?.start()
         }
     }
+
+    suspend fun awaitGlobalUserState(): ChatUtils.IRCMessage = globalUserState.await()
+
+    suspend fun awaitUserState(): ChatUtils.IRCMessage = userState.await()
 
     suspend fun disconnect(job: Job?) = withContext(Dispatchers.IO) {
         pingTimer?.cancel()
@@ -100,7 +107,14 @@ class ChatWriteWebSocket(
                             "CLEARCHAT" -> listener.onClearChat(ircMessage)
                             "NOTICE" -> listener.onNotice(ircMessage)
                             "ROOMSTATE" -> listener.onRoomState(ircMessage)
-                            "USERSTATE" -> listener.onUserState(ircMessage)
+                            "GLOBALUSERSTATE" -> {
+                                globalUserState.complete(ircMessage)
+                                listener.onGlobalUserState(ircMessage)
+                            }
+                            "USERSTATE" -> {
+                                userState.complete(ircMessage)
+                                listener.onUserState(ircMessage)
+                            }
                         }
                     }
                 }

@@ -63,6 +63,7 @@ class ChatReadWebSocket(
         suspend fun onClearChat(message: ChatUtils.IRCMessage) {}
         suspend fun onNotice(message: ChatUtils.IRCMessage) {}
         suspend fun onRoomState(message: ChatUtils.IRCMessage) {}
+        suspend fun onGlobalUserState(message: ChatUtils.IRCMessage) {}
         suspend fun onUserState(message: ChatUtils.IRCMessage) {}
         suspend fun onDisconnect(message: String, fullMsg: String?) {}
     }
@@ -103,6 +104,7 @@ class ChatReadWebSocket(
                             "CLEARCHAT" -> listener.onClearChat(ircMessage)
                             "NOTICE" -> listener.onNotice(ircMessage)
                             "ROOMSTATE" -> listener.onRoomState(ircMessage)
+                            "GLOBALUSERSTATE" -> listener.onGlobalUserState(ircMessage)
                             "USERSTATE" -> listener.onUserState(ircMessage)
                         }
                     }

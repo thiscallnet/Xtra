@@ -731,6 +731,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }
             }
         }
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.viewerRoleInChannel.collectLatest {
+                    updateCommandRecommendations()
+                }
+            }
+        }
         binding.connectionStatus.setOnClickListener { viewModel.retryLiveChat() }
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -3927,10 +3934,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             .setMessage(message)
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                if (!viewModel.hasCurrentModeratorRole()) {
-                    Snackbar.make(binding.root, R.string.moderator_action_could_not_verify, Snackbar.LENGTH_LONG).show()
-                    return@setPositiveButton
-                }
                 moderatorActionInFlight = true
                 binding.send.isEnabled = false
                 viewLifecycleOwner.lifecycleScope.launch {
@@ -3957,6 +3960,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onCurrentChatViewerRole() = viewModel.viewerRoleInChannel
+
+    override fun onRequestCurrentChatViewerRoleVerification() =
+        viewModel.requestCurrentChatViewerRoleVerification()
 
     override suspend fun onModeratorAction(request: ChatModeratorActionRequest) =
         viewModel.performModeratorAction(request)

@@ -63,6 +63,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         fun onTranslateMessageClicked(chatMessage: ChatMessage, languageTag: String?)
         fun onWhisperClicked(userLogin: String)
         fun onCurrentChatViewerRole(): kotlinx.coroutines.flow.StateFlow<ChatViewerRoleSnapshot>? = null
+        fun onRequestCurrentChatViewerRoleVerification() {}
         suspend fun onModeratorAction(request: ChatModeratorActionRequest): ChatModeratorActionResult =
             ChatModeratorActionResult.Failure("Moderator actions are unavailable in this chat.")
     }
@@ -276,6 +277,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                     }
                 }
             }
+            listener.onRequestCurrentChatViewerRoleVerification()
         }
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -566,7 +568,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         requireContext().getAlertDialogBuilder()
             .setTitle(R.string.moderator_tools_title)
             .setItems(actions) { _, which ->
-                if (!canShowModeratorTools(user)) {
+                if (userCardUser?.id != user.id) {
                     showModeratorVerificationError()
                     return@setItems
                 }
@@ -585,7 +587,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         requireContext().getAlertDialogBuilder()
             .setTitle(R.string.moderator_action_timeout_title)
             .setItems(durations) { _, index ->
-                if (canShowModeratorTools(user)) {
+                if (userCardUser?.id == user.id) {
                     showModeratorActionConfirmation(user, ChatModeratorAction.TIMEOUT, durations[index])
                 } else {
                     showModeratorVerificationError()
@@ -646,7 +648,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
     }
 
     private fun dispatchModeratorAction(user: User, request: ChatModeratorActionRequest) {
-        if (moderatorActionInFlight || userCardUser?.id != request.targetId || !canShowModeratorTools(user)) {
+        if (moderatorActionInFlight || userCardUser?.id != request.targetId || user.id != request.targetId) {
             showModeratorVerificationError()
             return
         }
@@ -654,7 +656,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val currentUser = userCardUser
-                if (currentUser == null || currentUser.id != request.targetId || !canShowModeratorTools(currentUser)) {
+                if (currentUser == null || currentUser.id != request.targetId) {
                     showModeratorVerificationError()
                     return@launch
                 }
