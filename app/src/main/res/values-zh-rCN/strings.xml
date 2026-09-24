@@ -1476,4 +1476,5 @@
     <string name="chat_username_recommendations_summary">输入 @ 时显示此聊天中的排序用户。</string>
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">提及 %1$s</string>
+    <string name="drops_move_progress">拖动标题以移动。点按以打开。</string>
 </resources>

@@ -1476,4 +1476,5 @@
     <string name="chat_username_recommendations_summary">Mostra gli utenti ordinati di questa chat quando digiti @.</string>
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Menziona %1$s</string>
+    <string name="drops_move_progress">Trascina il titolo per spostarlo. Tocca per aprire.</string>
 </resources>

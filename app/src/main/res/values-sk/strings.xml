@@ -1499,4 +1499,5 @@
     <string name="chat_username_recommendations_summary">Pri písaní znaku @ zobrazí zoradených používateľov z tohto chatu.</string>
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Spomenúť používateľa %1$s</string>
+    <string name="drops_move_progress">Potiahnutím nadpis presuňte. Ťuknutím otvorte.</string>
 </resources>

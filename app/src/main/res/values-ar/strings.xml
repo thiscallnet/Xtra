@@ -1476,4 +1476,5 @@
     <string name="chat_username_recommendations_summary">عرض مستخدمين مرتبين من هذه الدردشة عند كتابة @.</string>
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">الإشارة إلى %1$s</string>
+    <string name="drops_move_progress">اسحب العنوان للتحريك. انقر للفتح.</string>
 </resources>

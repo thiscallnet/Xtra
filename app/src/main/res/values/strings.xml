@@ -1898,6 +1898,7 @@ Metadata text</string>
     <string name="drops_progress_title">Drops progress</string>
     <string name="drops_minimize_progress">Minimize Drops progress</string>
     <string name="drops_expand_progress">Expand Drops progress</string>
+    <string name="drops_move_progress">Drag title to move. Tap to open.</string>
     <string name="stream_drops_badge">Drops</string>
     <string name="stream_drops_badge_content_description">View Drops available on %1$s</string>
     <string name="stream_drops_title">Drops on %1$s</string>

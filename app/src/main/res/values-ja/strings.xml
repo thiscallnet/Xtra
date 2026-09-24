@@ -1476,4 +1476,5 @@
     <string name="chat_username_recommendations_summary">@ の入力時にこのチャットのユーザーを順位付けして表示します。</string>
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">%1$s にメンション</string>
+    <string name="drops_move_progress">タイトルをドラッグして移動します。タップして開きます。</string>
 </resources>

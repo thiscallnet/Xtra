@@ -1477,4 +1477,5 @@
     <string name="chat_username_recommendations_summary">Tampilkan pengguna terurut dari obrolan ini saat mengetik @.</string>
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Sebut %1$s</string>
+    <string name="drops_move_progress">Seret judul untuk memindahkan. Ketuk untuk membuka.</string>
 </resources>

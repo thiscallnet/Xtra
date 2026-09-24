@@ -1476,4 +1476,5 @@
     <string name="chat_username_recommendations_summary">Afficher les utilisateurs classés de ce chat lors de la saisie de @.</string>
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Mentionner %1$s</string>
+    <string name="drops_move_progress">Faites glisser le titre pour déplacer. Touchez pour ouvrir.</string>
 </resources>
