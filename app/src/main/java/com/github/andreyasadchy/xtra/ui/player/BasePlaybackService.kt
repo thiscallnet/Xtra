@@ -414,13 +414,28 @@ abstract class BasePlaybackService : LifecycleService() {
         )
     }
 
-    protected fun setDefaultQuality() {
+    protected fun setDefaultQuality(preferredQuality: VideoQuality? = null) {
         val connectivityManager = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-        quality = pendingSourceSwitchQuality.consume()?.let { identity ->
-            identity.resolve(qualities) { name -> findQuality(name) }
-        } ?: resolveDefaultQualityForNetwork(cellular)
+        val pendingQuality = pendingSourceSwitchQuality.consume()
+        quality = pendingQuality?.resolve(qualities) { name -> findQuality(name) }
+            ?: preferredQuality?.let(::findMatchingQuality)
+            ?: resolveDefaultQualityForNetwork(cellular)
+    }
+
+    private fun findMatchingQuality(candidate: VideoQuality): VideoQuality? {
+        val sameName = qualities?.filter { it.name == candidate.name }.orEmpty()
+        if (sameName.isEmpty()) return null
+
+        return sameName.firstOrNull { it.url == candidate.url }
+            ?: candidate.codecs?.takeIf { it.isNotBlank() }?.let { codecs ->
+                sameName.firstOrNull { it.codecs == codecs }
+            }
+            ?: candidate.bitrate?.let { bitrate ->
+                sameName.firstOrNull { it.bitrate == bitrate }
+            }
+            ?: sameName.singleOrNull()
     }
 
     protected fun rememberQualityForSourceSwitch() {

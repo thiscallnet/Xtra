@@ -3355,8 +3355,24 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         return (playbackService as? ExoPlayerService)?.vaftActive == true
     }
 
+    private fun qualityLabel(quality: VideoQuality?): String? {
+        quality ?: return null
+        return getQualities()
+            ?.firstOrNull { (_, candidate) ->
+                candidate.name == quality.name && candidate.url == quality.url
+            }
+            ?.first
+            ?: when (quality.name) {
+                BasePlaybackService.AUTO_QUALITY -> getString(R.string.auto)
+                BasePlaybackService.SOURCE_QUALITY -> getString(R.string.source)
+                BasePlaybackService.AUDIO_ONLY_QUALITY -> getString(R.string.audio_only)
+                BasePlaybackService.CHAT_ONLY_QUALITY -> getString(R.string.chat_only)
+                else -> quality.name
+            }
+    }
+
     fun setQualityText() {
-        val label = getQualities()?.find { it.second == playbackService?.quality }?.first
+        val label = qualityLabel(playbackService?.quality)
         if (view != null) {
             val vaftActive = isVaftActive()
             binding.playerControls.quality.apply {

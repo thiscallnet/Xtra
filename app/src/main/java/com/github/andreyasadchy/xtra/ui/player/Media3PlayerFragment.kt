@@ -2374,8 +2374,24 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 (viewModel.playingAds || viewModel.usingAlternateStream || viewModel.hidden)
     }
 
+    private fun qualityLabel(quality: VideoQuality?): String? {
+        quality ?: return null
+        return getQualities()
+            ?.firstOrNull { (_, candidate) ->
+                candidate.name == quality.name && candidate.url == quality.url
+            }
+            ?.first
+            ?: when (quality.name) {
+                AUTO_QUALITY -> getString(R.string.auto)
+                SOURCE_QUALITY -> getString(R.string.source)
+                AUDIO_ONLY_QUALITY -> getString(R.string.audio_only)
+                CHAT_ONLY_QUALITY -> getString(R.string.chat_only)
+                else -> quality.name
+            }
+    }
+
     fun setQualityText() {
-        val label = getQualities()?.find { it.second == viewModel.quality }?.first
+        val label = qualityLabel(viewModel.quality)
         if (view != null) {
             val vaftActive = isVaftActive()
             binding.playerControls.quality.apply {

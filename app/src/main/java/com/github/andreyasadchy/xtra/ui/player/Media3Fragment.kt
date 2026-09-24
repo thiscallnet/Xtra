@@ -867,6 +867,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null): ListenableFuture<SessionResult>? {
+        invalidateQualityRequest()
         return player?.sendCustomCommand(
             SessionCommand(
                 PlaybackService.START_STREAM, Bundle().apply {
@@ -896,6 +897,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     override fun startVideo(url: String?, playbackPosition: Long?, multivariantPlaylist: Boolean) {
         clearPlayerError()
         resetProgressRenderState()
+        invalidateQualityRequest()
         player?.let { player ->
             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
@@ -923,6 +925,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     override fun startClip(url: String?) {
         clearPlayerError()
         resetProgressRenderState()
+        invalidateQualityRequest()
         player?.let { player ->
             if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
@@ -956,6 +959,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     override fun startOfflineVideo(url: String?, position: Long) {
         clearPlayerError()
         resetProgressRenderState()
+        invalidateQualityRequest()
         player?.let { player ->
             if (viewModel.quality?.name == AUDIO_ONLY_QUALITY) {
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
@@ -1849,6 +1853,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 }
             }
         }, ContextCompat.getMainExecutor(requireContext()))
+    }
+
+    private fun invalidateQualityRequest() {
+        qualityRequestGeneration++
+        qualityRequestInFlight = false
+        qualityRetryJob?.cancel()
+        qualityRetryJob = null
+        qualityRetryAttempts = 0
     }
 
     override fun onStop() {

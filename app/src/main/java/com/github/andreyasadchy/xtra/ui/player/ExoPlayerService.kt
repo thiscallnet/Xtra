@@ -351,7 +351,8 @@ class ExoPlayerService : BasePlaybackService() {
                                     audio?.let { remove(it) }
                                     add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
                                 }
-                            setDefaultQuality()
+                            setDefaultQuality(preferredQuality = quality)
+                            serviceListener?.updateQualityStatus()
                             serviceListener?.changePlayerMode()
                             if (quality?.name == AUDIO_ONLY_QUALITY) {
                                 changeQuality(quality, persistSavedQuality = false)
@@ -2302,6 +2303,7 @@ class ExoPlayerService : BasePlaybackService() {
                 }
             }
         }
+        serviceListener?.updateQualityStatus()
     }
 
     fun toggleSubtitles(enabled: Boolean) {
