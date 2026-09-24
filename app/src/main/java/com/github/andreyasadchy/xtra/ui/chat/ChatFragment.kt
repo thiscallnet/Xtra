@@ -448,14 +448,19 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var dropProgressView: com.google.android.material.progressindicator.LinearProgressIndicator? = null
     private var dropMinimizeView: ImageButton? = null
     private var dropCalloutMinimized = false
-    private var dropCalloutPositionX: Float? = null
-    private var dropCalloutPositionY: Float? = null
+    private var expandedDropCalloutPosition: DropCalloutPosition? = null
+    private var minimizedDropCalloutPosition: DropCalloutPosition? = null
     private var dropCalloutDragStartX = 0f
     private var dropCalloutDragStartY = 0f
     private var dropCalloutDragDownX = 0f
     private var dropCalloutDragDownY = 0f
     private var dropCalloutDragMoved = false
     private var userGestureActive = false
+
+    private data class DropCalloutPosition(
+        val xFraction: Float,
+        val yFraction: Float,
+    )
 
     private var autoCompleteAdapter: AutoCompleteAdapter<Any>? = null
     private var recommendationAdapter: EmoteRecommendationAdapter? = null
@@ -656,13 +661,21 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         displayedPinnedMessageId = savedInstanceState?.getString(KEY_DISPLAYED_PINNED_MESSAGE_ID)
         pinnedMessageMinimized = savedInstanceState?.getBoolean(KEY_PINNED_MESSAGE_MINIMIZED) ?: false
         pinnedExpansionChangedByUser = savedInstanceState?.getBoolean(KEY_PINNED_EXPANSION_CHANGED_BY_USER) ?: false
-        dropCalloutMinimized = savedInstanceState?.getBoolean(KEY_DROP_CALLOUT_MINIMIZED) ?: false
-        if (savedInstanceState?.containsKey(KEY_DROP_CALLOUT_X) == true) {
-            dropCalloutPositionX = savedInstanceState.getFloat(KEY_DROP_CALLOUT_X)
-        }
-        if (savedInstanceState?.containsKey(KEY_DROP_CALLOUT_Y) == true) {
-            dropCalloutPositionY = savedInstanceState.getFloat(KEY_DROP_CALLOUT_Y)
-        }
+        val dropCalloutPreferences = requireContext().prefs()
+        dropCalloutMinimized = dropCalloutPreferences.getBoolean(
+            PREF_DROP_CALLOUT_MINIMIZED,
+            savedInstanceState?.getBoolean(KEY_DROP_CALLOUT_MINIMIZED) ?: false,
+        )
+        expandedDropCalloutPosition = readDropCalloutPosition(
+            dropCalloutPreferences,
+            PREF_DROP_CALLOUT_EXPANDED_X,
+            PREF_DROP_CALLOUT_EXPANDED_Y,
+        )
+        minimizedDropCalloutPosition = readDropCalloutPosition(
+            dropCalloutPreferences,
+            PREF_DROP_CALLOUT_MINIMIZED_X,
+            PREF_DROP_CALLOUT_MINIMIZED_Y,
+        )
         setupEmotePickerSizing()
         setupDropCallout()
         val chatSessionManager = (requireContext().applicationContext as XtraApp).xtraModule.chatSessionManager
@@ -3137,8 +3150,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         dropProgressView = root.findViewById(R.id.dropProgress)
         dropMinimizeView = root.findViewById(R.id.dropMinimize)
         dropMinimizeView?.setOnClickListener {
-            dropCalloutMinimized = !dropCalloutMinimized
-            updateDropCallout(viewModel.dropsUiState.value, animateLayoutChange = true)
+            setDropCalloutMinimized(!dropCalloutMinimized, animate = true)
         }
         dropImageView?.setOnClickListener {
             val drop = viewModel.dropsUiState.value.mostRelevantDrop ?: return@setOnClickListener
@@ -3154,8 +3166,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
         dropCalloutView?.setOnClickListener {
             if (dropCalloutMinimized) {
-                dropCalloutMinimized = false
-                updateDropCallout(viewModel.dropsUiState.value, animateLayoutChange = true)
+                setDropCalloutMinimized(false, animate = true)
                 return@setOnClickListener
             }
             val state = viewModel.dropsUiState.value
@@ -3234,9 +3245,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             height = if (dropCalloutMinimized) compactSize else ViewGroup.LayoutParams.WRAP_CONTENT
         }
         callout.findViewById<ViewGroup>(R.id.dropCalloutContent)?.apply {
-            val padding = if (dropCalloutMinimized) 0 else (8f * density).toInt()
+            val padding = if (dropCalloutMinimized) 0 else (10f * density).toInt()
             setPadding(padding, padding, padding, padding)
-            minimumHeight = if (dropCalloutMinimized) compactSize else (68f * density).toInt()
+            minimumHeight = if (dropCalloutMinimized) compactSize else 0
         }
         (callout as? com.google.android.material.card.MaterialCardView)?.radius =
             (if (dropCalloutMinimized) 24f else 16f) * density
@@ -3259,7 +3270,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             else -> listOfNotNull(
                 rewardName,
                 "${drop.progressPercent}%",
-                "${drop.currentMinutesWatched}/${drop.requiredMinutesWatched} min",
+                "${drop.currentMinutesWatched}/${drop.requiredMinutesWatched}\u00A0min",
             ).joinToString(" · ")
         }
         dropSubtitleView?.maxLines = if (dropCalloutMinimized) 1 else 2
@@ -3340,16 +3351,24 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     val maxY = (parent.height - callout.height - edgeMargin).coerceAtLeast(edgeMargin).toFloat()
                     callout.x = (dropCalloutDragStartX + deltaX).coerceIn(minX, maxX)
                     callout.y = (dropCalloutDragStartY + deltaY).coerceIn(minY, maxY)
-                    rememberDropCalloutPosition()
                 }
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (!dropCalloutDragMoved) clickTarget?.performClick()
+                if (dropCalloutDragMoved) {
+                    rememberDropCalloutPosition()
+                    persistDropCalloutState()
+                } else {
+                    clickTarget?.performClick()
+                }
                 dropCalloutDragMoved = false
                 return true
             }
             MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
+                if (dropCalloutDragMoved) {
+                    rememberDropCalloutPosition()
+                    persistDropCalloutState()
+                }
                 dropCalloutDragMoved = false
                 return true
             }
@@ -3357,10 +3376,75 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         return true
     }
 
-    private fun rememberDropCalloutPosition() {
-        val callout = dropCalloutView ?: return
-        dropCalloutPositionX = callout.x
-        dropCalloutPositionY = callout.y
+    private fun setDropCalloutMinimized(minimized: Boolean, animate: Boolean) {
+        if (dropCalloutMinimized == minimized) return
+        val currentPosition = rememberDropCalloutPosition()
+        if (currentPosition != null && dropCalloutPositionFor(minimized) == null) {
+            setDropCalloutPosition(currentPosition, minimized)
+        }
+        dropCalloutMinimized = minimized
+        persistDropCalloutState()
+        updateDropCallout(viewModel.dropsUiState.value, animateLayoutChange = animate)
+    }
+
+    private fun rememberDropCalloutPosition(): DropCalloutPosition? {
+        val callout = dropCalloutView ?: return null
+        val parent = callout.parent as? View ?: return null
+        if (callout.width == 0 || callout.height == 0 || parent.width == 0 || parent.height == 0) return null
+
+        val edgeMargin = (8f * resources.displayMetrics.density).toInt().toFloat()
+        val maxX = (parent.width - callout.width - edgeMargin).coerceAtLeast(edgeMargin)
+        val maxY = (parent.height - callout.height - edgeMargin).coerceAtLeast(edgeMargin)
+        val position = DropCalloutPosition(
+            xFraction = normalizedDropCalloutPosition(callout.x, edgeMargin, maxX),
+            yFraction = normalizedDropCalloutPosition(callout.y, edgeMargin, maxY),
+        )
+        setDropCalloutPosition(position, dropCalloutMinimized)
+        return position
+    }
+
+    private fun normalizedDropCalloutPosition(value: Float, minimum: Float, maximum: Float): Float =
+        if (maximum <= minimum) 0f else ((value - minimum) / (maximum - minimum)).coerceIn(0f, 1f)
+
+    private fun dropCalloutPositionFor(minimized: Boolean): DropCalloutPosition? =
+        if (minimized) minimizedDropCalloutPosition else expandedDropCalloutPosition
+
+    private fun setDropCalloutPosition(position: DropCalloutPosition, minimized: Boolean) {
+        if (minimized) {
+            minimizedDropCalloutPosition = position
+        } else {
+            expandedDropCalloutPosition = position
+        }
+    }
+
+    private fun persistDropCalloutState() {
+        val preferences = requireContext().prefs()
+        val editor = preferences.edit()
+            .putBoolean(PREF_DROP_CALLOUT_MINIMIZED, dropCalloutMinimized)
+        expandedDropCalloutPosition?.let { position ->
+            editor.putFloat(PREF_DROP_CALLOUT_EXPANDED_X, position.xFraction)
+                .putFloat(PREF_DROP_CALLOUT_EXPANDED_Y, position.yFraction)
+        }
+        minimizedDropCalloutPosition?.let { position ->
+            editor.putFloat(PREF_DROP_CALLOUT_MINIMIZED_X, position.xFraction)
+                .putFloat(PREF_DROP_CALLOUT_MINIMIZED_Y, position.yFraction)
+        }
+        editor.apply()
+    }
+
+    private fun readDropCalloutPosition(
+        preferences: SharedPreferences,
+        xKey: String,
+        yKey: String,
+    ): DropCalloutPosition? {
+        if (!preferences.contains(xKey) || !preferences.contains(yKey)) return null
+        val xFraction = preferences.getFloat(xKey, 0f)
+        val yFraction = preferences.getFloat(yKey, 0f)
+        if (!xFraction.isFinite() || !yFraction.isFinite()) return null
+        return DropCalloutPosition(
+            xFraction = xFraction.coerceIn(0f, 1f),
+            yFraction = yFraction.coerceIn(0f, 1f),
+        )
     }
 
     private fun applyDropCalloutPosition() {
@@ -3371,12 +3455,22 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val edgeMargin = (8f * resources.displayMetrics.density).toInt().toFloat()
         val maxX = (parent.width - callout.width - edgeMargin).coerceAtLeast(edgeMargin)
         val maxY = (parent.height - callout.height - edgeMargin).coerceAtLeast(edgeMargin)
-        val x = dropCalloutPositionX?.coerceIn(edgeMargin, maxX) ?: callout.x.coerceIn(edgeMargin, maxX)
-        val y = dropCalloutPositionY?.coerceIn(edgeMargin, maxY) ?: callout.y.coerceIn(edgeMargin, maxY)
+        val position = dropCalloutPositionFor(dropCalloutMinimized)
+        val x = position?.let { edgeMargin + (maxX - edgeMargin) * it.xFraction }
+            ?: callout.x.coerceIn(edgeMargin, maxX)
+        val y = position?.let { edgeMargin + (maxY - edgeMargin) * it.yFraction }
+            ?: callout.y.coerceIn(edgeMargin, maxY)
         callout.x = x
         callout.y = y
-        dropCalloutPositionX = x
-        dropCalloutPositionY = y
+        if (position == null) {
+            setDropCalloutPosition(
+                DropCalloutPosition(
+                    xFraction = normalizedDropCalloutPosition(x, edgeMargin, maxX),
+                    yFraction = normalizedDropCalloutPosition(y, edgeMargin, maxY),
+                ),
+                dropCalloutMinimized,
+            )
+        }
     }
 
     private fun updateDropImage(
@@ -4114,10 +4208,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         outState.putBoolean(KEY_PINNED_MESSAGE_MINIMIZED, pinnedMessageMinimized)
         outState.putBoolean(KEY_PINNED_EXPANSION_CHANGED_BY_USER, pinnedExpansionChangedByUser)
         outState.putBoolean(KEY_DROP_CALLOUT_MINIMIZED, dropCalloutMinimized)
-        dropCalloutView?.let { callout ->
-            outState.putFloat(KEY_DROP_CALLOUT_X, callout.x)
-            outState.putFloat(KEY_DROP_CALLOUT_Y, callout.y)
-        }
         super.onSaveInstanceState(outState)
     }
 
@@ -4335,8 +4425,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         private const val KEY_PINNED_MESSAGE_MINIMIZED = "pinnedMessageMinimized"
         private const val KEY_PINNED_EXPANSION_CHANGED_BY_USER = "pinnedExpansionChangedByUser"
         private const val KEY_DROP_CALLOUT_MINIMIZED = "dropCalloutMinimized"
-        private const val KEY_DROP_CALLOUT_X = "dropCalloutX"
-        private const val KEY_DROP_CALLOUT_Y = "dropCalloutY"
+        private const val PREF_DROP_CALLOUT_MINIMIZED = "chat_drop_callout_minimized"
+        private const val PREF_DROP_CALLOUT_EXPANDED_X = "chat_drop_callout_expanded_x"
+        private const val PREF_DROP_CALLOUT_EXPANDED_Y = "chat_drop_callout_expanded_y"
+        private const val PREF_DROP_CALLOUT_MINIMIZED_X = "chat_drop_callout_minimized_x"
+        private const val PREF_DROP_CALLOUT_MINIMIZED_Y = "chat_drop_callout_minimized_y"
         private const val COMPACT_OVERLAY_VIEWPORT_HEIGHT_DP = 640f
         private const val KEY_V2_FOLLOW_MODE = "chatV2FollowMode"
         private const val KEY_V2_NEW_MESSAGE_COUNT = "chatV2NewMessageCount"
