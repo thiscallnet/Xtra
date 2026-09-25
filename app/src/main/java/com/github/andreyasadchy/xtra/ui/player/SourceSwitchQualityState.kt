@@ -15,6 +15,13 @@ internal data class SourceSwitchQualityIdentity(
             (codecs == null || quality.codecs.equals(codecs, ignoreCase = true)) &&
             (bitrate == null || quality.bitrate == bitrate)
     } ?: fallback(name)
+
+    /** Automatic recovery must not replace a missing manual rendition with another quality. */
+    fun resolveExact(qualities: List<VideoQuality>?): VideoQuality? = qualities?.firstOrNull { quality ->
+        quality.name.equals(name, ignoreCase = true) &&
+            (codecs == null || quality.codecs.equals(codecs, ignoreCase = true)) &&
+            (bitrate == null || quality.bitrate == bitrate)
+    }
 }
 
 /**

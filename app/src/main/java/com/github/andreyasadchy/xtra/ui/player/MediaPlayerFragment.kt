@@ -503,7 +503,7 @@ class MediaPlayerFragment : PlayerFragment() {
         if (isResumed) {
             if (playbackService?.type == BasePlaybackService.STREAM) {
                 if (playbackService?.isStreamPlaybackRequested() == true) {
-                    restartPlayer()
+                    playbackService?.recoverAfterNetworkRestore()
                 }
             } else {
                 val position = playbackService?.player?.currentPosition?.toLong()

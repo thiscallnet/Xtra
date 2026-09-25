@@ -95,6 +95,9 @@ abstract class BasePlaybackService : LifecycleService() {
     private var primaryPlaybackWatchOwnerId: Long? = null
     private var primaryPlaybackWatchGeneration: Long? = null
     private var primaryPlaybackWatchReleased = false
+    private var strictSourceSwitchQualityRestore = false
+    protected var automaticRecoveryQualityMissing = false
+        private set
 
     var chatUrl: String? = null
     var started = false
@@ -419,9 +422,17 @@ abstract class BasePlaybackService : LifecycleService() {
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
         val pendingQuality = pendingSourceSwitchQuality.consume()
-        quality = pendingQuality?.resolve(qualities) { name -> findQuality(name) }
-            ?: preferredQuality?.let(::findMatchingQuality)
-            ?: resolveDefaultQualityForNetwork(cellular)
+        val strictRestore = strictSourceSwitchQualityRestore
+        strictSourceSwitchQualityRestore = false
+        automaticRecoveryQualityMissing = strictRestore && pendingQuality != null &&
+            pendingQuality.resolveExact(qualities) == null
+        quality = if (strictRestore && pendingQuality != null) {
+            pendingQuality.resolveExact(qualities)
+        } else {
+            pendingQuality?.resolve(qualities) { name -> findQuality(name) }
+                ?: preferredQuality?.let(::findMatchingQuality)
+                ?: resolveDefaultQualityForNetwork(cellular)
+        }
     }
 
     private fun findMatchingQuality(candidate: VideoQuality): VideoQuality? {
@@ -442,8 +453,17 @@ abstract class BasePlaybackService : LifecycleService() {
         pendingSourceSwitchQuality.capture(quality)
     }
 
+    /** Automatic recovery must restore the same rendition identity or stop with an error. */
+    protected fun rememberQualityForAutomaticRecovery() {
+        pendingSourceSwitchQuality.capture(quality)
+        strictSourceSwitchQualityRestore = true
+        automaticRecoveryQualityMissing = false
+    }
+
     protected fun clearRememberedSourceSwitchQuality() {
         pendingSourceSwitchQuality.clear()
+        strictSourceSwitchQualityRestore = false
+        automaticRecoveryQualityMissing = false
     }
 
     fun resolveDefaultQualityForNetwork(cellular: Boolean): VideoQuality? {

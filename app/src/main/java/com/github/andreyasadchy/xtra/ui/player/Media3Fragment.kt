@@ -111,7 +111,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         }
     }
     private var streamRecoveryJob: Job? = null
-    private var streamRecoveryAttempt = 0
+    private var liveStallWatchdogJob: Job? = null
+    private val liveRecoveryState = LivePlaybackStallRecoveryState()
+    private var strictAutomaticQualityRestore = false
     private var recoveringBehindLiveWindow = false
     private var adAvoidanceJob: Job? = null
     private var primaryStreamRestoreJob: Job? = null
@@ -305,10 +307,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     }
                     if (playbackState == Player.STATE_READY) {
                         recoveringBehindLiveWindow = false
-                        streamRecoveryJob?.cancel()
-                        streamRecoveryJob = null
-                        streamRecoveryAttempt = 0
+                        updateLiveStallWatchdog(isBuffering = false)
                         clearPlayerError()
+                    } else if (playbackState == Player.STATE_BUFFERING) {
+                        updateLiveStallWatchdog(isBuffering = true)
                     }
                     renderPlaybackChrome()
                     val showPlayButton = Util.shouldShowPlayButton(player)
@@ -321,6 +323,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (!playWhenReady) {
+                        cancelLiveStallRecovery(resetBudget = true)
+                    } else if (player?.playbackState == Player.STATE_BUFFERING) {
+                        updateLiveStallWatchdog(isBuffering = true)
+                    }
                     renderPlaybackChrome()
                     val showPlayButton = Util.shouldShowPlayButton(player)
                     setPipActions(!showPlayButton)
@@ -365,6 +372,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying && videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
+                        liveRecoveryState.onPlaybackStarted(liveRecoveryState.currentGeneration())
+                        cancelLiveStallRecovery(resetBudget = false)
+                    }
                     updateProgress()
                     if (isAdded && view != null) {
                         requireView().keepScreenOn = isPlaying && canEnterPictureInPicture()
@@ -692,22 +703,91 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         ) {
             return
         }
+        val recoveryPending = streamRecoveryJob?.isActive == true
+        val attempt = liveRecoveryState.claimErrorRecovery(recoveryPending = recoveryPending)
+        if (attempt == null) {
+            if (!recoveryPending && liveRecoveryState.isRecoveryExhausted()) {
+                showPlayerError(R.string.player_error) { restartPlayer() }
+            }
+            return
+        }
+        queueStreamRecovery(attempt)
+    }
+
+    private fun queueStreamRecovery(attempt: Int) {
+        val currentContext = context ?: return
         streamRecoveryJob?.cancel()
-        val delayMs = (1500L shl streamRecoveryAttempt.coerceAtMost(3)).coerceAtMost(12000L)
-        streamRecoveryAttempt = (streamRecoveryAttempt + 1).coerceAtMost(3)
+        liveStallWatchdogJob?.cancel()
+        liveStallWatchdogJob = null
+        val delayMs = (1500L shl (attempt - 1).coerceAtMost(3)).coerceAtMost(12000L)
+        val recoveryGeneration = liveRecoveryState.beginRecoveryGeneration()
         streamRecoveryJob = viewLifecycleOwner.lifecycleScope.launch {
             delay(delayMs)
-            if (context.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
+            if (currentContext.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
                 && player?.playWhenReady == true
                 && isAdded
                 && view != null
+                && liveRecoveryState.currentGeneration() == recoveryGeneration
             ) {
                 try {
-                    restartPlayer()
+                    recoverLiveStreamAutomatically()
                 } catch (_: Exception) {
                 }
             }
         }
+    }
+
+    private fun updateLiveStallWatchdog(isBuffering: Boolean) {
+        val sourceGeneration = liveRecoveryState.currentGeneration()
+        val shouldWatch = liveRecoveryState.onBufferingChanged(
+            sourceGeneration,
+            isBuffering = isBuffering && requireContext().prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true) &&
+                videoType == STREAM && player?.playWhenReady == true &&
+                !isLiveRewindActiveOrSwitching(),
+            nowMs = SystemClock.elapsedRealtime(),
+        )
+        if (!shouldWatch) {
+            liveStallWatchdogJob?.cancel()
+            liveStallWatchdogJob = null
+            return
+        }
+        if (liveStallWatchdogJob?.isActive == true) return
+        liveStallWatchdogJob = viewLifecycleOwner.lifecycleScope.launch {
+            delay(LivePlaybackStallRecoveryState.DEFAULT_STALL_TIMEOUT_MS)
+            liveStallWatchdogJob = null
+            val attempt = liveRecoveryState.claimStalledRecovery(
+                sourceGeneration,
+                SystemClock.elapsedRealtime(),
+            ) ?: run {
+                if (liveRecoveryState.isRecoveryExhausted()) {
+                    showPlayerError(R.string.player_error) { restartPlayer() }
+                }
+                return@launch
+            }
+            queueStreamRecovery(attempt)
+        }
+    }
+
+    private fun cancelLiveStallRecovery(resetBudget: Boolean) {
+        liveStallWatchdogJob?.cancel()
+        liveStallWatchdogJob = null
+        streamRecoveryJob?.cancel()
+        streamRecoveryJob = null
+        if (resetBudget) {
+            liveRecoveryState.beginUserGeneration()
+        } else {
+            liveRecoveryState.onBufferingChanged(
+                liveRecoveryState.currentGeneration(),
+                isBuffering = false,
+                nowMs = SystemClock.elapsedRealtime(),
+            )
+        }
+    }
+
+    private fun supersedeAutomaticRecoveryForSourceTransition() {
+        cancelLiveStallRecovery(resetBudget = true)
+        strictAutomaticQualityRestore = false
+        pendingSourceSwitchQuality.clear()
     }
 
     override fun initialize() {
@@ -809,6 +889,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
             if (candidate != null && isAdded && view != null && !isLiveRewindActiveOrSwitching()) {
                 primaryStreamRestoreJob?.cancel()
                 primaryStreamRestoreJob = null
+                supersedeAutomaticRecoveryForSourceTransition()
                 pendingSourceSwitchQuality.capture(viewModel.quality)
                 viewModel.usingAlternateStream = true
                 setQualityText()
@@ -851,6 +932,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 }
                 if (candidate?.verifiedClean == true && isAdded && view != null) {
                     try {
+                        supersedeAutomaticRecoveryForSourceTransition()
                         pendingSourceSwitchQuality.capture(viewModel.quality)
                         viewModel.qualities = null
                         viewModel.updateQualities = true
@@ -885,7 +967,17 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         url: String?,
         playWhenReady: Boolean?,
         preserveQuality: Boolean = false,
+        automaticRecovery: Boolean = false,
     ): ListenableFuture<SessionResult>? {
+        if (videoType == STREAM) {
+            if (automaticRecovery) {
+                liveRecoveryState.beginRecoveryGeneration()
+                strictAutomaticQualityRestore = true
+            } else {
+                liveRecoveryState.beginUserGeneration()
+                strictAutomaticQualityRestore = false
+            }
+        }
         clearPlayerError()
         resetProgressRenderState()
         adAvoidanceJob?.cancel()
@@ -907,6 +999,50 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         viewModel.updateQualities = true
         setQualityText()
         return sendStreamToService(url, playWhenReady)
+    }
+
+    private suspend fun recoverLiveStreamAutomatically() {
+        val controller = player ?: return
+        if (!controller.playWhenReady) return
+        val login = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: return
+        val oldQualities = viewModel.qualities
+        val oldQuality = viewModel.quality
+        val oldUpdateQualities = viewModel.updateQualities
+        val proxyUrl = requireContext().prefs().getString(C.PLAYER_PROXY_URL, "")
+        val url = if (viewModel.useCustomProxy && !proxyUrl.isNullOrBlank()) {
+            proxyUrl.replace("\$channel", login)
+        } else {
+            try {
+                viewModel.loadFreshStreamPlaylistUrl(login)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        }
+        if (url.isNullOrBlank()) {
+            showPlayerError(R.string.player_error) { restartPlayer() }
+            return
+        }
+        val result = startStreamInternal(
+            url = url,
+            playWhenReady = true,
+            preserveQuality = true,
+            automaticRecovery = true,
+        )
+        val success = try {
+            result != null && withContext(Dispatchers.IO) {
+                result.get().resultCode == SessionResult.RESULT_SUCCESS
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+        if (!success) {
+            restoreQualityAfterSourceSwitchFailure(oldQualities, oldQuality, oldUpdateQualities)
+            showPlayerError(R.string.player_error) { restartPlayer() }
+        }
     }
 
     private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null): ListenableFuture<SessionResult>? {
@@ -1070,6 +1206,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
 
     override suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean {
         val controller = player ?: return false
+        supersedeAutomaticRecoveryForSourceTransition()
         val url = try {
             viewModel.loadRewindVideoPlaylistUrl(vodId)
         } catch (_: Exception) {
@@ -1597,6 +1734,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
 
     override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
         val previousQuality = viewModel.quality
+        val qualityChanged = previousQuality?.let {
+            it.name != selectedQuality?.name || it.url != selectedQuality?.url
+        } ?: (selectedQuality != null)
+        if (videoType == STREAM && persistSavedQuality && qualityChanged) {
+            cancelLiveStallRecovery(resetBudget = true)
+            pendingSourceSwitchQuality.clear()
+            strictAutomaticQualityRestore = false
+        }
         viewModel.previousQuality = previousQuality
         viewModel.quality = selectedQuality
         viewModel.pendingVideoQuality = selectedQuality
@@ -1747,9 +1892,17 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                 }
             }
         }
+        if (videoType == STREAM && persistSavedQuality && player?.isPlaying == true) {
+            liveRecoveryState.onPlaybackStarted(liveRecoveryState.currentGeneration())
+        }
     }
 
     override fun startAudioOnly() {
+        if (videoType == STREAM && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
+            cancelLiveStallRecovery(resetBudget = true)
+            pendingSourceSwitchQuality.clear()
+            strictAutomaticQualityRestore = false
+        }
         player?.let { player ->
             if (player.isConnected) {
                 savePosition()
@@ -1865,7 +2018,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         qualityRequestInFlight = false
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
-        streamRecoveryAttempt = 0
+        liveStallWatchdogJob?.cancel()
+        liveStallWatchdogJob = null
+        liveRecoveryState.beginUserGeneration()
         recoveringBehindLiveWindow = false
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
@@ -1960,10 +2115,26 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
                     // can silently put the player back on Auto.
                     val qualityToRestore = pendingSourceSwitchQuality.consume()
                     setDefaultQuality()
-                    val restoredQuality = qualityToRestore?.resolve(viewModel.qualities, ::findQuality)
+                    val strictRestore = strictAutomaticQualityRestore
+                    strictAutomaticQualityRestore = false
+                    val restoredQuality = if (strictRestore && qualityToRestore != null) {
+                        qualityToRestore.resolveExact(viewModel.qualities)
+                    } else {
+                        qualityToRestore?.resolve(viewModel.qualities, ::findQuality)
+                    }
                     changePlayerMode()
-                    (restoredQuality ?: viewModel.quality)?.let {
-                        changeQuality(it, persistSavedQuality = false)
+                    if (strictRestore && qualityToRestore != null && restoredQuality == null) {
+                        viewModel.quality = VideoQuality(
+                            qualityToRestore.name,
+                            qualityToRestore.codecs,
+                            qualityToRestore.bitrate,
+                        )
+                        player?.pause()
+                        showPlayerError(R.string.player_error) { restartPlayer() }
+                    } else {
+                        (restoredQuality ?: viewModel.quality)?.let {
+                            changeQuality(it, persistSavedQuality = false)
+                        }
                     }
                     setQualityText()
                     qualityRetryAttempts = 0
@@ -2074,7 +2245,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
         if (isResumed) {
             if (videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
                 if (player?.playWhenReady == true) {
-                    restartPlayer()
+                    scheduleStreamRecovery()
                 }
             } else {
                 player?.prepare()
@@ -2089,6 +2260,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     }
 
     override fun onDestroyView() {
+        cancelLiveStallRecovery(resetBudget = true)
         pendingSourceSwitchQuality.clear()
         qualityRequestGeneration++
         qualityRequestInFlight = false

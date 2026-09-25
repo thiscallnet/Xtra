@@ -1275,7 +1275,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
         if (isResumed) {
             if (playbackService?.type == BasePlaybackService.STREAM) {
                 if (playbackService?.player?.playWhenReady == true) {
-                    restartPlayer()
+                    playbackService?.recoverAfterNetworkRestore()
                 }
             } else {
                 playbackService?.player?.prepare()

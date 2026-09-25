@@ -161,11 +161,13 @@ class ExoPlayerService : BasePlaybackService() {
     private var liveRewindPositionOverride: Long? = null
     private var updateQualities = false
     private var resetQualityOnStreamRefresh = false
+    private var automaticQualityRestore = false
     private var created = false
     private var resumeWhenForeground = false
     private val videoOutputState = VideoOutputState()
     private var streamRecoveryJob: Job? = null
-    private var streamRecoveryAttempt = 0
+    private var liveStallWatchdogJob: Job? = null
+    private val liveRecoveryState = LivePlaybackStallRecoveryState()
     private val initialRestore = CompletableDeferred<Unit>()
     private val liveClipBufferManager = LiveClipBufferManager()
     private var hlsClipDataSourceFactory: DataSource.Factory? = null
@@ -373,10 +375,19 @@ class ExoPlayerService : BasePlaybackService() {
                                     add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
                                 }
                             setDefaultQuality(preferredQuality = quality.takeIf { !resetQualityOnStreamRefresh })
+                            val restoringAutomaticQuality = automaticQualityRestore
+                            automaticQualityRestore = false
                             resetQualityOnStreamRefresh = false
                             serviceListener?.updateQualityStatus()
                             serviceListener?.changePlayerMode()
-                            quality?.let { changeQuality(it, persistSavedQuality = false) }
+                            if (automaticRecoveryQualityMissing) {
+                                player?.pause()
+                                serviceListener?.toast(R.string.player_error, Toast.LENGTH_LONG)
+                            } else {
+                                quality?.let {
+                                    changeQuality(it, persistSavedQuality = false, automaticRecovery = restoringAutomaticQuality)
+                                }
+                            }
                         }
                         if (reason == Player.TIMELINE_CHANGE_REASON_SOURCE_UPDATE) {
                             updateQualities = false
@@ -548,6 +559,11 @@ class ExoPlayerService : BasePlaybackService() {
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (!playWhenReady) {
+                        cancelLiveStallRecovery(resetBudget = true)
+                    } else if (player?.playbackState == Player.STATE_BUFFERING) {
+                        updateLiveStallWatchdog(isBuffering = true)
+                    }
                     updatePlaybackState()
                     updateNotification()
                 }
@@ -558,9 +574,9 @@ class ExoPlayerService : BasePlaybackService() {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_READY) {
-                        streamRecoveryJob?.cancel()
-                        streamRecoveryJob = null
-                        streamRecoveryAttempt = 0
+                        updateLiveStallWatchdog(isBuffering = false)
+                    } else if (playbackState == Player.STATE_BUFFERING) {
+                        updateLiveStallWatchdog(isBuffering = true)
                     }
                     updatePlaybackState()
                     updateNotification()
@@ -568,6 +584,10 @@ class ExoPlayerService : BasePlaybackService() {
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     updatePlaybackState()
+                    if (isPlaying && type == STREAM && !liveRewindActive && !liveRewindTransitioning) {
+                        liveRecoveryState.onPlaybackStarted(liveRecoveryState.currentGeneration())
+                        cancelLiveStallRecovery(resetBudget = false)
+                    }
                     if (isPlaying) {
                         if (savePositionTimer == null && type != STREAM) {
                             savePositionTimer = Timer().apply {
@@ -1191,8 +1211,16 @@ class ExoPlayerService : BasePlaybackService() {
         restorePauseState: Boolean = false,
         restart: Boolean = false,
         playlistUrlOverride: String? = null,
+        automaticRecovery: Boolean = false,
     ) {
         if (playlistUrlOverride != null && !canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) return
+        automaticQualityRestore = automaticRecovery
+        if (type == STREAM && !automaticRecovery && (restart || playlistUrlOverride != null || qualities.isNullOrEmpty())) {
+            cancelLiveStallRecovery(resetBudget = true)
+            if (playlistUrlOverride != null) {
+                clearRememberedSourceSwitchQuality()
+            }
+        }
         channelLogin?.let { channelLogin ->
             logAd("load stream channel=$channelLogin override=${!playlistUrlOverride.isNullOrBlank()} restart=$restart")
             if (!playlistUrlOverride.isNullOrBlank()) {
@@ -1553,6 +1581,8 @@ class ExoPlayerService : BasePlaybackService() {
         val oldUpdateQualities = updateQualities
         val oldLiveClipSourceMediaId = liveClipSourceMediaId
         val wasPlaying = player.playWhenReady
+        cancelLiveStallRecovery(resetBudget = true)
+        clearRememberedSourceSwitchQuality()
         rememberQualityForSourceSwitch()
         beginLiveRewindTransition()
         cancelLiveClipPreparation()
@@ -1657,6 +1687,8 @@ class ExoPlayerService : BasePlaybackService() {
         val oldHidden = hidden
         val oldUpdateQualities = updateQualities
         val oldLiveClipSourceMediaId = liveClipSourceMediaId
+        cancelLiveStallRecovery(resetBudget = true)
+        clearRememberedSourceSwitchQuality()
         rememberQualityForSourceSwitch()
         beginLiveRewindTransition()
         cancelLiveClipPreparation()
@@ -2214,6 +2246,7 @@ class ExoPlayerService : BasePlaybackService() {
     fun retry(item: String) {
         when (item) {
             "refreshStream" -> {
+                cancelLiveStallRecovery(resetBudget = true)
                 clearRememberedSourceSwitchQuality()
                 resetQualityOnStreamRefresh = true
                 diagnostics.resetRenderedVideoSize()
@@ -2253,9 +2286,15 @@ class ExoPlayerService : BasePlaybackService() {
         selectedQuality: VideoQuality?,
         resetLiveClipGeneration: Boolean = true,
         persistSavedQuality: Boolean = true,
+        automaticRecovery: Boolean = false,
     ) {
         val oldQuality = quality
         val qualityChanged = oldQuality?.name != selectedQuality?.name || oldQuality?.url != selectedQuality?.url
+        if (type == STREAM && qualityChanged && !automaticRecovery) {
+            cancelLiveStallRecovery(resetBudget = true)
+            clearRememberedSourceSwitchQuality()
+            automaticQualityRestore = false
+        }
         if (type == STREAM && qualityChanged) {
             diagnostics.resetRenderedVideoSize()
         }
@@ -2459,9 +2498,27 @@ class ExoPlayerService : BasePlaybackService() {
         ) {
             return
         }
+        val recoveryPending = streamRecoveryJob?.isActive == true
+        val attempt = liveRecoveryState.claimErrorRecovery(recoveryPending = recoveryPending)
+        if (attempt == null) {
+            if (!recoveryPending && liveRecoveryState.isRecoveryExhausted()) {
+                serviceListener?.toast(R.string.player_error, Toast.LENGTH_LONG)
+            }
+            return
+        }
+        queueStreamRecovery(attempt)
+    }
+
+    fun recoverAfterNetworkRestore() = scheduleStreamRecovery()
+
+    private fun queueStreamRecovery(attempt: Int) {
         streamRecoveryJob?.cancel()
-        val delayMs = (1500L shl streamRecoveryAttempt.coerceAtMost(3)).coerceAtMost(12000L)
-        streamRecoveryAttempt = (streamRecoveryAttempt + 1).coerceAtMost(3)
+        liveStallWatchdogJob?.cancel()
+        liveStallWatchdogJob = null
+        clearRememberedSourceSwitchQuality()
+        rememberQualityForAutomaticRecovery()
+        val recoveryGeneration = liveRecoveryState.beginRecoveryGeneration()
+        val delayMs = (1500L shl (attempt - 1).coerceAtMost(3)).coerceAtMost(12000L)
         streamRecoveryJob = lifecycleScope.launch {
             delay(delayMs)
             if (prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
@@ -2469,9 +2526,57 @@ class ExoPlayerService : BasePlaybackService() {
                 && type == STREAM
                 && !liveRewindActive
                 && !liveRewindTransitioning
+                && liveRecoveryState.currentGeneration() == recoveryGeneration
             ) {
-                loadStream(restart = true)
+                loadStream(restart = true, automaticRecovery = true)
             }
+        }
+    }
+
+    private fun updateLiveStallWatchdog(isBuffering: Boolean) {
+        val sourceGeneration = liveRecoveryState.currentGeneration()
+        val shouldWatch = liveRecoveryState.onBufferingChanged(
+            sourceGeneration,
+            isBuffering = isBuffering && prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true) &&
+                type == STREAM && player?.playWhenReady == true &&
+                !liveRewindActive && !liveRewindTransitioning,
+            nowMs = SystemClock.elapsedRealtime(),
+        )
+        if (!shouldWatch) {
+            liveStallWatchdogJob?.cancel()
+            liveStallWatchdogJob = null
+            return
+        }
+        if (liveStallWatchdogJob?.isActive == true) return
+        liveStallWatchdogJob = lifecycleScope.launch {
+            delay(LivePlaybackStallRecoveryState.DEFAULT_STALL_TIMEOUT_MS)
+            liveStallWatchdogJob = null
+            val attempt = liveRecoveryState.claimStalledRecovery(
+                sourceGeneration,
+                SystemClock.elapsedRealtime(),
+            ) ?: run {
+                if (liveRecoveryState.isRecoveryExhausted()) {
+                    serviceListener?.toast(R.string.player_error, Toast.LENGTH_LONG)
+                }
+                return@launch
+            }
+            queueStreamRecovery(attempt)
+        }
+    }
+
+    private fun cancelLiveStallRecovery(resetBudget: Boolean) {
+        liveStallWatchdogJob?.cancel()
+        liveStallWatchdogJob = null
+        streamRecoveryJob?.cancel()
+        streamRecoveryJob = null
+        if (resetBudget) {
+            liveRecoveryState.beginUserGeneration()
+        } else {
+            liveRecoveryState.onBufferingChanged(
+                liveRecoveryState.currentGeneration(),
+                isBuffering = false,
+                nowMs = SystemClock.elapsedRealtime(),
+            )
         }
     }
 
@@ -2480,6 +2585,8 @@ class ExoPlayerService : BasePlaybackService() {
             setProxyMediaPlaylist(false)
             if (quality?.name != AUDIO_ONLY_QUALITY) {
                 if (type == STREAM) {
+                    cancelLiveStallRecovery(resetBudget = true)
+                    clearRememberedSourceSwitchQuality()
                     advanceLiveClipGeneration()
                 }
                 restoreQuality = true
@@ -3050,6 +3157,8 @@ class ExoPlayerService : BasePlaybackService() {
         clearLiveClipState()
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
+        liveStallWatchdogJob?.cancel()
+        liveStallWatchdogJob = null
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
         primaryStreamRestoreJob?.cancel()
