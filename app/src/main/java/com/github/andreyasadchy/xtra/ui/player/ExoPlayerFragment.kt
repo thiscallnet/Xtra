@@ -311,6 +311,9 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (isPlaying) {
+                    markRestoredPlaybackStarted()
+                }
                 updateProgress()
                 if (isAdded && view != null) {
                     requireView().keepScreenOn = isPlaying && canEnterPictureInPicture()
@@ -403,7 +406,12 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                 if (view != null) {
                     when (resId) {
                         R.string.player_error, R.string.proxy_error -> showPlayerError(resId) { restartPlayer() }
-                        R.string.stream_ended, R.string.video_subscribers_only -> showPlayerError(resId)
+                        R.string.stream_ended -> {
+                            if (!closeRestoredStreamAfterTerminalFailure()) {
+                                showPlayerError(resId)
+                            }
+                        }
+                        R.string.video_subscribers_only -> showPlayerError(resId)
                         else -> Snackbar.make(
                             binding.playerBackground,
                             resId,
@@ -530,6 +538,9 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
                             pauseLiveClipPlayback()
                         }
                         connectedService.player?.let { player ->
+                            if (connectedService.type == BasePlaybackService.STREAM && player.isPlaying) {
+                                markRestoredPlaybackStarted()
+                            }
                             if (canEnterPictureInPicture()) {
                                 requireView().keepScreenOn = player.isPlaying
                             }
