@@ -8,7 +8,6 @@ import android.view.ViewGroup
 import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -38,6 +37,7 @@ class StatisticsFragment : Fragment() {
     private val viewModel: StatisticsViewModel by viewModels { StatisticsViewModel.StatisticsViewModelFactory }
     private lateinit var channelAdapter: StatisticsChannelAdapter
     private lateinit var categoryAdapter: StatisticsCategoryAdapter
+    private var initialRootTopPadding = 0
     private var initialContentBottomPadding = 0
 
     override fun onCreateView(
@@ -108,6 +108,7 @@ class StatisticsFragment : Fragment() {
         binding.topCategories.layoutManager = LinearLayoutManager(requireContext())
         binding.topChannels.isNestedScrollingEnabled = false
         binding.topCategories.isNestedScrollingEnabled = false
+        initialRootTopPadding = binding.root.paddingTop
         initialContentBottomPadding = binding.content.paddingBottom
 
         binding.activityChart.onBucketSelected = { index, _ -> viewModel.selectBucket(index) }
@@ -148,9 +149,12 @@ class StatisticsFragment : Fragment() {
             val insets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            binding.toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                topMargin = insets.top
-            }
+            binding.root.setPadding(
+                binding.root.paddingLeft,
+                initialRootTopPadding + insets.top,
+                binding.root.paddingRight,
+                binding.root.paddingBottom,
+            )
             binding.content.setPadding(
                 binding.content.paddingLeft,
                 binding.content.paddingTop,
