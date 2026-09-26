@@ -24,6 +24,7 @@ import com.github.andreyasadchy.xtra.model.ui.SavedFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.common.PagingLoadStateAdapter
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
@@ -150,6 +151,7 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
                     args.gameName != null ||
                     !args.tags.isNullOrEmpty(),
             showAppendErrorSnackbar = false,
+            gridPage = GridPage.GAME_STREAMS,
         )
     }
 

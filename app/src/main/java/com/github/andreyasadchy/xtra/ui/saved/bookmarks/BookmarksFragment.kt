@@ -25,6 +25,8 @@ import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
+import com.github.andreyasadchy.xtra.ui.view.GridPage
+import com.github.andreyasadchy.xtra.ui.view.GridRecyclerView
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.saved.bookmarks.BookmarksViewModel.Companion.BookmarksViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
@@ -102,6 +104,7 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
                 }
             })
             recyclerView.adapter = adapter
+            recyclerView.usePageGrid(GridPage.SAVED_BOOKMARKS)
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
                 if (activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                     val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())

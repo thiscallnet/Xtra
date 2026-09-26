@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.channel.suggestions.ChannelSuggestionsViewModel.Companion.ChannelSuggestionsViewModelFactory
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
@@ -66,7 +67,7 @@ class ChannelSuggestionsFragment : PagedListFragment(), Scrollable {
                 }
             }
         }
-        initializeAdapter(binding, pagingAdapter)
+        initializeAdapter(binding, pagingAdapter, gridPage = GridPage.CHANNEL_SUGGESTIONS)
     }
 
     override fun scrollToTop() {

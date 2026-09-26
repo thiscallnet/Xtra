@@ -22,6 +22,8 @@ import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.databinding.SortBarBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.view.GridPage
+import com.github.andreyasadchy.xtra.ui.view.GridRecyclerView
 import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
@@ -68,6 +70,7 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
             compact = requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled",
         )
         setAdapter(binding.recyclerView, streamsAdapter)
+        binding.recyclerView.usePageGrid(GridPage.FOLLOWED_STREAMS)
         streamPreloadViewportController = StreamPreloadViewportController(
             fragment = this,
             coordinator = (requireActivity().application as XtraApp).xtraModule.streamPreloadCoordinator,

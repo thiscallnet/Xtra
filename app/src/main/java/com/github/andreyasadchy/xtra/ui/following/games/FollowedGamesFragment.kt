@@ -20,6 +20,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.following.games.FollowedGamesViewModel.Companion.FollowedGamesViewModelFactory
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
@@ -65,7 +66,7 @@ class FollowedGamesFragment : PagedListFragment(), Scrollable {
                 }
             }
         }
-        initializeAdapter(binding, pagingAdapter, enableScrollTopButton = false)
+        initializeAdapter(binding, pagingAdapter, enableScrollTopButton = false, gridPage = GridPage.FOLLOWED_GAMES)
     }
 
     override fun scrollToTop() {

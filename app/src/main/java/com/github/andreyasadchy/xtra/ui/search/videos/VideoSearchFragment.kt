@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.search.RecentSearchAdapter
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.search.Searchable
+import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.search.videos.VideoSearchViewModel.Companion.VideoSearchViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -77,6 +78,9 @@ class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchab
             )
         })
         setAdapter(binding.recyclerView, pagingAdapter)
+        binding.recyclerView.usePageGrid(GridPage.SEARCH_VIDEOS) {
+            binding.recyclerView.adapter !is RecentSearchAdapter
+        }
         videoPreviewViewportController = StreamPreloadViewportController(
             fragment = this,
             coordinator = null,
@@ -124,10 +128,10 @@ class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchab
                     pagingAdapter.loadStateFlow.collectLatest { loadState ->
                         updatePagingState(binding, pagingAdapter, loadState, showEmpty = viewModel.query.value.isNotBlank())
                         if (viewModel.query.value.isBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-                            recyclerView.adapter = recentSearchAdapter
+                            setDisplayedAdapter(recentSearchAdapter)
                         } else {
                             if (recyclerView.adapter is RecentSearchAdapter) {
-                                recyclerView.adapter = pagingAdapter
+                                setDisplayedAdapter(pagingAdapter)
                             }
                         }
                     }
@@ -166,6 +170,11 @@ class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchab
         if (changed && query.isNotBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
             viewModel.saveRecentSearch(query)
         }
+    }
+
+    private fun setDisplayedAdapter(adapter: RecyclerView.Adapter<*>) {
+        binding.recyclerView.setTemporarilySingleColumn(adapter is RecentSearchAdapter)
+        binding.recyclerView.adapter = adapter
     }
 
     override fun onNetworkRestored() {
