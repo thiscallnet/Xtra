@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.SavedFilter
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
+import com.github.andreyasadchy.xtra.ui.common.installVisibleViewportStatePositioning
 import com.github.andreyasadchy.xtra.ui.saved.filters.FiltersViewModel.Companion.FiltersViewModelFactory
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import kotlinx.coroutines.flow.collectLatest
@@ -41,6 +42,7 @@ class FiltersFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
         pagingAdapter = FiltersAdapter(this) {
             val delete = getString(R.string.delete)
             requireActivity().getAlertDialogBuilder()
