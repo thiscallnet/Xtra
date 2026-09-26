@@ -456,8 +456,8 @@
     <string name="settings_remember_searches">Remember recent searches</string>
     <string name="settings_clear_searches">Clear recent searches</string>
     <string name="settings_quality">Quality</string>
-    <string name="settings_portrait_columns">Portrait columns</string>
-    <string name="settings_landscape_columns">Landscape / large-screen columns</string>
+    <string name="settings_portrait_columns">Default portrait columns</string>
+    <string name="settings_landscape_columns">Default landscape / large-screen columns</string>
     <string name="settings_mobile_data_quality">Mobile data quality</string>
     <string name="settings_background_playback">Background playback</string>
     <string name="settings_background_playback_summary">Keep stream audio playing when Xtra is not on screen or the device is locked.</string>
@@ -772,6 +772,9 @@ Metadata text</string>
     <string name="landscape_chat_width">Landscape chat width</string>
     <string name="portrait_column_count">Portrait column count</string>
     <string name="landscape_column_count">Landscape column count</string>
+    <string name="grid_columns_changed">Columns: %1$d</string>
+    <string name="increase_grid_columns">Show more columns (smaller cards)</string>
+    <string name="decrease_grid_columns">Show fewer columns (larger cards)</string>
     <string name="internal_storage">Internal storage</string>
     <string name="save_to">Save to</string>
     <string name="no_storage_detected">No available storage detected (most likely the phone is connected to a computer).</string>

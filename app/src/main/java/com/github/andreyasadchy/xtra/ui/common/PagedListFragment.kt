@@ -21,6 +21,8 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.ui.view.GridPage
+import com.github.andreyasadchy.xtra.ui.view.GridRecyclerView
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -98,8 +100,10 @@ abstract class PagedListFragment : BaseNetworkFragment() {
         enableSwipeRefresh: Boolean = true,
         enableScrollTopButton: Boolean = true,
         showAppendErrorSnackbar: Boolean = true,
+        gridPage: GridPage? = null,
     ) {
         with(binding) {
+            if (gridPage != null) recyclerView.usePageGrid(gridPage)
             // Live/paged feeds update frequently. Change animations keep old row
             // holders alive and add extra layout/draw work during refreshes.
             recyclerView.itemAnimator = null

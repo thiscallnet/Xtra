@@ -6,6 +6,7 @@ import androidx.core.content.edit
 import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
 import com.github.andreyasadchy.xtra.ui.appearance.DEFAULT_BACKGROUND_VISIBILITY
 import com.github.andreyasadchy.xtra.ui.appearance.PlayerBackgroundMode
+import com.github.andreyasadchy.xtra.ui.view.GridColumnPreferences
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
 
 /**
@@ -68,6 +69,7 @@ object SettingsMigration {
         C.THEME,
         C.PORTRAIT_COLUMN_COUNT,
         C.LANDSCAPE_COLUMN_COUNT,
+        *GridColumnPreferences.preferenceKeys.toTypedArray(),
         C.COMPACT_STREAMS,
         C.UI_ROUND_USER_IMAGE,
         C.UI_TRUNCATE_VIEW_COUNT,

@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.search.RecentSearchAdapter
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.search.Searchable
+import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.search.streams.StreamSearchViewModel.Companion.StreamSearchViewModelFactory
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
@@ -68,6 +69,9 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
             })
         }
         setAdapter(binding.recyclerView, pagingAdapter)
+        binding.recyclerView.usePageGrid(GridPage.SEARCH_STREAMS) {
+            binding.recyclerView.adapter !is RecentSearchAdapter
+        }
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             if (activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -98,10 +102,10 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
                             viewModel.dropsFilters.value.isNotEmpty()
                         updatePagingState(binding, pagingAdapter, loadState, showEmpty = hasActiveSearch)
                         if (!hasActiveSearch && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-                            recyclerView.adapter = recentSearchAdapter
+                            setDisplayedAdapter(recentSearchAdapter)
                         } else {
                             if (recyclerView.adapter is RecentSearchAdapter) {
-                                recyclerView.adapter = pagingAdapter
+                                setDisplayedAdapter(pagingAdapter)
                             }
                         }
                     }
@@ -142,15 +146,20 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     fun clearDropsFilter() {
         viewModel.setDropsFilters(emptyList())
         if (_binding != null && viewModel.query.value.isBlank() && binding.recyclerView.adapter is RecentSearchAdapter) {
-            binding.recyclerView.adapter = pagingAdapter
+            setDisplayedAdapter(pagingAdapter)
         }
     }
 
     fun applyDropsFilters(filters: List<DropStreamFilter>) {
         viewModel.setDropsFilters(filters)
         if (_binding != null && filters.isNotEmpty() && binding.recyclerView.adapter is RecentSearchAdapter) {
-            binding.recyclerView.adapter = pagingAdapter
+            setDisplayedAdapter(pagingAdapter)
         }
+    }
+
+    private fun setDisplayedAdapter(adapter: RecyclerView.Adapter<*>) {
+        binding.recyclerView.setTemporarilySingleColumn(adapter is RecentSearchAdapter)
+        binding.recyclerView.adapter = adapter
     }
 
     companion object {

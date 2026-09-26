@@ -693,6 +693,11 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_mod_action_unban",
     "chat_mod_action_reason",
     "chat_api_commands_disabled",
+    # Grid pinch feedback and accessibility labels use default English wording
+    # until their translations are reviewed.
+    "grid_columns_changed",
+    "increase_grid_columns",
+    "decrease_grid_columns",
 }
 
 
