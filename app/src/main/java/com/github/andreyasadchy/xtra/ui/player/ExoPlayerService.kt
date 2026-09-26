@@ -859,6 +859,15 @@ class ExoPlayerService : BasePlaybackService() {
                     format: Format,
                     decoderReuseEvaluation: DecoderReuseEvaluation?,
                 ) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "VideoSurface",
+                            "video_format backend=legacy_exoplayer " +
+                                "size=${format.width}x${format.height} codec=${format.codecs} " +
+                                "reuse=${decoderReuseEvaluation?.result} " +
+                                "discardReasons=${decoderReuseEvaluation?.discardReasons}",
+                        )
+                    }
                     diagnostics.recordVideoInputFormat(format)
                 }
             })
@@ -2288,6 +2297,21 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
+    private fun shouldResetEmulatorStreamDecoder(
+        previous: VideoQuality?,
+        next: VideoQuality?,
+        qualityChanged: Boolean,
+    ): Boolean =
+        qualityChanged &&
+            previous != null &&
+            next != null &&
+            isAndroidEmulator() &&
+            canUseLiveSource(type, liveRewindActive, liveRewindTransitioning) &&
+            previous.name != AUDIO_ONLY_QUALITY &&
+            previous.name != CHAT_ONLY_QUALITY &&
+            next.name != AUDIO_ONLY_QUALITY &&
+            next.name != CHAT_ONLY_QUALITY
+
     fun changeQuality(
         selectedQuality: VideoQuality?,
         resetLiveClipGeneration: Boolean = true,
@@ -2313,6 +2337,17 @@ class ExoPlayerService : BasePlaybackService() {
         quality?.let { quality ->
             player?.let { player ->
                 player.currentMediaItem?.let { mediaItem ->
+                    val resetEmulatorRenderer = shouldResetEmulatorStreamDecoder(oldQuality, quality, qualityChanged)
+                    val positionMs = player.currentPosition
+                    val mediaItemIndex = player.currentMediaItemIndex
+                    val playWhenReady = player.playWhenReady
+                    val liveOffsetMs = player.currentLiveOffset
+                    val qualityTrackOverride = videoQualityTrackOverride(player.currentTracks, quality)
+                    var qualitySwitchPath = "track_selection"
+                    if (resetEmulatorRenderer) {
+                        // The emulator can leave the old SurfaceView buffer visible after a rendition change.
+                        player.stop()
+                    }
                     when (quality.name) {
                         AUTO_QUALITY -> {
                             qualitySelectionPolicy.set(quality.name, quality.bitrate, quality.codecs)
@@ -2328,7 +2363,8 @@ class ExoPlayerService : BasePlaybackService() {
                                         clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
                                     }.build()
                                     if (mediaItem.localConfiguration?.uri != uri.toUri()) {
-                                        val position = player.currentPosition
+                                        qualitySwitchPath = "media_source"
+                                        val position = positionMs
                                         setQualityMediaItem(player, mediaItem, uri)
                                         player.prepare()
                                         player.seekTo(position)
@@ -2342,7 +2378,8 @@ class ExoPlayerService : BasePlaybackService() {
                                 setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
                             }.build()
                             quality.url?.let {
-                                val position = player.currentPosition
+                                qualitySwitchPath = "media_source"
+                                val position = positionMs
                                 if (qualities?.find { it.name == AUTO_QUALITY } != null) {
                                     restorePlaylist = true
                                 }
@@ -2369,20 +2406,22 @@ class ExoPlayerService : BasePlaybackService() {
                                     if (!playlistUrl.isNullOrBlank()) {
                                         restorePlaylist = true
                                     }
-                                    val position = player.currentPosition
+                                    qualitySwitchPath = "media_source"
+                                    val position = positionMs
                                     setQualityMediaItem(player, mediaItem, qualityUri)
                                     player.prepare()
                                     player.seekTo(position)
                                 } else if (qualityUri.isNullOrBlank()) {
                                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
-                                        videoQualityTrackOverride(player.currentTracks, quality)?.let { setOverrideForType(it) }
+                                        qualityTrackOverride?.let { setOverrideForType(it) }
                                     }.build()
                                 }
                             } else {
                                 player.currentMediaItem?.let { mediaItem ->
                                     quality.url?.let { qualityUri ->
                                         if (mediaItem.localConfiguration?.uri?.toString() != qualityUri) {
-                                            val position = player.currentPosition
+                                            qualitySwitchPath = "media_source"
+                                            val position = positionMs
                                             setQualityMediaItem(player, mediaItem, qualityUri)
                                             player.prepare()
                                             player.seekTo(position)
@@ -2393,6 +2432,25 @@ class ExoPlayerService : BasePlaybackService() {
                                     setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                                 }.build()
                             }
+                        }
+                    }
+                    if (resetEmulatorRenderer) {
+                        if (player.playbackState == Player.STATE_IDLE) {
+                            if (mediaItemIndex != androidx.media3.common.C.INDEX_UNSET) {
+                                player.seekTo(mediaItemIndex, positionMs)
+                            } else {
+                                player.seekTo(positionMs)
+                            }
+                            player.prepare()
+                        }
+                        player.playWhenReady = playWhenReady
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "VideoSurface",
+                                "quality_reset backend=legacy_exoplayer path=$qualitySwitchPath " +
+                                    "from=${oldQuality?.name} to=${quality.name} positionMs=$positionMs " +
+                                    "liveOffsetMs=$liveOffsetMs playWhenReady=$playWhenReady",
+                            )
                         }
                     }
                     if (persistSavedQuality) {
