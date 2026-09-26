@@ -46,7 +46,9 @@ object ChatSubscriptionNoticeTypes {
 
     fun isGift(type: String?): Boolean = type?.lowercase() in giftNames
 
-    fun isCommunityGift(type: String?): Boolean = type?.lowercase()?.endsWith("community_sub_gift") == true
+    fun isCommunityGift(type: String?): Boolean = type?.lowercase()?.let {
+        it == "submysterygift" || it.endsWith("community_sub_gift")
+    } == true
 
     fun isUpgrade(type: String?): Boolean = type?.lowercase()?.let {
         it.contains("paid_upgrade") || it.contains("pay_it_forward")

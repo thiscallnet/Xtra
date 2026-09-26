@@ -1204,6 +1204,7 @@ Metadata text</string>
         <item quantity="one">gifted %1$d %2$s Sub to the community</item>
         <item quantity="other">gifted %1$d %2$s Subs to the community</item>
     </plurals>
+    <string name="chat_subscription_community_gift_unknown">gifted %1$s subscriptions to the community</string>
     <plurals name="chat_subscription_months">
         <item quantity="one">%1$d month subscribed</item>
         <item quantity="other">%1$d months subscribed</item>

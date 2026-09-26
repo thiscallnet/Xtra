@@ -676,7 +676,10 @@ private class CombinedChatAdapter(
                 subscriptionPaid = { tier -> fragment.getString(R.string.chat_subscription_paid, tier) },
                 subscriptionUpgrade = { tier -> fragment.getString(R.string.chat_subscription_upgrade, tier) },
                 subscriptionGift = { tier, recipient -> fragment.getString(R.string.chat_subscription_gift, tier, recipient) },
-                subscriptionCommunityGift = { count, tier -> fragment.resources.getQuantityString(R.plurals.chat_subscription_community_gift, count, count, tier) },
+                subscriptionCommunityGift = { count, tier ->
+                    count?.let { fragment.resources.getQuantityString(R.plurals.chat_subscription_community_gift, it, it, tier) }
+                        ?: fragment.getString(R.string.chat_subscription_community_gift_unknown, tier)
+                },
                 subscriptionMonths = { months -> fragment.resources.getQuantityString(R.plurals.chat_subscription_months, months, months) },
                 subscriptionStreak = { months -> fragment.resources.getQuantityString(R.plurals.chat_subscription_streak, months, months) },
                 subscriptionAccessibilityMonths = { months -> fragment.resources.getQuantityString(R.plurals.chat_subscription_accessibility_months, months, months) },
