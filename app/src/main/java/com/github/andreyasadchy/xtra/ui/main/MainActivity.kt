@@ -599,8 +599,9 @@ class MainActivity : AppCompatActivity() {
                         if (savedState != null && !viewModel.isPlayerOpened && playerFragment == null) {
                             (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
                             val fragment = legacyPlayerFragment().apply {
-                                if (savedState.type == BasePlaybackService.OFFLINE_VIDEO) {
-                                    arguments = Bundle().apply {
+                                arguments = Bundle().apply {
+                                    putBoolean(PlayerFragment.KEY_RESTORED_PLAYBACK, true)
+                                    if (savedState.type == BasePlaybackService.OFFLINE_VIDEO) {
                                         putBoolean(PlayerFragment.KEY_OFFLINE, true)
                                     }
                                 }
@@ -1545,6 +1546,17 @@ class MainActivity : AppCompatActivity() {
      * the lifecycle playback path instead, so background playback remains available.
      */
     fun closePlayer() {
+        closePlayerInternal(null)
+    }
+
+    fun closePlayer(expectedPlayer: Fragment) {
+        closePlayerInternal(expectedPlayer)
+    }
+
+    private fun closePlayerInternal(expectedPlayer: Fragment?) {
+        if (expectedPlayer != null && playerFragment !== expectedPlayer) {
+            return
+        }
         val player = playerFragment ?: supportFragmentManager.findFragmentById(R.id.playerContainer)
         when (player) {
             is Media3PlayerFragment -> player.close()

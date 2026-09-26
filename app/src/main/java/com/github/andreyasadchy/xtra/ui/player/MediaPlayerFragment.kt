@@ -53,6 +53,9 @@ class MediaPlayerFragment : PlayerFragment() {
         binding.playerTextureView.visibility = View.GONE
         val listener = object : MediaPlayerService.PlayerListener {
             override fun onPrepared(player: MediaPlayer) {
+                if (playbackService?.type == BasePlaybackService.STREAM) {
+                    markRestoredPlaybackStarted()
+                }
                 clearPlayerError()
                 val duration = player.duration.takeIf { it != -1 }?.toLong() ?: 0
                 updateFiniteTimelineDuration(duration)
@@ -150,7 +153,12 @@ class MediaPlayerFragment : PlayerFragment() {
                 if (view != null) {
                     when (resId) {
                         R.string.player_error, R.string.proxy_error -> showPlayerError(resId) { restartPlayer() }
-                        R.string.stream_ended, R.string.video_subscribers_only -> showPlayerError(resId)
+                        R.string.stream_ended -> {
+                            if (!closeRestoredStreamAfterTerminalFailure()) {
+                                showPlayerError(resId)
+                            }
+                        }
+                        R.string.video_subscribers_only -> showPlayerError(resId)
                         else -> Snackbar.make(
                             binding.playerBackground,
                             resId,
@@ -237,6 +245,11 @@ class MediaPlayerFragment : PlayerFragment() {
                     playbackService?.restoreBackgroundVideoIfNeeded()
                     playbackService?.resumePlaybackIfNeeded()
                     playbackService?.player?.let { player ->
+                        if (playbackService?.hasPreparedStreamSession() == true ||
+                            playbackService?.type == BasePlaybackService.STREAM && player.isPlaying
+                        ) {
+                            markRestoredPlaybackStarted()
+                        }
                         if (canEnterPictureInPicture()) {
                             requireView().keepScreenOn = player.isPlaying
                         }
@@ -289,6 +302,9 @@ class MediaPlayerFragment : PlayerFragment() {
     private fun updatePlayingState(ended: Boolean = false) {
         playbackService?.player?.let { player ->
             val isPlaying = player.isPlaying
+            if (isPlaying) {
+                markRestoredPlaybackStarted()
+            }
             val playbackRequested = if (playbackService?.type == BasePlaybackService.STREAM) {
                 playbackService?.isStreamPlaybackRequested() == true
             } else {
