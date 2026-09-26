@@ -369,6 +369,7 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_subscription_upgrade",
     "chat_subscription_gift",
     "chat_subscription_community_gift",
+    "chat_subscription_community_gift_unknown",
     "chat_subscription_months",
     "chat_subscription_streak",
     "chat_subscription_accessibility_months",

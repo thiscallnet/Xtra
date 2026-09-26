@@ -1016,7 +1016,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 subscriptionPaid = { tier -> getString(R.string.chat_subscription_paid, tier) },
                                 subscriptionUpgrade = { tier -> getString(R.string.chat_subscription_upgrade, tier) },
                                 subscriptionGift = { tier, recipient -> getString(R.string.chat_subscription_gift, tier, recipient) },
-                                subscriptionCommunityGift = { count, tier -> resources.getQuantityString(R.plurals.chat_subscription_community_gift, count, count, tier) },
+                                subscriptionCommunityGift = { count, tier ->
+                                    count?.let { resources.getQuantityString(R.plurals.chat_subscription_community_gift, it, it, tier) }
+                                        ?: getString(R.string.chat_subscription_community_gift_unknown, tier)
+                                },
                                 subscriptionMonths = { months -> resources.getQuantityString(R.plurals.chat_subscription_months, months, months) },
                                 subscriptionStreak = { months -> resources.getQuantityString(R.plurals.chat_subscription_streak, months, months) },
                                 subscriptionAccessibilityMonths = { months -> resources.getQuantityString(R.plurals.chat_subscription_accessibility_months, months, months) },
