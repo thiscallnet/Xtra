@@ -54,8 +54,9 @@ data class ChatPresentationLabels(
     val subscriptionGift: (String, String) -> String = { tier, recipient ->
         "gifted a $tier Sub to $recipient"
     },
-    val subscriptionCommunityGift: (Int, String) -> String = { count, tier ->
-        "gifted $count $tier ${if (count == 1) "Sub" else "Subs"} to the community"
+    val subscriptionCommunityGift: (Int?, String) -> String = { count, tier ->
+        count?.takeIf { it > 0 }?.let { "gifted $it $tier ${if (it == 1) "Sub" else "Subs"} to the community" }
+            ?: "gifted $tier subscriptions to the community"
     },
     val subscriptionMonths: (Int) -> String = { months ->
         "$months ${if (months == 1) "month" else "months"} subscribed"
@@ -494,7 +495,7 @@ class ChatRowCompiler(
                 val legacyActor = actorName ?: legacySystemActor(message.systemText)
                 val anonymous = details?.isAnonymous == true || ChatSubscriptionNoticeTypes.isAnonymous(noticeType)
                 val description = when {
-                    communityGift && tier != null -> labels.subscriptionCommunityGift(details?.giftCount ?: 1, tier)
+                    communityGift && tier != null -> labels.subscriptionCommunityGift(details?.giftCount?.takeIf { it > 0 }, tier)
                     gift && tier != null && details?.recipientName != null -> labels.subscriptionGift(tier, details.recipientName)
                     upgrade && tier != null -> labels.subscriptionUpgrade(tier)
                     primeVisual -> labels.subscriptionPrime
@@ -515,7 +516,9 @@ class ChatRowCompiler(
                 })
                 val actorAccessibility = if (anonymous) labels.anonymous else legacyActor ?: labels.viewer
                 val semanticAccessibility = when {
-                    communityGift && tier != null -> "$actorAccessibility gifted ${details?.giftCount ?: 1} $tier subscriptions to the community."
+                    communityGift && tier != null -> details?.giftCount?.takeIf { it > 0 }?.let {
+                        "$actorAccessibility gifted $it $tier subscriptions to the community."
+                    } ?: "$actorAccessibility gifted $tier subscriptions to the community."
                     gift && tier != null && details?.recipientName != null -> "$actorAccessibility gifted a $tier subscription to ${details.recipientName}."
                     upgrade && tier != null -> "$actorAccessibility upgraded to a paid $tier subscription."
                     primeVisual -> "$actorAccessibility ${labels.subscriptionPrime}."

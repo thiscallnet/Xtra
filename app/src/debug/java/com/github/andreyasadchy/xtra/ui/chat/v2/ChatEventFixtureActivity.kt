@@ -32,6 +32,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPalette
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
+import com.github.andreyasadchy.xtra.util.chat.ChatUtils
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransport
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransportConfig
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
@@ -211,14 +212,7 @@ class ChatEventFixtureActivity : AppCompatActivity() {
             noticeType = "sub_gift",
             subscription = ChatSubscription(tier = "1000", recipientName = "Recipient"),
         ),
-        message(
-            id = "community",
-            userName = "CommunityGifter",
-            text = "",
-            kind = ChatMessageKind.NOTICE,
-            noticeType = "community_sub_gift",
-            subscription = ChatSubscription(tier = "1000", giftCount = 5, isCommunityGift = true),
-        ),
+        communityGiftFixtureMessage(),
         message(
             id = "reward",
             userName = "RewardViewer",
@@ -271,6 +265,16 @@ class ChatEventFixtureActivity : AppCompatActivity() {
         ),
         message("normal-2", "ChatViewer", "Another normal chat line"),
     )
+
+    private fun communityGiftFixtureMessage(): ChatMessage {
+        val event = TwitchChatEventParser.fromIrc(
+            ChatUtils.parseIRCMessage(
+                "@display-name=CommunityGifter;id=community-gift-irc;login=communitygifter;msg-id=submysterygift;msg-param-mass-gift-count=5;msg-param-sub-plan=1000;user-id=fixture-gifter :communitygifter!communitygifter@communitygifter.tmi.twitch.tv USERNOTICE #fixture",
+            ),
+            "fixture-channel",
+        ) as ChatEvent.Message
+        return event.message
+    }
 
     /** Debug-only Twitch-format fixture; it exercises the production EventSub parser and row factory. */
     private suspend fun moderationActionFixtureMessages(): List<ChatMessage> {

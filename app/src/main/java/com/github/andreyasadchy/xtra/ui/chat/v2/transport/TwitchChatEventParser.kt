@@ -525,8 +525,7 @@ object TwitchChatEventParser {
             streakMonths = tags["msg-param-streak-months"]?.toIntOrNull(),
             recipientName = tags["msg-param-recipient-display-name"]
                 ?: tags["msg-param-recipient-user-name"],
-            giftCount = tags["msg-param-mass-gift-count"]?.toIntOrNull()
-                ?: tags["msg-param-sender-count"]?.toIntOrNull(),
+            giftCount = tags["msg-param-mass-gift-count"]?.toIntOrNull()?.takeIf { it > 0 },
             isCommunityGift = ChatSubscriptionNoticeTypes.isCommunityGift(noticeType),
             isAnonymous = ChatSubscriptionNoticeTypes.isAnonymous(noticeType) ||
                 tags["msg-param-gifter-is-anonymous"] == "1" ||
