@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
+import com.github.andreyasadchy.xtra.ui.common.installVisibleViewportStatePositioning
 import com.github.andreyasadchy.xtra.ui.following.games.FollowedGamesViewModel.Companion.FollowedGamesViewModelFactory
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
 import kotlinx.coroutines.flow.collectLatest
@@ -40,6 +41,7 @@ class FollowedGamesFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
         pagingAdapter = FollowedGamesAdapter(this) {
             findNavController().navigate(
                 GamesFragmentDirections.actionGlobalGamesFragment(

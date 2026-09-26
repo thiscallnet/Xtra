@@ -41,6 +41,7 @@ import com.github.andreyasadchy.xtra.model.ui.DownloadProgress
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
+import com.github.andreyasadchy.xtra.ui.common.installVisibleViewportStatePositioning
 import com.github.andreyasadchy.xtra.ui.download.StreamDownloadService
 import com.github.andreyasadchy.xtra.ui.download.VideoDownloadService
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsViewModel.Companion.DownloadsViewModelFactory
@@ -97,6 +98,7 @@ class DownloadsFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
         pagingAdapter = DownloadsAdapter(
             fragment = this,
             stopDownload = { video ->
