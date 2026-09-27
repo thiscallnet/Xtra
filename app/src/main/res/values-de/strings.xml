@@ -1477,4 +1477,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">%1$s erwähnen</string>
     <string name="drops_move_progress">Titel ziehen, um das Fenster zu verschieben. Zum Öffnen tippen.</string>
+    <string name="playback_notification_channel">Medienwiedergabe</string>
+    <string name="playback_notification_channel_description">Steuerelemente und Startstatus der Medienwiedergabe.</string>
+    <string name="resuming_playback">Wiedergabe wird fortgesetzt</string>
 </resources>

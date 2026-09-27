@@ -1475,4 +1475,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Wspomnij użytkownika %1$s</string>
     <string name="drops_move_progress">Przeciągnij tytuł, aby przesunąć. Dotknij, aby otworzyć.</string>
+    <string name="playback_notification_channel">Odtwarzanie multimediów</string>
+    <string name="playback_notification_channel_description">Elementy sterujące odtwarzaniem multimediów i stan jego uruchamiania.</string>
+    <string name="resuming_playback">Wznawianie odtwarzania</string>
 </resources>

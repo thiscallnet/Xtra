@@ -54,12 +54,12 @@ class PlaybackPersistenceTest {
     }
 
     @Test
-    fun saveThenTakeReturnsTheStateAndDeletesIt() = runBlocking {
+    fun readingStateDoesNotDeleteIt() = runBlocking {
         val state = PlaybackState(videoId = "A")
         persistence.savePlaybackState(state)
 
-        assertSame(state, persistence.takePlaybackState())
-        assertEquals(emptyList<PlaybackState>(), persistence.getPlaybackStatesAndWait())
+        assertSame(state, persistence.getPlaybackStatesAndWait().single())
+        assertSame(state, persistence.getPlaybackStatesAndWait().single())
     }
 
     @Test
@@ -96,17 +96,16 @@ class PlaybackPersistenceTest {
     }
 
     @Test
-    fun consumingBadStateDoesNotPoisonTheFollowingStartup() = runBlocking {
+    fun readingBadStateDoesNotPoisonTheFollowingStartup() = runBlocking {
         persistence.savePlaybackState(PlaybackState(qualities = "not-json", quality = "not-json"))
-        val badState = persistence.takePlaybackState()
-        assertEquals(null, decodePlaybackQualities(Json, badState?.qualities))
-        assertEquals(emptyList<PlaybackState>(), persistence.getPlaybackStatesAndWait())
+        val badState = persistence.getPlaybackStatesAndWait().single()
+        assertEquals(null, decodePlaybackQualities(Json, badState.qualities))
+        assertSame(badState, persistence.getPlaybackStatesAndWait().single())
 
         val nextState = PlaybackState(videoId = "next", qualities = "not-json")
         persistence.savePlaybackState(nextState)
 
-        assertSame(nextState, persistence.takePlaybackState())
-        assertEquals(emptyList<PlaybackState>(), persistence.getPlaybackStatesAndWait())
+        assertSame(nextState, persistence.getPlaybackStatesAndWait().single())
     }
 
     private class FakePlaybackPersistenceStore : PlaybackPersistenceStore {
@@ -116,6 +115,7 @@ class PlaybackPersistenceTest {
 
         override suspend fun savePlaybackStates(items: List<PlaybackState>) {
             delay(25)
+            states.clear()
             states += items
         }
 

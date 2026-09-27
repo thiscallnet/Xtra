@@ -25,13 +25,13 @@ import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
+import com.github.andreyasadchy.xtra.player.lowlatency.TwitchHlsRequestRules.MEDIA_PLAYLIST_REGEX
+import com.github.andreyasadchy.xtra.player.lowlatency.TwitchHlsRequestRules.MULTIVARIANT_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfiguration
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MEDIA_PLAYLIST_REGEX
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService.Companion.MULTIVARIANT_PLAYLIST_REGEX
 import okhttp3.Credentials
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetProvider
@@ -67,8 +67,9 @@ class StreamHlsMediaSourceFactory(
 
     private var drmSessionManagerProvider: DrmSessionManagerProvider? = null
     private var loadErrorHandlingPolicy: LoadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(6)
+    private val sourceDataSourceFactories = ConcurrentHashMap<String, DataSource.Factory>()
     private val defaultMediaSourceFactory = DefaultMediaSourceFactory(
-        DefaultDataSource.Factory(context, dataSourceFactory(StreamProxyState()))
+        DefaultDataSource.Factory(context, dataSourceFactory(StreamProxyState(), streamSource = false))
     )
 
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
@@ -80,9 +81,14 @@ class StreamHlsMediaSourceFactory(
             return defaultMediaSourceFactory.createMediaSource(mediaItem)
         }
         val state = proxyStates.getOrPut(mediaItem.mediaId) { StreamProxyState() }
+        val streamSource = mediaItem.liveConfiguration.targetOffsetMs != androidx.media3.common.C.TIME_UNSET
+        val sourceDataSourceFactory = DefaultDataSource.Factory(
+            context,
+            dataSourceFactory(state, streamSource),
+        ).also { sourceDataSourceFactories[mediaItem.mediaId] = it }
         val lowLatencyEnabled = configuration.lowLatency &&
-            mediaItem.liveConfiguration.targetOffsetMs != androidx.media3.common.C.TIME_UNSET
-        return HlsMediaSource.Factory(DefaultDataSource.Factory(context, dataSourceFactory(state))).apply {
+            streamSource
+        return HlsMediaSource.Factory(sourceDataSourceFactory).apply {
             setPlaylistParserFactory(
                 TwitchHlsPlaylistParserFactory(
                     lowLatencyEnabled = lowLatencyEnabled,
@@ -111,7 +117,9 @@ class StreamHlsMediaSourceFactory(
     }
 
     override fun getSupportedTypes(): IntArray =
-        (HlsMediaSource.Factory(DefaultDataSource.Factory(context, dataSourceFactory(StreamProxyState())))
+        (HlsMediaSource.Factory(
+            DefaultDataSource.Factory(context, dataSourceFactory(StreamProxyState(), streamSource = false)),
+        )
             .getSupportedTypes() + defaultMediaSourceFactory.getSupportedTypes()).distinct().toIntArray()
 
     fun createLiveMediaItem(
@@ -163,18 +171,27 @@ class StreamHlsMediaSourceFactory(
 
     fun findState(mediaId: String): StreamProxyState? = proxyStates[mediaId]
 
+    /** Returns a segment downloader bound to the same headers, network engine, and proxy state as this source. */
+    fun clipDataSourceFactory(mediaId: String): DataSource.Factory? =
+        sourceDataSourceFactories[mediaId]
+
+    fun releaseMediaItem(mediaId: String) {
+        sourceDataSourceFactories.remove(mediaId)
+        proxyStates.remove(mediaId)
+    }
+
     fun hlsDiagnosticsFor(mediaId: String): TwitchHlsPlaylistDiagnostics? =
         proxyStates[mediaId]?.twitchHlsDiagnostics
 
     @SuppressLint("NewApi")
-    private fun dataSourceFactory(state: StreamProxyState): DataSource.Factory {
-        val proxyHost = configuration.proxyHost
-        val proxyPort = configuration.proxyPort
-        val proxyUser = configuration.proxyUser
-        val proxyPassword = configuration.proxyPassword
-        val proxyMultivariantPlaylist = configuration.proxyMultivariantPlaylist &&
+    private fun dataSourceFactory(state: StreamProxyState, streamSource: Boolean): DataSource.Factory {
+        val proxyHost = configuration.proxyHost.takeIf { streamSource }
+        val proxyPort = configuration.proxyPort.takeIf { streamSource }
+        val proxyUser = configuration.proxyUser.takeIf { streamSource }
+        val proxyPassword = configuration.proxyPassword.takeIf { streamSource }
+        val proxyMultivariantPlaylist = streamSource && configuration.proxyMultivariantPlaylist &&
             !proxyHost.isNullOrBlank() && proxyPort != null
-        val proxyMediaPlaylist = !proxyHost.isNullOrBlank() && proxyPort != null
+        val proxyMediaPlaylist = streamSource && !proxyHost.isNullOrBlank() && proxyPort != null
 
         val upstreamFactory: DataSource.Factory = when {
             configuration.networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null ->
@@ -184,7 +201,7 @@ class StreamHlsMediaSourceFactory(
             else -> createOkHttpFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist)
         }
         return upstreamFactory.apply {
-            if (configuration.streamHeaders.isNotEmpty()) {
+            if (streamSource && configuration.streamHeaders.isNotEmpty()) {
                 when (this) {
                     is HttpEngineDataSource.Factory -> setDefaultRequestProperties(configuration.streamHeaders)
                     is CronetDataSource.Factory -> setDefaultRequestProperties(configuration.streamHeaders)

@@ -63,10 +63,10 @@ import androidx.navigation.ui.setupWithNavController
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
+import kotlinx.coroutines.CancellationException
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.ActivityMainBinding
-import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
@@ -88,15 +88,9 @@ import com.github.andreyasadchy.xtra.ui.appearance.makeBackdropAwareChrome
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.tv.TvRemoteKeyHandler
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
-import com.github.andreyasadchy.xtra.ui.player.BasePlaybackService
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerFragment
-import com.github.andreyasadchy.xtra.ui.player.ExoPlayerService
 import com.github.andreyasadchy.xtra.ui.player.Media3Fragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
-import com.github.andreyasadchy.xtra.ui.player.MediaPlayerService
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
-import com.github.andreyasadchy.xtra.ui.player.MediaPlayerFragment
-import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.player.PlaybackService
 import com.github.andreyasadchy.xtra.ui.saved.SavedMediaFragment
 import com.github.andreyasadchy.xtra.ui.saved.SavedPagerFragment
@@ -111,7 +105,6 @@ import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkInterferenceReporter
 import com.github.andreyasadchy.xtra.util.PlaybackBackend
-import com.github.andreyasadchy.xtra.util.resolvePlaybackBackend
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -157,6 +150,7 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_DROPS_ID = "drops_id"
         const val EXTRA_DROPS_GAME_NAME = "drops_game_name"
         const val EXTRA_OPEN_UPDATE_DETAILS = "com.github.andreyasadchy.xtra.OPEN_UPDATE_DETAILS"
+        const val EXTRA_START_PLAYBACK = "android.intent.extra.START_PLAYBACK"
 
         private const val DEEP_LINK_NAV_DEBOUNCE_MS = 500L
     }
@@ -190,6 +184,8 @@ class MainActivity : AppCompatActivity() {
     private var bottomNavigationDestinationInFlight: Int? = null
     private var bottomNavigationDrainPosted = false
     private var suppressBottomNavigationSelection = false
+    private var playbackRestoreRequested = false
+    private var playbackRestoreGeneration = 0
     private val bottomNavigationInteractionSource = Any()
     private val playbackDiagnosticOwner = Any()
     private var keepStateNavigator: KeepStateFragmentNavigator? = null
@@ -577,10 +573,7 @@ class MainActivity : AppCompatActivity() {
                         return@launch
                     }
 
-                    (playerFragment as? Media3PlayerFragment)
-                        ?.reapplyNetworkDefaultQuality(cellular)
-                        ?: (playerFragment as? PlayerFragment)
-                            ?.reapplyNetworkDefaultQuality(cellular)
+                    (playerFragment as? Media3PlayerFragment)?.reapplyNetworkDefaultQuality(cellular)
                 }
             }
         }
@@ -590,11 +583,11 @@ class MainActivity : AppCompatActivity() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     INTENT_START_AUDIO_ONLY -> {
-                        (playerFragment as? Media3PlayerFragment)?.startAudioOnly() ?: (playerFragment as? PlayerFragment)?.startAudioOnly()
+                        (playerFragment as? Media3PlayerFragment)?.startAudioOnly()
                         moveTaskToBack(false)
                     }
                     INTENT_PLAY_PAUSE_PLAYER -> {
-                        (playerFragment as? Media3PlayerFragment)?.playPause() ?: (playerFragment as? PlayerFragment)?.playPause()
+                        (playerFragment as? Media3PlayerFragment)?.playPause()
                     }
                 }
             }
@@ -609,34 +602,6 @@ class MainActivity : AppCompatActivity() {
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         pipActionReceiver = pipReceiver
-        if (playbackBackend() != PlaybackBackend.MEDIA3) {
-            lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.playbackStates.collectLatest { states ->
-                        val savedState = states.firstOrNull()
-                        // This flow is only for restoring a player after process/activity
-                        // recreation. A user-initiated start can overlap a pending database
-                        // read; never replace that player with a second restored fragment.
-                        if (savedState != null && !viewModel.isPlayerOpened && playerFragment == null) {
-                            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
-                            val fragment = legacyPlayerFragment().apply {
-                                arguments = Bundle().apply {
-                                    putBoolean(PlayerFragment.KEY_RESTORED_PLAYBACK, true)
-                                    if (savedState.type == BasePlaybackService.OFFLINE_VIDEO) {
-                                        putBoolean(PlayerFragment.KEY_OFFLINE, true)
-                                    }
-                                }
-                            }
-                            (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(
-                                isLive = savedState.type == BasePlaybackService.STREAM,
-                            )
-                            (application as XtraApp).xtraModule.streamPreviewCoordinator.onFullscreenPlaybackStarted()
-                            startPlayer(fragment)
-                        }
-                    }
-                }
-            }
-        }
         restorePlayerFragment()
         handleIntent(intent)
         lifecycleScope.launch {
@@ -665,11 +630,6 @@ class MainActivity : AppCompatActivity() {
                             navigateDeepLinkOnce("video:${video.id}|$offset") {
                                 (playerFragment as? Media3PlayerFragment)?.also {
                                     if (!isTv) it.minimize()
-                                    closePlayer()
-                                } ?:
-                                (playerFragment as? PlayerFragment)?.also {
-                                    if (!isTv) it.minimize()
-                                    closePlayer()
                                 }
                                 startVideo(video, offset, offset != null)
                             }
@@ -1064,7 +1024,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (isFinishing) {
             onPlayerReturnedToBrowsing(playerStillOpen = false)
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? PlayerFragment)?.close()
+            (playerFragment as? Media3PlayerFragment)?.close()
         }
         super.onDestroy()
     }
@@ -1116,7 +1076,7 @@ class MainActivity : AppCompatActivity() {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
             prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true) &&
-            ((playerFragment as? Media3PlayerFragment)?.canEnterPictureInPicture() ?: (playerFragment as? PlayerFragment)?.canEnterPictureInPicture()) == true
+            (playerFragment as? Media3PlayerFragment)?.canEnterPictureInPicture() == true
         ) {
             try {
                 enterPictureInPictureMode(PictureInPictureParams.Builder().build())
@@ -1276,7 +1236,11 @@ class MainActivity : AppCompatActivity() {
                     }
                     else -> {
                         path.firstOrNull()?.takeIf { it.isNotBlank() }?.let {
-                            viewModel.loadUser(it, networkLibrary, gqlHeaders, helixHeaders)
+                            if (intent.getBooleanExtra(EXTRA_START_PLAYBACK, false)) {
+                                startStream(Stream(channelLogin = it))
+                            } else {
+                                viewModel.loadUser(it, networkLibrary, gqlHeaders, helixHeaders)
+                            }
                         }
                     }
                 }
@@ -1327,11 +1291,6 @@ class MainActivity : AppCompatActivity() {
             INTENT_OPEN_PLAYER -> {
                 if (playerFragment != null) {
                     (playerFragment as? Media3PlayerFragment)?.maximize(showControls = true)
-                        ?: (playerFragment as? PlayerFragment)?.maximize(showControls = true)
-                } else {
-                    if (playbackBackend() == PlaybackBackend.LEGACY_EXOPLAYER) {
-                        viewModel.getPlaybackStates()
-                    }
                 }
             }
             INTENT_OPEN_OWN_PROFILE -> openOwnProfile()
@@ -1353,59 +1312,22 @@ class MainActivity : AppCompatActivity() {
         (application as XtraApp).xtraModule.streamPreloadCoordinator.onStreamSelected(stream)
         onPlayerEnteredPlayback(isLive = true, channelLogin = stream.channelLogin)
         (application as XtraApp).xtraModule.streamPreloadCoordinator.onPlaybackEntered()
-        if (playbackBackend() == PlaybackBackend.MEDIA3) {
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
-            val fragment = Media3Fragment.newInstance(stream, tapElapsedMs)
-            startPlayer(fragment)
-            if (openChat) binding.root.postDelayed({ (playerFragment as? Media3PlayerFragment)?.showChat() }, 500L)
-            if (audioOnly) requestAudioOnlyPlayback()
-            return
-        }
-        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close(deleteStates = false)
-        viewModel.savePlaybackState(PlaybackState(
-            type = BasePlaybackService.STREAM,
-            streamId = stream.id,
-            channelId = stream.channelId,
-            channelLogin = stream.channelLogin,
-            channelName = stream.channelName,
-            channelImage = stream.channelImage,
-            gameId = stream.gameId,
-            gameSlug = stream.gameSlug,
-            gameName = stream.gameName,
-            title = stream.title,
-            thumbnail = stream.thumbnail,
-            createdAt = stream.createdAt,
-            viewerCount = stream.viewerCount,
-        ))
-        val fragment = legacyPlayerFragment()
+        (playerFragment as? Media3PlayerFragment)?.close()
+        val fragment = Media3Fragment.newInstance(stream, tapElapsedMs)
         startPlayer(fragment)
-        if (openChat) binding.root.postDelayed({ (playerFragment as? PlayerFragment)?.showChat() }, 500L)
+        if (openChat) binding.root.postDelayed({ (playerFragment as? Media3PlayerFragment)?.showChat() }, 500L)
         if (audioOnly) requestAudioOnlyPlayback()
     }
 
     private fun reloadActivePlayerHud() {
-        when (val fragment = playerFragment) {
-            is Media3PlayerFragment -> fragment.reloadHudLayoutFromSettings()
-            is PlayerFragment -> fragment.reloadHudLayoutFromSettings()
-        }
+        (playerFragment as? Media3PlayerFragment)?.reloadHudLayoutFromSettings()
     }
 
     private fun requestAudioOnlyPlayback() {
-        var attempts = 0
         fun request() {
-            when (val fragment = playerFragment) {
-                is Media3Fragment -> {
-                    fragment.requestAudioOnly()
-                    moveTaskToBack(false)
-                }
-                is PlayerFragment -> {
-                    fragment.startAudioOnly()
-                    moveTaskToBack(false)
-                    if (fragment === playerFragment && attempts++ < 20) {
-                        binding.root.postDelayed(::request, 250L)
-                    }
-                }
-            }
+            val fragment = playerFragment as? Media3Fragment ?: return
+            fragment.requestAudioOnly()
+            moveTaskToBack(false)
         }
         binding.root.post(::request)
     }
@@ -1418,126 +1340,34 @@ class MainActivity : AppCompatActivity() {
                 video.id?.toLongOrNull()?.let { viewModel.saveVideoPosition(it, offset) }
             }
         }
-        if (playbackBackend() == PlaybackBackend.MEDIA3) {
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
-            val fragment = Media3Fragment.newInstance(video, offset, ignoreSavedPosition)
-            startPlayer(fragment)
-            return
-        }
-        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close(deleteStates = false)
-        viewModel.savePlaybackState(PlaybackState(
-            type = BasePlaybackService.VIDEO,
-            videoId = video.id,
-            channelId = video.channelId,
-            channelLogin = video.channelLogin,
-            channelName = video.channelName,
-            channelImage = video.channelImage,
-            gameId = video.gameId,
-            gameSlug = video.gameSlug,
-            gameName = video.gameName,
-            title = video.title,
-            thumbnail = video.thumbnail,
-            createdAt = video.createdAt,
-            durationSeconds = video.durationSeconds,
-            videoType = video.type,
-            videoAnimatedPreviewURL = video.animatedPreviewURL,
-            videoUrl = videoUrl,
-            position = offset,
-        ))
-        val fragment = legacyPlayerFragment()
+        (playerFragment as? Media3PlayerFragment)?.close()
+        val fragment = Media3Fragment.newInstance(video, offset, ignoreSavedPosition, videoUrl)
         startPlayer(fragment)
     }
 
     fun startClip(clip: Clip) {
         onPlayerChangedPlayback(isLive = false)
-        if (playbackBackend() == PlaybackBackend.MEDIA3) {
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
-            val fragment = Media3Fragment.newInstance(clip)
-            startPlayer(fragment)
-            return
-        }
-        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close(deleteStates = false)
-        viewModel.savePlaybackState(PlaybackState(
-            type = BasePlaybackService.CLIP,
-            videoId = clip.videoId,
-            clipId = clip.id,
-            channelId = clip.channelId,
-            channelLogin = clip.channelLogin,
-            channelName = clip.channelName,
-            channelImage = clip.channelImage,
-            gameId = clip.gameId,
-            gameSlug = clip.gameSlug,
-            gameName = clip.gameName,
-            title = clip.title,
-            thumbnail = clip.thumbnail,
-            createdAt = clip.createdAt,
-            durationSeconds = clip.durationSeconds,
-            videoOffsetSeconds = clip.videoOffsetSeconds,
-            videoCreatedAt = clip.videoCreatedAt,
-            videoAnimatedPreviewURL = clip.videoAnimatedPreviewURL,
-        ))
-        val fragment = legacyPlayerFragment()
+        (playerFragment as? Media3PlayerFragment)?.close()
+        val fragment = Media3Fragment.newInstance(clip)
         startPlayer(fragment)
     }
 
     fun startOfflineVideo(video: OfflineVideo, offset: Long? = null) {
         onPlayerChangedPlayback(isLive = false)
-        if (playbackBackend() == PlaybackBackend.MEDIA3) {
-            (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close()
-            val fragment = Media3Fragment.newInstance(video)
-            startPlayer(fragment)
-            return
-        }
-        (playerFragment as? Media3PlayerFragment)?.close() ?: (playerFragment as? ExoPlayerFragment)?.close(deleteStates = false)
-        viewModel.savePlaybackState(PlaybackState(
-            type = BasePlaybackService.OFFLINE_VIDEO,
-            offlineVideoId = video.id,
-            channelId = video.channelId,
-            channelLogin = video.channelLogin,
-            channelName = video.channelName,
-            channelImage = video.channelLogo,
-            gameId = video.gameId,
-            gameSlug = video.gameSlug,
-            gameName = video.gameName,
-            title = video.name,
-            createdAt = video.uploadDate?.toString(),
-            videoCreatedAt = video.videoCreatedAt,
-        ))
+        (playerFragment as? Media3PlayerFragment)?.close()
+        val fragment = Media3Fragment.newInstance(video)
         if (offset != null && prefs.getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
             viewModel.saveOfflineVideoPosition(video.id, offset)
-        }
-        val fragment = legacyPlayerFragment().apply {
-            arguments = Bundle().apply {
-                putBoolean(PlayerFragment.KEY_OFFLINE, true)
-            }
         }
         startPlayer(fragment)
     }
 
 //Player methods
 
-    private fun playbackBackend(): PlaybackBackend = resolvePlaybackBackend(
-        playerPreference = prefs.getString(C.PLAYER, C.EXOPLAYER),
-        useLegacyCustomPlaybackService = prefs.getBoolean(
-            C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
-            true,
-        ),
-    )
-
-    private fun backendForPlayerFragment(fragment: Fragment): PlaybackBackend = when (fragment) {
-        is Media3PlayerFragment -> PlaybackBackend.MEDIA3
-        is ExoPlayerFragment -> PlaybackBackend.LEGACY_EXOPLAYER
-        is MediaPlayerFragment -> PlaybackBackend.ANDROID_MEDIA_PLAYER
-        else -> playbackBackend()
-    }
-
-    private fun legacyPlayerFragment(): Fragment = when (playbackBackend()) {
-        PlaybackBackend.LEGACY_EXOPLAYER -> ExoPlayerFragment()
-        PlaybackBackend.ANDROID_MEDIA_PLAYER -> MediaPlayerFragment()
-        PlaybackBackend.MEDIA3 -> error("Modern Media3 does not use a legacy player fragment")
-    }
+    private fun backendForPlayerFragment(fragment: Fragment): PlaybackBackend = PlaybackBackend.MEDIA3
 
     private fun startPlayer(fragment: Fragment) {
+        playbackRestoreGeneration++
         val backend = backendForPlayerFragment(fragment)
         if (BuildConfig.DEBUG) {
             Log.d(
@@ -1583,21 +1413,13 @@ class MainActivity : AppCompatActivity() {
         if (expectedPlayer != null && playerFragment !== expectedPlayer) {
             return
         }
+        playbackRestoreGeneration++
         val player = playerFragment ?: supportFragmentManager.findFragmentById(R.id.playerContainer)
-        when (player) {
-            is Media3PlayerFragment -> player.close()
-            is ExoPlayerFragment -> player.close()
-            is MediaPlayerFragment -> player.close()
-        }
-        when (player) {
-            is Media3PlayerFragment -> stopService(Intent(this, PlaybackService::class.java))
-            is ExoPlayerFragment -> stopService(Intent(this, ExoPlayerService::class.java))
-            is MediaPlayerFragment -> stopService(Intent(this, MediaPlayerService::class.java))
-            else -> when (playbackBackend()) {
-                PlaybackBackend.MEDIA3 -> stopService(Intent(this, PlaybackService::class.java))
-                PlaybackBackend.LEGACY_EXOPLAYER -> stopService(Intent(this, ExoPlayerService::class.java))
-                PlaybackBackend.ANDROID_MEDIA_PLAYER -> stopService(Intent(this, MediaPlayerService::class.java))
-            }
+        (player as? Media3PlayerFragment)?.close()
+        val playbackPersistence = (application as XtraApp).xtraModule.playbackPersistence
+        lifecycleScope.launch {
+            playbackPersistence.deletePlaybackStatesAndWait()
+            stopService(Intent(this@MainActivity, PlaybackService::class.java))
         }
         onPlayerReturnedToBrowsing(playerStillOpen = false)
         supportFragmentManager.findFragmentById(R.id.playerContainer)?.let { player ->
@@ -1659,18 +1481,61 @@ class MainActivity : AppCompatActivity() {
 
     private fun restorePlayerFragment() {
         if (playerFragment == null) {
-            playerFragment = supportFragmentManager.findFragmentById(R.id.playerContainer) as? Media3PlayerFragment ?: supportFragmentManager.findFragmentById(R.id.playerContainer) as? PlayerFragment
+            playerFragment = supportFragmentManager.findFragmentById(R.id.playerContainer) as? Media3PlayerFragment
             playerFragment?.let {
                 PlaybackRuntimeDiagnostic.setActive(playbackDiagnosticOwner, backendForPlayerFragment(it))
             }
-            if (playerFragment == null) {
-                if (playbackBackend() == PlaybackBackend.LEGACY_EXOPLAYER) {
-                    viewModel.getPlaybackStates()
+            if (playerFragment == null && !playbackRestoreRequested) {
+                playbackRestoreRequested = true
+                val restoreGeneration = playbackRestoreGeneration
+                lifecycleScope.launch {
+                    val savedState = try {
+                        viewModel.getPlaybackStateForRestore()
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        if (restoreGeneration == playbackRestoreGeneration) {
+                            playbackRestoreRequested = false
+                            Log.w("MainActivity", "Unable to read saved playback state", error)
+                        }
+                        return@launch
+                    }
+                    if (restoreGeneration != playbackRestoreGeneration || savedState == null) return@launch
+
+                    val offlineVideo = try {
+                        savedState.offlineVideoId?.let { id ->
+                            viewModel.getOfflineVideoForPlaybackRestore(id)
+                        }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (error: Exception) {
+                        if (restoreGeneration == playbackRestoreGeneration) {
+                            playbackRestoreRequested = false
+                            Log.w("MainActivity", "Unable to read saved offline playback metadata", error)
+                        }
+                        return@launch
+                    }
+                    val restoredFragment = Media3Fragment.newInstance(savedState, offlineVideo)
+                    if (restoredFragment == null) {
+                        Log.w("MainActivity", "Saved playback state cannot be restored; clearing stale state")
+                        (application as XtraApp).xtraModule.playbackPersistence.deletePlaybackStates()
+                        return@launch
+                    }
+                    if (
+                        restoreGeneration == playbackRestoreGeneration &&
+                        playerFragment == null &&
+                        !viewModel.isPlayerOpened &&
+                        !isFinishing
+                    ) {
+                        val isLive = savedState.type == com.github.andreyasadchy.xtra.ui.player.PlaybackContract.STREAM
+                        onPlayerEnteredPlayback(isLive, savedState.channelLogin)
+                        startPlayer(restoredFragment)
+                    }
                 }
             }
         } else {
-            if (viewModel.isPlayerOpened && ((playerFragment as? Media3PlayerFragment)?.secondViewIsHidden() ?: (playerFragment as? PlayerFragment)?.secondViewIsHidden()) == true && prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)) {
-                (playerFragment as? Media3PlayerFragment)?.maximize() ?: (playerFragment as? PlayerFragment)?.maximize()
+            if (viewModel.isPlayerOpened && (playerFragment as? Media3PlayerFragment)?.secondViewIsHidden() == true && prefs.getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)) {
+                (playerFragment as? Media3PlayerFragment)?.maximize()
             }
         }
     }
@@ -1686,10 +1551,6 @@ class MainActivity : AppCompatActivity() {
                             (playerFragment as? Media3PlayerFragment)?.also {
                                 if (!isTv) it.minimize()
                                 closePlayer()
-                            } ?:
-                            (playerFragment as? PlayerFragment)?.also {
-                                if (!isTv) it.minimize()
-                                closePlayer()
                             }
                             if (prefs.getBoolean(C.SLEEP_TIMER_LOCK, false)) {
                                 if ((getSystemService(POWER_SERVICE) as PowerManager).isInteractive) {
@@ -1703,10 +1564,6 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             withStarted {
                                 (playerFragment as? Media3PlayerFragment)?.also {
-                                    if (!isTv) it.minimize()
-                                    closePlayer()
-                                } ?:
-                                (playerFragment as? PlayerFragment)?.also {
                                     if (!isTv) it.minimize()
                                     closePlayer()
                                 }
@@ -1759,7 +1616,6 @@ class MainActivity : AppCompatActivity() {
             if (playerFragment != null) closePlayer()
         } else {
             (playerFragment as? Media3PlayerFragment)?.minimize()
-                ?: (playerFragment as? PlayerFragment)?.minimize()
         }
     }
 

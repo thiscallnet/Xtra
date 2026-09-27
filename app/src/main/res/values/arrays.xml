@@ -38,16 +38,6 @@
     <string-array name="tvChatPresetValues" translatable="false"><item>AUTO</item><item>COMPACT</item><item>STANDARD</item><item>LARGE</item><item>FULL_HEIGHT</item><item>CUSTOM</item></string-array>
     <string-array name="tvChatAnchorEntries" translatable="false"><item>@string/settings_tv_chat_anchor_top_left</item><item>@string/settings_tv_chat_anchor_top_center</item><item>@string/settings_tv_chat_anchor_top_right</item><item>@string/settings_tv_chat_anchor_center_left</item><item>@string/settings_tv_chat_anchor_center</item><item>@string/settings_tv_chat_anchor_center_right</item><item>@string/settings_tv_chat_anchor_bottom_left</item><item>@string/settings_tv_chat_anchor_bottom_center</item><item>@string/settings_tv_chat_anchor_bottom_right</item></string-array>
     <string-array name="tvChatAnchorValues" translatable="false"><item>TOP_LEFT</item><item>TOP_CENTER</item><item>TOP_RIGHT</item><item>CENTER_LEFT</item><item>CENTER</item><item>CENTER_RIGHT</item><item>BOTTOM_LEFT</item><item>BOTTOM_CENTER</item><item>BOTTOM_RIGHT</item></string-array>
-    <string-array name="playerEntries" translatable="false">
-        <item>@string/legacy_exoplayer_service</item>
-        <item>@string/android_media_player</item>
-    </string-array>
-
-    <string-array name="playerEntryValues" translatable="false">
-        <item>ExoPlayer</item>
-        <item>MediaPlayer</item>
-    </string-array>
-
     <string-array name="networkLibraryEntries" translatable="false">
         <item>@string/network_library_automatic</item>
         <item>HttpEngine</item>

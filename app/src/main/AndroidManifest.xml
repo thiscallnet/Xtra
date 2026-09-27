@@ -94,14 +94,6 @@
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
         <service
-            android:name=".ui.player.ExoPlayerService"
-            android:foregroundServiceType="mediaPlayback" />
-
-        <service
-            android:name=".ui.player.MediaPlayerService"
-            android:foregroundServiceType="mediaPlayback" />
-
-        <service
             android:name=".ui.player.PlaybackService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="true">

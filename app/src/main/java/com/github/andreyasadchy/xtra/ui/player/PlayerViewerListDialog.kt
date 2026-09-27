@@ -192,8 +192,7 @@ class PlayerViewerListDialog : BottomSheetDialogFragment() {
                 channelImage = viewer.profileImageURL,
             )
         )
-        (parent as? Media3PlayerFragment)?.minimize() ?:
-        (parent as? PlayerFragment)?.minimize()
+        (parent as? Media3PlayerFragment)?.minimize()
         dismiss()
     }
 

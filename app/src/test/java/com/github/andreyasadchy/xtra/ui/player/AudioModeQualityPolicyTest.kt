@@ -11,12 +11,12 @@ class AudioModeQualityPolicyTest {
         val restoredQuality = resolveAudioModeRestoreQuality(
             previousQuality = null,
             qualities = listOf(
-                VideoQuality(BasePlaybackService.AUDIO_ONLY_QUALITY),
-                VideoQuality(BasePlaybackService.AUTO_QUALITY),
+                VideoQuality(PlaybackContract.AUDIO_ONLY_QUALITY),
+                VideoQuality(PlaybackContract.AUTO_QUALITY),
                 VideoQuality("720p60"),
             ),
         )
 
-        assertEquals(BasePlaybackService.AUTO_QUALITY, restoredQuality?.name)
+        assertEquals(PlaybackContract.AUTO_QUALITY, restoredQuality?.name)
     }
 }

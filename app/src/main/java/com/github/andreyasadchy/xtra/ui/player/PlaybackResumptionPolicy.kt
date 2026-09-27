@@ -1,7 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.player
 
-/** Persistence is destructive only when Media3 is actually going to play. */
-internal fun shouldConsumeResumptionState(
+/** Service state is restored only when Media3 can actually begin playback. */
+internal fun shouldRestoreServiceState(
     isForPlay: Boolean,
     mediaItemAvailable: Boolean,
 ): Boolean = isForPlay && mediaItemAvailable
@@ -10,4 +10,4 @@ internal fun shouldConsumeResumptionState(
 internal fun resumptionPlaybackSpeed(
     playbackType: String?,
     configuredSpeed: Float,
-): Float = if (playbackType == BasePlaybackService.STREAM) 1f else configuredSpeed
+): Float = if (playbackType == PlaybackContract.STREAM) 1f else configuredSpeed

@@ -227,7 +227,7 @@ if ($needsPlaybackDiagnostic) {
     $diagnosticLogcat = Invoke-AdbText -Arguments @('-s', $Serial, 'logcat', '-d', '-v', 'threadtime', '-s', 'PlaybackBackendDiagnostic:I', '*:S')
     $processPattern = [regex]::Escape($process.Trim())
     $tokenPattern = [regex]::Escape($diagnosticToken)
-    $diagnosticState = Get-LastMatch -Text $diagnosticLogcat -Pattern "(?m)^\s*\S+\s+\S+\s+$processPattern\s+\S+\s+[VDIWEF]\s+PlaybackBackendDiagnostic:\s+playback_runtime_diagnostic\s+token=$tokenPattern\s+state=([a-z_]+)"
+    $diagnosticState = Get-LastMatch -Text $diagnosticLogcat -Pattern "(?m)^\s*\S+\s+\S+\s+$processPattern\s+\S+\s+[VDIWEF]\s+PlaybackBackendDiagnostic:\s+playback_runtime_diagnostic\s+token=$tokenPattern\s+state=([a-z0-9_]+)"
     if ([string]::IsNullOrWhiteSpace($diagnosticState)) {
         throw "The current playback diagnostic did not return a state for process '$process'."
     }

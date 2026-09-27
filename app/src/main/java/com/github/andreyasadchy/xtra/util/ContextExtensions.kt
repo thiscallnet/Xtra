@@ -202,7 +202,6 @@ internal fun developerStringValue(
     }
     return when (key) {
         C.NETWORK_LIBRARY -> C.OKHTTP
-        C.PLAYER -> C.EXOPLAYER
         C.PLAYER_STREAM_HEADERS -> null
         C.TOKEN_X_DEVICE_ID -> C.DEFAULT_TOKEN_X_DEVICE_ID
         C.TOKEN_PLAYER_TYPE -> C.DEFAULT_TOKEN_PLAYER_TYPE
@@ -223,7 +222,6 @@ internal fun developerBooleanValue(key: String?, storedValue: Boolean, enabled: 
         C.PROXY_PLAYBACK_ACCESS_TOKEN,
         C.PROXY_MULTIVARIANT_PLAYLIST,
         C.PROXY_MEDIA_PLAYLIST -> false
-        C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE -> true
         C.TOKEN_RANDOM_DEVICE_ID,
         C.TOKEN_INCLUDE_TOKEN_STREAM,
         C.TOKEN_INCLUDE_TOKEN_VIDEO -> true

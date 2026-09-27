@@ -108,6 +108,12 @@ class MainViewModel(
         }
     }
 
+    suspend fun getPlaybackStateForRestore(): PlaybackState? =
+        playbackPersistence.getPlaybackStatesAndWait().firstOrNull()
+
+    suspend fun getOfflineVideoForPlaybackRestore(id: Int): OfflineVideo? =
+        offlineVideosRepository.getById(id)
+
     suspend fun getWaitingDownloads(): List<OfflineVideo> {
         return withContext(Dispatchers.IO) {
             offlineVideosRepository.getWaitingDownloads()

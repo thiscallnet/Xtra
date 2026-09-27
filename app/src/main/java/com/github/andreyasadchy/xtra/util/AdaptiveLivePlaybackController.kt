@@ -124,14 +124,20 @@ class AdaptiveLivePlaybackController(
     }
 }
 
-/** Keeps Xtra's existing non-live LoadControl behavior while adapting live thresholds. */
+/** One shared Media3 load control with per-player allocators and adaptive live thresholds. */
 class AdaptiveLiveLoadControl(
     private val controller: AdaptiveLivePlaybackController,
-    private val initialPolicy: LivePlaybackPolicy,
+    initialPolicy: LivePlaybackPolicy,
     private val onPolicyChanged: () -> Unit = {},
+    private val nonLivePolicy: LivePlaybackPolicy = initialPolicy,
+    private val delegate: LoadControl = initialPolicy.buffers.buildLoadControl(),
 ) : LoadControl {
-    private val delegate = LivePlaybackPolicies.RECOVERING.buffers.buildLoadControl()
     private val loadingByPlayer = ConcurrentHashMap<PlayerId, Boolean>()
+    @Volatile private var policyChangedListener: () -> Unit = onPolicyChanged
+
+    fun setOnPolicyChangedListener(listener: () -> Unit) {
+        policyChangedListener = listener
+    }
 
     override fun onPrepared(playerId: PlayerId) {
         delegate.onPrepared(playerId)
@@ -158,15 +164,19 @@ class AdaptiveLiveLoadControl(
 
     override fun getAllocator(playerId: PlayerId): Allocator = delegate.getAllocator(playerId)
 
-    override fun getBackBufferDurationUs(playerId: PlayerId): Long = delegate.getBackBufferDurationUs(playerId)
+    override fun getBackBufferDurationUs(playerId: PlayerId): Long =
+        delegate.getBackBufferDurationUs(playerId)
 
     override fun retainBackBufferFromKeyframe(playerId: PlayerId): Boolean =
         delegate.retainBackBufferFromKeyframe(playerId)
 
     override fun shouldContinueLoading(parameters: LoadControl.Parameters): Boolean {
+        if (parameters.playerId.name == PlayerId.PRELOAD.name) {
+            return delegate.shouldContinueLoading(parameters)
+        }
         val isLive = parameters.targetLiveOffsetUs != C.TIME_UNSET
-        if (handleRebuffer(parameters)) onPolicyChanged()
-        val buffers = if (isLive) controller.currentPolicy().buffers else initialPolicy.buffers
+        if (handleRebuffer(parameters)) policyChangedListener()
+        val buffers = if (isLive) controller.currentPolicy().buffers else nonLivePolicy.buffers
         val minBufferUs = if (parameters.playbackSpeed > 1f) {
             Util.getMediaDurationForPlayoutDuration(
                 buffers.minBufferMs * 1_000L,
@@ -180,8 +190,10 @@ class AdaptiveLiveLoadControl(
             parameters.bufferedDurationUs >= maxBufferUs -> false
             else -> currentlyLoading
         }
-        loadingByPlayer[parameters.playerId] = nextLoading
-        return nextLoading && delegate.shouldContinueLoading(parameters)
+        val delegateAllowsLoading = delegate.shouldContinueLoading(parameters)
+        val shouldLoad = nextLoading && delegateAllowsLoading
+        loadingByPlayer[parameters.playerId] = shouldLoad
+        return shouldLoad
     }
 
     override fun shouldContinuePreloading(
@@ -189,15 +201,17 @@ class AdaptiveLiveLoadControl(
         timeline: Timeline,
         mediaPeriodId: MediaPeriodId,
         bufferedDurationUs: Long,
-    ): Boolean = loadingByPlayer.values.none { it } &&
-        delegate.shouldContinuePreloading(playerId, timeline, mediaPeriodId, bufferedDurationUs)
+    ): Boolean = loadingByPlayer.values.none { it }
 
     override fun shouldStartPlayback(parameters: LoadControl.Parameters): Boolean {
-        if (handleRebuffer(parameters)) onPolicyChanged()
+        if (parameters.playerId.name == PlayerId.PRELOAD.name) {
+            return delegate.shouldStartPlayback(parameters)
+        }
+        if (handleRebuffer(parameters)) policyChangedListener()
         val buffers = if (parameters.targetLiveOffsetUs != C.TIME_UNSET) {
             controller.currentPolicy().buffers
         } else {
-            initialPolicy.buffers
+            nonLivePolicy.buffers
         }
         val requiredUs = if (parameters.rebuffering) {
             buffers.bufferForPlaybackAfterRebufferMs * 1_000L

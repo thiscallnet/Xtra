@@ -112,6 +112,12 @@ class PlaybackPersistence internal constructor(
         }
     }
 
+    suspend fun deletePlaybackStatesAndWait() {
+        enqueueAndWait {
+            store.deletePlaybackStates()
+        }
+    }
+
     suspend fun saveVideoPositionAndWait(position: VideoPosition) {
         enqueueAndWait {
             store.saveVideoPosition(position)
@@ -121,14 +127,6 @@ class PlaybackPersistence internal constructor(
     suspend fun getPlaybackStatesAndWait(): List<PlaybackState> {
         return enqueueAndWaitForResult {
             store.getPlaybackStates()
-        }
-    }
-
-    suspend fun takePlaybackState(): PlaybackState? {
-        return enqueueAndWaitForResult {
-            val savedState = store.getPlaybackStates().firstOrNull()
-            store.deletePlaybackStates()
-            savedState
         }
     }
 

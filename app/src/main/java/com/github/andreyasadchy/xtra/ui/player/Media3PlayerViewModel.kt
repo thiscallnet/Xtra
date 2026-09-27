@@ -395,9 +395,12 @@ class Media3PlayerViewModel(
         }
     }
 
-    fun getVideoPosition(id: Long) {
+    fun getVideoPosition(id: Long, fallbackPosition: Long? = null) {
         viewModelScope.launch {
-            savedPosition.value = playerRepository.getVideoPosition(id)?.position ?: 0
+            savedPosition.value = playerRepository.getVideoPosition(id)?.position
+                ?.takeIf { it > 0L }
+                ?: fallbackPosition
+                ?: 0L
         }
     }
 
@@ -675,9 +678,12 @@ class Media3PlayerViewModel(
         }
     }
 
-    fun getOfflineVideoPosition(id: Int) {
+    fun getOfflineVideoPosition(id: Int, fallbackPosition: Long? = null) {
         viewModelScope.launch {
-            savedOfflineVideoPosition.value = offlineVideosRepository.getById(id)?.lastWatchPosition ?: 0
+            savedOfflineVideoPosition.value = offlineVideosRepository.getById(id)?.lastWatchPosition
+                ?.takeIf { it > 0L }
+                ?: fallbackPosition
+                ?: 0L
         }
     }
 

@@ -956,6 +956,9 @@ class ClipEditorDialogFragment : Fragment() {
 
     override fun onDestroyView() {
         clipDebug("preview release surface retainPlayer=${player != null}")
+        if (isVodSource) {
+            (parentFragment as? Host)?.cancelVodClipPreparation()
+        }
         previewHovered = false
         previewHandler.removeCallbacks(previewLoop)
         previewHandler.removeCallbacks(hidePreviewControls)

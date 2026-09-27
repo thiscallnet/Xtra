@@ -529,6 +529,7 @@ class StreamPreviewCoordinator(
                     title = latestCandidate.title,
                     channelName = latestCandidate.channelName,
                     channelLogo = latestCandidate.channelLogo,
+                    uniqueSourceInstance = false,
                 )
             } else {
                 mediaRuntime.createVodMediaItem(
@@ -537,6 +538,7 @@ class StreamPreviewCoordinator(
                     title = latestCandidate.title,
                     channelName = latestCandidate.channelName,
                     channelLogo = latestCandidate.channelLogo,
+                    uniqueSourceInstance = false,
                 )
             }
             val active = ActivePreview(identity = identity, player = player, playerView = playerView)
@@ -769,8 +771,10 @@ class StreamPreviewCoordinator(
         previewLifecycle.failed(login)
         activePreviews.remove(login)?.let { active ->
             detachPreviewSurface(active)
+            val mediaId = active.player.currentMediaItem?.mediaId
             runCatching { active.player.stop() }
             runCatching { active.player.clearMediaItems() }
+            mediaId?.let(mediaRuntime::releaseTransientMediaItem)
             if (active.player !== sharedPreviewPlayer) runCatching { active.player.release() }
         }
         urlCoordinator.setPreviewActive(activePreviews.isNotEmpty())

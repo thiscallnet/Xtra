@@ -1477,4 +1477,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">提及 %1$s</string>
     <string name="drops_move_progress">拖曳標題以移動。輕觸以開啟。</string>
+    <string name="playback_notification_channel">媒體播放</string>
+    <string name="playback_notification_channel_description">媒體播放控制項和播放啟動狀態。</string>
+    <string name="resuming_playback">正在恢復播放</string>
 </resources>

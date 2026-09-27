@@ -117,8 +117,8 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                             menuChatLayout.text = getString(R.string.settings_tv_chat_layout) + ": " +
                                 modeEntries.getOrElse(which) { modeEntries.first() }
                             when (selected) {
-                                "hidden" -> (parentFragment as? Media3PlayerFragment)?.hideChat() ?: (parentFragment as? PlayerFragment)?.hideChat()
-                                else -> (parentFragment as? Media3PlayerFragment)?.showChat() ?: (parentFragment as? PlayerFragment)?.showChat()
+                                "hidden" -> (parentFragment as? Media3PlayerFragment)?.hideChat()
+                                else -> (parentFragment as? Media3PlayerFragment)?.showChat()
                             }
                             dialog.dismiss()
                         }
@@ -135,15 +135,14 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                         ?: startActivity(intent)
                 }
             }
-            if (type != BasePlaybackService.STREAM &&
+            if (type != PlaybackContract.STREAM &&
                 (isTv ||
                     requireContext().prefs().getBoolean(C.PLAYER_MENU_SPEED, false) ||
                     canShowHudActionInOverflow(HudElementId.SPEED))
             ) {
                 menuSpeed.visibility = View.VISIBLE
                 menuSpeed.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.showSpeedDialog() ?:
-                    (parentFragment as? PlayerFragment)?.showSpeedDialog()
+                    (parentFragment as? Media3PlayerFragment)?.showSpeedDialog()
                     dismiss()
                 }
                 setSpeed(arguments.getString(SPEED))
@@ -158,8 +157,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 menuQuality.setOnClickListener {
                     openQualityDialog()
                 }
-                (parentFragment as? Media3PlayerFragment)?.setQualityText() ?:
-                (parentFragment as? PlayerFragment)?.setQualityText()
+                (parentFragment as? Media3PlayerFragment)?.setQualityText()
             }
             listOf(
                 HudElementId.FOLLOW to menuFollow,
@@ -206,31 +204,28 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     dismiss()
                 }
             }
-            if (type == BasePlaybackService.STREAM) {
+            if (type == PlaybackContract.STREAM) {
                 val media3Parent = parentFragment as? Media3PlayerFragment
-                val legacyParent = parentFragment as? PlayerFragment
-                if (media3Parent != null || legacyParent?.isLiveCaptionsAvailable() == true) {
+                if (media3Parent != null) {
                     menuLiveCaptionSettings.visibility = View.VISIBLE
                     menuLiveCaptionSettings.setOnClickListener {
                         dismiss()
                         media3Parent?.openLiveCaptionSettings()
-                            ?: legacyParent?.openLiveCaptionSettings()
                     }
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_MENU_VIEWER_LIST, true)) {
                     menuViewerList.visibility = View.VISIBLE
                     menuViewerList.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.openViewerList() ?:
-                        (parentFragment as? PlayerFragment)?.openViewerList()
+                        (parentFragment as? Media3PlayerFragment)?.openViewerList()
                         dismiss()
                     }
                 }
-                if (parentFragment is PlayerFragment &&
+                if (parentFragment is Media3PlayerFragment &&
                     requireContext().prefs().getBoolean(C.PLAYER_MENU_FIND_VOD, true)
                 ) {
                     menuFindVod.visibility = View.VISIBLE
                     menuFindVod.setOnClickListener {
-                        (parentFragment as PlayerFragment).findVideoUrl()
+                        (parentFragment as Media3PlayerFragment).findVideoUrl()
                         dismiss()
                     }
                 }
@@ -240,8 +235,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 ) {
                     menuRestart.visibility = View.VISIBLE
                     menuRestart.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.restartPlayer() ?:
-                        (parentFragment as? PlayerFragment)?.restartPlayer()
+                        (parentFragment as? Media3PlayerFragment)?.restartPlayer()
                         dismiss()
                     }
                 }
@@ -260,25 +254,22 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                             menuChatBar.text = getString(R.string.show_chat_bar)
                         }
                         menuChatBar.setOnClickListener {
-                            (parentFragment as? Media3PlayerFragment)?.toggleChatBar() ?:
-                            (parentFragment as? PlayerFragment)?.toggleChatBar()
+                            (parentFragment as? Media3PlayerFragment)?.toggleChatBar()
                             dismiss()
                         }
                     }
                     if (requireContext().prefs().getBoolean(C.PLAYER_MENU_CHAT_DISCONNECT, true)) {
                         menuChatDisconnect.visibility = View.VISIBLE
-                        if (((parentFragment as? Media3PlayerFragment)?.isActive() ?: (parentFragment as? PlayerFragment)?.isActive()) == true) {
+                        if (((parentFragment as? Media3PlayerFragment)?.isActive() ) == true) {
                             menuChatDisconnect.text = getString(R.string.disconnect_chat)
                             menuChatDisconnect.setOnClickListener {
-                                (parentFragment as? Media3PlayerFragment)?.disconnect() ?:
-                                (parentFragment as? PlayerFragment)?.disconnect()
+                                (parentFragment as? Media3PlayerFragment)?.disconnect()
                                 dismiss()
                             }
                         } else {
                             menuChatDisconnect.text = getString(R.string.connect_chat)
                             menuChatDisconnect.setOnClickListener {
-                                (parentFragment as? Media3PlayerFragment)?.reconnect() ?:
-                                (parentFragment as? PlayerFragment)?.reconnect()
+                                (parentFragment as? Media3PlayerFragment)?.reconnect()
                                 dismiss()
                             }
                         }
@@ -287,66 +278,59 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 if (requireContext().prefs().getBoolean(C.DEBUG_PLAYER_MENU_PLAYLIST_TAGS, false)) {
                     menuMediaPlaylistTags.visibility = View.VISIBLE
                     menuMediaPlaylistTags.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.showPlaylistTags(true) ?:
-                        (parentFragment as? PlayerFragment)?.showPlaylistTags(true)
+                        (parentFragment as? Media3PlayerFragment)?.showPlaylistTags(true)
                         dismiss()
                     }
                     menuMultivariantPlaylistTags.visibility = View.VISIBLE
                     menuMultivariantPlaylistTags.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.showPlaylistTags(false) ?:
-                        (parentFragment as? PlayerFragment)?.showPlaylistTags(false)
+                        (parentFragment as? Media3PlayerFragment)?.showPlaylistTags(false)
                         dismiss()
                     }
                 }
             }
-            if (type == BasePlaybackService.VIDEO) {
+            if (type == PlaybackContract.VIDEO) {
                 if (arguments.getBoolean(VOD_GAMES)) {
                     setVodGames()
                 }
                 if (requireContext().prefs().getBoolean(C.PLAYER_MENU_BOOKMARK, true)) {
-                    (parentFragment as? Media3PlayerFragment)?.checkBookmark() ?:
-                    (parentFragment as? PlayerFragment)?.checkBookmark()
+                    (parentFragment as? Media3PlayerFragment)?.checkBookmark()
                 }
             }
-            if (type != BasePlaybackService.OFFLINE_VIDEO &&
+            if (type != PlaybackContract.OFFLINE_VIDEO &&
                 (requireContext().prefs().getBoolean(C.PLAYER_MENU_DOWNLOAD, true) ||
                     canShowHudActionInOverflow(HudElementId.DOWNLOAD))
             ) {
                 menuDownload.visibility = View.VISIBLE
                 menuDownload.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.showDownloadDialog() ?:
-                    (parentFragment as? PlayerFragment)?.showDownloadDialog()
+                    (parentFragment as? Media3PlayerFragment)?.showDownloadDialog()
                     dismiss()
                 }
             }
             if (requireContext().prefs().getBoolean(C.PLAYER_MENU_SHARE, true)) {
                 menuShare.visibility = View.VISIBLE
                 menuShare.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.share() ?:
-                    (parentFragment as? PlayerFragment)?.share()
+                    (parentFragment as? Media3PlayerFragment)?.share()
                     dismiss()
                 }
             }
-            if (type != BasePlaybackService.CLIP &&
+            if (type != PlaybackContract.CLIP &&
                 (requireContext().prefs().getBoolean(C.PLAYER_MENU_SLEEP, true) ||
                     canShowHudActionInOverflow(HudElementId.SLEEP_TIMER))
             ) {
                 menuTimer.visibility = View.VISIBLE
                 menuTimer.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.showSleepTimerDialog() ?:
-                    (parentFragment as? PlayerFragment)?.showSleepTimerDialog()
+                    (parentFragment as? Media3PlayerFragment)?.showSleepTimerDialog()
                     dismiss()
                 }
             }
-            if (((parentFragment as? Media3PlayerFragment)?.getIsPortrait() ?: (parentFragment as? PlayerFragment)?.getIsPortrait()) == false) {
+            if (((parentFragment as? Media3PlayerFragment)?.getIsPortrait() ) == false) {
                 if (isTv ||
                     requireContext().prefs().getBoolean(C.PLAYER_MENU_ASPECT, false) ||
                     canShowHudActionInOverflow(HudElementId.ASPECT_RATIO)
                 ) {
                     menuRatio.visibility = View.VISIBLE
                     menuRatio.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.setResizeMode() ?:
-                        (parentFragment as? PlayerFragment)?.setResizeMode()
+                        (parentFragment as? Media3PlayerFragment)?.setResizeMode()
                         dismiss()
                     }
                 }
@@ -363,15 +347,13 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 if (requireContext().prefs().getBoolean(C.KEY_CHAT_OPENED, true)) {
                     menuChatToggle.text = getString(R.string.hide_chat)
                     menuChatToggle.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.hideChat() ?:
-                        (parentFragment as? PlayerFragment)?.hideChat()
+                        (parentFragment as? Media3PlayerFragment)?.hideChat()
                         dismiss()
                     }
                 } else {
                     menuChatToggle.text = getString(R.string.show_chat)
                     menuChatToggle.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.showChat() ?:
-                        (parentFragment as? PlayerFragment)?.showChat()
+                        (parentFragment as? Media3PlayerFragment)?.showChat()
                         dismiss()
                     }
                 }
@@ -382,40 +364,35 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             ) {
                 menuVolume.visibility = View.VISIBLE
                 menuVolume.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.showVolumeDialog() ?:
-                    (parentFragment as? PlayerFragment)?.showVolumeDialog()
+                    (parentFragment as? Media3PlayerFragment)?.showVolumeDialog()
                     dismiss()
                 }
             }
             if (requireContext().prefs().getBoolean(C.CHAT_TRANSLATE, false) && Build.SUPPORTED_64_BIT_ABIS.firstOrNull() == "arm64-v8a") {
-                val translateAll = (parentFragment as? Media3PlayerFragment)?.getTranslateAllMessages() ?: (parentFragment as? PlayerFragment)?.getTranslateAllMessages()
+                val translateAll = (parentFragment as? Media3PlayerFragment)?.getTranslateAllMessages()
                 if (translateAll != null) {
                     menuTranslateAll.visibility = View.VISIBLE
                     if (translateAll) {
                         menuTranslateAll.setOnClickListener {
-                            (parentFragment as? Media3PlayerFragment)?.deleteTranslatedChannel() ?:
-                            (parentFragment as? PlayerFragment)?.deleteTranslatedChannel()
+                            (parentFragment as? Media3PlayerFragment)?.deleteTranslatedChannel()
                             dismiss()
                         }
                     } else {
                         menuTranslateAll.setOnClickListener {
-                            (parentFragment as? Media3PlayerFragment)?.saveTranslatedChannel() ?:
-                            (parentFragment as? PlayerFragment)?.saveTranslatedChannel()
+                            (parentFragment as? Media3PlayerFragment)?.saveTranslatedChannel()
                             dismiss()
                         }
                     }
                 }
             }
-            (parentFragment as? Media3PlayerFragment)?.setSubtitlesButton() ?:
-            (parentFragment as? PlayerFragment)?.setSubtitlesButton()
-            if ((type == BasePlaybackService.STREAM || type == BasePlaybackService.VIDEO) &&
+            (parentFragment as? Media3PlayerFragment)?.setSubtitlesButton()
+            if ((type == PlaybackContract.STREAM || type == PlaybackContract.VIDEO) &&
                 requireContext().prefs().isChatEnabled() &&
                 requireContext().prefs().getBoolean(C.PLAYER_MENU_RELOAD_EMOTES, true)
             ) {
                 menuReloadEmotes.visibility = View.VISIBLE
                 menuReloadEmotes.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.reloadEmotes() ?:
-                    (parentFragment as? PlayerFragment)?.reloadEmotes()
+                    (parentFragment as? Media3PlayerFragment)?.reloadEmotes()
                     dismiss()
                 }
             }
@@ -436,21 +413,21 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
 
     private fun canShowHudActionInOverflow(id: HudElementId): Boolean =
         (parentFragment as? Media3PlayerFragment)?.canShowHudActionInOverflow(id)
-            ?: (parentFragment as? PlayerFragment)?.canShowHudActionInOverflow(id)
+
             ?: false
 
     private fun hudActionContentDescription(id: HudElementId): CharSequence? =
         (parentFragment as? Media3PlayerFragment)?.hudActionContentDescription(id)
-            ?: (parentFragment as? PlayerFragment)?.hudActionContentDescription(id)
+
 
     private fun isHudActionEnabled(id: HudElementId): Boolean =
         (parentFragment as? Media3PlayerFragment)?.isHudActionEnabled(id)
-            ?: (parentFragment as? PlayerFragment)?.isHudActionEnabled(id)
+
             ?: false
 
     private fun performHudAction(id: HudElementId) {
         (parentFragment as? Media3PlayerFragment)?.performHudAction(id)
-            ?: (parentFragment as? PlayerFragment)?.performHudAction(id)
+
     }
 
     private fun showHudEditor() {
@@ -488,8 +465,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
     }
 
     private fun openQualityDialog() {
-        (parentFragment as? Media3PlayerFragment)?.showQualityDialog() ?:
-        (parentFragment as? PlayerFragment)?.showQualityDialog()
+        (parentFragment as? Media3PlayerFragment)?.showQualityDialog()
         dismiss()
     }
 
@@ -510,8 +486,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             ) {
                 menuVodGames.visibility = View.VISIBLE
                 menuVodGames.setOnClickListener {
-                    (parentFragment as? Media3PlayerFragment)?.showVodGames() ?:
-                    (parentFragment as? PlayerFragment)?.showVodGames()
+                    (parentFragment as? Media3PlayerFragment)?.showVodGames()
                     dismiss()
                 }
             }
@@ -523,8 +498,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
             menuBookmark.visibility = View.VISIBLE
             menuBookmark.text = getString(if (isBookmarked) R.string.remove_bookmark else R.string.add_bookmark)
             menuBookmark.setOnClickListener {
-                (parentFragment as? Media3PlayerFragment)?.saveBookmark() ?:
-                (parentFragment as? PlayerFragment)?.saveBookmark()
+                (parentFragment as? Media3PlayerFragment)?.saveBookmark()
                 dismiss()
             }
         }
@@ -541,16 +515,14 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 if (subtitles.isSelected) {
                     menuSubtitles.text = getString(R.string.hide_subtitles)
                     menuSubtitles.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.toggleSubtitles(false) ?:
-                        (parentFragment as? PlayerFragment)?.toggleSubtitles(false)
+                        (parentFragment as? Media3PlayerFragment)?.toggleSubtitles(false)
                         requireContext().prefs().edit { putBoolean(C.PLAYER_SUBTITLES_ENABLED, false) }
                         dismiss()
                     }
                 } else {
                     menuSubtitles.text = getString(R.string.show_subtitles)
                     menuSubtitles.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.toggleSubtitles(true) ?:
-                        (parentFragment as? PlayerFragment)?.toggleSubtitles(true)
+                        (parentFragment as? Media3PlayerFragment)?.toggleSubtitles(true)
                         requireContext().prefs().edit { putBoolean(C.PLAYER_SUBTITLES_ENABLED, true) }
                         dismiss()
                     }
