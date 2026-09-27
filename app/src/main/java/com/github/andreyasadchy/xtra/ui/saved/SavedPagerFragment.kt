@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
-import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.ActivityResultLauncher
@@ -107,7 +106,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
             toolbar.menu.findItem(R.id.login).title = if (isLoggedIn) getString(R.string.log_out) else getString(R.string.log_in)
             toolbar.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
-                    R.id.search -> {
+                    R.id.search, R.id.searchOverflow -> {
                         findNavController().navigate(SearchPagerFragmentDirections.actionGlobalSearchPagerFragment())
                         true
                     }
@@ -255,12 +254,10 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
 
     private fun setDownloadsActionsVisible(isDownloads: Boolean) {
         val toolbar = _binding?.toolbar ?: return
+        toolbar.menu.findItem(R.id.search).isVisible = !isDownloads
+        toolbar.menu.findItem(R.id.searchOverflow).isVisible = isDownloads
         toolbar.menu.findItem(R.id.importFolders).isVisible = isDownloads
         toolbar.menu.findItem(R.id.importFiles).isVisible = isDownloads
-        toolbar.menu.findItem(R.id.settings).setShowAsAction(
-            if (isDownloads) MenuItem.SHOW_AS_ACTION_NEVER
-            else MenuItem.SHOW_AS_ACTION_ALWAYS,
-        )
     }
 
     override fun scrollToTop() {

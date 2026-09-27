@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
-import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.ActivityResultLauncher
@@ -100,12 +99,10 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
             fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let { liftTargetConnector?.connect(it) }
             if (fragment is Sortable) fragment.setupSortBar(binding.sortBar) else binding.sortBar.root.visibility = View.GONE
             val isDownloads = fragment is DownloadsFragment
+            binding.toolbar.menu.findItem(R.id.search).isVisible = !isDownloads
+            binding.toolbar.menu.findItem(R.id.searchOverflow).isVisible = isDownloads
             binding.toolbar.menu.findItem(R.id.importFolders).isVisible = isDownloads
             binding.toolbar.menu.findItem(R.id.importFiles).isVisible = isDownloads
-            binding.toolbar.menu.findItem(R.id.settings).setShowAsAction(
-                if (isDownloads) MenuItem.SHOW_AS_ACTION_NEVER
-                else MenuItem.SHOW_AS_ACTION_ALWAYS,
-            )
         }
         with(binding) {
             val activity = requireActivity() as MainActivity
@@ -117,7 +114,7 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
             toolbar.menu.findItem(R.id.login).title = if (isLoggedIn) getString(R.string.log_out) else getString(R.string.log_in)
             toolbar.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
-                    R.id.search -> {
+                    R.id.search, R.id.searchOverflow -> {
                         findNavController().navigate(SearchPagerFragmentDirections.actionGlobalSearchPagerFragment())
                         true
                     }

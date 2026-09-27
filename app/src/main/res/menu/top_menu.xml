@@ -17,6 +17,11 @@
         app:iconTint="?attr/colorControlNormal"
         app:showAsAction="always" />
     <item
+        android:id="@+id/searchOverflow"
+        android:title="@string/search"
+        android:visible="false"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/twitchNotifications"
         android:icon="@drawable/ic_twitch_notifications"
         android:title="@string/notifications"
