@@ -165,6 +165,7 @@ class MainActivity : AppCompatActivity() {
     private var lastPlaybackNetworkCellular: Boolean? = null
     private var pipActionReceiver: BroadcastReceiver? = null
     private lateinit var prefs: SharedPreferences
+    private var appliedUiStyle: String? = null
     var settingsResultLauncher: ActivityResultLauncher<Intent>? = null
     var loginResultLauncher: ActivityResultLauncher<Intent>? = null
     var logoutResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -189,16 +190,53 @@ class MainActivity : AppCompatActivity() {
     private var keepStateNavigator: KeepStateFragmentNavigator? = null
     private var lastDeepLinkNavKey: String? = null
     private var lastDeepLinkNavTime = 0L
+    private var useNavigationRail = false
+    private var hasNavigationDestinations = true
     private val isTv: Boolean get() = isTelevision()
 
     private fun rootNavigationView(): NavigationBarView =
-        if (isTv) binding.tvNavRail else binding.navBar
+        if (useNavigationRail) binding.tvNavRail else binding.navBar
+
+    private fun navigationViews(): List<NavigationBarView> =
+        listOf(binding.navBar, binding.tvNavRail)
+
+    private fun updateNavigationPresentation(configuration: Configuration) {
+        useNavigationRail = isTv || configuration.screenWidthDp >= 600
+        val showNavigation = isTv || hasNavigationDestinations
+        binding.tvNavigationContainer.isVisible = useNavigationRail && showNavigation
+        binding.navBarContainer.isVisible = !useNavigationRail && showNavigation
+        binding.tvSearch.isVisible = isTv
+        binding.tvAccount.isVisible = isTv
+        binding.tvSettings.isVisible = isTv
+        binding.tvNavigationContainer.layoutParams = binding.tvNavigationContainer.layoutParams.apply {
+            width = resources.getDimensionPixelSize(
+                if (isTv) R.dimen.tv_navigation_width else R.dimen.adaptive_navigation_rail_width,
+            )
+        }
+        binding.navBar.labelVisibilityMode = if (
+            prefs.getString(C.SETTINGS_UI_STYLE, "expressive") == "expressive"
+        ) {
+            NavigationBarView.LABEL_VISIBILITY_SELECTED
+        } else {
+            NavigationBarView.LABEL_VISIBILITY_LABELED
+        }
+        binding.tvNavRail.labelVisibilityMode = if (isTv ||
+            prefs.getString(C.SETTINGS_UI_STYLE, "expressive") != "expressive"
+        ) {
+            NavigationBarView.LABEL_VISIBILITY_LABELED
+        } else {
+            NavigationBarView.LABEL_VISIBILITY_SELECTED
+        }
+        binding.mainNavigationDivider.isVisible = !useNavigationRail &&
+            prefs.getString(C.SETTINGS_UI_STYLE, "expressive") != "expressive"
+    }
 
     //Lifecycle methods
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = prefs()
+        appliedUiStyle = prefs.getString(C.SETTINGS_UI_STYLE, "expressive") ?: "expressive"
         val app = application as XtraApp
         val restoringSettings = app.hasPendingSettingsRestoreMigration
         try {
@@ -236,7 +274,16 @@ class MainActivity : AppCompatActivity() {
         LiveNotificationScheduler.migrateMode(this)
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
+        binding.navBar.labelVisibilityMode = if (
+            prefs.getString(C.SETTINGS_UI_STYLE, "expressive") == "expressive"
+        ) {
+            com.google.android.material.navigation.NavigationBarView.LABEL_VISIBILITY_SELECTED
+        } else {
+            com.google.android.material.navigation.NavigationBarView.LABEL_VISIBILITY_LABELED
+        }
+        binding.mainNavigationDivider.isVisible = prefs.getString(C.SETTINGS_UI_STYLE, "expressive") != "expressive"
         setContentView(binding.root)
+        updateNavigationPresentation(resources.configuration)
         appBackgroundController = ActivityBackgroundController(
             root = binding.root,
             image = binding.appBackgroundImage,
@@ -296,6 +343,18 @@ class MainActivity : AppCompatActivity() {
             binding.navBarContainer.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 leftMargin = insets.left
                 rightMargin = insets.right
+            }
+            if (!isTv && useNavigationRail) {
+                val leadingInset = if (binding.root.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+                    insets.right
+                } else {
+                    insets.left
+                }
+                binding.tvNavigationContainer.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                    marginStart = leadingInset
+                    topMargin = insets.top
+                    bottomMargin = insets.bottom
+                }
             }
             windowInsets
         }
@@ -921,11 +980,18 @@ class MainActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        updateNavigationPresentation(newConfig)
         setNavBarColor(newConfig.orientation == Configuration.ORIENTATION_PORTRAIT)
     }
 
     override fun onResume() {
         super.onResume()
+        val currentUiStyle = prefs.getString(C.SETTINGS_UI_STYLE, "expressive") ?: "expressive"
+        if (appliedUiStyle != currentUiStyle) {
+            appliedUiStyle = currentUiStyle
+            recreate()
+            return
+        }
         findViewById<Toolbar>(R.id.toolbar)?.let {
             ProfileMenuBinder.bind(it, this)
             TwitchInboxMenuBinder.bind(it, this)
@@ -1738,6 +1804,8 @@ class MainActivity : AppCompatActivity() {
             prefs.getString(C.UI_NAVIGATION_TAB_LIST, null),
             isTv,
         )
+        hasNavigationDestinations = tabList.any { it.split(':')[2] != "0" }
+        updateNavigationPresentation(resources.configuration)
         navController.setGraph(navController.navInflater.inflate(R.navigation.nav_graph).also {
             val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
             when {
@@ -1768,11 +1836,12 @@ class MainActivity : AppCompatActivity() {
                     rootNavigationView().post { drainBottomNavigation() }
                 }
         }
-        rootNavigationView().apply {
+        navigationViews().forEach { navigationView ->
+            navigationView.apply {
             val menuBuilder = menu as? MenuBuilder
             menuBuilder?.stopDispatchingItemsChanged()
             try {
-            if (tabList.any { it.split(':')[2] != "0" }) {
+            if (hasNavigationDestinations) {
                 tabList.forEach {
                     val split = it.split(':')
                     val key = split[0]
@@ -1797,8 +1866,6 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 }
-            } else {
-                binding.navBarContainer.visibility = View.GONE
             }
             } finally {
                 menuBuilder?.startDispatchingItemsChanged()
@@ -1812,7 +1879,7 @@ class MainActivity : AppCompatActivity() {
                         true
                     }
                 }
-                if (isTv && menu.size() > 0) {
+                if (isTv && navigationView === rootNavigationView() && menu.size() > 0) {
                     configureTvRootFocusOrder()
                     findViewById<View>(menu.getItem(0).itemId)?.post {
                         findViewById<View>(menu.getItem(0).itemId)?.requestFocus()
@@ -1835,6 +1902,7 @@ class MainActivity : AppCompatActivity() {
                         currentFragment.scrollToTop()
                     }
                 }
+            }
             }
         }
     }

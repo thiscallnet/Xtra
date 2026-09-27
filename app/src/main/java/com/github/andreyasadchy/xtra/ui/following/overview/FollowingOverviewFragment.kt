@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
 import android.os.Bundle
+import android.content.res.Configuration
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -301,6 +302,13 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
         }
         streamShelfPreloadControllers.values.forEach(StreamPreloadViewportController::onResume)
         videoShelfPreviewControllers.values.forEach(StreamPreloadViewportController::onResume)
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (::overviewAdapter.isInitialized) {
+            overviewAdapter.notifyDataSetChanged()
+        }
     }
 
     override fun onPause() {

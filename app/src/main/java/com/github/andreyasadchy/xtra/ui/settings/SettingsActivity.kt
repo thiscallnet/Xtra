@@ -28,6 +28,7 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.text.style.StyleSpan
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
@@ -59,6 +60,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
+import androidx.core.widget.TextViewCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
@@ -155,6 +157,7 @@ import com.github.andreyasadchy.xtra.util.proxyPrefs
 import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.ui.common.ExpressiveShapeStyling
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.snackbar.Snackbar
@@ -213,6 +216,7 @@ class SettingsActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        applySettingsContentWidth()
         appBackgroundController = ActivityBackgroundController(
             root = binding.root,
             image = binding.appBackgroundImage,
@@ -295,6 +299,19 @@ class SettingsActivity : AppCompatActivity() {
                 return false
             }
         })
+    }
+
+    private fun applySettingsContentWidth() {
+        val maxWidthDp = 840
+        val contentWidth = if (!isTelevision() && resources.configuration.screenWidthDp >= maxWidthDp) {
+            (maxWidthDp * resources.displayMetrics.density).toInt()
+        } else {
+            ViewGroup.LayoutParams.MATCH_PARENT
+        }
+        binding.navHostFragment.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            width = contentWidth
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
     }
 
     override fun onStart() {
@@ -550,23 +567,29 @@ class SettingsActivity : AppCompatActivity() {
             super.onViewCreated(view, savedInstanceState)
             binding.content.removeView(binding.accountSection)
             binding.content.addView(binding.accountSection, 0)
+            val expressive = requireContext().prefs().getString(C.SETTINGS_UI_STYLE, "expressive") == "expressive"
+            if (expressive) configureExpressiveSettingsHome()
             binding.searchCard.setOnClickListener {
                 navigate(SettingsNavGraphDirections.actionGlobalSettingsSearchFragment())
             }
             settingsGroups().forEach { group ->
-                addSectionHeader(group.title)
-                group.items.forEachIndexed { index, item ->
-                    val rowBinding = ItemSettingsRowBinding.inflate(layoutInflater, binding.sections, false)
-                    rowBinding.icon.setImageResource(item.icon)
-                    rowBinding.title.setText(item.title)
-                    rowBinding.summary.setText(item.summary)
-                    rowBinding.root.contentDescription = getString(item.title) + ". " + getString(item.summary)
-                    rowBinding.divider.visibility = if (index == group.items.lastIndex) View.GONE else View.VISIBLE
-                    rowBinding.root.setOnClickListener { item.onClick() }
-                    binding.sections.addView(rowBinding.root)
+                if (expressive) {
+                    addExpressiveSettingsGroup(group)
+                } else {
+                    addSectionHeader(group.title)
+                    group.items.forEachIndexed { index, item ->
+                        val rowBinding = createSettingsRow(
+                            parent = binding.sections,
+                            item = item,
+                            showDivider = index < group.items.lastIndex,
+                            expressive = false,
+                        )
+                        binding.sections.addView(rowBinding.root)
+                    }
                 }
             }
             accountRow = ItemSettingsRowBinding.inflate(layoutInflater, binding.accountActions, false)
+            if (expressive) styleExpressiveSettingsRow(accountRow!!)
             binding.accountActions.addView(accountRow!!.root)
             renderAccountRow()
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
@@ -609,6 +632,131 @@ class SettingsActivity : AppCompatActivity() {
             })
         }
 
+        private fun configureExpressiveSettingsHome() {
+            ExpressiveShapeStyling.applyRippleSurface(
+                binding.searchCard,
+                com.google.android.material.R.attr.shapeAppearanceMediumComponent,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh,
+            )
+            binding.searchCard.minimumHeight = 56.dp()
+            binding.searchCard.updateLayoutParams<LinearLayout.LayoutParams> {
+                marginStart = 16.dp()
+                topMargin = 16.dp()
+                marginEnd = 16.dp()
+            }
+
+            binding.sections.updateLayoutParams<LinearLayout.LayoutParams> {
+                marginStart = 16.dp()
+                marginEnd = 16.dp()
+            }
+            binding.accountSection.updateLayoutParams<LinearLayout.LayoutParams> {
+                marginStart = 16.dp()
+                marginEnd = 16.dp()
+                topMargin = 16.dp()
+            }
+            binding.accountActions.apply {
+                ExpressiveShapeStyling.applySurface(
+                    this,
+                    com.google.android.material.R.attr.shapeAppearanceMediumComponent,
+                    com.google.android.material.R.attr.colorSurfaceContainerLow,
+                )
+                setPadding(0, 6.dp(), 0, 6.dp())
+            }
+            (binding.accountSection.getChildAt(0) as? TextView)?.apply {
+                setTextColor(
+                    MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant),
+                )
+                setPadding(16.dp(), 4.dp(), 16.dp(), 8.dp())
+            }
+        }
+
+        private fun addExpressiveSettingsGroup(group: SettingsGroup) {
+            val section = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                ).apply {
+                    topMargin = 14.dp()
+                }
+            }
+            section.addView(TextView(requireContext()).apply {
+                setText(group.title)
+                applyThemeTextAppearance(com.google.android.material.R.attr.textAppearanceTitleSmall)
+                setTextColor(
+                    MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant),
+                )
+                setPadding(16.dp(), 4.dp(), 16.dp(), 8.dp())
+            })
+
+            val card = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                ExpressiveShapeStyling.applySurface(
+                    this,
+                    com.google.android.material.R.attr.shapeAppearanceMediumComponent,
+                    com.google.android.material.R.attr.colorSurfaceContainerLow,
+                )
+                setPadding(0, 4.dp(), 0, 4.dp())
+            }
+            group.items.forEach { item ->
+                val rowBinding = createSettingsRow(
+                    parent = card,
+                    item = item,
+                    showDivider = false,
+                    expressive = true,
+                )
+                card.addView(rowBinding.root)
+            }
+            section.addView(card)
+            binding.sections.addView(section)
+        }
+
+        private fun createSettingsRow(
+            parent: ViewGroup,
+            item: SettingsItem,
+            showDivider: Boolean,
+            expressive: Boolean,
+        ): ItemSettingsRowBinding {
+            val rowBinding = ItemSettingsRowBinding.inflate(layoutInflater, parent, false)
+            rowBinding.icon.setImageResource(item.icon)
+            rowBinding.title.setText(item.title)
+            rowBinding.summary.setText(item.summary)
+            rowBinding.root.contentDescription = getString(item.title) + ". " + getString(item.summary)
+            rowBinding.divider.visibility = if (showDivider) View.VISIBLE else View.GONE
+            rowBinding.root.setOnClickListener { item.onClick() }
+            if (expressive) styleExpressiveSettingsRow(rowBinding)
+            return rowBinding
+        }
+
+        private fun styleExpressiveSettingsRow(rowBinding: ItemSettingsRowBinding) {
+            rowBinding.icon.updateLayoutParams<ViewGroup.LayoutParams> {
+                width = 36.dp()
+                height = 36.dp()
+            }
+            rowBinding.icon.apply {
+                setPadding(8.dp(), 8.dp(), 8.dp(), 8.dp())
+                ExpressiveShapeStyling.applySurface(
+                    this,
+                    com.google.android.material.R.attr.shapeAppearanceSmallComponent,
+                    com.google.android.material.R.attr.colorPrimaryContainer,
+                )
+                setColorFilter(
+                    MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnPrimaryContainer),
+                )
+            }
+            rowBinding.divider.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                marginStart = 64.dp()
+                marginEnd = 16.dp()
+            }
+        }
+
+        private fun TextView.applyThemeTextAppearance(attribute: Int) {
+            val value = TypedValue()
+            if (context.theme.resolveAttribute(attribute, value, true) && value.resourceId != 0) {
+                TextViewCompat.setTextAppearance(this, value.resourceId)
+            }
+        }
+
         private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
 
         private fun settingsGroups(): List<SettingsGroup> = listOf(
@@ -618,7 +766,7 @@ class SettingsActivity : AppCompatActivity() {
                     SettingsItem(R.string.settings_section_playback, R.drawable.ic_settings_playback, R.string.settings_home_playback_summary) {
                         navigate(SettingsNavGraphDirections.actionGlobalPlayerSettingsFragment())
                     },
-                    SettingsItem(R.string.settings_home_controls, R.drawable.ic_settings_playback, R.string.settings_home_controls_summary) {
+                    SettingsItem(R.string.settings_home_controls, R.drawable.baseline_settings_black_24, R.string.settings_home_controls_summary) {
                         navigate(SettingsNavGraphDirections.actionGlobalPlayerButtonSettingsFragment())
                     },
                     SettingsItem(R.string.settings_section_chat, R.drawable.ic_settings_chat, R.string.settings_home_chat_summary) {
@@ -2538,6 +2686,11 @@ class SettingsActivity : AppCompatActivity() {
                 findPreference<SwitchPreferenceCompat>(C.SETTINGS_DEVICE_COLORS)?.isVisible = false
             }
             findPreference<ListPreference>(C.SETTINGS_THEME_MODE)?.onPreferenceChangeListener = changeListener
+            findPreference<ListPreference>(C.SETTINGS_UI_STYLE)?.onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, _ ->
+                (requireActivity() as? SettingsActivity)?.setResult()
+                requireActivity().recreate()
+                true
+            }
             findPreference<SwitchPreferenceCompat>(C.SETTINGS_DEVICE_COLORS)?.onPreferenceChangeListener = changeListener
             findPreference<ListPreference>(C.SETTINGS_DENSITY)?.onPreferenceChangeListener = changeListener
             findPreference<ListPreference>(C.SETTINGS_FONT_FAMILY)?.onPreferenceChangeListener = changeListener

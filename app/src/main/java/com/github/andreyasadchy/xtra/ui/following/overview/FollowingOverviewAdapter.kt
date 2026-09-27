@@ -1,6 +1,11 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
+import android.content.res.Configuration
+import android.graphics.Typeface
 import android.os.Parcelable
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
@@ -16,6 +21,8 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
+import com.github.andreyasadchy.xtra.ui.common.ExpressiveShapeStyling
+import com.github.andreyasadchy.xtra.ui.common.usesExpressiveInterface
 
 data class FollowingOverviewSection(
     val key: String,
@@ -62,7 +69,15 @@ class FollowingOverviewAdapter(
     override fun getItemId(position: Int): Long = getItem(position).key.hashCode().toLong()
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        return ViewHolder(ItemFollowingSectionBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+        val expressive = parent.context.usesExpressiveInterface()
+        val layout = if (expressive) {
+            R.layout.item_following_section
+        } else {
+            R.layout.item_following_section_classic
+        }
+        val itemView = LayoutInflater.from(parent.context).inflate(layout, parent, false)
+        if (expressive) ExpressiveShapeStyling.applyFollowingOverviewSection(itemView)
+        return ViewHolder(ItemFollowingSectionBinding.bind(itemView))
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
@@ -85,7 +100,7 @@ class FollowingOverviewAdapter(
         inner class ViewHolder(
         private val binding: ItemFollowingSectionBinding,
     ) : RecyclerView.ViewHolder(binding.root) {
-        private val shelfAdapter = StreamShelfAdapter(fragment, onStreamClick, onStreamTagClick)
+        private val shelfAdapter = StreamShelfAdapter(fragment, onStreamClick, onStreamTagClick, compactOverviewCards = true)
         private val videoShelfAdapter = VideoShelfAdapter(fragment, onVideoClick)
         private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(fragment, onUpcomingClick)
         private val gameShelfAdapter = GameShelfAdapter(onGameClick)
@@ -99,6 +114,7 @@ class FollowingOverviewAdapter(
         private var submittedGames: List<Game>? = null
         private var submittedVideos: List<VideoHistory>? = null
         private var submittedScheduledStreams: List<UpcomingStream>? = null
+        private var layoutOrientation = binding.root.resources.configuration.orientation
 
         init {
             configureShelfLayout(ShelfType.STREAM)
@@ -121,6 +137,9 @@ class FollowingOverviewAdapter(
         }
 
         fun bind(section: FollowingOverviewSection, showDivider: Boolean) {
+            val orientation = binding.root.resources.configuration.orientation
+            val orientationChanged = layoutOrientation != orientation
+            layoutOrientation = orientation
             binding.sectionDivider.visibility = if (showDivider) android.view.View.VISIBLE else android.view.View.GONE
             if (boundSectionKey != section.key) {
                 saveShelfState()
@@ -133,7 +152,22 @@ class FollowingOverviewAdapter(
             section.title?.let { binding.sectionTitle.text = it } ?: binding.sectionTitle.setText(section.titleRes)
             val hasItems = section.streams.isNotEmpty() || section.games.isNotEmpty() || section.videos.isNotEmpty() || section.scheduledStreams.isNotEmpty()
             val showSkeleton = section.isLoading && !hasItems && !section.hasResolved
-            binding.emptyMessage.setText(section.emptyRes)
+            val compactEmptyState = binding.root.context.usesExpressiveInterface() &&
+                binding.root.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                !hasItems && !showSkeleton
+            binding.sectionTitle.visibility = if (compactEmptyState) android.view.View.GONE else android.view.View.VISIBLE
+            if (compactEmptyState) {
+                val title = section.title ?: binding.root.context.getText(section.titleRes)
+                val message = binding.root.context.getText(section.emptyRes)
+                binding.emptyMessage.text = SpannableStringBuilder(title)
+                    .append(" · ")
+                    .append(message)
+                    .apply {
+                        setSpan(StyleSpan(Typeface.BOLD), 0, title.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                    }
+            } else {
+                binding.emptyMessage.setText(section.emptyRes)
+            }
             binding.emptyMessage.visibility = if (hasItems || showSkeleton) android.view.View.GONE else android.view.View.VISIBLE
             binding.shelfRecyclerView.visibility = if (hasItems || showSkeleton) android.view.View.VISIBLE else android.view.View.GONE
             binding.seeAll.visibility = if (hasItems && section.showSeeAll) android.view.View.VISIBLE else android.view.View.GONE
@@ -242,6 +276,7 @@ class FollowingOverviewAdapter(
                         shelfAdapter.submitList(section.streams)
                         submittedStreams = section.streams
                     }
+                    if (orientationChanged) shelfAdapter.notifyDataSetChanged()
                     restoreShelfState(section.key)
                     if (hasItems && boundStreamShelfKey != section.key) {
                         detachStreamShelf()

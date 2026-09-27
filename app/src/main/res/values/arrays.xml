@@ -640,6 +640,16 @@
         <item>amoled</item>
     </string-array>
 
+    <string-array name="settingsUiStyleEntries" translatable="false">
+        <item>@string/settings_ui_style_expressive</item>
+        <item>@string/settings_ui_style_classic</item>
+    </string-array>
+
+    <string-array name="settingsUiStyleValues" translatable="false">
+        <item>expressive</item>
+        <item>classic</item>
+    </string-array>
+
     <string-array name="playerBackgroundModeEntries" translatable="false">
         <item>@string/settings_player_background_use_app</item>
         <item>@string/settings_player_background_custom</item>

@@ -20,6 +20,7 @@ import com.github.andreyasadchy.xtra.ui.common.prepareStreamThumbnailImage
 import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamThumbnail
 import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
+import com.github.andreyasadchy.xtra.ui.common.ExpressiveShapeStyling
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
 import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
@@ -30,6 +31,7 @@ import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
+import com.github.andreyasadchy.xtra.ui.common.usesExpressiveInterface
 import com.github.andreyasadchy.xtra.ui.common.StreamUptimeViewHolder
 import com.github.andreyasadchy.xtra.ui.common.VisibleStreamUptimeTicker
 import com.github.andreyasadchy.xtra.ui.common.formatStreamUptime
@@ -38,6 +40,7 @@ import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.drops.StreamDropsBottomSheet
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 
 class StreamsShelfPagingAdapter(
     private val fragment: Fragment,
@@ -68,7 +71,11 @@ class StreamsShelfPagingAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        return ViewHolder(ItemStreamShelfBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+        val expressive = parent.context.usesExpressiveInterface()
+        val layout = if (expressive) R.layout.item_stream_shelf else R.layout.item_stream_shelf_classic
+        val itemView = LayoutInflater.from(parent.context).inflate(layout, parent, false)
+        if (expressive) ExpressiveShapeStyling.applyStreamShelfItem(itemView)
+        return ViewHolder(ItemStreamShelfBinding.bind(itemView), expressive)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
@@ -100,6 +107,7 @@ class StreamsShelfPagingAdapter(
 
     inner class ViewHolder(
         private val binding: ItemStreamShelfBinding,
+        expressiveUi: Boolean,
     ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner, StreamUptimeViewHolder {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
@@ -119,6 +127,7 @@ class StreamsShelfPagingAdapter(
             binding.root.setOnClickListener {
                 boundStream?.let { (fragment.activity as? MainActivity)?.startStream(it) }
             }
+            if (expressiveUi) TvFocusHelper.install(binding.root)
             binding.avatar.setOnClickListener { boundStream?.let(::openChannel) }
             binding.channel.setOnClickListener { boundStream?.let(::openChannel) }
             binding.category.setOnClickListener { boundStream?.let(::openGame) }

@@ -27,25 +27,25 @@
         android:title="@string/notifications"
         android:visible="false"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/whispers"
         android:icon="@drawable/ic_twitch_whispers"
         android:title="@string/whispers"
         android:visible="false"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/settings"
         android:icon="@drawable/baseline_settings_black_24"
         android:title="@string/settings"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/profile"
         android:title="@string/view_profile"
         android:visible="false"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/login"
         android:title="@string/log_in"

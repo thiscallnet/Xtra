@@ -47,6 +47,11 @@
     <string name="following_overview">Overview</string>
     <string name="following_categories">Categories</string>
     <string name="following_live_channels">Live channels</string>
+    <string name="compact_stream_more_tags_short">+%1$d</string>
+    <plurals name="compact_stream_more_tags_description">
+        <item quantity="one">%1$d more stream tag</item>
+        <item quantity="other">%1$d more stream tags</item>
+    </plurals>
     <string name="following_no_live_channels">No followed channels are live right now.</string>
     <string name="following_recommended_channels">Recommended for you</string>
     <string name="following_popular_live_channels">Popular live channels</string>
@@ -436,6 +441,9 @@
     <string name="settings_theme_device_colors">Use device colors</string>
     <string name="settings_theme_device_colors_summary">Use colors from your device wallpaper when supported.</string>
     <string name="settings_theme_system">System</string>
+    <string name="settings_ui_style">Interface style</string>
+    <string name="settings_ui_style_classic">Classic</string>
+    <string name="settings_ui_style_expressive">Expressive</string>
     <string name="settings_theme_amoled" translatable="false">AMOLED</string>
     <string name="settings_density_comfortable">Comfortable</string>
     <string name="settings_density_compact">Compact</string>
@@ -788,6 +796,9 @@ Metadata text</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
     <string name="search">Search</string>
+    <string name="search_landing_title">Explore Twitch</string>
+    <string name="search_landing_summary">Find live streams, channels, videos, and games.</string>
+    <string name="search_recent_searches">Recent searches</string>
     <string name="chat_replay_unavailable">Chat replay is unavailable</string>
     <string name="video_subscribers_only">This video is only available to subscribers.</string>
     <string name="player_error">Player error, retrying…</string>

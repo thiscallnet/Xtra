@@ -74,6 +74,7 @@ object C {
     const val SETTINGS_SCHEMA_VERSION = 27
     const val SETTINGS_THEME_MODE = "settings_theme_mode"
     const val SETTINGS_DEVICE_COLORS = "settings_device_colors"
+    const val SETTINGS_UI_STYLE = "settings_ui_style"
     const val SETTINGS_DENSITY = "settings_density"
     const val SETTINGS_FONT_FAMILY = "settings_font_family"
     const val SETTINGS_PROFILE_PICTURE_STYLE = "settings_profile_picture_style"

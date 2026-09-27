@@ -4,16 +4,14 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingTop="8dp"
+    android:paddingTop="10dp"
     android:paddingBottom="4dp">
 
     <View
         android:id="@+id/sectionDivider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="14dp"
+        android:layout_marginBottom="10dp"
         android:background="?attr/sectionDividerColor"
         android:visibility="gone" />
 
@@ -21,8 +19,8 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
+        android:paddingStart="0dp"
+        android:paddingEnd="0dp">
 
         <TextView
             android:id="@+id/sectionTitle"
@@ -37,14 +35,15 @@
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:gravity="center"
-            android:minWidth="72dp"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
+            android:minWidth="48dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="4dp"
             android:text="@string/following_see_all"
             android:textAppearance="?attr/textAppearanceLabelLarge"
-            android:textColor="?attr/colorOnPrimaryContainer"
+            android:textColor="?attr/colorPrimary"
             android:clickable="true"
             android:focusable="true"
+            android:foreground="?attr/selectableItemBackground"
             tools:ignore="UsingOnClickInXml" />
     </LinearLayout>
 
@@ -60,8 +59,8 @@
             android:layout_height="wrap_content"
             android:clipToPadding="false"
             android:overScrollMode="never"
-            android:paddingStart="16dp"
-            android:paddingEnd="16dp" />
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp" />
 
         <ImageButton
             android:id="@+id/heroPrevious"
@@ -93,15 +92,11 @@
         android:id="@+id/emptyMessage"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginTop="4dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="0dp"
         android:paddingStart="0dp"
-        android:paddingTop="0dp"
+        android:paddingTop="8dp"
         android:paddingEnd="0dp"
-        android:paddingBottom="0dp"
-        android:textAppearance="?attr/textAppearanceBodySmall"
+        android:paddingBottom="12dp"
+        android:textAppearance="?attr/textAppearanceBodyMedium"
         android:textColor="?android:attr/textColorSecondary"
         android:visibility="gone"
         tools:text="No followed channels are live right now."

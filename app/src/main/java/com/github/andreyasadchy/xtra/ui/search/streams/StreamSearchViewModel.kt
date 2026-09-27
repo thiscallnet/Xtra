@@ -11,12 +11,14 @@ import androidx.paging.PagingConfig
 import androidx.paging.cachedIn
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
+import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.searchQueries
 import com.github.andreyasadchy.xtra.model.ui.RecentSearch
 import com.github.andreyasadchy.xtra.repository.DropsRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
+import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.datasource.SearchStreamsDataSource
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -34,6 +36,7 @@ class StreamSearchViewModel(
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
     private val dropsRepository: DropsRepository,
+    private val recommendationsRepository: RecommendationsRepository,
 ) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -41,6 +44,13 @@ class StreamSearchViewModel(
     private val _dropsFilters = MutableStateFlow<List<DropStreamFilter>>(emptyList())
     val dropsFilters: StateFlow<List<DropStreamFilter>> = _dropsFilters
     val recentSearches = recentSearchesRepository.getAll(RecentSearch.TYPE_STREAM)
+    val cachedSuggestions = MutableStateFlow<List<Stream>>(emptyList())
+
+    fun refreshCachedSuggestions() {
+        viewModelScope.launch {
+            cachedSuggestions.value = recommendationsRepository.peekCachedRecommendations(limit = 8)
+        }
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val flow = combine(_query, _dropsFilters) { query, dropsFilters -> query to dropsFilters }
@@ -106,6 +116,7 @@ class StreamSearchViewModel(
                     xtraModule.graphQLRepository,
                     xtraModule.helixRepository,
                     xtraModule.dropsRepository,
+                    xtraModule.recommendationsRepository,
                 )
             }
         }

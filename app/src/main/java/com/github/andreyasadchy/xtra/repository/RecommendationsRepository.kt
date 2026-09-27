@@ -42,6 +42,20 @@ class RecommendationsRepository(
     var lastSource: RecommendationSource = RecommendationSource.UNAVAILABLE
         private set
 
+    /** Returns fresh recommendations already held in memory without making a request. */
+    suspend fun peekCachedRecommendations(limit: Int): List<Stream> {
+        if (limit <= 0) return emptyList()
+        val accountKey = currentAccountKey()
+        val now = System.currentTimeMillis()
+        return cacheMutex.withLock {
+            cache
+                ?.takeIf { it.accountKey == accountKey && recommendationCacheIsFresh(now, it.expiresAt) }
+                ?.recommendations
+                ?.take(limit)
+                .orEmpty()
+        }
+    }
+
     suspend fun getLiveRecommendations(
         limit: Int,
         excludedChannelIds: Set<String> = emptySet(),

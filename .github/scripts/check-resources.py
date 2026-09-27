@@ -87,6 +87,20 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_user_card_roles_summary",
     "settings_user_card_last_broadcast",
     "settings_user_card_last_broadcast_summary",
+    # The interface-style selector is shipping with its default English labels
+    # until the new visual style has been reviewed and localized.
+    "settings_ui_style",
+    "settings_ui_style_classic",
+    "settings_ui_style_expressive",
+    # Expressive compact stream-card tag overflow uses English fallback until
+    # the new card copy is reviewed and localized.
+    "compact_stream_more_tags_short",
+    "compact_stream_more_tags_description",
+    # Search landing copy ships in English until the new unified entry screen
+    # is reviewed and localized.
+    "search_landing_title",
+    "search_landing_summary",
+    "search_recent_searches",
     "add_emoji_to_favorites",
     "remove_emoji_from_favorites",
     "added_emoji_to_favorites",

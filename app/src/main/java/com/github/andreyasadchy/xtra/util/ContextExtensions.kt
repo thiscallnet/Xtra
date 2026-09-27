@@ -256,6 +256,7 @@ fun SharedPreferences.shouldAvoidTwitchAds(): Boolean = getBoolean(C.PLAYER_AVOI
 
 fun Activity.applyTheme() {
     val themeMode = prefs().getString(C.SETTINGS_THEME_MODE, "system") ?: "system"
+    val expressive = prefs().getString(C.SETTINGS_UI_STYLE, "expressive") == "expressive"
     val resolvedMode = if (themeMode == "system") {
         if ((resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES) {
             "dark"
@@ -269,33 +270,52 @@ fun Activity.applyTheme() {
     val fontFamily = prefs().getString(C.SETTINGS_FONT_FAMILY, C.FONT_SYSTEM) ?: C.FONT_SYSTEM
     val noCorners = prefs().getString(C.UI_THEME_ROUNDED_CORNERS, "0") == "2"
     val smallCorners = prefs().getString(C.UI_THEME_ROUNDED_CORNERS, "0") == "1"
-    val style = when (resolvedMode) {
-        "light" -> when {
-            smallCorners && compact -> R.style.LightThemeSmallCornersReducedPaddingCompactText
-            smallCorners -> R.style.LightThemeSmallCorners
-            noCorners && compact -> R.style.LightThemeNoCornersReducedPaddingCompactText
-            noCorners -> R.style.LightThemeNoCorners
-            compact -> R.style.LightThemeReducedPaddingCompactText
-            else -> R.style.LightTheme
+    val style = if (expressive) {
+        when (resolvedMode) {
+            "light" -> R.style.ExpressiveLightTheme
+            "amoled" -> R.style.ExpressiveAmoledTheme
+            "blue" -> R.style.ExpressiveBlueTheme
+            else -> R.style.ExpressiveDarkTheme
         }
-        "amoled" -> when {
-            smallCorners && compact -> R.style.AmoledThemeSmallCornersReducedPaddingCompactText
-            smallCorners -> R.style.AmoledThemeSmallCorners
-            noCorners && compact -> R.style.AmoledThemeNoCornersReducedPaddingCompactText
-            noCorners -> R.style.AmoledThemeNoCorners
-            compact -> R.style.AmoledThemeReducedPaddingCompactText
-            else -> R.style.AmoledTheme
-        }
-        else -> when {
-            smallCorners && compact -> R.style.DarkThemeSmallCornersReducedPaddingCompactText
-            smallCorners -> R.style.DarkThemeSmallCorners
-            noCorners && compact -> R.style.DarkThemeNoCornersReducedPaddingCompactText
-            noCorners -> R.style.DarkThemeNoCorners
-            compact -> R.style.DarkThemeReducedPaddingCompactText
-            else -> R.style.DarkTheme
+    } else {
+        when (resolvedMode) {
+            "light" -> when {
+                smallCorners && compact -> R.style.LightThemeSmallCornersReducedPaddingCompactText
+                smallCorners -> R.style.LightThemeSmallCorners
+                noCorners && compact -> R.style.LightThemeNoCornersReducedPaddingCompactText
+                noCorners -> R.style.LightThemeNoCorners
+                compact -> R.style.LightThemeReducedPaddingCompactText
+                else -> R.style.LightTheme
+            }
+            "amoled" -> when {
+                smallCorners && compact -> R.style.AmoledThemeSmallCornersReducedPaddingCompactText
+                smallCorners -> R.style.AmoledThemeSmallCorners
+                noCorners && compact -> R.style.AmoledThemeNoCornersReducedPaddingCompactText
+                noCorners -> R.style.AmoledThemeNoCorners
+                compact -> R.style.AmoledThemeReducedPaddingCompactText
+                else -> R.style.AmoledTheme
+            }
+            else -> when {
+                smallCorners && compact -> R.style.DarkThemeSmallCornersReducedPaddingCompactText
+                smallCorners -> R.style.DarkThemeSmallCorners
+                noCorners && compact -> R.style.DarkThemeNoCornersReducedPaddingCompactText
+                noCorners -> R.style.DarkThemeNoCorners
+                compact -> R.style.DarkThemeReducedPaddingCompactText
+                else -> R.style.DarkTheme
+            }
         }
     }
     setTheme(style)
+    if (expressive) {
+        val shapeStyle = when {
+            smallCorners -> R.style.ExpressiveSmallCornersOverlay
+            noCorners -> R.style.ExpressiveNoCornersOverlay
+            else -> null
+        }
+        shapeStyle?.let { theme.applyStyle(it, true) }
+        if (compact) theme.applyStyle(R.style.ExpressiveCompactOverlay, true)
+        if (isTelevision()) theme.applyStyle(R.style.ExpressiveTvCompatibilityOverlay, true)
+    }
     if (fontFamily != C.FONT_SYSTEM) {
         when (fontFamily) {
             C.FONT_SANS_SERIF -> R.style.AppFontFamilySansSerif
@@ -316,8 +336,9 @@ fun Activity.applyTheme() {
             this,
             DynamicColorsOptions.Builder().setThemeOverlay(
                 when (resolvedMode) {
-                    "light" -> R.style.LightDynamicOverlay
-                    else -> if (resolvedMode == "amoled") R.style.AmoledDynamicOverlay else R.style.DarkDynamicOverlay
+                    "light" -> if (expressive) R.style.ExpressiveLightDynamicOverlay else R.style.LightDynamicOverlay
+                    "amoled" -> if (expressive) R.style.ExpressiveAmoledDynamicOverlay else R.style.AmoledDynamicOverlay
+                    else -> if (expressive) R.style.ExpressiveDarkDynamicOverlay else R.style.DarkDynamicOverlay
                 }
             ).build()
         )

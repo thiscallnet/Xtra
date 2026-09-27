@@ -7,27 +7,27 @@
         android:icon="@drawable/baseline_notifications_none_black_24"
         android:title="@string/enable_notifications"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/followButton"
         android:icon="@drawable/baseline_favorite_border_black_24"
         android:title="@string/follow"
         android:visible="false"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always"
+        app:showAsAction="ifRoom"
         tools:visible="true" />
     <item
         android:id="@+id/search"
         android:icon="@drawable/baseline_search_black_24"
         android:title="@string/search"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/settings"
         android:icon="@drawable/baseline_settings_black_24"
         android:title="@string/settings"
         app:iconTint="?attr/colorControlNormal"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/login"
         android:title="@string/log_in"
