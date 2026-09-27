@@ -6,6 +6,7 @@
     <dimen name="emote_picker_max_height">300dp</dimen>
     <dimen name="emote_picker_edit_control_space">48dp</dimen>
     <dimen name="following_overview_bottom_padding">16dp</dimen>
+    <dimen name="following_categories_empty_horizontal_margin">24dp</dimen>
     <dimen name="tv_navigation_width">176dp</dimen>
     <dimen name="tv_navigation_vertical_padding">20dp</dimen>
     <dimen name="tv_content_padding">16dp</dimen>
@@ -27,4 +28,6 @@
     <dimen name="phone_chat_overlay_margin">8dp</dimen>
     <dimen name="phone_chat_overlay_min_width">220dp</dimen>
     <dimen name="phone_chat_overlay_min_height">160dp</dimen>
+    <dimen name="statistics_detail_summary_three_column_min_width">480dp</dimen>
+    <dimen name="statistics_detail_summary_compact_row_spacing">8dp</dimen>
 </resources>

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.text.TextPaint
 import android.text.TextUtils
@@ -42,6 +43,7 @@ class ViewingActivityChartView @JvmOverloads constructor(
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val calloutText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val calloutBackground = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val visibleChartBounds = Rect()
     private val bucketRect = RectF()
     private val calloutRect = RectF()
     private data class AxisTick(
@@ -115,9 +117,22 @@ class ViewingActivityChartView @JvmOverloads constructor(
         baseline.strokeWidth = density
         canvas.drawLine(left, bottom, right, bottom, baseline)
         label.textSize = spToPx(10f)
+        val singleBucketBarWidth = if (buckets.size == 1) {
+            minOf(bucketWidth - gap * 2f, density * 48f)
+        } else {
+            0f
+        }
         buckets.forEachIndexed { index, bucket ->
-            val xStart = left + index * bucketWidth + gap
-            val xEnd = left + (index + 1) * bucketWidth - gap
+            val xStart: Float
+            val xEnd: Float
+            if (buckets.size == 1) {
+                val bucketCenter = left + (index + 0.5f) * bucketWidth
+                xStart = bucketCenter - singleBucketBarWidth / 2f
+                xEnd = bucketCenter + singleBucketBarWidth / 2f
+            } else {
+                xStart = left + index * bucketWidth + gap
+                xEnd = left + (index + 1) * bucketWidth - gap
+            }
             val ratio = if (maxValue > 0L) bucket.watchedMs.toDouble() / maxValue else 0.0
             val yStart = bottom - (chartHeight * ratio).toFloat()
             bucketRect.set(xStart, yStart, maxOf(xStart + 1f, xEnd), bottom)
@@ -164,7 +179,18 @@ class ViewingActivityChartView @JvmOverloads constructor(
             val verticalPadding = density * 4f
             val lineGap = density * 2f
             val boxHeight = verticalPadding * 2f + lineHeight * 2f + lineGap
-            val boxTop = density * 2f
+            val hasVisibleChartBounds = getLocalVisibleRect(visibleChartBounds)
+            val calloutMargin = density * 2f
+            val desiredBoxTop = calloutMargin
+            val minimumBoxTop = visibleChartBounds.top + calloutMargin
+            val maximumBoxTop = visibleChartBounds.bottom - boxHeight - calloutMargin
+            val boxTop = if (
+                hasVisibleChartBounds && maximumBoxTop >= minimumBoxTop
+            ) {
+                desiredBoxTop.coerceIn(minimumBoxTop, maximumBoxTop)
+            } else {
+                desiredBoxTop
+            }
             if (boxTop + boxHeight > height) return@let
 
             val availableWidth = (right - left).coerceAtLeast(0f)

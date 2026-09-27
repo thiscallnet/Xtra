@@ -40,6 +40,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
+import androidx.core.view.updatePadding
 import androidx.core.widget.addTextChangedListener
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -90,6 +91,7 @@ import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
 import com.github.andreyasadchy.xtra.model.ui.WatchStreakShareResult
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
+import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragment
 import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewModelFactory
 import com.github.andreyasadchy.xtra.ui.drops.DropImageDialog
 import com.github.andreyasadchy.xtra.ui.drops.dropsImageUrl
@@ -1731,7 +1733,20 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }
             }
             if (!isInsideInsetAwareContainer(view)) {
+                val isChannelChat = parentFragment is ChannelPagerFragment
+                val initialChatContentPaddingTop = binding.chatContentColumn.paddingTop
                 ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
+                    if (isChannelChat) {
+                        val statusTop = windowInsets.getInsetsIgnoringVisibility(
+                            WindowInsetsCompat.Type.statusBars(),
+                        ).top
+                        val cutoutTop = windowInsets.getInsets(
+                            WindowInsetsCompat.Type.displayCutout(),
+                        ).top
+                        binding.chatContentColumn.updatePadding(
+                            top = initialChatContentPaddingTop + maxOf(statusTop, cutoutTop),
+                        )
+                    }
                     if (activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                         val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
                         view.updateLayoutParams<ViewGroup.MarginLayoutParams> {

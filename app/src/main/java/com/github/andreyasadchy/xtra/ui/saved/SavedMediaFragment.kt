@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.ActivityResultLauncher
@@ -98,8 +99,13 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
         tabSwitcher = FragmentTabSwitcher(childFragmentManager, R.id.fragmentContainer) { fragment ->
             fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let { liftTargetConnector?.connect(it) }
             if (fragment is Sortable) fragment.setupSortBar(binding.sortBar) else binding.sortBar.root.visibility = View.GONE
-            binding.toolbar.menu.findItem(R.id.importFolders).isVisible = fragment is DownloadsFragment
-            binding.toolbar.menu.findItem(R.id.importFiles).isVisible = fragment is DownloadsFragment
+            val isDownloads = fragment is DownloadsFragment
+            binding.toolbar.menu.findItem(R.id.importFolders).isVisible = isDownloads
+            binding.toolbar.menu.findItem(R.id.importFiles).isVisible = isDownloads
+            binding.toolbar.menu.findItem(R.id.settings).setShowAsAction(
+                if (isDownloads) MenuItem.SHOW_AS_ACTION_NEVER
+                else MenuItem.SHOW_AS_ACTION_ALWAYS,
+            )
         }
         with(binding) {
             val activity = requireActivity() as MainActivity

@@ -97,6 +97,8 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # Drops progress settings ship with the default English wording until their
     # translations are reviewed by native speakers.
     "drops_show_summary",
+    # Following categories empty-state copy uses the default English wording until translated.
+    "following_categories_empty",
     # Drops browsing controls use the default English wording until translated.
     "drops_progress_accessibility",
     "drops_minimize_progress",

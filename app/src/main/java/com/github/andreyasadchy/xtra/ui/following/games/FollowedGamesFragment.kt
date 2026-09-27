@@ -1,13 +1,16 @@
 package com.github.andreyasadchy.xtra.ui.following.games
 
 import android.os.Bundle
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -43,6 +46,17 @@ class FollowedGamesFragment : PagedListFragment(), Scrollable {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
+        val emptyStateHorizontalMargin = resources.getDimensionPixelSize(
+            R.dimen.following_categories_empty_horizontal_margin,
+        )
+        binding.nothingHere.apply {
+            setText(R.string.following_categories_empty)
+            gravity = Gravity.CENTER
+            updateLayoutParams<ConstraintLayout.LayoutParams> {
+                marginStart = emptyStateHorizontalMargin
+                marginEnd = emptyStateHorizontalMargin
+            }
+        }
         pagingAdapter = FollowedGamesAdapter(this) {
             findNavController().navigate(
                 GamesFragmentDirections.actionGlobalGamesFragment(

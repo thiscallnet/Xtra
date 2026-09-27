@@ -30,6 +30,7 @@ class KeepStateFragmentNavigator(
 ) : FragmentNavigator(appContext, fragmentManager, hostContainerId) {
 
     var onNavigationTransactionCommitted: ((destinationId: Int?) -> Unit)? = null
+    var onAsyncTransactionSettled: (() -> Unit)? = null
 
     private val entryFragments = mutableMapOf<String, Fragment>()
     private val pendingFragments = mutableMapOf<String, Fragment>()
@@ -38,6 +39,10 @@ class KeepStateFragmentNavigator(
     private val destinationByTag = mutableMapOf<String, Int>()
     private var usageSequence = 0L
     private var hiddenTabTrimPending = false
+    private var pendingAsyncTransactions = 0
+    private var bottomRootSelectionDestinationId: Int? = null
+    private var bottomRootSelectionMutationCount = 0
+    private var bottomRootSelectionFinalDestinationId: Int? = null
 
     private val tabDestinationIds = setOf(
         R.id.rootGamesFragment,
@@ -48,6 +53,85 @@ class KeepStateFragmentNavigator(
         R.id.statisticsFragment,
         R.id.dropsFragment,
     )
+
+    fun beginBottomRootSelection(destinationId: Int): Boolean {
+        val blocked = !isTabDestination(destinationId) ||
+            bottomRootSelectionDestinationId != null ||
+            fragmentManager.isStateSaved ||
+            hiddenTabTrimPending ||
+            pendingAsyncTransactions != 0 ||
+            pendingFragments.isNotEmpty()
+        if (blocked) {
+            return false
+        }
+
+        preservedFragments[destinationId]?.takeIf { !it.isAdded && !isPending(it) }?.let { stale ->
+            preservedFragments.remove(destinationId)
+            lastUsedTabAt.remove(destinationId)
+            forget(stale)
+        }
+        bottomRootSelectionDestinationId = destinationId
+        bottomRootSelectionMutationCount = 0
+        bottomRootSelectionFinalDestinationId = null
+        return true
+    }
+
+    fun endBottomRootSelection(navControllerDestinationId: Int?): Boolean {
+        val requestedRootId = bottomRootSelectionDestinationId ?: return false
+        val backStack = state.backStack.value
+        val activeRootId = backStack.asReversed()
+            .firstOrNull { isTabDestination(it.destination.id) }
+            ?.destination
+            ?.id
+        val finalEntry = backStack.lastOrNull()
+        val finalFragment = finalEntry?.let(::findFragment)
+        val visibleFragments = fragmentManager.fragments.filter { it.isAdded && !it.isHidden }
+        val committed = bottomRootSelectionMutationCount > 0 &&
+            activeRootId == requestedRootId &&
+            finalEntry != null &&
+            finalEntry.destination.id == bottomRootSelectionFinalDestinationId &&
+            finalEntry.destination.id == navControllerDestinationId &&
+            finalFragment?.isAdded == true &&
+            !finalFragment.isHidden &&
+            fragmentManager.primaryNavigationFragment === finalFragment &&
+            visibleFragments == listOf(finalFragment) &&
+            pendingAsyncTransactions == 0 &&
+            pendingFragments.isEmpty() &&
+            !hiddenTabTrimPending &&
+            !fragmentManager.isStateSaved
+        bottomRootSelectionDestinationId = null
+        bottomRootSelectionMutationCount = 0
+        bottomRootSelectionFinalDestinationId = null
+        return committed
+    }
+
+    private val isBottomRootSelectionActive: Boolean
+        get() = bottomRootSelectionDestinationId != null
+
+    private fun commitAsynchronously(transaction: FragmentTransaction, onCommitted: () -> Unit) {
+        pendingAsyncTransactions++
+        transaction.runOnCommit {
+            pendingAsyncTransactions--
+            onCommitted()
+            onAsyncTransactionSettled?.invoke()
+        }
+        try {
+            transaction.commit()
+        } catch (exception: RuntimeException) {
+            pendingAsyncTransactions--
+            throw exception
+        }
+    }
+
+    private fun completeTransitionsIntroducedAfter(previous: Set<NavBackStackEntry>) {
+        (state.transitionsInProgress.value - previous).forEach(state::markTransitionComplete)
+    }
+
+    private fun recordBottomRootSelectionMutation() {
+        if (!isBottomRootSelectionActive) return
+        bottomRootSelectionMutationCount++
+        bottomRootSelectionFinalDestinationId = state.backStack.value.lastOrNull()?.destination?.id
+    }
 
     override fun navigate(
         entries: List<NavBackStackEntry>,
@@ -126,17 +210,27 @@ class KeepStateFragmentNavigator(
         transaction.setMaxLifecycle(incoming, Lifecycle.State.RESUMED)
 
         val entriesToComplete = entries.toList()
-        transaction.runOnCommit {
-            entriesToComplete.forEach { entry ->
-                pendingFragments.remove(entry.id)
-                state.markTransitionComplete(entry)
+        val synchronousRootNavigation = isBottomRootSelectionActive
+        if (synchronousRootNavigation) {
+            transaction.commitNow()
+            val transitionsBefore = state.transitionsInProgress.value
+            entries.forEach { entry ->
+                state.pushWithTransition(entry)
             }
-            onNavigationTransactionCommitted?.invoke(incomingDestinationId)
-        }
-        transaction.commit()
-
-        entries.forEach { entry ->
-            state.pushWithTransition(entry)
+            entriesToComplete.forEach { entry -> pendingFragments.remove(entry.id) }
+            completeTransitionsIntroducedAfter(transitionsBefore)
+            recordBottomRootSelectionMutation()
+        } else {
+            commitAsynchronously(transaction) {
+                entriesToComplete.forEach { entry ->
+                    pendingFragments.remove(entry.id)
+                    state.markTransitionComplete(entry)
+                }
+                onNavigationTransactionCommitted?.invoke(incomingDestinationId)
+            }
+            entries.forEach { entry ->
+                state.pushWithTransition(entry)
+            }
         }
     }
 
@@ -175,11 +269,15 @@ class KeepStateFragmentNavigator(
             currentFragment?.takeUnless { incoming === it }?.let(::forget)
             transaction.setPrimaryNavigationFragment(incoming)
             transaction.setMaxLifecycle(incoming, Lifecycle.State.RESUMED)
-            transaction.runOnCommit {
+            if (isBottomRootSelectionActive) {
+                transaction.commitNow()
                 pendingFragments.remove(backStackEntry.id)
-                onNavigationTransactionCommitted?.invoke(backStackEntry.destination.id)
+            } else {
+                commitAsynchronously(transaction) {
+                    pendingFragments.remove(backStackEntry.id)
+                    onNavigationTransactionCommitted?.invoke(backStackEntry.destination.id)
+                }
             }
-            transaction.commit()
             entryFragments[backStackEntry.id] = incoming
             destinationByTag[backStackEntry.id] = backStackEntry.destination.id
             if (isTabDestination(backStackEntry.destination.id)) {
@@ -187,6 +285,7 @@ class KeepStateFragmentNavigator(
                 markTabUsed(backStackEntry.destination.id)
             }
             state.onLaunchSingleTop(backStackEntry)
+            recordBottomRootSelectionMutation()
             return
         }
 
@@ -260,19 +359,28 @@ class KeepStateFragmentNavigator(
             transaction.setMaxLifecycle(it, Lifecycle.State.RESUMED)
         }
 
-        transaction.runOnCommit {
-            poppedEntries.forEach { entry ->
-                pendingFragments.remove(entry.id)
-                state.markTransitionComplete(entry)
+        if (isBottomRootSelectionActive) {
+            transaction.commitNow()
+            val transitionsBefore = state.transitionsInProgress.value
+            state.popWithTransition(popUpTo, savedState)
+            poppedEntries.forEach { entry -> pendingFragments.remove(entry.id) }
+            incomingEntry?.let { pendingFragments.remove(it.id) }
+            completeTransitionsIntroducedAfter(transitionsBefore)
+            recordBottomRootSelectionMutation()
+        } else {
+            commitAsynchronously(transaction) {
+                poppedEntries.forEach { entry ->
+                    pendingFragments.remove(entry.id)
+                    state.markTransitionComplete(entry)
+                }
+                incomingEntry?.let {
+                    pendingFragments.remove(it.id)
+                    state.markTransitionComplete(it)
+                }
+                onNavigationTransactionCommitted?.invoke(incomingEntry?.destination?.id)
             }
-            incomingEntry?.let {
-                pendingFragments.remove(it.id)
-                state.markTransitionComplete(it)
-            }
-            onNavigationTransactionCommitted?.invoke(incomingEntry?.destination?.id)
+            state.popWithTransition(popUpTo, savedState)
         }
-        transaction.commit()
-        state.popWithTransition(popUpTo, savedState)
     }
 
     override fun onSaveState(): Bundle? {
@@ -433,8 +541,7 @@ class KeepStateFragmentNavigator(
             lastUsedTabAt.remove(destinationId)
             forget(fragment)
         }
-        transaction.runOnCommit { hiddenTabTrimPending = false }
-        transaction.commit()
+        commitAsynchronously(transaction) { hiddenTabTrimPending = false }
     }
 
     private fun isTabDestination(destinationId: Int): Boolean = destinationId in tabDestinationIds

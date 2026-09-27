@@ -203,6 +203,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var appBackgroundController: ActivityBackgroundController
     private var changed = false
+    private var hudChanged = false
     private var accountActionIsLogout = false
     private var loginResultLauncher: ActivityResultLauncher<Intent>? = null
     private var accountResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -212,8 +213,13 @@ class SettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val landscapeChatWidthChanged = SettingsMigration.migrate(this)
-        if (landscapeChatWidthChanged || savedInstanceState?.getBoolean(KEY_CHANGED) == true) {
-            setResult()
+        changed = savedInstanceState?.getBoolean(KEY_CHANGED) == true
+        hudChanged = savedInstanceState?.getBoolean(KEY_HUD_CHANGED) == true
+        if (landscapeChatWidthChanged) {
+            changed = true
+        }
+        if (changed || hudChanged) {
+            updateActivityResult()
         }
         applyTheme()
         binding = ActivitySettingsBinding.inflate(layoutInflater)
@@ -231,12 +237,16 @@ class SettingsActivity : AppCompatActivity() {
         loginResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             accountActionIsLogout = false
             if (result.resultCode == RESULT_OK) {
-                setResult(RESULT_OK)
+                changed = true
+                updateActivityResult()
                 finish()
             }
         }
         accountResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) recreate()
+            if (result.resultCode == RESULT_OK) {
+                setResult()
+                recreate()
+            }
         }
         val ignoreCutouts = prefs().getBoolean(C.UI_DRAW_BEHIND_CUTOUTS, false)
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
@@ -511,24 +521,28 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     internal fun setResult() {
-        if (!changed) {
-            changed = true
-            setResult(RESULT_OK)
-        }
+        changed = true
+        updateActivityResult()
     }
 
     internal fun setHudResult() {
-        setResult(RESULT_OK, Intent().putExtra(EXTRA_HUD_CHANGED, true))
-        finish()
+        hudChanged = true
+        updateActivityResult()
+    }
+
+    private fun updateActivityResult() {
+        setResult(RESULT_OK, Intent().putExtra(EXTRA_HUD_CHANGED, hudChanged && !changed))
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(KEY_CHANGED, changed)
+        outState.putBoolean(KEY_HUD_CHANGED, hudChanged)
         super.onSaveInstanceState(outState)
     }
 
     companion object {
         const val KEY_CHANGED = "changed"
+        const val KEY_HUD_CHANGED = "hud_changed"
         const val EXTRA_HUD_CHANGED = "hud_changed"
     }
 
