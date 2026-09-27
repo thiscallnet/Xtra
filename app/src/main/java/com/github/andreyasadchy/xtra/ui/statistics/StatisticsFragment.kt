@@ -61,6 +61,7 @@ class StatisticsFragment : Fragment() {
                 R.id.followMediaFragment,
                 R.id.savedPagerFragment,
                 R.id.savedMediaFragment,
+                R.id.statisticsFragment,
             )
         )
         binding.toolbar.setupWithNavController(navController, appBarConfiguration)
@@ -149,9 +150,13 @@ class StatisticsFragment : Fragment() {
             val insets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
+            val stableStatusBarTop = windowInsets.getInsetsIgnoringVisibility(
+                WindowInsetsCompat.Type.statusBars()
+            ).top
+            val safeTop = maxOf(stableStatusBarTop, insets.top)
             binding.root.setPadding(
                 binding.root.paddingLeft,
-                initialRootTopPadding + insets.top,
+                initialRootTopPadding + safeTop,
                 binding.root.paddingRight,
                 binding.root.paddingBottom,
             )

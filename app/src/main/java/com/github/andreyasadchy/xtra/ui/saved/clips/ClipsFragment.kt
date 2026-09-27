@@ -21,6 +21,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentClipsBinding
+import com.github.andreyasadchy.xtra.ui.common.installVisibleViewportStatePositioning
 import com.github.andreyasadchy.xtra.ui.saved.clips.ClipsViewModel.Companion.ClipsViewModelFactory
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
@@ -44,6 +45,10 @@ class ClipsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.contentContainer.installVisibleViewportStatePositioning(
+            lifecycleOwner = viewLifecycleOwner,
+            stateViews = listOf(binding.emptyState, binding.errorState, binding.progressBar),
+        )
         adapter = ClipsAdapter(
             context = requireContext(),
             onSelect = ::selectClip,
@@ -102,6 +107,7 @@ class ClipsFragment : Fragment() {
         adapter.submitList(clips)
         binding.clipCount.text = resources.getQuantityString(R.plurals.clips_count, clips.size, clips.size)
         binding.previewCard.isVisible = clips.isNotEmpty()
+        binding.sortButton.isVisible = clips.isNotEmpty()
         binding.deleteAllButton.isVisible = clips.isNotEmpty()
         updateContentVisibility()
 

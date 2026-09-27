@@ -9,8 +9,33 @@ import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 
 /** Keeps common loading, empty, and error overlays centered in the visible part of a clipped page. */
 fun CommonRecyclerViewLayoutBinding.installVisibleViewportStatePositioning(lifecycleOwner: LifecycleOwner) {
-    val page = root
-    val stateViews = listOf(nothingHere, progressBar, errorContainer)
+    installVisibleViewportStatePositioningForViews(
+        page = root,
+        lifecycleOwner = lifecycleOwner,
+        stateViews = listOf(nothingHere, progressBar, errorContainer),
+        topObstruction = topInsetGuard,
+    )
+}
+
+fun View.installVisibleViewportStatePositioning(
+    lifecycleOwner: LifecycleOwner,
+    stateViews: List<View>,
+    topObstruction: View? = null,
+) {
+    installVisibleViewportStatePositioningForViews(
+        page = this,
+        lifecycleOwner = lifecycleOwner,
+        stateViews = stateViews,
+        topObstruction = topObstruction,
+    )
+}
+
+private fun installVisibleViewportStatePositioningForViews(
+    page: View,
+    lifecycleOwner: LifecycleOwner,
+    stateViews: List<View>,
+    topObstruction: View?,
+) {
     val visibleRect = Rect()
     val lastVisibleRect = Rect()
     var hasLastVisibleRect = false
@@ -82,14 +107,21 @@ fun CommonRecyclerViewLayoutBinding.installVisibleViewportStatePositioning(lifec
             resetTranslations()
             removePreDrawListener()
         } else if (page.height > 0 && page.getLocalVisibleRect(visibleRect)) {
-            if (!hasLastVisibleRect || lastPageHeight != page.height || lastVisibleRect != visibleRect) {
-                val translationY = visibleRect.exactCenterY() - page.height / 2f
-                stateViews.forEach { stateView ->
-                    if (stateView.translationY != translationY) stateView.translationY = translationY
+            if (topObstruction?.visibility == View.VISIBLE) {
+                visibleRect.top = maxOf(visibleRect.top, topObstruction.bottom)
+            }
+            if (visibleRect.height() > 0) {
+                if (!hasLastVisibleRect || lastPageHeight != page.height || lastVisibleRect != visibleRect) {
+                    val translationY = visibleRect.exactCenterY() - page.height / 2f
+                    stateViews.forEach { stateView ->
+                        if (stateView.translationY != translationY) stateView.translationY = translationY
+                    }
+                    lastVisibleRect.set(visibleRect)
+                    lastPageHeight = page.height
+                    hasLastVisibleRect = true
                 }
-                lastVisibleRect.set(visibleRect)
-                lastPageHeight = page.height
-                hasLastVisibleRect = true
+            } else {
+                hasLastVisibleRect = false
             }
         } else {
             hasLastVisibleRect = false

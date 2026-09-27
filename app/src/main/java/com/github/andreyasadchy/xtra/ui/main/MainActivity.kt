@@ -55,8 +55,10 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.withStarted
 import androidx.navigation.NavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
-import androidx.navigation.ui.NavigationUI
+import androidx.navigation.ui.R as NavigationUiR
 import androidx.navigation.ui.setupWithNavController
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
@@ -185,6 +187,7 @@ class MainActivity : AppCompatActivity() {
     private var bottomNavigationTransactionInFlight = false
     private var bottomNavigationDestinationInFlight: Int? = null
     private var bottomNavigationDrainPosted = false
+    private var suppressBottomNavigationSelection = false
     private val bottomNavigationInteractionSource = Any()
     private val playbackDiagnosticOwner = Any()
     private var keepStateNavigator: KeepStateFragmentNavigator? = null
@@ -1016,6 +1019,7 @@ class MainActivity : AppCompatActivity() {
         PerfFrameMetricsDiagnostics.detach()
         UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
         keepStateNavigator?.onNavigationTransactionCommitted = null
+        keepStateNavigator?.onAsyncTransactionSettled = null
         keepStateNavigator = null
         networkSnackbar?.dismiss()
         networkSnackbar = null
@@ -1898,12 +1902,14 @@ class MainActivity : AppCompatActivity() {
                         if (bottomNavigationTransactionInFlight &&
                             destinationId == bottomNavigationDestinationInFlight
                         ) {
-                            UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
-                            bottomNavigationTransactionInFlight = false
-                            bottomNavigationDestinationInFlight = null
+                            completeBottomNavigationSelection(destinationId)
+                        } else {
                             drainBottomNavigation()
                         }
                     }
+                }
+                navigator.onAsyncTransactionSettled = {
+                    rootNavigationView().post { drainBottomNavigation() }
                 }
         }
         rootNavigationView().apply {
@@ -1958,9 +1964,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             setOnItemSelectedListener {
+                if (suppressBottomNavigationSelection) return@setOnItemSelectedListener true
                 pendingBottomNavigationItemId = it.itemId
                 drainBottomNavigation()
-                return@setOnItemSelectedListener true
+                return@setOnItemSelectedListener false
             }
             setOnItemReselectedListener {
                 if (bottomNavigationTransactionInFlight) return@setOnItemReselectedListener
@@ -1989,6 +1996,30 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun selectCommittedBottomNavigationItem(destinationId: Int) {
+        suppressBottomNavigationSelection = true
+        try {
+            rootNavigationView().selectedItemId = destinationId
+        } finally {
+            suppressBottomNavigationSelection = false
+        }
+    }
+
+    private fun completeBottomNavigationSelection(destinationId: Int?) {
+        val committedDestinationId = destinationId ?: return
+        if (!bottomNavigationTransactionInFlight ||
+            committedDestinationId != bottomNavigationDestinationInFlight
+        ) {
+            return
+        }
+
+        selectCommittedBottomNavigationItem(committedDestinationId)
+        UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
+        bottomNavigationTransactionInFlight = false
+        bottomNavigationDestinationInFlight = null
+        drainBottomNavigation()
+    }
+
     private fun drainBottomNavigation() {
         if (bottomNavigationDrainPosted) return
         bottomNavigationDrainPosted = true
@@ -1999,21 +2030,52 @@ class MainActivity : AppCompatActivity() {
             val itemId = pendingBottomNavigationItemId ?: return@post
             if (navController.currentDestination?.id == itemId) {
                 pendingBottomNavigationItemId = null
+                selectCommittedBottomNavigationItem(itemId)
                 return@post
             }
 
             val item = rootNavigationView().menu.findItem(itemId) ?: return@post
+            val navigator = keepStateNavigator ?: return@post
+            if (!navigator.beginBottomRootSelection(itemId)) {
+                return@post
+            }
+
             pendingBottomNavigationItemId = null
             bottomNavigationTransactionInFlight = true
             bottomNavigationDestinationInFlight = itemId
             UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, true)
-            if (!NavigationUI.onNavDestinationSelected(item, navController)) {
+            val rootSelectionCommitted = try {
+                navigateToBottomRoot(itemId)
+                navigator.endBottomRootSelection(navController.currentDestination?.id)
+            } catch (exception: RuntimeException) {
+                navigator.endBottomRootSelection(navController.currentDestination?.id)
+                bottomNavigationTransactionInFlight = false
+                bottomNavigationDestinationInFlight = null
+                UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
+                throw exception
+            }
+            if (!rootSelectionCommitted) {
                 bottomNavigationTransactionInFlight = false
                 bottomNavigationDestinationInFlight = null
                 UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
                 drainBottomNavigation()
+            } else {
+                completeBottomNavigationSelection(itemId)
             }
         }
+    }
+
+    private fun navigateToBottomRoot(destinationId: Int) {
+        val options = NavOptions.Builder()
+            .setLaunchSingleTop(true)
+            .setRestoreState(true)
+            .setEnterAnim(NavigationUiR.animator.nav_default_enter_anim)
+            .setExitAnim(NavigationUiR.animator.nav_default_exit_anim)
+            .setPopEnterAnim(NavigationUiR.animator.nav_default_pop_enter_anim)
+            .setPopExitAnim(NavigationUiR.animator.nav_default_pop_exit_anim)
+            .setPopUpTo(navController.graph.findStartDestination().id, false, true)
+            .build()
+        navController.navigate(destinationId, null, options)
     }
 
     @OptIn(UnstableApi::class)

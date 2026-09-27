@@ -55,7 +55,10 @@ fun ViewPager2.configureForSmoothPaging() {
  * the status bar. Legitimate geometry changes such as portrait to
  * landscape rotation are still applied.
  */
-fun View.applyStableTopSystemBarMargin(target: View) {
+fun View.applyStableTopSystemBarMargin(
+    target: View,
+    onStableTopChanged: ((Int) -> Unit)? = null,
+) {
     ViewCompat.setOnApplyWindowInsetsListener(this) { _, windowInsets ->
         val statusBarTop = windowInsets
             .getInsetsIgnoringVisibility(
@@ -76,6 +79,7 @@ fun View.applyStableTopSystemBarMargin(target: View) {
                 topMargin = top
             }
         }
+        onStableTopChanged?.invoke(top)
 
         windowInsets
     }

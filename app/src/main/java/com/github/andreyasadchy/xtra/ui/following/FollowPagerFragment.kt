@@ -10,6 +10,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.fragment.navArgs
 import androidx.navigation.ui.AppBarConfiguration
@@ -44,6 +45,7 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
     private var firstLaunch = true
     private var tabKeys: List<String> = emptyList()
     private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
+    private var selectedPageLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -109,6 +111,21 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                 }
             }
             val adapter = FollowPagerAdapter(this@FollowPagerFragment, tabs)
+            val fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentViewCreated(
+                    fragmentManager: FragmentManager,
+                    fragment: Fragment,
+                    view: View,
+                    savedInstanceState: Bundle?,
+                ) {
+                    val position = viewPager.currentItem
+                    if (childFragmentManager.findFragmentByTag("f$position") === fragment) {
+                        updateSelectedPageChrome(position, fragment)
+                    }
+                }
+            }
+            childFragmentManager.registerFragmentLifecycleCallbacks(fragmentLifecycleCallbacks, false)
+            selectedPageLifecycleCallbacks = fragmentLifecycleCallbacks
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageScrollStateChanged(state: Int) {
@@ -117,16 +134,10 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                 }
 
                 override fun onPageSelected(position: Int) {
+                    sortBar.root.visibility = View.GONE
+                    disconnectLiftTarget()
                     viewPager.doOnLayout {
-                        childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
-                            fragment.view?.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.recyclerView)?.let { liftTargetConnector?.connect(it) }
-                                ?: disconnectLiftTarget()
-                            if (fragment is Sortable) {
-                                fragment.setupSortBar(sortBar)
-                            } else {
-                                sortBar.root.visibility = View.GONE
-                            }
-                        } ?: disconnectLiftTarget()
+                        updateSelectedPageChrome(position)
                     }
                 }
             })
@@ -153,6 +164,27 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
         }
     }
 
+    private fun updateSelectedPageChrome(position: Int, selectedFragment: Fragment? = null) {
+        val currentBinding = _binding ?: return
+        if (currentBinding.viewPager.currentItem != position) return
+
+        val fragment = selectedFragment ?: childFragmentManager.findFragmentByTag("f$position") ?: return
+        if (
+            fragment.tag != "f$position" ||
+            childFragmentManager.findFragmentByTag("f$position") !== fragment ||
+            fragment.view == null
+        ) return
+
+        fragment.view?.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.recyclerView)?.let {
+            liftTargetConnector?.connect(it)
+        } ?: disconnectLiftTarget()
+        if (fragment is Sortable) {
+            fragment.setupSortBar(currentBinding.sortBar)
+        } else {
+            currentBinding.sortBar.root.visibility = View.GONE
+        }
+    }
+
     private fun disconnectLiftTarget() {
         liftTargetConnector?.disconnect()
     }
@@ -168,6 +200,8 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
 
     override fun onDestroyView() {
         dispatchPagerScrollState(false)
+        selectedPageLifecycleCallbacks?.let(childFragmentManager::unregisterFragmentLifecycleCallbacks)
+        selectedPageLifecycleCallbacks = null
         disconnectLiftTarget()
         super.onDestroyView()
         _binding = null

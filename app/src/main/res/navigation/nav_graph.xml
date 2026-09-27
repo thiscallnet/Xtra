@@ -162,7 +162,8 @@
         app:destination="@id/gameMediaFragment" />
     <fragment
         android:id="@+id/channelPagerFragment"
-        android:name="com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragment">
+        android:name="com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragment"
+        android:label="">
         <argument
             android:name="channelId"
             app:argType="string"

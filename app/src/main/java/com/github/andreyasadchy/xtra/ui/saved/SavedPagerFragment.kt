@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.ActivityResultLauncher
@@ -13,6 +14,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.viewModels
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.AppBarConfiguration
@@ -49,6 +51,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
     private val viewModel: SavedPagerViewModel by viewModels { SavedPagerViewModelFactory }
     private var firstLaunch = true
     private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
+    private var selectedPageLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
     private var folderResultLauncher: ActivityResultLauncher<Intent>? = null
     private var fileResultLauncher: ActivityResultLauncher<Intent>? = null
 
@@ -173,6 +176,21 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
                 }
             }
             val adapter = SavedPagerAdapter(this@SavedPagerFragment, tabs)
+            val fragmentLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+                override fun onFragmentViewCreated(
+                    fragmentManager: FragmentManager,
+                    fragment: Fragment,
+                    view: View,
+                    savedInstanceState: Bundle?,
+                ) {
+                    val position = viewPager.currentItem
+                    if (fragment.tag == "f$position") {
+                        updateSelectedPageChrome(position, tabs, fragment)
+                    }
+                }
+            }
+            childFragmentManager.registerFragmentLifecycleCallbacks(fragmentLifecycleCallbacks, false)
+            selectedPageLifecycleCallbacks = fragmentLifecycleCallbacks
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageScrollStateChanged(state: Int) {
@@ -180,19 +198,11 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
                 }
 
                 override fun onPageSelected(position: Int) {
+                    sortBar.root.visibility = View.GONE
+                    liftTargetConnector?.disconnect()
+                    setDownloadsActionsVisible(tabs.getOrNull(position) == "1")
                     viewPager.doOnLayout {
-                        childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
-                            fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
-                                liftTargetConnector?.connect(it)
-                            }
-                            if (fragment is Sortable) {
-                                fragment.setupSortBar(sortBar)
-                            } else {
-                                sortBar.root.visibility = View.GONE
-                            }
-                            toolbar.menu.findItem(R.id.importFolders).isVisible = fragment is DownloadsFragment
-                            toolbar.menu.findItem(R.id.importFiles).isVisible = fragment is DownloadsFragment
-                        }
+                        updateSelectedPageChrome(position, tabs)
                     }
                 }
             })
@@ -225,6 +235,34 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
         }
     }
 
+    private fun updateSelectedPageChrome(position: Int, tabs: List<String>, selectedFragment: Fragment? = null) {
+        val currentBinding = _binding ?: return
+        if (currentBinding.viewPager.currentItem != position) return
+
+        val fragment = selectedFragment ?: childFragmentManager.findFragmentByTag("f$position") ?: return
+        if (fragment.tag != "f$position" || fragment.view == null) return
+
+        fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
+            liftTargetConnector?.connect(it)
+        }
+        if (fragment is Sortable) {
+            fragment.setupSortBar(currentBinding.sortBar)
+        } else {
+            currentBinding.sortBar.root.visibility = View.GONE
+        }
+        setDownloadsActionsVisible(tabs.getOrNull(position) == "1" && fragment is DownloadsFragment)
+    }
+
+    private fun setDownloadsActionsVisible(isDownloads: Boolean) {
+        val toolbar = _binding?.toolbar ?: return
+        toolbar.menu.findItem(R.id.importFolders).isVisible = isDownloads
+        toolbar.menu.findItem(R.id.importFiles).isVisible = isDownloads
+        toolbar.menu.findItem(R.id.settings).setShowAsAction(
+            if (isDownloads) MenuItem.SHOW_AS_ACTION_NEVER
+            else MenuItem.SHOW_AS_ACTION_ALWAYS,
+        )
+    }
+
     override fun scrollToTop() {
         binding.appBar.setExpanded(true, true)
         (currentFragment as? Scrollable)?.scrollToTop()
@@ -232,6 +270,8 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
 
     override fun onDestroyView() {
         dispatchPagerScrollState(false)
+        selectedPageLifecycleCallbacks?.let(childFragmentManager::unregisterFragmentLifecycleCallbacks)
+        selectedPageLifecycleCallbacks = null
         liftTargetConnector?.disconnect()
         liftTargetConnector = null
         super.onDestroyView()

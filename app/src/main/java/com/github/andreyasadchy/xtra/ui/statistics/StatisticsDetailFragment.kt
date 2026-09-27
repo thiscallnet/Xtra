@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.GridLayout
 import android.widget.TextView
 import androidx.core.os.bundleOf
 import androidx.core.view.ViewCompat
@@ -70,6 +71,7 @@ class StatisticsDetailFragment : Fragment() {
         val navController = findNavController()
         binding.toolbar.setupWithNavController(navController, AppBarConfiguration(setOf(R.id.statisticsFragment)))
         initialBottomPadding = binding.content.paddingBottom
+        configureSummaryGrid()
 
         channelAdapter = StatisticsChannelAdapter { channel ->
             navController.navigate(
@@ -150,6 +152,7 @@ class StatisticsDetailFragment : Fragment() {
             snapshot.lastWatchedAt?.let { DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)) }
                 ?: getString(R.string.statistics_not_available),
         )
+        updateSummaryGridColumns()
         binding.activityChart.setBuckets(snapshot.timeline)
         binding.activityChart.setSelectedIndex(state.selectedBucketIndex)
         binding.activitySummary.text = getString(R.string.statistics_detail_timeline_summary, snapshot.timeline.size)
@@ -203,6 +206,44 @@ class StatisticsDetailFragment : Fragment() {
                 R.string.statistics_open_category
             } else R.string.statistics_open_channel,
         )
+    }
+
+    private fun configureSummaryGrid() {
+        val grid = binding.detailStatsGrid
+        grid.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateSummaryGridColumns()
+        }
+        grid.post { updateSummaryGridColumns() }
+    }
+
+    private fun updateSummaryGridColumns() {
+        val grid = binding.detailStatsGrid
+        val summaryFields = listOf(
+            binding.sessionsValue,
+            binding.averageSessionValue,
+            binding.lastWatchedValue,
+        )
+        val threeColumnMinWidth = resources.getDimensionPixelSize(
+            R.dimen.statistics_detail_summary_three_column_min_width,
+        )
+        val compactRowSpacing = resources.getDimensionPixelSize(
+            R.dimen.statistics_detail_summary_compact_row_spacing,
+        )
+        val horizontalSlack = resources.displayMetrics.density * 12f
+        val requiredCellWidth = summaryFields.maxOf { field ->
+            field.paint.measureText(field.text.toString()) + field.compoundPaddingLeft + field.compoundPaddingRight
+        } + horizontalSlack
+        val canUseThreeColumns = grid.width >= threeColumnMinWidth &&
+            grid.width / 3f >= requiredCellWidth
+        val columnCount = if (canUseThreeColumns) 3 else 1
+        if (grid.columnCount == columnCount) return
+
+        grid.columnCount = columnCount
+        summaryFields.forEachIndexed { index, field ->
+            val params = field.layoutParams as GridLayout.LayoutParams
+            params.topMargin = if (columnCount == 1 && index > 0) compactRowSpacing else 0
+            field.layoutParams = params
+        }
     }
 
     private fun openEntity() {

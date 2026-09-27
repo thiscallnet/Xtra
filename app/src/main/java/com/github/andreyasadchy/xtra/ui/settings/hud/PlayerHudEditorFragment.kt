@@ -34,6 +34,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.navigation.fragment.findNavController
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerLayoutBinding
 import com.github.andreyasadchy.xtra.ui.player.hud.HudDefaultLayout
@@ -605,7 +606,7 @@ class PlayerHudEditorFragment : Fragment() {
             text = "Cancel"
             isAllCaps = false
             configureToolbarTextButton()
-            setOnClickListener { requireActivity().finish() }
+            setOnClickListener { findNavController().popBackStack() }
         }, LinearLayout.LayoutParams(dp(64), dp(48)))
         undoButton = historyButton(R.drawable.ic_undo_24, "Undo") { undo() }
         addView(undoButton, LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(2) })
@@ -627,6 +628,7 @@ class PlayerHudEditorFragment : Fragment() {
             setOnClickListener {
                 store.save(workingConfig)
                 (requireActivity() as? SettingsActivity)?.setHudResult()
+                findNavController().popBackStack()
             }
         }, LinearLayout.LayoutParams(dp(64), dp(48)))
     }

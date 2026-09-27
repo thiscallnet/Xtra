@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.channel
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
+import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.text.format.DateUtils
@@ -10,8 +11,10 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
+import android.widget.ImageButton
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.ActionMenuView
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.view.doOnLayout
@@ -69,6 +72,133 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import kotlin.time.Clock
 import kotlin.time.Instant
+
+private class ChannelChromeSafeAreaTarget(val view: View) {
+    val baseClip: Rect? = view.clipBounds
+    private var appliedClip: Rect? = baseClip?.let(::Rect)
+    val location = IntArray(2)
+    val rawBounds = Rect()
+    val naturalBounds = Rect()
+    val baseBounds = Rect()
+    val safetyClip = Rect()
+
+    fun measureNaturalBounds(appBarBounds: Rect, rootBounds: Rect): Boolean {
+        if (!view.isShown || view.width <= 0 || view.height <= 0) {
+            naturalBounds.setEmpty()
+            return false
+        }
+
+        view.getLocationOnScreen(location)
+        rawBounds.set(
+            location[0],
+            location[1],
+            location[0] + view.width,
+            location[1] + view.height,
+        )
+        naturalBounds.set(rawBounds)
+
+        if (baseClip != null) {
+            baseBounds.set(baseClip)
+            baseBounds.offset(rawBounds.left, rawBounds.top)
+            if (!naturalBounds.intersect(baseBounds)) naturalBounds.setEmpty()
+        }
+        if (!naturalBounds.isEmpty && !naturalBounds.intersect(appBarBounds)) {
+            naturalBounds.setEmpty()
+        }
+        if (!naturalBounds.isEmpty && !naturalBounds.intersect(rootBounds)) {
+            naturalBounds.setEmpty()
+        }
+        return !naturalBounds.isEmpty
+    }
+
+    fun applyClip(clip: Rect?) {
+        if (appliedClip == clip) return
+        view.clipBounds = clip
+        appliedClip = clip?.let(::Rect)
+    }
+
+    fun restoreBaseClip() = applyClip(baseClip)
+
+    fun applyEmptyClip() {
+        safetyClip.setEmpty()
+        applyClip(safetyClip)
+    }
+}
+
+private fun toolbarActionBandBottom(
+    toolbar: ViewGroup,
+    toolbarBounds: Rect,
+    safeTop: Int,
+    appBarBounds: Rect,
+    rootBounds: Rect,
+    location: IntArray,
+): Int {
+    val visibleToolbarTop = maxOf(toolbarBounds.top, safeTop)
+    if (toolbarBounds.bottom <= visibleToolbarTop) return safeTop
+
+    var actionBandBottom = safeTop
+    for (childIndex in 0 until toolbar.childCount) {
+        val child = toolbar.getChildAt(childIndex)
+        when {
+            child is ActionMenuView -> {
+                for (actionIndex in 0 until child.childCount) {
+                    val actionCell = child.getChildAt(actionIndex)
+                    val cellBottom = visibleActionCellBottom(
+                        actionCell,
+                        toolbarBounds,
+                        visibleToolbarTop,
+                        appBarBounds,
+                        rootBounds,
+                        location,
+                    )
+                    actionBandBottom = maxOf(actionBandBottom, cellBottom)
+                }
+            }
+            child is ImageButton || child.isClickable -> {
+                val cellBottom = visibleActionCellBottom(
+                    child,
+                    toolbarBounds,
+                    visibleToolbarTop,
+                    appBarBounds,
+                    rootBounds,
+                    location,
+                )
+                actionBandBottom = maxOf(actionBandBottom, cellBottom)
+            }
+        }
+    }
+    return actionBandBottom
+}
+
+private fun visibleActionCellBottom(
+    actionCell: View,
+    toolbarBounds: Rect,
+    visibleToolbarTop: Int,
+    appBarBounds: Rect,
+    rootBounds: Rect,
+    location: IntArray,
+): Int {
+    if (!actionCell.isShown || !actionCell.isClickable || actionCell.width <= 0 || actionCell.height <= 0) {
+        return visibleToolbarTop
+    }
+
+    actionCell.getLocationOnScreen(location)
+    val visibleLeft = maxOf(location[0], toolbarBounds.left, appBarBounds.left, rootBounds.left)
+    val visibleTop = maxOf(location[1], visibleToolbarTop, toolbarBounds.top, appBarBounds.top, rootBounds.top)
+    val visibleRight = minOf(
+        location[0] + actionCell.width,
+        toolbarBounds.right,
+        appBarBounds.right,
+        rootBounds.right,
+    )
+    val visibleBottom = minOf(
+        location[1] + actionCell.height,
+        toolbarBounds.bottom,
+        appBarBounds.bottom,
+        rootBounds.bottom,
+    )
+    return if (visibleRight > visibleLeft && visibleBottom > visibleTop) visibleBottom else visibleToolbarTop
+}
 
 class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
 
@@ -514,7 +644,92 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 }
             }.attach()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_CHANNEL_TABS)
-            view.applyStableTopSystemBarMargin(collapsingToolbar)
+            var stableTopInset = 0
+            val safeAreaTargets = listOf(toolbarContainer, toolbar, toolbarContainer2)
+                .map(::ChannelChromeSafeAreaTarget)
+            val rootVisibleBounds = Rect()
+            val appBarVisibleBounds = Rect()
+            val rootLocation = IntArray(2)
+            val actionLocation = IntArray(2)
+
+            fun updateChannelChromeSafeArea() {
+                if (!coordinatorLayout.getGlobalVisibleRect(rootVisibleBounds) ||
+                    !appBar.getGlobalVisibleRect(appBarVisibleBounds)
+                ) {
+                    safeAreaTargets.forEach(ChannelChromeSafeAreaTarget::restoreBaseClip)
+                    return
+                }
+
+                coordinatorLayout.getLocationOnScreen(rootLocation)
+                val stableTop = maxOf(
+                    rootVisibleBounds.top,
+                    rootLocation[1] + stableTopInset,
+                )
+                val toolbarTarget = safeAreaTargets[1]
+                val actionBandBottom = if (
+                    toolbarTarget.measureNaturalBounds(appBarVisibleBounds, rootVisibleBounds)
+                ) {
+                    (toolbarTarget.view as? ViewGroup)?.let { toolbarView ->
+                        toolbarActionBandBottom(
+                            toolbarView,
+                            toolbarTarget.naturalBounds,
+                            stableTop,
+                            appBarVisibleBounds,
+                            rootVisibleBounds,
+                            actionLocation,
+                        )
+                    } ?: stableTop
+                } else {
+                    stableTop
+                }
+
+                safeAreaTargets.forEach { safeAreaTarget ->
+                    val target = safeAreaTarget.view
+                    val baseClip = safeAreaTarget.baseClip
+                    if (!safeAreaTarget.measureNaturalBounds(appBarVisibleBounds, rootVisibleBounds)) {
+                        safeAreaTarget.restoreBaseClip()
+                        return@forEach
+                    }
+
+                    val requiredTop = if (target === toolbarContainer) {
+                        maxOf(stableTop, actionBandBottom)
+                    } else {
+                        stableTop
+                    }
+                    val rawTop = safeAreaTarget.rawBounds.top
+                    when {
+                        safeAreaTarget.naturalBounds.top >= requiredTop ->
+                            safeAreaTarget.restoreBaseClip()
+                        safeAreaTarget.naturalBounds.bottom <= requiredTop ->
+                            safeAreaTarget.applyEmptyClip()
+                        else -> {
+                            val safeTop = (requiredTop - rawTop).coerceIn(0, target.height)
+                            safeAreaTarget.safetyClip.set(0, safeTop, target.width, target.height)
+                            if (baseClip != null && !safeAreaTarget.safetyClip.intersect(baseClip)) {
+                                safeAreaTarget.safetyClip.setEmpty()
+                            }
+                            safeAreaTarget.applyClip(safeAreaTarget.safetyClip)
+                        }
+                    }
+                }
+            }
+
+            view.applyStableTopSystemBarMargin(collapsingToolbar) { topInset ->
+                stableTopInset = topInset
+                toolbarContainer2.post(::updateChannelChromeSafeArea)
+            }
+            safeAreaTargets.forEach { safeAreaTarget ->
+                safeAreaTarget.view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                    updateChannelChromeSafeArea()
+                }
+            }
+            collapsingToolbar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                updateChannelChromeSafeArea()
+            }
+            view.doOnLayout { updateChannelChromeSafeArea() }
+            appBar.addOnOffsetChangedListener { _, _ ->
+                updateChannelChromeSafeArea()
+            }
         }
         view.doOnLayout {
             if (isAdded) scrollToTop()

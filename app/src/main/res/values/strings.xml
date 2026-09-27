@@ -143,6 +143,7 @@
     <string name="storage_permission_message">Storage permission is required to download videos.</string>
     <string name="permission_denied">Required permissions were denied.</string>
     <string name="nothing_here">Nothing here</string>
+    <string name="following_categories_empty">You\'re not following any categories yet.</string>
     <string name="list_load_error">Couldn’t load this content.</string>
     <string name="list_refresh_error">Couldn’t refresh this content.</string>
     <string name="list_load_more_error">Couldn’t load more content.</string>
