@@ -5,7 +5,10 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
+import android.text.TextPaint
+import android.text.TextUtils
 import android.util.AttributeSet
+import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -13,10 +16,12 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.content.withStyledAttributes
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.viewingstats.TimelineWatchTotal
+import com.google.android.material.color.MaterialColors
 import java.text.DateFormat
 import java.util.Date
 import kotlin.math.ceil
 import kotlin.math.max
+import kotlin.math.min
 
 /**
  * Small dependency-free interactive timeline. The repository supplies
@@ -35,10 +40,17 @@ class ViewingActivityChartView @JvmOverloads constructor(
     private val baseline = Paint(Paint.ANTI_ALIAS_FLAG)
     private val marker = Paint(Paint.ANTI_ALIAS_FLAG)
     private val label = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
-    private val calloutText = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
+    private val calloutText = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
     private val calloutBackground = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bucketRect = RectF()
     private val calloutRect = RectF()
+    private data class AxisTick(
+        val text: String,
+        val centerX: Float,
+        val left: Float,
+        val right: Float,
+    )
+
     private var buckets: List<TimelineWatchTotal> = emptyList()
     private var selectedIndex = -1
     private var dragging = false
@@ -57,9 +69,12 @@ class ViewingActivityChartView @JvmOverloads constructor(
             baseline.color = getColor(1, 0xff777777.toInt())
             marker.color = getColor(0, 0xff6750a4.toInt())
             label.color = baseline.color
-            calloutText.color = getColor(1, 0xff777777.toInt())
-            calloutBackground.color = getColor(1, 0x22777777)
         }
+        calloutText.color = MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface)
+        calloutBackground.color = MaterialColors.getColor(
+            this,
+            com.google.android.material.R.attr.colorSurfaceContainerHighest,
+        )
         setWillNotDraw(false)
         isClickable = true
         isFocusable = true
@@ -99,6 +114,7 @@ class ViewingActivityChartView @JvmOverloads constructor(
 
         baseline.strokeWidth = density
         canvas.drawLine(left, bottom, right, bottom, baseline)
+        label.textSize = spToPx(10f)
         buckets.forEachIndexed { index, bucket ->
             val xStart = left + index * bucketWidth + gap
             val xEnd = left + (index + 1) * bucketWidth - gap
@@ -111,11 +127,30 @@ class ViewingActivityChartView @JvmOverloads constructor(
                 density * 2f,
                 if (index == selectedIndex) selectedBar else bars,
             )
-            if (index % labelStep == 0 || index == buckets.lastIndex) {
-                label.textSize = density * 10f
-                canvas.drawText(formatDateLabel(bucket), (xStart + xEnd) / 2f, height - density * 8f, label)
+        }
+
+        val labelIndices = (0..buckets.lastIndex step labelStep).toMutableList()
+        if (buckets.lastIndex !in labelIndices) labelIndices += buckets.lastIndex
+        val axisTicks = mutableListOf<AxisTick>()
+        val labelSpacing = density * 4f
+        labelIndices.forEach { index ->
+            val text = formatAxisDateLabel(buckets[index])
+            val textWidth = label.measureText(text)
+            if (textWidth > right - left) return@forEach
+            val halfTextWidth = textWidth / 2f
+            val bucketCenter = left + (index + 0.5f) * bucketWidth
+            val centerX = bucketCenter.coerceIn(left + halfTextWidth, right - halfTextWidth)
+            val tick = AxisTick(text, centerX, centerX - halfTextWidth, centerX + halfTextWidth)
+            val terminalTick = index == buckets.lastIndex
+            while (terminalTick && axisTicks.lastOrNull()?.let { tick.left < it.right + labelSpacing } == true) {
+                axisTicks.removeAt(axisTicks.lastIndex)
+            }
+            if (axisTicks.lastOrNull()?.let { tick.left < it.right + labelSpacing } != true) {
+                axisTicks += tick
             }
         }
+        val labelBaseline = height - density * 8f
+        axisTicks.forEach { tick -> canvas.drawText(tick.text, tick.centerX, labelBaseline, label) }
 
         buckets.getOrNull(selectedIndex)?.let { bucket ->
             val x = left + (selectedIndex + 0.5f) * bucketWidth
@@ -123,16 +158,42 @@ class ViewingActivityChartView @JvmOverloads constructor(
             canvas.drawLine(x, top, x, bottom, marker)
             val title = formatDateLabel(bucket)
             val value = formatDuration(bucket.watchedMs)
-            calloutText.textSize = density * 11f
-            val textWidth = max(calloutText.measureText(title), calloutText.measureText(value))
-            val boxWidth = textWidth + density * 20f
-            val boxHeight = density * 34f
-            val boxLeft = (x - boxWidth / 2f).coerceIn(left, right - boxWidth)
+            calloutText.textSize = spToPx(11f)
+            val fontMetrics = calloutText.fontMetrics
+            val lineHeight = fontMetrics.bottom - fontMetrics.top
+            val verticalPadding = density * 4f
+            val lineGap = density * 2f
+            val boxHeight = verticalPadding * 2f + lineHeight * 2f + lineGap
             val boxTop = density * 2f
+            if (boxTop + boxHeight > height) return@let
+
+            val availableWidth = (right - left).coerceAtLeast(0f)
+            if (availableWidth <= 0f) return@let
+            val horizontalPadding = density * 10f
+            val availableTextWidth = (availableWidth - horizontalPadding * 2f).coerceAtLeast(0f)
+            if (availableTextWidth <= 0f) return@let
+
+            val displayTitle = TextUtils.ellipsize(
+                title,
+                calloutText,
+                availableTextWidth,
+                TextUtils.TruncateAt.END,
+            ).toString()
+            val displayValue = TextUtils.ellipsize(
+                value,
+                calloutText,
+                availableTextWidth,
+                TextUtils.TruncateAt.END,
+            ).toString()
+            val textWidth = max(calloutText.measureText(displayTitle), calloutText.measureText(displayValue))
+            val boxWidth = min(textWidth + horizontalPadding * 2f, availableWidth)
+            val boxLeft = (x - boxWidth / 2f).coerceIn(left, right - boxWidth)
+            val titleBaseline = boxTop + verticalPadding - fontMetrics.top
+            val valueBaseline = titleBaseline + lineHeight + lineGap
             calloutRect.set(boxLeft, boxTop, boxLeft + boxWidth, boxTop + boxHeight)
             canvas.drawRoundRect(calloutRect, density * 6f, density * 6f, calloutBackground)
-            canvas.drawText(title, boxLeft + boxWidth / 2f, boxTop + density * 14f, calloutText)
-            canvas.drawText(value, boxLeft + boxWidth / 2f, boxTop + density * 28f, calloutText)
+            canvas.drawText(displayTitle, boxLeft + boxWidth / 2f, titleBaseline, calloutText)
+            canvas.drawText(displayValue, boxLeft + boxWidth / 2f, valueBaseline, calloutText)
         }
     }
 
@@ -259,6 +320,12 @@ class ViewingActivityChartView @JvmOverloads constructor(
         val last = dateFormat.format(Date((bucket.endAt - 1L).coerceAtLeast(bucket.startAt)))
         return if (first == last) first else context.getString(R.string.statistics_chart_date_range, first, last)
     }
+
+    private fun formatAxisDateLabel(bucket: TimelineWatchTotal): String =
+        DateFormat.getDateInstance(DateFormat.SHORT).format(Date(bucket.startAt))
+
+    private fun spToPx(sizeSp: Float): Float =
+        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sizeSp, resources.displayMetrics)
 
     private fun formatDuration(milliseconds: Long): String {
         val minutes = milliseconds.coerceAtLeast(0L) / 60_000L
