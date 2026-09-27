@@ -102,6 +102,7 @@ class MediaPlayerService : BasePlaybackService() {
     private var resumeWhenForeground = false
     private var backgroundVideoDisabled = false
     private var streamPlaybackRequested = false
+    private var streamSessionHasPrepared = false
     private var streamRecoveryJob: Job? = null
     private var liveStallWatchdogJob: Job? = null
     private val liveRecoveryState = LivePlaybackStallRecoveryState()
@@ -308,6 +309,9 @@ class MediaPlayerService : BasePlaybackService() {
                     .build()
             )
             player.setOnPreparedListener { player ->
+                if (type == STREAM) {
+                    streamSessionHasPrepared = true
+                }
                 playerBuffering = false
                 liveStallWatchdogJob?.cancel()
                 liveStallWatchdogJob = null
@@ -427,6 +431,7 @@ class MediaPlayerService : BasePlaybackService() {
             restorePlaybackState()
             when (type) {
                 STREAM -> {
+                    streamSessionHasPrepared = false
                     clearLiveRewindState()
                     started = true
                     serviceListener?.started()
@@ -1708,6 +1713,8 @@ class MediaPlayerService : BasePlaybackService() {
     }
 
     fun isStreamPlaybackRequested() = type == STREAM && streamPlaybackRequested
+
+    fun hasPreparedStreamSession() = type == STREAM && streamSessionHasPrepared
 
     private fun updatePlaybackState() {
         player?.let { player ->

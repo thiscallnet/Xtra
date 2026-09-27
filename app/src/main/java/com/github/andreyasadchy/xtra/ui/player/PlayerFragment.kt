@@ -141,6 +141,8 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         get() = (requireContext().applicationContext as XtraApp).xtraModule
     protected open val supportsLiveCaptions: Boolean = false
     protected var started = false
+    protected var restoredPlaybackPending = false
+        private set
 
     private var nativeSubtitleCues: List<Cue> = emptyList()
     private val liveBufferHealthTrend = LiveBufferHealthTrend()
@@ -641,6 +643,11 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
             enableNetworkCheck = false
         }
         isInteractionLocked = savedInstanceState?.getBoolean(STATE_INTERACTION_LOCKED, false) ?: false
+        restoredPlaybackPending = savedInstanceState
+            ?.takeIf { it.containsKey(STATE_RESTORED_PLAYBACK_PENDING) }
+            ?.getBoolean(STATE_RESTORED_PLAYBACK_PENDING)
+            ?: arguments?.getBoolean(KEY_RESTORED_PLAYBACK, false)
+            ?: false
         super.onCreate(savedInstanceState)
         isPortrait = !requireContext().isTelevision() &&
             resources.configuration.orientation == Configuration.ORIENTATION_PORTRAIT
@@ -4157,7 +4164,22 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean(STATE_INTERACTION_LOCKED, isInteractionLocked)
+        outState.putBoolean(STATE_RESTORED_PLAYBACK_PENDING, restoredPlaybackPending)
         super.onSaveInstanceState(outState)
+    }
+
+    protected fun markRestoredPlaybackStarted() {
+        restoredPlaybackPending = false
+    }
+
+    protected fun closeRestoredStreamAfterTerminalFailure(): Boolean {
+        if (!restoredPlaybackPending || playbackService?.type != BasePlaybackService.STREAM) {
+            return false
+        }
+
+        restoredPlaybackPending = false
+        (activity as? MainActivity)?.closePlayer(this) ?: close()
+        return true
     }
 
     fun minimize() {
@@ -4478,7 +4500,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
         private const val REQUEST_CODE_AUDIO_ONLY = 2
         private const val REQUEST_CODE_PLAY_PAUSE = 3
         private const val STATE_INTERACTION_LOCKED = "interaction_locked"
+        private const val STATE_RESTORED_PLAYBACK_PENDING = "restored_playback_pending"
         const val KEY_OFFLINE = "offline"
+        const val KEY_RESTORED_PLAYBACK = "restored_playback"
     }
 }
 
