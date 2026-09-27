@@ -54,6 +54,7 @@
         app:layout_constraintEnd_toStartOf="@id/sortByText"
         app:layout_constraintRight_toLeftOf="@id/sortByText"
         app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:tint="?attr/colorControlNormal" />
 
     <TextView
@@ -66,5 +67,6 @@
         android:layout_marginTop="1dp"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent" />
 </androidx.constraintlayout.widget.ConstraintLayout>
