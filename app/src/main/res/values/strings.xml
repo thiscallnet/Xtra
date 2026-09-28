@@ -1936,6 +1936,9 @@ Metadata text</string>
     <string name="drops_active_campaigns">Active campaigns</string>
     <string name="drops_upcoming">Upcoming</string>
     <string name="drops_summary">%1$d rewards ready · %2$d campaigns active</string>
+    <string name="drops_tracked">Tracked</string>
+    <string name="drops_more_actions">More</string>
+    <string name="drops_more_actions_for">More actions for %1$s</string>
     <string name="drops_auto_claim">Automatically claim completed Drops</string>
     <string name="drops_auto_claim_summary">Claims completed Drops while you are watching in Xtra. Twitch can change this private API at any time.</string>
     <string name="drops_ready_title">Watching earned you a Drop!</string>

@@ -117,6 +117,10 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "bookmarks_empty",
     "downloads_empty",
     "saved_filters_empty",
+    # The compact Drops card labels ship with the default English wording until translated.
+    "drops_tracked",
+    "drops_more_actions",
+    "drops_more_actions_for",
     # Drops browsing controls use the default English wording until translated.
     "drops_progress_accessibility",
     "drops_minimize_progress",
