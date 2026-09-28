@@ -19,9 +19,17 @@
             app:layout_scrollFlags="scroll|enterAlways"
             app:menu="@menu/top_menu" />
 
-        <include
-            android:id="@+id/sortBar"
-            layout="@layout/sort_bar" />
+        <FrameLayout
+            android:id="@+id/sortBarHost"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            app:layout_scrollFlags="noScroll">
+
+            <include
+                android:id="@+id/sortBar"
+                layout="@layout/sort_bar" />
+
+        </FrameLayout>
 
     </com.google.android.material.appbar.AppBarLayout>
 

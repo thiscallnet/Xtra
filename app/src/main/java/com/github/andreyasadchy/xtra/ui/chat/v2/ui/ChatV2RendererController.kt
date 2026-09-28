@@ -135,12 +135,16 @@ class ChatV2RendererController(
         renderStyle.textSizeSp,
         renderStyle.animateGifs,
         onMessageLongClick = if (profilePopoutGesture.allowsHold) {
-            { id -> latestMessages.firstOrNull { it.id == id }?.let { message -> onMessageLongClick(message) } }
+            { id ->
+                latestMessages.firstOrNull { it.id == id }?.let { message -> onMessageLongClick(message) }
+            }
         } else null,
         onEmoteClick = onEmoteClick.takeUnless { emotePopoutMode == ChatEmotePopoutMode.PROFILE_GESTURE },
         onGifClick = onGifClick,
         onMessageClick = if (profilePopoutGesture.allowsTap) {
-            { id -> latestMessages.firstOrNull { it.id == id }?.let { message -> onMessageLongClick(message) } }
+            { id ->
+                latestMessages.firstOrNull { it.id == id }?.let { message -> onMessageLongClick(message) }
+            }
         } else null,
         onEmoteLongClick = when {
             emotePopoutMode == ChatEmotePopoutMode.EMOTE_DETAILS -> onEmoteClick

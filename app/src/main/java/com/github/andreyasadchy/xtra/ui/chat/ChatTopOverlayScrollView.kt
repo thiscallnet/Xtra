@@ -201,27 +201,18 @@ internal class ChatTopOverlayScrollView @JvmOverloads constructor(
         return restingHeight.coerceAtMost(availableHeight)
     }
 
-    /**
-     * Reveal an activity card after the user expands Happening Now. The stack
-     * is intentionally capped, so simply expanding the card can otherwise
-     * leave its newly visible content below the fold.
-     */
-    internal fun revealDescendant(descendant: View) {
+    /** Reveal an expanded card without scrolling its section header offscreen. */
+    internal fun revealDescendant(descendant: View, keepVisible: View) {
         post {
-            if (height <= 0 || descendant.height <= 0) return@post
+            if (height <= 0 || descendant.height <= 0 || keepVisible.height <= 0) return@post
 
-            var descendantTop = descendant.top
-            var parent = descendant.parent
-            while (parent is View && parent !== this) {
-                descendantTop += parent.top
-                parent = parent.parent
-            }
-            if (parent !== this) return@post
+            val descendantTop = topInScrollContent(descendant) ?: return@post
+            val keepVisibleTop = topInScrollContent(keepVisible) ?: return@post
 
             val descendantBottom = descendantTop + descendant.height
             val visibleTop = scrollY + paddingTop
             val visibleBottom = scrollY + height - paddingBottom
-            val targetScrollY = when {
+            var targetScrollY = when {
                 descendantBottom > visibleBottom ->
                     descendantBottom - height + paddingBottom
 
@@ -230,8 +221,23 @@ internal class ChatTopOverlayScrollView @JvmOverloads constructor(
             }
             val content = getChildAt(0) ?: return@post
             val scrollRange = (content.height - height + paddingBottom).coerceAtLeast(0)
+
+            val maxScrollKeepingHeaderVisible =
+                (keepVisibleTop - paddingTop).coerceIn(0, scrollRange)
+            targetScrollY = targetScrollY.coerceAtMost(maxScrollKeepingHeaderVisible)
+
             scrollTo(scrollX, targetScrollY.coerceIn(0, scrollRange))
         }
+    }
+
+    private fun topInScrollContent(view: View): Int? {
+        var top = view.top
+        var parent = view.parent
+        while (parent is View && parent !== this) {
+            top += parent.top
+            parent = parent.parent
+        }
+        return top.takeIf { parent === this }
     }
 
     /** Keep a user's place when a live activity updates and its card is rebuilt. */

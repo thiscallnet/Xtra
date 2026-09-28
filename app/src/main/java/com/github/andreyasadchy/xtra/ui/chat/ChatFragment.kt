@@ -360,6 +360,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var pinnedMessageBinding: ViewPinnedChatMessageBinding? = null
     private val binding get() = _binding!!
     private val viewModel: ChatViewModel by viewModels { ChatViewModelFactory }
+    private var pendingStreamIdUpdate: String? = null
+    private var hasPendingStreamIdUpdate = false
     private var interactionAdapterFactory: ChatInteractionAdapterFactory? = null
     private var chatV2Renderer: ChatV2RendererController? = null
     private var chatBackgroundRequest: Disposable? = null
@@ -2176,6 +2178,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (hasPendingStreamIdUpdate) {
+            viewModel.streamId = pendingStreamIdUpdate
+            pendingStreamIdUpdate = null
+            hasPendingStreamIdUpdate = false
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         applyChatBackgroundAppearance()
@@ -2343,6 +2354,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     fun updateStreamId(id: String?) {
+        if (!isAdded) {
+            pendingStreamIdUpdate = id
+            hasPendingStreamIdUpdate = true
+            return
+        }
         viewModel.streamId = id
     }
 

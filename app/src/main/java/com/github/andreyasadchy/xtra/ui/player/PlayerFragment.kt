@@ -1016,6 +1016,9 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                             }
                         }
                     }
+                    if (!isMaximized) {
+                        (activity as? MainActivity)?.onMinimizedPlayerPositionChanged(275L)
+                    }
                 }
             }
 
@@ -4241,6 +4244,10 @@ abstract class PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment
                                 isAnimating = false
                                 setListener(null)
                                 activePointerId = -1
+                                if (!isMaximized) {
+                                    (activity as? com.github.andreyasadchy.xtra.ui.main.MainActivity)
+                                        ?.onMinimizedPlayerPositionChanged()
+                                }
                             }
                         }
                     )

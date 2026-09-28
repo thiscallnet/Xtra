@@ -6,6 +6,7 @@ import android.view.ViewTreeObserver
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
+import kotlin.math.roundToInt
 
 /** Keeps common loading, empty, and error overlays centered in the visible part of a clipped page. */
 fun CommonRecyclerViewLayoutBinding.installVisibleViewportStatePositioning(lifecycleOwner: LifecycleOwner) {
@@ -21,12 +22,18 @@ fun View.installVisibleViewportStatePositioning(
     lifecycleOwner: LifecycleOwner,
     stateViews: List<View>,
     topObstruction: View? = null,
+    overlayProvider: (() -> View?)? = null,
+    overlayAvoidanceTarget: View? = null,
+    overlayGapDp: Float = 0f,
 ) {
     installVisibleViewportStatePositioningForViews(
         page = this,
         lifecycleOwner = lifecycleOwner,
         stateViews = stateViews,
         topObstruction = topObstruction,
+        overlayProvider = overlayProvider,
+        overlayAvoidanceTarget = overlayAvoidanceTarget,
+        overlayGapDp = overlayGapDp,
     )
 }
 
@@ -35,11 +42,18 @@ private fun installVisibleViewportStatePositioningForViews(
     lifecycleOwner: LifecycleOwner,
     stateViews: List<View>,
     topObstruction: View?,
+    overlayProvider: (() -> View?)? = null,
+    overlayAvoidanceTarget: View? = null,
+    overlayGapDp: Float = 0f,
 ) {
     val visibleRect = Rect()
     val lastVisibleRect = Rect()
+    val pageGlobalVisibleRect = Rect()
+    val stateGlobalVisibleRect = Rect()
+    val overlayGlobalVisibleRect = Rect()
     var hasLastVisibleRect = false
     var lastPageHeight = -1
+    var baseTranslationY = 0f
     var activeTreeObserver: ViewTreeObserver? = null
     var hasGlobalLayoutListener = false
     var hasPreDrawListener = false
@@ -76,6 +90,58 @@ private fun installVisibleViewportStatePositioningForViews(
         stateViews.forEach { it.translationY = 0f }
         hasLastVisibleRect = false
         lastPageHeight = -1
+        baseTranslationY = 0f
+    }
+
+    fun positionStateAroundOverlay() {
+        val target = overlayAvoidanceTarget ?: return
+        if (target.visibility != View.VISIBLE || page.visibility != View.VISIBLE) return
+
+        var desiredTranslationY = baseTranslationY
+        val overlay = overlayProvider?.invoke()
+        if (overlay != null && overlay.visibility == View.VISIBLE && overlay.isShown) {
+            var scaledOverlay = false
+            var ancestor: View? = overlay
+            while (ancestor != null && ancestor !== page) {
+                if (ancestor.scaleX < 0.99f || ancestor.scaleY < 0.99f) {
+                    scaledOverlay = true
+                    break
+                }
+                ancestor = ancestor.parent as? View
+            }
+            if (scaledOverlay &&
+                page.getGlobalVisibleRect(pageGlobalVisibleRect) &&
+                target.getGlobalVisibleRect(stateGlobalVisibleRect) &&
+                overlay.getGlobalVisibleRect(overlayGlobalVisibleRect)
+            ) {
+                stateGlobalVisibleRect.offset(
+                    0,
+                    (baseTranslationY - target.translationY).roundToInt(),
+                )
+                if (Rect.intersects(stateGlobalVisibleRect, overlayGlobalVisibleRect)) {
+                    val overlapTop = maxOf(stateGlobalVisibleRect.top, overlayGlobalVisibleRect.top)
+                    val overlapBottom = minOf(stateGlobalVisibleRect.bottom, overlayGlobalVisibleRect.bottom)
+                    if (overlapBottom > overlapTop) {
+                        val gapPx = (overlayGapDp * page.resources.displayMetrics.density).roundToInt()
+                        val moveUp = overlapBottom - overlayGlobalVisibleRect.top + gapPx
+                        val moveDown = overlayGlobalVisibleRect.bottom - overlapTop + gapPx
+                        val roomUp = (stateGlobalVisibleRect.top - pageGlobalVisibleRect.top).coerceAtLeast(0)
+                        val roomDown = (pageGlobalVisibleRect.bottom - stateGlobalVisibleRect.bottom).coerceAtLeast(0)
+                        val upFits = roomUp >= moveUp
+                        val downFits = roomDown >= moveDown
+                        val offset = when {
+                            upFits && downFits -> if (moveUp <= moveDown) -moveUp else moveDown
+                            upFits -> -moveUp
+                            downFits -> moveDown
+                            roomUp >= roomDown -> -roomUp
+                            else -> roomDown
+                        }
+                        desiredTranslationY = baseTranslationY + offset
+                    }
+                }
+            }
+        }
+        if (target.translationY != desiredTranslationY) target.translationY = desiredTranslationY
     }
 
     fun updatePreDrawListener() {
@@ -112,14 +178,15 @@ private fun installVisibleViewportStatePositioningForViews(
             }
             if (visibleRect.height() > 0) {
                 if (!hasLastVisibleRect || lastPageHeight != page.height || lastVisibleRect != visibleRect) {
-                    val translationY = visibleRect.exactCenterY() - page.height / 2f
+                    baseTranslationY = visibleRect.exactCenterY() - page.height / 2f
                     stateViews.forEach { stateView ->
-                        if (stateView.translationY != translationY) stateView.translationY = translationY
+                        if (stateView.translationY != baseTranslationY) stateView.translationY = baseTranslationY
                     }
                     lastVisibleRect.set(visibleRect)
                     lastPageHeight = page.height
                     hasLastVisibleRect = true
                 }
+                positionStateAroundOverlay()
             } else {
                 hasLastVisibleRect = false
             }

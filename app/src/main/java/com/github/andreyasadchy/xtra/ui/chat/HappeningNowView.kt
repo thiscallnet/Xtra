@@ -68,13 +68,17 @@ internal class HappeningNowView @JvmOverloads constructor(
         newBadge = findViewById(R.id.happeningNewBadge)
         cards = findViewById(R.id.happeningCards)
 
-        findViewById<View>(R.id.happeningHeader).setOnClickListener {
+        val header = findViewById<View>(R.id.happeningHeader)
+        header.setOnClickListener {
             expansionChangedByUser = true
             expanded = !expanded
             updateExpandedState()
             if (expanded) {
                 cards.getChildAt(0)?.let { firstCard ->
-                    (parent?.parent as? ChatTopOverlayScrollView)?.revealDescendant(firstCard)
+                    (parent?.parent as? ChatTopOverlayScrollView)?.revealDescendant(
+                        descendant = firstCard,
+                        keepVisible = header,
+                    )
                 }
             }
         }

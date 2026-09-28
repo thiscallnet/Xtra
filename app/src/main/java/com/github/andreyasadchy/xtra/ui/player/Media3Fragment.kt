@@ -135,7 +135,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost {
     private var hasEstablishedLiveBufferHealth = false
     private var lastLiveBufferHealthOffsetMs: Long? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
-    private val useTextureVideoOutput = USE_TEXTURE_VIDEO_OUTPUT
+    private val useTextureVideoOutput = shouldUseTextureVideoOutput()
     private val videoOutputOwner = VideoOutputOwner<Player, View>(
         attachTarget = { currentPlayer, target ->
             when (target) {

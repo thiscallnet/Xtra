@@ -550,14 +550,13 @@ class StreamPreloadCoordinator(
         StreamPreviewPolicy.mode(context)
 
     private fun canPreload(): Boolean {
-        if (!canResolveStream() && !canResolvePreview()) return false
         val prefs = context.prefs()
         if (prefs.getBoolean(C.PLAYER_STREAM_PROXY, false) && prefs.getString(C.PLAYER_PROXY_URL, null).isNullOrBlank()) return false
         if ((context as? XtraApp)?.isInForeground == false) return false
         if (streamFeedRefreshCoordinator.isPlayerFullscreen || streamFeedRefreshCoordinator.isPlayerActive) return false
         val powerManager = context.getSystemService(PowerManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && powerManager?.isPowerSaveMode == true) return false
-        return true
+        return canResolveStream() || canResolvePreview()
     }
 
     private fun canResolveStream(): Boolean =

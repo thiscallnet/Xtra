@@ -14,6 +14,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -39,7 +40,7 @@ import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewQuality
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewSelectionCandidate
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewSelectionPolicy
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
-import com.github.andreyasadchy.xtra.ui.player.forwardVideoSurfaceTouchToView
+import com.github.andreyasadchy.xtra.ui.player.isAndroidEmulator
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.util.prefs
@@ -106,6 +107,7 @@ class StreamPreviewCoordinator(
     private var pagerResumePending = false
     private var pagerResumeJob: Job? = null
     private var handoffLogin: String? = null
+    private var playbackSuppressesPreviews = false
     private val lifecycleReconciler = StreamPreviewLifecycleReconciler(
         lifecycle = previewLifecycle,
         schedule = ::scheduleLifecycleReconciliation,
@@ -231,6 +233,7 @@ class StreamPreviewCoordinator(
     }
 
     fun onFullscreenPlaybackStarted(channelLogin: String?) {
+        playbackSuppressesPreviews = true
         // Full-screen playback and browsing previews are mutually exclusive. Keeping a warm
         // preview player here is unsafe: its PlayerView can be reattached by a pending viewport
         // reconciliation while the full-screen player is being added, producing a small stale
@@ -251,11 +254,14 @@ class StreamPreviewCoordinator(
     }
 
     fun onFullscreenPlaybackFailed() {
+        playbackSuppressesPreviews = true
         stopPreview()
     }
 
-    fun onPlaybackReturned() {
+    fun onPlaybackReturned(playerStillOpen: Boolean) {
+        playbackSuppressesPreviews = playerStillOpen
         stopPreview()
+        if (!playerStillOpen) scheduleSelection()
     }
 
     fun isPreviewing(channelLogin: String): Boolean =
@@ -288,6 +294,14 @@ class StreamPreviewCoordinator(
 
     private fun requestPolicyRecheck() {
         scope.launch {
+            if (
+                streamFeedRefreshCoordinator.isPlayerFullscreen ||
+                streamFeedRefreshCoordinator.isPlayerActive
+            ) {
+                scheduleSelection()
+                return@launch
+            }
+
             if (StreamPreviewPolicy.allowsNetwork(context)) scheduleSelection() else stopPreview()
         }
     }
@@ -313,13 +327,7 @@ class StreamPreviewCoordinator(
     }
 
     private fun reconcileSelection() {
-        if (!StreamPreviewPolicy.canStartPreview(
-                isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen,
-                isPlayerActive = streamFeedRefreshCoordinator.isPlayerActive,
-                networkAllowed = StreamPreviewPolicy.allowsNetwork(context),
-                handoffPending = handoffLogin != null,
-            )
-        ) {
+        if (!canStartPreview()) {
             cancelPendingStarts()
             lifecycleReconciler.cancel()
             if (handoffLogin == null) {
@@ -420,6 +428,26 @@ class StreamPreviewCoordinator(
         }
     }
 
+    private fun canStartPreview(): Boolean {
+        if (playbackSuppressesPreviews) return false
+
+        val isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen
+        val isPlayerActive = streamFeedRefreshCoordinator.isPlayerActive
+        val handoffPending = handoffLogin != null
+        val networkAllowed =
+            !isPlayerFullscreen &&
+                !isPlayerActive &&
+                !handoffPending &&
+                StreamPreviewPolicy.allowsNetwork(context)
+
+        return StreamPreviewPolicy.canStartPreview(
+            isPlayerFullscreen = isPlayerFullscreen,
+            isPlayerActive = isPlayerActive,
+            networkAllowed = networkAllowed,
+            handoffPending = handoffPending,
+        )
+    }
+
     private fun scheduleStart(candidate: StreamPreviewCandidate, now: Long) {
         val identity = candidate.previewIdentity ?: return
         if (activePreviews.containsKey(identity) || pendingStarts[identity]?.isActive == true) return
@@ -455,13 +483,7 @@ class StreamPreviewCoordinator(
     private suspend fun startPreview(identity: String) {
         if (activePreviews.containsKey(identity) || activePreviews.size >= maxActivePreviews()) return
         if (failedUntil[identity]?.let { it > SystemClock.elapsedRealtime() } == true) return
-        if (!StreamPreviewPolicy.canStartPreview(
-                isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen,
-                isPlayerActive = streamFeedRefreshCoordinator.isPlayerActive,
-                networkAllowed = StreamPreviewPolicy.allowsNetwork(context),
-                handoffPending = handoffLogin != null,
-            )
-        ) return
+        if (!canStartPreview()) return
 
         val candidate = bestCandidatesByIdentity(currentCandidates())[identity] ?: return
         val target = candidate.surface
@@ -485,13 +507,7 @@ class StreamPreviewCoordinator(
             return
         }
         if (activePreviews.size >= maxActivePreviews()) return
-        if (!StreamPreviewPolicy.canStartPreview(
-                isPlayerFullscreen = streamFeedRefreshCoordinator.isPlayerFullscreen,
-                isPlayerActive = streamFeedRefreshCoordinator.isPlayerActive,
-                networkAllowed = StreamPreviewPolicy.allowsNetwork(context),
-                handoffPending = handoffLogin != null,
-            )
-        ) return
+        if (!canStartPreview()) return
 
         var player: ExoPlayer? = null
         try {
@@ -570,7 +586,11 @@ class StreamPreviewCoordinator(
         sharedPreviewView ?: createPreviewView().also { sharedPreviewView = it }
 
     private fun createPreviewView(): PlayerView =
-        (LayoutInflater.from(context).inflate(R.layout.view_stream_preview, null, false) as PlayerView).apply {
+        (LayoutInflater.from(context).inflate(
+            if (isAndroidEmulator()) R.layout.view_stream_preview_texture else R.layout.view_stream_preview,
+            null,
+            false,
+        ) as PlayerView).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             useController = false
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -626,11 +646,12 @@ class StreamPreviewCoordinator(
         active.touchRelay?.let { relay ->
             (relay.parent as? ViewGroup)?.removeView(relay)
         }
-        active.touchRelay = createPreviewTouchRelay(candidate.surface)
-        candidate.surface.addView(
-            active.touchRelay,
-            FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
-        )
+        active.touchRelay = createPreviewTouchRelay(candidate.surface)?.also { relay ->
+            candidate.surface.addView(
+                relay,
+                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+            )
+        }
         attachPreviewPlayer(active)
         active.playerView.alpha = if (active.firstFrameRendered) 1f else 0f
         active.playerView.visibility = View.VISIBLE
@@ -789,16 +810,37 @@ class StreamPreviewCoordinator(
         active.touchRelay = null
     }
 
-    private fun createPreviewTouchRelay(surface: FrameLayout): View {
-        val target = findPreviewClickTarget(surface)
+    private fun createPreviewTouchRelay(surface: FrameLayout): View? {
+        val target = findPreviewClickTarget(surface) ?: return null
         return View(surface.context).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
-            isClickable = true
+            isEnabled = target.isEnabled
+            if (target.isClickable) {
+                setOnClickListener { target.performClick() }
+            }
+            if (target.isLongClickable) {
+                setOnLongClickListener { target.performLongClick() }
+            }
+            val relayLocation = IntArray(2)
+            val targetLocation = IntArray(2)
+            var relayToTargetX = 0f
+            var relayToTargetY = 0f
             setOnTouchListener { view, event ->
-                target?.let { clickTarget ->
-                    forwardVideoSurfaceTouchToView(view, clickTarget, event)
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    view.getLocationOnScreen(relayLocation)
+                    target.getLocationOnScreen(targetLocation)
+                    relayToTargetX = (relayLocation[0] - targetLocation[0]).toFloat()
+                    relayToTargetY = (relayLocation[1] - targetLocation[1]).toFloat()
                 }
-                true
+                target.drawableHotspotChanged(
+                    event.x + relayToTargetX,
+                    event.y + relayToTargetY,
+                )
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> target.isPressed = target.isEnabled
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> target.isPressed = false
+                }
+                false
             }
         }
     }
