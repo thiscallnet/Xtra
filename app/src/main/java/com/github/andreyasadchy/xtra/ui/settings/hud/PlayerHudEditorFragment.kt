@@ -1180,7 +1180,7 @@ class PlayerHudEditorFragment : Fragment() {
             val exactHeight = MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY)
             for (index in 0 until childCount) {
                 val child = getChildAt(index)
-                // HUD drag updates must not make Media3 resize its TextureView
+                // HUD drag updates must not make Media3 resize its video
                 // surface. The video child owns one stable viewport; only the
                 // HUD and guide overlay are remeasured as editor state changes.
                 if (child is PlayerView &&
