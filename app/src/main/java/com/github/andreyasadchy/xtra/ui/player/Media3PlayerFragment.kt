@@ -40,6 +40,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.RelativeLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.trackPipAnimationHintView
@@ -128,6 +129,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 
@@ -222,6 +224,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val timeText: String,
         val timeDescription: String,
         val timeActionable: Boolean,
+        val liveIndicatorVisible: Boolean,
     )
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
@@ -3320,6 +3323,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private fun hideStreamUptime() {
         val timeView = binding.playerControls.liveTimeGroup
         val wasVisible = timeView.isVisible
+        setLiveIndicatorVisible(false)
         timeView.visibility = View.GONE
         timeView.text = null
         timeView.contentDescription = null
@@ -3327,6 +3331,23 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         timeView.isClickable = false
         timeView.isFocusable = false
         if (wasVisible) binding.playerControls.root.refreshAvailabilityIfChanged()
+    }
+
+    private fun setLiveIndicatorVisible(visible: Boolean) {
+        val timeView: TextView = _binding?.playerControls?.liveTimeGroup ?: return
+        if ((timeView.compoundDrawablesRelative[0] != null) == visible) return
+
+        val indicator = if (visible) {
+            timeView.context.getDrawable(R.drawable.bg_game_viewer_dot)
+        } else {
+            null
+        }
+        timeView.setCompoundDrawablesRelativeWithIntrinsicBounds(indicator, null, null, null)
+        timeView.compoundDrawablePadding = if (visible) {
+            (4f * timeView.resources.displayMetrics.density).roundToInt()
+        } else {
+            0
+        }
     }
 
     private fun updateStreamUptime() {
@@ -3344,6 +3365,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val timeView = binding.playerControls.liveTimeGroup
         val wasVisible = timeView.isVisible
         val timeText = getString(R.string.player_live_position, uptime, getString(R.string.player_live))
+        setLiveIndicatorVisible(isPlaybackRequested())
         timeView.visibility = View.VISIBLE
         timeView.text = timeText
         timeView.contentDescription = getString(R.string.player_uptime, timeText)
@@ -3358,6 +3380,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (!isLiveRewindAvailable() || view == null) {
             pausedLivePositionMs = null
             renderedLiveRewindState = null
+            setLiveIndicatorVisible(false)
             binding.playerControls.progressBar.visibility = View.GONE
             binding.playerControls.position.visibility = View.GONE
             binding.playerControls.duration.visibility = View.GONE
@@ -3446,6 +3469,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             !playbackRequested &&
             liveRewindScrubPositionMs == null
         val isBehindLive = isRewound || isLivePaused || liveRewindScrubPositionMs != null
+        val isAtLiveEdge = !isBehindLive &&
+            !liveRewindStreamOffline &&
+            !liveRewindSwitching &&
+            !liveRewindReturningLive
         val positionTimeText = if (isBehindLive) {
             DateUtils.formatElapsedTime(displayedPositionMs / 1000L)
         } else {
@@ -3474,6 +3501,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             timeText = timeText,
             timeDescription = timeDescription,
             timeActionable = timeActionable,
+            liveIndicatorVisible = isAtLiveEdge,
         )
         if (next == renderedLiveRewindState) {
             return
@@ -3494,6 +3522,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
         if (previous?.timeDescription != next.timeDescription) {
             binding.playerControls.liveTimeGroup.contentDescription = next.timeDescription
+        }
+        if (previous?.liveIndicatorVisible != next.liveIndicatorVisible) {
+            setLiveIndicatorVisible(next.liveIndicatorVisible)
         }
         if (previous?.timeActionable != next.timeActionable) {
             binding.playerControls.liveTimeGroup.setOnClickListener(
@@ -3523,6 +3554,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             binding.playerControls.progressBar.visibility = View.GONE
             binding.playerControls.position.visibility = View.GONE
             binding.playerControls.duration.visibility = View.GONE
+            setLiveIndicatorVisible(false)
             binding.playerControls.liveTimeGroup.visibility = View.GONE
             binding.playerControls.liveTimeGroup.setOnClickListener(null)
             binding.playerControls.liveTimeGroup.isClickable = false
@@ -3548,6 +3580,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     private fun showLiveRewindPreview(positionMs: Long) {
         renderedLiveRewindState = null
+        setLiveIndicatorVisible(false)
         val edgeMs = currentLiveEdgeMs()
         val previewPositionMs = positionMs.coerceIn(0L, edgeMs)
         val previewPositionTimeText = if (previewPositionMs >= edgeMs) {
@@ -3825,6 +3858,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         ?: 0L
 
     private fun hideLiveRewindPreview() {
+        setLiveIndicatorVisible(false)
         binding.playerControls.position.visibility = View.GONE
         binding.playerControls.duration.visibility = View.GONE
         binding.playerControls.liveTimeGroup.visibility = View.GONE
