@@ -125,6 +125,7 @@ class PlaybackService : MediaSessionService() {
     private val diagnostics = PlaybackVideoDiagnosticsStore()
     private var dynamicsProcessing: DynamicsProcessing? = null
     private var backgroundPlayback = false
+    private var backgroundVideoSuppressed = false
     private var backgroundRecoveryTimer: Timer? = null
     private var backgroundRecoveryAttempt = 0
     private var proxyMediaPlaylist = false
@@ -623,6 +624,11 @@ class PlaybackService : MediaSessionService() {
                                 }
                                 val extras = liveStreamExtras?.let(::Bundle)
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                                clearBackgroundVideoSuppression(
+                                    session.player,
+                                    restoreVideo = true,
+                                    reason = "go_live",
+                                )
                                 liveRewindTransitioning = true
                                 val result = startLiveStream(player, extras, beginNewPlayback = false)
                                 result.addListener({
@@ -638,6 +644,11 @@ class PlaybackService : MediaSessionService() {
                                 result
                             }
                             START_STREAM -> {
+                                clearBackgroundVideoSuppression(
+                                    session.player,
+                                    restoreVideo = true,
+                                    reason = "start_stream",
+                                )
                                 liveRewindTransitioning = true
                                 val result = try {
                                     startLiveStream(player, customCommand.customExtras)
@@ -664,6 +675,11 @@ class PlaybackService : MediaSessionService() {
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                                 val vodId = customCommand.customExtras.getString(REWIND_VIDEO_ID)
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                                clearBackgroundVideoSuppression(
+                                    session.player,
+                                    restoreVideo = true,
+                                    reason = "start_live_rewind",
+                                )
                                 liveRewindTransitioning = true
                                 clearLiveClipState()
                                 try {
@@ -742,10 +758,20 @@ class PlaybackService : MediaSessionService() {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             CLEAR_PLAYBACK_RESUMPTION -> {
+                                clearBackgroundVideoSuppression(
+                                    session.player,
+                                    restoreVideo = false,
+                                    reason = "playback_cleared",
+                                )
                                 clearPlaybackResumptionState()
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             START_VIDEO -> {
+                                clearBackgroundVideoSuppression(
+                                    session.player,
+                                    restoreVideo = true,
+                                    reason = "start_video",
+                                )
                                 backgroundPlayback = false
                                 val uri = customCommand.customExtras.getString(URI)
                                 val title = customCommand.customExtras.getString(TITLE)
@@ -850,6 +876,11 @@ class PlaybackService : MediaSessionService() {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             START_CLIP -> {
+                                clearBackgroundVideoSuppression(
+                                    session.player,
+                                    restoreVideo = true,
+                                    reason = "start_clip",
+                                )
                                 backgroundPlayback = false
                                 val uri = customCommand.customExtras.getString(URI)
                                 val title = customCommand.customExtras.getString(TITLE)
@@ -927,6 +958,11 @@ class PlaybackService : MediaSessionService() {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             START_OFFLINE_VIDEO -> {
+                                clearBackgroundVideoSuppression(
+                                    session.player,
+                                    restoreVideo = true,
+                                    reason = "start_offline_video",
+                                )
                                 backgroundPlayback = false
                                 val uri = customCommand.customExtras.getString(URI)
                                 val title = customCommand.customExtras.getString(TITLE)
@@ -1020,11 +1056,21 @@ class PlaybackService : MediaSessionService() {
                             SET_BACKGROUND_PLAYBACK -> {
                                 backgroundPlayback = customCommand.customExtras.getBoolean(BACKGROUND_PLAYBACK)
                                 if (!backgroundPlayback) {
+                                    restoreBackgroundVideoSuppression(session.player)
                                     backgroundRecoveryTimer?.cancel()
                                     backgroundRecoveryTimer = null
                                     backgroundRecoveryAttempt = 0
+                                } else if (customCommand.customExtras.getBoolean(SUPPRESS_VIDEO_IN_BACKGROUND)) {
+                                    suppressVideoForBackground(session.player)
                                 }
-                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                                Futures.immediateFuture(
+                                    SessionResult(
+                                        SessionResult.RESULT_SUCCESS,
+                                        Bundle().apply {
+                                            putBoolean(BACKGROUND_VIDEO_SUPPRESSED, backgroundVideoSuppressed)
+                                        },
+                                    ),
+                                )
                             }
                             SET_SLEEP_TIMER -> {
                                 val duration = customCommand.customExtras.getLong(DURATION)
@@ -1039,6 +1085,13 @@ class PlaybackService : MediaSessionService() {
                                                 savePosition()
                                                 runAfterPlaybackPersistence {
                                                     releasePrimaryPlaybackWatchState()
+                                                    mediaSession?.player?.let { currentPlayer ->
+                                                        clearBackgroundVideoSuppression(
+                                                            currentPlayer,
+                                                            restoreVideo = false,
+                                                            reason = "sleep_timer_stop",
+                                                        )
+                                                    }
                                                     mediaSession?.player?.clearMediaItems()
                                                     xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
                                                     pauseAllPlayersAndStopSelf()
@@ -1135,6 +1188,15 @@ class PlaybackService : MediaSessionService() {
                                 val extras = customCommand.customExtras
                                 val selectedQualityJson = extras.getString(PLAYBACK_QUALITY)
                                 val selectedQuality = decodePlaybackQuality(xtraModule.json, selectedQualityJson)
+                                if (selectedQuality?.name == PlaybackContract.AUDIO_ONLY_QUALITY ||
+                                    selectedQuality?.name == PlaybackContract.CHAT_ONLY_QUALITY
+                                ) {
+                                    clearBackgroundVideoSuppression(
+                                        session.player,
+                                        restoreVideo = false,
+                                        reason = "explicit_video_suppression",
+                                    )
+                                }
                                 val qualityState = PlaybackState(
                                     type = extras.getString(PLAYBACK_TYPE),
                                     streamId = extras.getString(PLAYBACK_STREAM_ID),
@@ -2395,6 +2457,70 @@ class PlaybackService : MediaSessionService() {
         primaryPlaybackWatchReleased = true
     }
 
+    private fun suppressVideoForBackground(player: Player) {
+        if (backgroundVideoSuppressed) {
+            logBackgroundVideoState("disable_already_owned", player, owned = true)
+            return
+        }
+        val trackSelectionParameters = player.trackSelectionParameters
+        val videoAlreadyDisabled = Media3C.TRACK_TYPE_VIDEO in trackSelectionParameters.disabledTrackTypes
+        if (player.currentMediaItem == null || videoAlreadyDisabled) {
+            logBackgroundVideoState(
+                if (videoAlreadyDisabled) "disable_skipped_already_disabled" else "disable_skipped_no_media",
+                player,
+                owned = false,
+            )
+            return
+        }
+        player.trackSelectionParameters = trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, true)
+            .build()
+        backgroundVideoSuppressed = true
+        logBackgroundVideoState("disable", player, owned = true)
+    }
+
+    private fun restoreBackgroundVideoSuppression(player: Player) {
+        val wasOwned = backgroundVideoSuppressed
+        val videoWasDisabled = Media3C.TRACK_TYPE_VIDEO in player.trackSelectionParameters.disabledTrackTypes
+        if (wasOwned && player.currentMediaItem != null && videoWasDisabled) {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, false)
+                .build()
+        }
+        backgroundVideoSuppressed = false
+        logBackgroundVideoState("foreground_restore", player, owned = wasOwned)
+    }
+
+    private fun clearBackgroundVideoSuppression(
+        player: Player,
+        restoreVideo: Boolean,
+        reason: String,
+    ) {
+        val wasOwned = backgroundVideoSuppressed
+        if (!wasOwned) return
+        val videoWasDisabled = Media3C.TRACK_TYPE_VIDEO in player.trackSelectionParameters.disabledTrackTypes
+        if (restoreVideo && player.currentMediaItem != null && videoWasDisabled) {
+            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, false)
+                .build()
+        }
+        backgroundVideoSuppressed = false
+        logBackgroundVideoState(reason, player, owned = wasOwned)
+    }
+
+    private fun logBackgroundVideoState(action: String, player: Player, owned: Boolean) {
+        if (!BuildConfig.DEBUG) return
+        val selectedVideoTrack = player.currentTracks.groups.any { group ->
+            group.type == Media3C.TRACK_TYPE_VIDEO && group.isSelected
+        }
+        Log.d(
+            "BackgroundVideo",
+            "background_video action=$action owned=$owned " +
+                "disabledTrackTypes=${player.trackSelectionParameters.disabledTrackTypes} " +
+                "selectedVideoTrack=$selectedVideoTrack hasMediaItem=${player.currentMediaItem != null}",
+        )
+    }
+
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onUpdateNotificationAsync(
@@ -2473,6 +2599,13 @@ class PlaybackService : MediaSessionService() {
         }
         releasePrimaryPlaybackWatchState()
         clearPlaybackResumptionState()
+        player?.let {
+            clearBackgroundVideoSuppression(
+                it,
+                restoreVideo = false,
+                reason = "task_removed_stop",
+            )
+        }
         player?.clearMediaItems()
         xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(null)
         runAfterPlaybackPersistence {
@@ -2488,6 +2621,7 @@ class PlaybackService : MediaSessionService() {
             releasePrimaryPlaybackWatchState()
             xtraModule.viewingStatsRecorder.release(viewingStatsSourceId)
         }
+        backgroundVideoSuppressed = false
         backgroundRecoveryTimer?.cancel()
         backgroundRecoveryTimer = null
         sleepTimer?.cancel()
@@ -2533,6 +2667,8 @@ class PlaybackService : MediaSessionService() {
         const val TOGGLE_DYNAMICS_PROCESSING = "toggleDynamicsProcessing"
         const val TOGGLE_PROXY = "toggleProxy"
         const val SET_BACKGROUND_PLAYBACK = "setBackgroundPlayback"
+        const val SUPPRESS_VIDEO_IN_BACKGROUND = "suppressVideoInBackground"
+        private const val BACKGROUND_VIDEO_SUPPRESSED = "backgroundVideoSuppressed"
         const val SET_SLEEP_TIMER = "setSleepTimer"
         const val GET_SLEEP_TIMER = "getSleepTimer"
         const val CHECK_ADS = "checkAds"

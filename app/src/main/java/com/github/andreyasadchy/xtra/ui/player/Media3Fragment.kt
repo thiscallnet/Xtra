@@ -376,444 +376,440 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 MediaController.releaseFuture(future)
                 return@addListener
             }
-            logVideoSurfaceBinding("controller_connected", controller, videoOutputView)
-            val attachingRestoredSession = requireArguments().getBoolean(KEY_RESTORED_PLAYBACK) &&
-                controller.currentMediaItem != null
-            if (attachingRestoredSession) {
-                attachToExistingPlaybackSession(controller)
-                if (BuildConfig.DEBUG) {
-                    Log.d("PlaybackResumption", "attached activity to active Media3 session type=$videoType")
+            viewLifecycleOwner.lifecycleScope.launch {
+                if (controllerFuture !== future || view == null || !isAdded) return@launch
+                // Install the new output while background playback still owns
+                // the disabled video track. The service can then restore video
+                // directly onto this Surface instead of racing the attachment.
+                attachVideoOutput(controller)
+                val foregroundTransition = try {
+                    controller.sendCustomCommand(
+                        SessionCommand(
+                            PlaybackService.SET_BACKGROUND_PLAYBACK,
+                            Bundle().apply { putBoolean(PlaybackService.BACKGROUND_PLAYBACK, false) },
+                        ),
+                        Bundle.EMPTY,
+                    ).awaitFuture()
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    Log.w("PlaybackResumption", "Failed to restore foreground playback state", error)
+                    null
                 }
-            }
-            val listener = object : Player.Listener {
-
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    resetLiveBufferHealth()
-                    updateProgress()
-                    refreshClipAvailability()
-                    applyPendingAudioOnlySourceSwitch()
-                    applyPendingPlaybackPrepareAfterChatOnly()
+                if (controllerFuture !== future || view == null || !isAdded) return@launch
+                if (foregroundTransition?.resultCode != SessionResult.RESULT_SUCCESS) {
+                    Log.e("PlaybackResumption", "Foreground playback restore command failed")
+                    showPlayerError(R.string.player_error) { restartPlayer() }
+                    return@launch
                 }
-
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) {
-                        onLiveRewindPlaybackError()
-                    }
-                    if (playbackState == Player.STATE_READY) {
-                        recoveringBehindLiveWindow = false
-                        updateLiveStallWatchdog(isBuffering = false)
-                        clearPlayerError()
-                        restoreClipEditorIfNeeded()
-                    } else if (playbackState == Player.STATE_BUFFERING) {
-                        updateLiveStallWatchdog(isBuffering = true)
-                    }
-                    renderPlaybackChrome()
-                    val showPlayButton = Util.shouldShowPlayButton(player)
-                    setPipActions(!showPlayButton)
-                    updateProgress()
-                    controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
-                    if (useController) {
-                        showController(show = videoType != STREAM || showPlayButton)
-                    }
-                    if (playbackState == Player.STATE_READY) refreshClipAvailability()
-                }
-
-                override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
-                    if (!playWhenReady) {
-                        cancelLiveStallRecovery(resetBudget = true)
-                    } else if (player?.playbackState == Player.STATE_BUFFERING) {
-                        updateLiveStallWatchdog(isBuffering = true)
-                    }
-                    renderPlaybackChrome()
-                    val showPlayButton = Util.shouldShowPlayButton(player)
-                    setPipActions(!showPlayButton)
-                    updateProgress()
-                    controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
-                    if (useController) {
-                        showController(show = videoType != STREAM || showPlayButton)
+                logVideoSurfaceBinding("controller_connected", controller, videoOutputView)
+                val attachingRestoredSession = requireArguments().getBoolean(KEY_RESTORED_PLAYBACK) &&
+                    controller.currentMediaItem != null
+                if (attachingRestoredSession) {
+                    attachToExistingPlaybackSession(controller)
+                    if (BuildConfig.DEBUG) {
+                        Log.d("PlaybackResumption", "attached activity to active Media3 session type=$videoType")
                     }
                 }
+                val listener = object : Player.Listener {
 
-                override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
-                    renderPlaybackChrome()
-                    val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                    updateDurationIfNeeded(duration)
-                    updateProgress()
-                }
-
-                override fun onVideoSizeChanged(videoSize: VideoSize) {
-                    if (videoSize != VideoSize.UNKNOWN && player?.let { it.playbackState != Player.STATE_IDLE } == true) {
-                        val aspectRatio = (videoSize.width * videoSize.pixelWidthHeightRatio) / videoSize.height
-                        binding.aspectRatioFrameLayout.setAspectRatio(aspectRatio)
+                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        resetLiveBufferHealth()
+                        updateProgress()
+                        refreshClipAvailability()
+                        applyPendingAudioOnlySourceSwitch()
+                        applyPendingPlaybackPrepareAfterChatOnly()
                     }
-                    refreshPlayerHudLayout()
-                }
 
-                override fun onCues(cueGroup: CueGroup) {
-                    nativeCues = cueGroup.cues
-                    renderSubtitleOverlay()
-                }
-
-                override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-                    val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                    updateDurationIfNeeded(duration)
-                    updateProgress()
-                    if (reason == Player.DISCONTINUITY_REASON_SEEK) {
-                        chatFragment?.updatePosition(newPosition.positionMs)
+                    override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (playbackState == Player.STATE_ENDED) {
+                            onLiveRewindPlaybackError()
+                        }
+                        if (playbackState == Player.STATE_READY) {
+                            recoveringBehindLiveWindow = false
+                            updateLiveStallWatchdog(isBuffering = false)
+                            clearPlayerError()
+                            restoreClipEditorIfNeeded()
+                        } else if (playbackState == Player.STATE_BUFFERING) {
+                            updateLiveStallWatchdog(isBuffering = true)
+                        }
+                        renderPlaybackChrome()
+                        val showPlayButton = Util.shouldShowPlayButton(player)
+                        setPipActions(!showPlayButton)
+                        updateProgress()
+                        controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
+                        if (useController) {
+                            showController(show = videoType != STREAM || showPlayButton)
+                        }
+                        if (playbackState == Player.STATE_READY) refreshClipAvailability()
                     }
-                }
 
-                override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
-                    chatFragment?.updateSpeed(playbackParameters.speed)
-                }
+                    override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                        if (!playWhenReady) {
+                            cancelLiveStallRecovery(resetBudget = true)
+                        } else if (player?.playbackState == Player.STATE_BUFFERING) {
+                            updateLiveStallWatchdog(isBuffering = true)
+                        }
+                        renderPlaybackChrome()
+                        val showPlayButton = Util.shouldShowPlayButton(player)
+                        setPipActions(!showPlayButton)
+                        updateProgress()
+                        controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
+                        if (useController) {
+                            showController(show = videoType != STREAM || showPlayButton)
+                        }
+                    }
 
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying && videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
-                        liveRecoveryState.onPlaybackStarted(liveRecoveryState.currentGeneration())
-                        cancelLiveStallRecovery(resetBudget = false)
+                    override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+                        renderPlaybackChrome()
+                        val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
+                        updateDurationIfNeeded(duration)
+                        updateProgress()
                     }
-                    updateProgress()
-                    if (isAdded && view != null) {
-                        requireView().keepScreenOn = isPlaying && canEnterPictureInPicture()
-                    }
-                }
 
-                override fun onTracksChanged(tracks: Tracks) {
-                    refreshClipAvailability()
-                    logVideoTracks(
-                        reason = "Media3Fragment.onTracksChanged",
-                        player = player,
-                    )
-                    if (!tracks.isEmpty && !viewModel.loaded.value) {
-                        viewModel.loaded.value = true
-                        toggleSubtitles(requireContext().prefs().getBoolean(C.PLAYER_SUBTITLES_ENABLED, false))
+                    override fun onVideoSizeChanged(videoSize: VideoSize) {
+                        if (videoSize != VideoSize.UNKNOWN && player?.let { it.playbackState != Player.STATE_IDLE } == true) {
+                            val aspectRatio = (videoSize.width * videoSize.pixelWidthHeightRatio) / videoSize.height
+                            binding.aspectRatioFrameLayout.setAspectRatio(aspectRatio)
+                        }
+                        refreshPlayerHudLayout()
                     }
-                    setSubtitlesButton()
-                    if (!tracks.isEmpty) {
+
+                    override fun onCues(cueGroup: CueGroup) {
+                        nativeCues = cueGroup.cues
+                        renderSubtitleOverlay()
+                    }
+
+                    override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                        val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
+                        updateDurationIfNeeded(duration)
+                        updateProgress()
+                        if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+                            chatFragment?.updatePosition(newPosition.positionMs)
+                        }
+                    }
+
+                    override fun onPlaybackParametersChanged(playbackParameters: PlaybackParameters) {
+                        chatFragment?.updateSpeed(playbackParameters.speed)
+                    }
+
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (isPlaying && videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
+                            liveRecoveryState.onPlaybackStarted(liveRecoveryState.currentGeneration())
+                            cancelLiveStallRecovery(resetBudget = false)
+                        }
+                        updateProgress()
+                        if (isAdded && view != null) {
+                            requireView().keepScreenOn = isPlaying && canEnterPictureInPicture()
+                        }
+                    }
+
+                    override fun onTracksChanged(tracks: Tracks) {
+                        refreshClipAvailability()
+                        logVideoTracks(
+                            reason = "Media3Fragment.onTracksChanged",
+                            player = player,
+                        )
+                        if (!tracks.isEmpty && !viewModel.loaded.value) {
+                            viewModel.loaded.value = true
+                            toggleSubtitles(requireContext().prefs().getBoolean(C.PLAYER_SUBTITLES_ENABLED, false))
+                        }
+                        setSubtitlesButton()
+                        if (!tracks.isEmpty) {
+                            if (viewModel.qualities.isNullOrEmpty() || viewModel.updateQualities) {
+                                requestQualities()
+                            }
+                            if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null
+                                && viewModel.quality?.name != AUDIO_ONLY_QUALITY
+                                && !viewModel.hidden) {
+                                changeQuality(viewModel.quality, persistSavedQuality = false)
+                            }
+                            chatFragment?.startReplayChatLoad()
+                        }
+                    }
+
+                    override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                        refreshClipAvailability()
+                        val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
+                        updateDurationIfNeeded(duration)
+                        updateProgress()
+                        applyPendingAudioOnlySourceSwitch()
+                        applyPendingPlaybackPrepareAfterChatOnly()
+                        if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
+                            viewModel.updateQualities = viewModel.quality?.name != AUDIO_ONLY_QUALITY
+                        }
                         if (viewModel.qualities.isNullOrEmpty() || viewModel.updateQualities) {
                             requestQualities()
                         }
-                        if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null
-                            && viewModel.quality?.name != AUDIO_ONLY_QUALITY
-                            && !viewModel.hidden) {
-                            changeQuality(viewModel.quality, persistSavedQuality = false)
+                        if (videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
+                            val avoidAds = requireContext().prefs().shouldAvoidTwitchAds()
+                            val suppressAds = avoidAds
+                            val useProxy = requireContext().prefs().httpProxyHost() != null
+                                    && requireContext().prefs().httpProxyPort() != null
+                            if (suppressAds || useProxy) {
+                                player?.sendCustomCommand(
+                                    SessionCommand(PlaybackService.CHECK_ADS, Bundle.EMPTY),
+                                    Bundle.EMPTY
+                                )?.let { result ->
+                                    result.addListener({
+                                        if (!isAdded || view == null || isLiveRewindActiveOrSwitching()) {
+                                            return@addListener
+                                        }
+                                        if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
+                                            val playingAds = result.get().extras.getBoolean(PlaybackService.RESULT)
+                                            val oldValue = viewModel.playingAds
+                                            viewModel.playingAds = playingAds
+                                            setQualityText()
+                                            if (playingAds) {
+                                                if (avoidAds) {
+                                                    if (adAvoidanceJob?.isActive != true) {
+                                                        val playerTypes = viewModel.playerTypesForAd(
+                                                            requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE, "site")
+                                                        )
+                                                        if (playerTypes.isNotEmpty()) {
+                                                            suppressAdPlayback()
+                                                            tryAlternateStream(playerTypes, useProxy)
+                                                        } else {
+                                                            fallbackFromAd(useProxy, suppressAds)
+                                                        }
+                                                    }
+                                                } else if (!oldValue) {
+                                                    fallbackFromAd(useProxy, suppressAds)
+                                                }
+                                            } else {
+                                                viewModel.onCleanAdPlaylist()
+                                                restoreAdPlayback()
+                                                schedulePrimaryStreamRestore()
+                                            }
+                                        }
+                                    }, ContextCompat.getMainExecutor(requireContext()))
+                                }
+                            }
                         }
-                        chatFragment?.startReplayChatLoad()
                     }
-                }
 
-                override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                    refreshClipAvailability()
-                    val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
-                    updateDurationIfNeeded(duration)
-                    updateProgress()
-                    applyPendingAudioOnlySourceSwitch()
-                    applyPendingPlaybackPrepareAfterChatOnly()
-                    if (reason == Player.TIMELINE_CHANGE_REASON_PLAYLIST_CHANGED && !timeline.isEmpty && viewModel.qualities?.find { it.name == AUTO_QUALITY } != null) {
-                        viewModel.updateQualities = viewModel.quality?.name != AUDIO_ONLY_QUALITY
-                    }
-                    if (viewModel.qualities.isNullOrEmpty() || viewModel.updateQualities) {
-                        requestQualities()
-                    }
-                    if (videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
-                        val avoidAds = requireContext().prefs().shouldAvoidTwitchAds()
-                        val suppressAds = avoidAds
-                        val useProxy = requireContext().prefs().httpProxyHost() != null
-                                && requireContext().prefs().httpProxyPort() != null
-                        if (suppressAds || useProxy) {
-                            player?.sendCustomCommand(
-                                SessionCommand(PlaybackService.CHECK_ADS, Bundle.EMPTY),
-                                Bundle.EMPTY
-                            )?.let { result ->
-                                result.addListener({
-                                    if (!isAdded || view == null || isLiveRewindActiveOrSwitching()) {
-                                        return@addListener
-                                    }
-                                    if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
-                                        val playingAds = result.get().extras.getBoolean(PlaybackService.RESULT)
-                                        val oldValue = viewModel.playingAds
-                                        viewModel.playingAds = playingAds
-                                        setQualityText()
-                                        if (playingAds) {
-                                            if (avoidAds) {
-                                                if (adAvoidanceJob?.isActive != true) {
-                                                    val playerTypes = viewModel.playerTypesForAd(
-                                                        requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE, "site")
-                                                    )
-                                                    if (playerTypes.isNotEmpty()) {
-                                                        suppressAdPlayback()
-                                                        tryAlternateStream(playerTypes, useProxy)
-                                                    } else {
-                                                        fallbackFromAd(useProxy, suppressAds)
+                    override fun onPlayerError(error: PlaybackException) {
+                        Log.e(tag, "Player error", error)
+                        viewModel.pendingVideoQuality = null
+                        if (onLiveRewindPlaybackError()) return
+                        if (isLiveRewindActiveOrSwitching()) return
+                        if (
+                            videoType == STREAM
+                            && error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                            && !recoveringBehindLiveWindow
+                        ) {
+                            recoveringBehindLiveWindow = true
+                            Log.i(tag, "Recovering live stream from a behind-live-window error")
+                            clearPlayerError()
+                            player?.let { currentPlayer ->
+                                currentPlayer.seekToDefaultPosition()
+                                currentPlayer.prepare()
+                            }
+                            return
+                        }
+                        when (videoType) {
+                            STREAM -> {
+                                player?.sendCustomCommand(
+                                    SessionCommand(PlaybackService.GET_ERROR_CODE, Bundle.EMPTY),
+                                    Bundle.EMPTY
+                                )?.let { result ->
+                                    result.addListener({
+                                        if (!isAdded || view == null) {
+                                            return@addListener
+                                        }
+                                        if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
+                                            val responseCode = result.get().extras.getInt(PlaybackService.RESULT)
+                                            val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                                            val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                                            val isNetworkAvailable = networkCapabilities != null
+                                                    && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                                                    && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                                            if (isNetworkAvailable) {
+                                                when {
+                                                    responseCode == 404 -> {
+                                                        showPlayerError(R.string.stream_ended) { restartPlayer() }
+                                                    }
+                                                    viewModel.useCustomProxy && responseCode >= 400 -> {
+                                                        showPlayerError(R.string.proxy_error) { restartPlayer() }
+                                                        viewModel.useCustomProxy = false
+                                                        scheduleStreamRecovery()
+                                                    }
+                                                    else -> {
+                                                        showPlayerError(R.string.player_error) { restartPlayer() }
+                                                        scheduleStreamRecovery()
                                                     }
                                                 }
-                                            } else if (!oldValue) {
-                                                fallbackFromAd(useProxy, suppressAds)
+                                            } else {
+                                                showPlayerError(R.string.connection_error) { restartPlayer() }
+                                                scheduleStreamRecovery()
                                             }
-                                        } else {
-                                            viewModel.onCleanAdPlaylist()
-                                            restoreAdPlayback()
-                                            schedulePrimaryStreamRestore()
                                         }
-                                    }
-                                }, ContextCompat.getMainExecutor(requireContext()))
+                                    }, ContextCompat.getMainExecutor(requireContext()))
+                                }
                             }
-                        }
-                    }
-                }
-
-                override fun onPlayerError(error: PlaybackException) {
-                    Log.e(tag, "Player error", error)
-                    viewModel.pendingVideoQuality = null
-                    if (onLiveRewindPlaybackError()) return
-                    if (isLiveRewindActiveOrSwitching()) return
-                    if (
-                        videoType == STREAM
-                        && error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
-                        && !recoveringBehindLiveWindow
-                    ) {
-                        recoveringBehindLiveWindow = true
-                        Log.i(tag, "Recovering live stream from a behind-live-window error")
-                        clearPlayerError()
-                        player?.let { currentPlayer ->
-                            currentPlayer.seekToDefaultPosition()
-                            currentPlayer.prepare()
-                        }
-                        return
-                    }
-                    when (videoType) {
-                        STREAM -> {
-                            player?.sendCustomCommand(
-                                SessionCommand(PlaybackService.GET_ERROR_CODE, Bundle.EMPTY),
-                                Bundle.EMPTY
-                            )?.let { result ->
-                                result.addListener({
-                                    if (!isAdded || view == null) {
-                                        return@addListener
-                                    }
-                                    if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
-                                        val responseCode = result.get().extras.getInt(PlaybackService.RESULT)
-                                        val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-                                        val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-                                        val isNetworkAvailable = networkCapabilities != null
-                                                && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                                                && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                                        if (isNetworkAvailable) {
-                                            when {
-                                                responseCode == 404 -> {
-                                                    showPlayerError(R.string.stream_ended) { restartPlayer() }
-                                                }
-                                                viewModel.useCustomProxy && responseCode >= 400 -> {
-                                                    showPlayerError(R.string.proxy_error) { restartPlayer() }
-                                                    viewModel.useCustomProxy = false
-                                                    scheduleStreamRecovery()
-                                                }
-                                                else -> {
-                                                    showPlayerError(R.string.player_error) { restartPlayer() }
-                                                    scheduleStreamRecovery()
-                                                }
-                                            }
-                                        } else {
-                                            showPlayerError(R.string.connection_error) { restartPlayer() }
-                                            scheduleStreamRecovery()
+                            VIDEO -> {
+                                player?.sendCustomCommand(
+                                    SessionCommand(PlaybackService.GET_ERROR_CODE, Bundle.EMPTY),
+                                    Bundle.EMPTY
+                                )?.let { result ->
+                                    result.addListener({
+                                        if (!isAdded || view == null) {
+                                            return@addListener
                                         }
-                                    }
-                                }, ContextCompat.getMainExecutor(requireContext()))
-                            }
-                        }
-                        VIDEO -> {
-                            player?.sendCustomCommand(
-                                SessionCommand(PlaybackService.GET_ERROR_CODE, Bundle.EMPTY),
-                                Bundle.EMPTY
-                            )?.let { result ->
-                                result.addListener({
-                                    if (!isAdded || view == null) {
-                                        return@addListener
-                                    }
-                                    if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
-                                        val responseCode = result.get().extras.getInt(PlaybackService.RESULT)
-                                        val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-                                        val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-                                        val isNetworkAvailable = networkCapabilities != null
-                                                && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                                                && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                                        if (isNetworkAvailable) {
-                                            when {
-                                                viewModel.shouldRetry && responseCode != 0 -> {
-                                                    viewModel.shouldRetry = false
-                                                    clearPlayerError()
-                                                    playVideo(true, player?.currentPosition)
-                                                }
-                                                responseCode == 403 -> {
-                                                    showPlayerError(R.string.video_subscribers_only)
-                                                }
-                                                else -> {
-                                                    showPlayerError(R.string.player_error) { restartPlayer() }
-                                                    viewLifecycleOwner.lifecycleScope.launch {
-                                                        delay(1500.milliseconds)
-                                                        try {
-                                                            player?.prepare()
-                                                        } catch (e: Exception) {
+                                        if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
+                                            val responseCode = result.get().extras.getInt(PlaybackService.RESULT)
+                                            val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+                                            val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+                                            val isNetworkAvailable = networkCapabilities != null
+                                                    && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                                                    && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                                            if (isNetworkAvailable) {
+                                                when {
+                                                    viewModel.shouldRetry && responseCode != 0 -> {
+                                                        viewModel.shouldRetry = false
+                                                        clearPlayerError()
+                                                        playVideo(true, player?.currentPosition)
+                                                    }
+                                                    responseCode == 403 -> {
+                                                        showPlayerError(R.string.video_subscribers_only)
+                                                    }
+                                                    else -> {
+                                                        showPlayerError(R.string.player_error) { restartPlayer() }
+                                                        viewLifecycleOwner.lifecycleScope.launch {
+                                                            delay(1500.milliseconds)
+                                                            try {
+                                                                player?.prepare()
+                                                            } catch (e: Exception) {
+                                                            }
                                                         }
                                                     }
                                                 }
+                                            } else {
+                                                showPlayerError(R.string.connection_error) { restartPlayer() }
                                             }
-                                        } else {
-                                            showPlayerError(R.string.connection_error) { restartPlayer() }
                                         }
-                                    }
-                                }, ContextCompat.getMainExecutor(requireContext()))
+                                    }, ContextCompat.getMainExecutor(requireContext()))
+                                }
                             }
-                        }
-                        else -> {
-                            showPlayerError(R.string.player_error) {
-                                player?.let {
-                                    try {
-                                        it.prepare()
-                                        it.playWhenReady = true
-                                    } catch (_: Exception) {
+                            else -> {
+                                showPlayerError(R.string.player_error) {
+                                    player?.let {
+                                        try {
+                                            it.prepare()
+                                            it.playWhenReady = true
+                                        } catch (_: Exception) {
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                override fun onRenderedFirstFrame() {
-                    logVideoSurfaceBinding("first_frame", controller, videoOutputView)
-                    if (liveSurfaceRestoreListener != null) finishLiveSurfaceRestore(controller)
-                    else hideVideoOutputCover()
-                    refreshPlayerHudLayout()
-                }
-            }
-            val audioOnly = viewModel.quality?.name == AUDIO_ONLY_QUALITY
-            val chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY
-            val videoSuppressed = viewModel.hidden || audioOnly || chatOnly
-            if (videoSuppressed) {
-                controller.trackSelectionParameters = controller.trackSelectionParameters
-                    .buildUpon()
-                    .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, true)
-                    .build()
-                setVideoOutputVisible(false)
-                if (chatOnly) controller.stop()
-            }
-            val restoreBackgroundVideo = shouldRestoreVideoAfterBackground(
-                backgroundOwnedVideoDisable = viewModel.videoTrackDisabledForBackground,
-                audioOnly = audioOnly,
-                chatOnly = chatOnly,
-                videoAlreadySuppressed = viewModel.hidden,
-            )
-            if (!videoSuppressed && restoreBackgroundVideo) {
-                controller.trackSelectionParameters = controller.trackSelectionParameters
-                    .buildUpon()
-                    .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, false)
-                    .build()
-                if (BuildConfig.PERF_DIAGNOSTICS) {
-                    Log.i("XtraPerf", "backgroundVideoTrack restored")
-                }
-            } else if (videoSuppressed || viewModel.videoTrackDisabledForBackground) {
-                viewModel.videoOutputState.clear()
-            }
-            viewModel.videoTrackDisabledForBackground = false
-            val restored = if (!videoSuppressed && restoreBackgroundVideo) viewModel.videoOutputState.restoreIfNeeded {
-                setVideoOutputVisible(true)
-                attachVideoOutput(controller)
-                true
-            } else {
-                false
-            }
-            if (!videoSuppressed && !restored) {
-                setVideoOutputVisible(true)
-                attachVideoOutput(controller)
-            }
-            controller.addListener(listener)
-            playerListener = listener
-            if (attachingRestoredSession) {
-                // A listener added after the controller is already prepared
-                // does not receive its initial tracks callback.
-                listener.onTracksChanged(controller.currentTracks)
-            }
-            if (audioOnly) {
-                viewModel.quality?.let { changeQuality(it, persistSavedQuality = false) }
-            }
-            configureClipControl()
-            refreshClipAvailability()
-            restoreClipEditorIfNeeded()
-            requestCurrentVideoQuality(controller)
-            // A listener added after the controller is already prepared does
-            // not receive an initial onTracksChanged callback. Retry any
-            // quality request that arrived while the controller was connecting.
-            if (controller.currentMediaItem != null) {
-                requestQualities()
-            }
-            tryStartPendingAudioOnly()
-            controller.sendCustomCommand(
-                SessionCommand(
-                    PlaybackService.SET_BACKGROUND_PLAYBACK,
-                    Bundle().apply { putBoolean(PlaybackService.BACKGROUND_PLAYBACK, false) }
-                ), Bundle.EMPTY
-            )
-            if (controller.currentMediaItem != null && controller.playbackState == Player.STATE_IDLE) {
-                if (!chatOnly) controller.prepare()
-            }
-            if (viewModel.restoreQuality) {
-                viewModel.restoreQuality = false
-                changeQuality(viewModel.previousQuality)
-            }
-            player?.sendCustomCommand(
-                SessionCommand(
-                    PlaybackService.GET_SLEEP_TIMER, Bundle.EMPTY
-                ), Bundle.EMPTY
-            )?.let { result ->
-                result.addListener({
-                    if (!isAdded || view == null) {
-                        return@addListener
+                    override fun onRenderedFirstFrame() {
+                        logVideoSurfaceBinding("first_frame", controller, videoOutputView)
+                        if (liveSurfaceRestoreListener != null) finishLiveSurfaceRestore(controller)
+                        else hideVideoOutputCover()
+                        refreshPlayerHudLayout()
                     }
-                    if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
-                        val endTime = result.get().extras.getLong(PlaybackService.RESULT)
-                        if (endTime > 0L) {
-                            val duration = endTime - System.currentTimeMillis()
-                            if (duration > 0L) {
-                                (activity as? MainActivity)?.setSleepTimer(duration)
-                            } else {
-                                minimize()
-                                (activity as? MainActivity)?.closePlayer() ?: close()
+                }
+                val audioOnly = viewModel.quality?.name == AUDIO_ONLY_QUALITY
+                val chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY
+                val videoSuppressed = viewModel.hidden || audioOnly || chatOnly
+                if (videoSuppressed) {
+                    controller.trackSelectionParameters = controller.trackSelectionParameters
+                        .buildUpon()
+                        .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, true)
+                        .build()
+                    setVideoOutputVisible(false)
+                    if (chatOnly) controller.stop()
+                }
+                if (!videoSuppressed) {
+                    setVideoOutputVisible(true)
+                    attachVideoOutput(controller)
+                }
+                controller.addListener(listener)
+                playerListener = listener
+                if (attachingRestoredSession) {
+                    // A listener added after the controller is already prepared
+                    // does not receive its initial tracks callback.
+                    listener.onTracksChanged(controller.currentTracks)
+                }
+                if (audioOnly) {
+                    viewModel.quality?.let { changeQuality(it, persistSavedQuality = false) }
+                }
+                configureClipControl()
+                refreshClipAvailability()
+                restoreClipEditorIfNeeded()
+                requestCurrentVideoQuality(controller)
+                // A listener added after the controller is already prepared does
+                // not receive an initial onTracksChanged callback. Retry any
+                // quality request that arrived while the controller was connecting.
+                if (controller.currentMediaItem != null) {
+                    requestQualities()
+                }
+                tryStartPendingAudioOnly()
+                if (controller.currentMediaItem != null && controller.playbackState == Player.STATE_IDLE) {
+                    if (!chatOnly) controller.prepare()
+                }
+                if (viewModel.restoreQuality) {
+                    viewModel.restoreQuality = false
+                    changeQuality(viewModel.previousQuality)
+                }
+                player?.sendCustomCommand(
+                    SessionCommand(
+                        PlaybackService.GET_SLEEP_TIMER, Bundle.EMPTY
+                    ), Bundle.EMPTY
+                )?.let { result ->
+                    result.addListener({
+                        if (!isAdded || view == null) {
+                            return@addListener
+                        }
+                        if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
+                            val endTime = result.get().extras.getLong(PlaybackService.RESULT)
+                            if (endTime > 0L) {
+                                val duration = endTime - System.currentTimeMillis()
+                                if (duration > 0L) {
+                                    (activity as? MainActivity)?.setSleepTimer(duration)
+                                } else {
+                                    minimize()
+                                    (activity as? MainActivity)?.closePlayer() ?: close()
+                                }
                             }
                         }
+                    }, ContextCompat.getMainExecutor(requireContext()))
+                }
+                if (viewModel.resume) {
+                    viewModel.resume = false
+                    player?.let { player ->
+                        if (player.playbackState != Player.STATE_ENDED) {
+                            player.playWhenReady = true
+                            player.prepare()
+                        }
                     }
-                }, ContextCompat.getMainExecutor(requireContext()))
-            }
-            if (viewModel.resume) {
-                viewModel.resume = false
+                }
                 player?.let { player ->
-                    if (player.playbackState != Player.STATE_ENDED) {
-                        player.playWhenReady = true
-                        player.prepare()
+                    if (viewModel.loaded.value && player.currentMediaItem == null) {
+                        viewModel.started = false
                     }
+                    if (viewModel.started && player.currentMediaItem != null) {
+                        chatFragment?.startReplayChatLoad()
+                    }
+                    if (canEnterPictureInPicture()) {
+                        requireView().keepScreenOn = player.isPlaying
+                    }
+                    if (videoType == VIDEO || videoType == CLIP || videoType == OFFLINE_VIDEO) {
+                        val duration = player.duration.takeIf { it != Media3C.TIME_UNSET } ?: 0L
+                        updateDurationIfNeeded(duration)
+                    }
+                    updateProgress()
+                    renderPlaybackChrome()
                 }
-            }
-            player?.let { player ->
-                if (viewModel.loaded.value && player.currentMediaItem == null) {
-                    viewModel.started = false
+                if ((isInitialized || !enableNetworkCheck) && !viewModel.started) {
+                    startPlayer()
                 }
-                if (viewModel.started && player.currentMediaItem != null) {
-                    chatFragment?.startReplayChatLoad()
+                player?.let { player ->
+                    setPipActions(player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE && player.playWhenReady)
                 }
-                if (canEnterPictureInPicture()) {
-                    requireView().keepScreenOn = player.isPlaying
-                }
-                if (videoType == VIDEO || videoType == CLIP || videoType == OFFLINE_VIDEO) {
-                    val duration = player.duration.takeIf { it != Media3C.TIME_UNSET } ?: 0L
-                    updateDurationIfNeeded(duration)
-                }
-                updateProgress()
-                renderPlaybackChrome()
-            }
-            if ((isInitialized || !enableNetworkCheck) && !viewModel.started) {
-                startPlayer()
-            }
-            player?.let { player ->
-                setPipActions(player.playbackState != Player.STATE_ENDED && player.playbackState != Player.STATE_IDLE && player.playWhenReady)
             }
         }, ContextCompat.getMainExecutor(requireContext()))
     }
@@ -3103,8 +3099,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         )
                         viewModel.usingProxy = false
                     }
+                    var suppressVideoInBackground = false
                     if (requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
-                        val shouldDisableVideo = shouldDisableVideoForBackground(
+                        suppressVideoInBackground = shouldDisableVideoForBackground(
                             backgroundPlaybackEnabled = true,
                             isInPictureInPicture = isInPIPMode,
                             playWhenReady = player.playWhenReady,
@@ -3114,17 +3111,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                             chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY,
                             videoAlreadySuppressed = viewModel.hidden,
                         )
-                        if (shouldDisableVideo) {
-                            player.trackSelectionParameters = player.trackSelectionParameters
-                                .buildUpon()
-                                .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, true)
-                                .build()
-                            viewModel.videoTrackDisabledForBackground = true
-                            viewModel.videoOutputState.markDetachedForBackground()
+                        if (suppressVideoInBackground) {
                             setVideoOutputVisible(false)
-                            if (BuildConfig.PERF_DIAGNOSTICS) {
-                                Log.i("XtraPerf", "backgroundVideoTrack disabled")
-                            }
                         }
                     } else {
                         viewModel.resume = player.playWhenReady && player.playbackState != Player.STATE_ENDED
@@ -3133,7 +3121,13 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     player.sendCustomCommand(
                         SessionCommand(
                             PlaybackService.SET_BACKGROUND_PLAYBACK,
-                            Bundle().apply { putBoolean(PlaybackService.BACKGROUND_PLAYBACK, true) }
+                            Bundle().apply {
+                                putBoolean(PlaybackService.BACKGROUND_PLAYBACK, true)
+                                putBoolean(
+                                    PlaybackService.SUPPRESS_VIDEO_IN_BACKGROUND,
+                                    suppressVideoInBackground,
+                                )
+                            },
                         ), Bundle.EMPTY
                     )
                 }
