@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
@@ -101,11 +102,15 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -138,6 +143,18 @@ class ExoPlayerService : BasePlaybackService() {
     var player: ExoPlayer? = null
     private var session: MediaSession? = null
     private var notificationManager: NotificationManager? = null
+    private val notificationUpdates = Channel<Notification?>(Channel.CONFLATED)
+    private val notificationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var notificationWorker: Job? = null
+    private var notificationForegroundStarted = false
+    private var notificationServiceDestroyed = false
+    private lateinit var notificationChannelId: String
+    private var notificationStrings: NotificationStrings? = null
+    private var notificationLanguageKey: String? = null
+    private lateinit var notificationResumeIntent: PendingIntent
+    private lateinit var notificationRewindIntent: PendingIntent
+    private lateinit var notificationPlayPauseIntent: PendingIntent
+    private lateinit var notificationFastForwardIntent: PendingIntent
     private var artworkUri: String? = null
     private var cachedBitmap: Bitmap? = null
     private var bitmapLoadJob: Job? = null
@@ -179,6 +196,13 @@ class ExoPlayerService : BasePlaybackService() {
     private var adaptiveLiveController: AdaptiveLivePlaybackController? = null
     private var adaptiveLiveSpeedControl: AdaptiveLivePlaybackSpeedControl? = null
     private var adaptiveLiveSampleJob: Job? = null
+
+    private data class NotificationStrings(
+        val rewind: String,
+        val play: String,
+        val pause: String,
+        val forward: String,
+    )
 
     private data class PlaybackSourceSnapshot(
         val sourceUrl: String,
@@ -232,11 +256,94 @@ class ExoPlayerService : BasePlaybackService() {
     override fun onCreate() {
         super.onCreate()
         xtraModule = (application as XtraApp).xtraModule
+        notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        notificationChannelId = getString(R.string.notification_playback_channel_id)
+        notificationResumeIntent = PendingIntent.getActivity(
+            this,
+            REQUEST_CODE_RESUME,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
+                action = MainActivity.INTENT_OPEN_PLAYER
+            },
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        notificationRewindIntent = notificationServiceIntent(REQUEST_CODE_REWIND, INTENT_REWIND)
+        notificationPlayPauseIntent = notificationServiceIntent(REQUEST_CODE_PLAY_PAUSE, INTENT_PLAY_PAUSE)
+        notificationFastForwardIntent = notificationServiceIntent(REQUEST_CODE_FAST_FORWARD, INTENT_FAST_FORWARD)
+        notificationWorker = notificationScope.launch {
+            for (notification in notificationUpdates) {
+                try {
+                    if (notification == null) {
+                        notificationManager?.cancel(NOTIFICATION_ID)
+                        if (BuildConfig.DEBUG) {
+                            Log.d("PlaybackNotification", "notification_update method=cancel")
+                        }
+                        break
+                    }
+                    notificationManager?.notify(NOTIFICATION_ID, notification)
+                    if (BuildConfig.DEBUG) {
+                        Log.d("PlaybackNotification", "notification_update method=notify")
+                    }
+                } catch (e: Exception) {
+                    Log.w("PlaybackNotification", "Unable to update playback notification", e)
+                }
+            }
+        }
         lifecycleScope.launch(Dispatchers.IO) {
             ClipPreparationRepository.cleanupStale(File(cacheDir, LIVE_CLIP_DIRECTORY))
             ClipPreparationRepository.cleanupStale(File(cacheDir, VOD_CLIP_DIRECTORY))
         }
     }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        notificationStrings = null
+        notificationLanguageKey = null
+        if (created) {
+            updatePlaybackState()
+            updateNotification()
+        }
+    }
+
+    private fun notificationLanguageKey(): String =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            resources.configuration.locales.toLanguageTags()
+        } else {
+            prefs().getString(C.UI_LANGUAGE, "auto").orEmpty()
+        }
+
+    private fun notificationLocalizedContext() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            this
+        } else {
+            ContextCompat.getContextForLanguage(this)
+        }
+
+    private fun notificationActionLabels(): NotificationStrings {
+        val languageKey = notificationLanguageKey()
+        notificationStrings?.takeIf { notificationLanguageKey == languageKey }?.let { return it }
+
+        val localizedContext = notificationLocalizedContext()
+        return NotificationStrings(
+            rewind = localizedContext.getString(R.string.rewind),
+            play = localizedContext.getString(R.string.resume),
+            pause = localizedContext.getString(R.string.pause),
+            forward = localizedContext.getString(R.string.forward),
+        ).also {
+            notificationStrings = it
+            notificationLanguageKey = languageKey
+        }
+    }
+
+    private fun notificationServiceIntent(requestCode: Int, action: String): PendingIntent =
+        PendingIntent.getService(
+            this,
+            requestCode,
+            Intent(this, ExoPlayerService::class.java).apply {
+                this.action = action
+            },
+            PendingIntent.FLAG_IMMUTABLE,
+        )
 
     private fun create(restorePauseState: Boolean) {
         if (!created) {
@@ -887,13 +994,12 @@ class ExoPlayerService : BasePlaybackService() {
                 )
             }
             session.isActive = true
-            notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
-            val channelId = getString(R.string.notification_playback_channel_id)
+            val channelId = notificationChannelId
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && notificationManager?.getNotificationChannel(channelId) == null) {
                 notificationManager?.createNotificationChannel(
                     NotificationChannel(
                         channelId,
-                        ContextCompat.getString(this, R.string.notification_playback_channel_title),
+                        notificationLocalizedContext().getString(R.string.notification_playback_channel_title),
                         NotificationManager.IMPORTANCE_LOW
                     ).apply {
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
@@ -2297,7 +2403,7 @@ class ExoPlayerService : BasePlaybackService() {
         }
     }
 
-    private fun shouldResetEmulatorStreamDecoder(
+    private fun shouldResetEmulatorVideoDecoder(
         previous: VideoQuality?,
         next: VideoQuality?,
         qualityChanged: Boolean,
@@ -2306,7 +2412,7 @@ class ExoPlayerService : BasePlaybackService() {
             previous != null &&
             next != null &&
             isAndroidEmulator() &&
-            canUseLiveSource(type, liveRewindActive, liveRewindTransitioning) &&
+            (type == VIDEO || canUseLiveSource(type, liveRewindActive, liveRewindTransitioning)) &&
             previous.name != AUDIO_ONLY_QUALITY &&
             previous.name != CHAT_ONLY_QUALITY &&
             next.name != AUDIO_ONLY_QUALITY &&
@@ -2337,7 +2443,7 @@ class ExoPlayerService : BasePlaybackService() {
         quality?.let { quality ->
             player?.let { player ->
                 player.currentMediaItem?.let { mediaItem ->
-                    val resetEmulatorRenderer = shouldResetEmulatorStreamDecoder(oldQuality, quality, qualityChanged)
+                    val resetEmulatorRenderer = shouldResetEmulatorVideoDecoder(oldQuality, quality, qualityChanged)
                     val positionMs = player.currentPosition
                     val mediaItemIndex = player.currentMediaItemIndex
                     val playWhenReady = player.playWhenReady
@@ -2687,7 +2793,42 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     fun restoreVideoOutputIfNeeded(restore: () -> Boolean): Boolean {
-        return videoOutputState.restoreIfNeeded(restore)
+        val restored = videoOutputState.restoreIfNeeded(restore)
+        if (restored) resetEmulatorVideoDecoderAfterBackgroundRestore()
+        return restored
+    }
+
+    private fun resetEmulatorVideoDecoderAfterBackgroundRestore() {
+        val player = player ?: return
+        if (!isAndroidEmulator() ||
+            type != STREAM ||
+            liveRewindActive ||
+            liveRewindTransitioning ||
+            androidx.media3.common.C.TRACK_TYPE_VIDEO in player.trackSelectionParameters.disabledTrackTypes ||
+            !player.playWhenReady ||
+            player.currentMediaItem == null
+        ) return
+
+        val mediaItemIndex = player.currentMediaItemIndex
+        val positionMs = player.currentPosition
+        val playWhenReady = player.playWhenReady
+        player.stop()
+        if (player.playbackState == Player.STATE_IDLE) {
+            if (mediaItemIndex != androidx.media3.common.C.INDEX_UNSET) {
+                player.seekTo(mediaItemIndex, positionMs)
+            } else {
+                player.seekTo(positionMs)
+            }
+            player.prepare()
+        }
+        player.playWhenReady = playWhenReady
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "VideoSurface",
+                "background_restore_decoder_reset backend=legacy_exoplayer positionMs=$positionMs " +
+                    "playWhenReady=$playWhenReady",
+            )
+        }
     }
 
     fun resumePlaybackIfNeeded() {
@@ -2763,8 +2904,9 @@ class ExoPlayerService : BasePlaybackService() {
                             }
                         }
                     )
-                    addCustomAction(INTENT_REWIND, ContextCompat.getString(this@ExoPlayerService, R.string.rewind), androidx.media3.session.R.drawable.media3_icon_rewind)
-                    addCustomAction(INTENT_FAST_FORWARD, ContextCompat.getString(this@ExoPlayerService, R.string.forward), androidx.media3.session.R.drawable.media3_icon_fast_forward)
+                    val labels = notificationActionLabels()
+                    addCustomAction(INTENT_REWIND, labels.rewind, androidx.media3.session.R.drawable.media3_icon_rewind)
+                    addCustomAction(INTENT_FAST_FORWARD, labels.forward, androidx.media3.session.R.drawable.media3_icon_fast_forward)
                 }.build()
             )
         }
@@ -2955,9 +3097,11 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     private fun sendNotification(bitmap: Bitmap?) {
+        if (notificationServiceDestroyed) return
         player?.let { player ->
+            val strings = notificationActionLabels()
             val notification = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                Notification.Builder(this, getString(R.string.notification_playback_channel_id))
+                Notification.Builder(this, notificationChannelId)
             } else {
                 @Suppress("DEPRECATION")
                 Notification.Builder(this)
@@ -2983,80 +3127,52 @@ class ExoPlayerService : BasePlaybackService() {
                         .setShowActionsInCompactView(0, 1, 2)
                 )
                 setContentIntent(
-                    PendingIntent.getActivity(
-                        this@ExoPlayerService,
-                        REQUEST_CODE_RESUME,
-                        Intent(this@ExoPlayerService, MainActivity::class.java).apply {
-                            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP
-                            action = MainActivity.INTENT_OPEN_PLAYER
-                        },
-                        PendingIntent.FLAG_IMMUTABLE
-                    )
+                    notificationResumeIntent
                 )
                 addAction(
                     Notification.Action.Builder(
                         Icon.createWithResource(this@ExoPlayerService, androidx.media3.session.R.drawable.media3_icon_rewind),
-                        ContextCompat.getString(this@ExoPlayerService, R.string.rewind),
-                        PendingIntent.getService(
-                            this@ExoPlayerService,
-                            REQUEST_CODE_REWIND,
-                            Intent(this@ExoPlayerService, ExoPlayerService::class.java).apply {
-                                action = INTENT_REWIND
-                            },
-                            PendingIntent.FLAG_IMMUTABLE
-                        )
+                        strings.rewind,
+                        notificationRewindIntent,
                     ).build()
                 )
                 if (Util.shouldShowPlayButton(player)) {
                     addAction(
                         Notification.Action.Builder(
                             Icon.createWithResource(this@ExoPlayerService, androidx.media3.session.R.drawable.media3_icon_play),
-                            ContextCompat.getString(this@ExoPlayerService, R.string.resume),
-                            PendingIntent.getService(
-                                this@ExoPlayerService,
-                                REQUEST_CODE_PLAY_PAUSE,
-                                Intent(this@ExoPlayerService, ExoPlayerService::class.java).apply {
-                                    action = INTENT_PLAY_PAUSE
-                                },
-                                PendingIntent.FLAG_IMMUTABLE
-                            )
+                            strings.play,
+                            notificationPlayPauseIntent,
                         ).build()
                     )
                 } else {
                     addAction(
                         Notification.Action.Builder(
                             Icon.createWithResource(this@ExoPlayerService, androidx.media3.session.R.drawable.media3_icon_pause),
-                            ContextCompat.getString(this@ExoPlayerService, R.string.pause),
-                            PendingIntent.getService(
-                                this@ExoPlayerService,
-                                REQUEST_CODE_PLAY_PAUSE,
-                                Intent(this@ExoPlayerService, ExoPlayerService::class.java).apply {
-                                    action = INTENT_PLAY_PAUSE
-                                },
-                                PendingIntent.FLAG_IMMUTABLE
-                            )
+                            strings.pause,
+                            notificationPlayPauseIntent,
                         ).build()
                     )
                 }
                 addAction(
                     Notification.Action.Builder(
                         Icon.createWithResource(this@ExoPlayerService, androidx.media3.session.R.drawable.media3_icon_fast_forward),
-                        ContextCompat.getString(this@ExoPlayerService, R.string.forward),
-                        PendingIntent.getService(
-                            this@ExoPlayerService,
-                            REQUEST_CODE_FAST_FORWARD,
-                            Intent(this@ExoPlayerService, ExoPlayerService::class.java).apply {
-                                action = INTENT_FAST_FORWARD
-                            },
-                            PendingIntent.FLAG_IMMUTABLE
-                        )
+                        strings.forward,
+                        notificationFastForwardIntent,
                     ).build()
                 )
             }.build()
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+            if (!notificationForegroundStarted) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)
+                } else {
+                    startForeground(NOTIFICATION_ID, notification)
+                }
+                notificationForegroundStarted = true
+                if (BuildConfig.DEBUG) {
+                    Log.d("PlaybackNotification", "notification_update method=startForeground")
+                }
             } else {
-                startForeground(NOTIFICATION_ID, notification)
+                notificationUpdates.trySend(notification)
             }
         }
     }
@@ -3216,6 +3332,10 @@ class ExoPlayerService : BasePlaybackService() {
     }
 
     override fun onDestroy() {
+        notificationServiceDestroyed = true
+        notificationUpdates.trySend(null)
+        notificationUpdates.close()
+        notificationWorker?.invokeOnCompletion { notificationScope.cancel() }
         clearRememberedSourceSwitchQuality()
         releaseViewingStats()
         clearLiveClipState()
@@ -3234,7 +3354,6 @@ class ExoPlayerService : BasePlaybackService() {
         player?.release()
         session?.release()
         bitmapLoadJob?.cancel()
-        notificationManager?.cancel(NOTIFICATION_ID)
         super.onDestroy()
     }
 

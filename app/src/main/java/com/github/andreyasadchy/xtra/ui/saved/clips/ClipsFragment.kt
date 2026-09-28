@@ -37,6 +37,7 @@ class ClipsFragment : Fragment() {
     private var player: ExoPlayer? = null
     private var selectedClip: LocalClip? = null
     private var currentClips: List<LocalClip> = emptyList()
+    private var playerOverlayAvoidance: ClipsPlayerOverlayAvoidance? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentClipsBinding.inflate(inflater, container, false)
@@ -45,10 +46,33 @@ class ClipsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        val playerContainer = requireActivity().findViewById<View>(R.id.playerContainer)
         binding.contentContainer.installVisibleViewportStatePositioning(
             lifecycleOwner = viewLifecycleOwner,
-            stateViews = listOf(binding.emptyState, binding.errorState, binding.progressBar),
+            stateViews = listOf(binding.errorState, binding.progressBar),
+            overlayProvider = { playerContainer?.findViewById(R.id.playerLayout) },
+            overlayAvoidanceTarget = binding.errorState,
+            overlayGapDp = 8f,
         )
+        playerOverlayAvoidance?.close()
+        playerOverlayAvoidance = playerContainer?.let {
+            ClipsPlayerOverlayAvoidance(
+                lifecycleOwner = viewLifecycleOwner,
+                root = binding.root,
+                controlsHost = binding.clipsControlsHost,
+                controlsContent = binding.clipsControlsContent,
+                clipsInfo = binding.clipsInfo,
+                clipCount = binding.clipCount,
+                autoplaySummary = binding.autoplaySummary,
+                autoplayCompactLabel = binding.autoplayCompactLabel,
+                autoplay = binding.autoplay,
+                contentContainer = binding.contentContainer,
+                emptyState = binding.emptyState,
+                emptyStateContent = binding.emptyStateContent,
+                emptyStateTitle = binding.emptyStateTitle,
+                playerContainer = it,
+            )
+        }
         adapter = ClipsAdapter(
             context = requireContext(),
             onSelect = ::selectClip,
@@ -256,6 +280,8 @@ class ClipsFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        playerOverlayAvoidance?.close()
+        playerOverlayAvoidance = null
         player?.release()
         player = null
         _binding = null

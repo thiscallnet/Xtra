@@ -84,7 +84,7 @@ class ExoPlayerFragment : PlayerFragment(), ClipEditorDialogFragment.Host, Playb
     private var liveSurfaceRestoreTimeout: Runnable? = null
     private var clipEditorCoverTimeout: Runnable? = null
     private var videoOutputCover: View? = null
-    private val useTextureVideoOutput = USE_TEXTURE_VIDEO_OUTPUT
+    private val useTextureVideoOutput = shouldUseTextureVideoOutput()
     private val videoOutputOwner = VideoOutputOwner<Player, View>(
         attachTarget = { currentPlayer, target ->
             when (target) {

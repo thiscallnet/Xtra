@@ -8,10 +8,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
-import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.viewModels
@@ -23,6 +20,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentMediaPagerBinding
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
+import com.github.andreyasadchy.xtra.ui.common.PlayerOverlayTabAvoidance
 import com.github.andreyasadchy.xtra.ui.common.RecyclerViewLiftTargetConnector
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
@@ -53,6 +51,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
     private var selectedPageLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
     private var folderResultLauncher: ActivityResultLauncher<Intent>? = null
     private var fileResultLauncher: ActivityResultLauncher<Intent>? = null
+    private var playerOverlayTabAvoidance: PlayerOverlayTabAvoidance? = null
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -224,13 +223,10 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
                 }
             }.attach()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_SAVED_TABS)
-            ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
-                val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                    topMargin = insets.top
-                }
-                windowInsets
-            }
+        }
+        playerOverlayTabAvoidance?.close()
+        playerOverlayTabAvoidance = requireActivity().findViewById<View>(R.id.playerContainer)?.let { playerContainer ->
+            PlayerOverlayTabAvoidance(binding.appBar, binding.tabLayout, binding.viewPager, playerContainer)
         }
     }
 
@@ -267,6 +263,8 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
 
     override fun onDestroyView() {
         dispatchPagerScrollState(false)
+        playerOverlayTabAvoidance?.close()
+        playerOverlayTabAvoidance = null
         selectedPageLifecycleCallbacks?.let(childFragmentManager::unregisterFragmentLifecycleCallbacks)
         selectedPageLifecycleCallbacks = null
         liftTargetConnector?.disconnect()

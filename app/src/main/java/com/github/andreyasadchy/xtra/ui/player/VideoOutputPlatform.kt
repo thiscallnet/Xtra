@@ -5,8 +5,8 @@ import android.view.MotionEvent
 import android.view.View
 import java.util.Locale
 
-/** Keep all video outputs on SurfaceView, including emulator playback. */
-internal const val USE_TEXTURE_VIDEO_OUTPUT = false
+/** TextureView keeps the output attached to the app window across emulator activity transitions. */
+internal fun shouldUseTextureVideoOutput(): Boolean = isAndroidEmulator()
 
 /**
  * SurfaceView can become the touch target for its video bounds on emulators.

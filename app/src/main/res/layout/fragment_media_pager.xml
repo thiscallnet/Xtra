@@ -9,28 +9,44 @@
         android:id="@+id/appBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:liftOnScrollTargetViewId="@id/recyclerView">
+        android:fitsSystemWindows="true"
+        app:liftOnScrollTargetViewId="@id/recyclerView"
+        app:statusBarForeground="?attr/colorSurface">
 
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minHeight="?attr/actionBarSize"
-            app:layout_scrollFlags="scroll|enterAlways"
-            app:menu="@menu/top_menu" />
+            android:orientation="vertical"
+            app:layout_scrollFlags="scroll|enterAlways|snap">
 
-        <com.google.android.material.tabs.TabLayout
-            android:id="@+id/tabLayout"
+            <com.google.android.material.appbar.MaterialToolbar
+                android:id="@+id/toolbar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:minHeight="?attr/actionBarSize"
+                app:menu="@menu/top_menu" />
+
+            <com.google.android.material.tabs.TabLayout
+                android:id="@+id/tabLayout"
+                android:layout_width="match_parent"
+                android:layout_height="?attr/tabLayoutHeight"
+                app:tabGravity="fill"
+                app:tabMaxWidth="0dp"
+                app:tabMode="fixed" />
+
+        </LinearLayout>
+
+        <FrameLayout
+            android:id="@+id/sortBarHost"
             android:layout_width="match_parent"
-            android:layout_height="?attr/tabLayoutHeight"
-            app:layout_scrollFlags="scroll|enterAlways"
-            app:tabGravity="fill"
-            app:tabMaxWidth="0dp"
-            app:tabMode="fixed" />
+            android:layout_height="wrap_content"
+            app:layout_scrollFlags="noScroll">
 
-        <include
-            android:id="@+id/sortBar"
-            layout="@layout/sort_bar" />
+            <include
+                android:id="@+id/sortBar"
+                layout="@layout/sort_bar" />
+
+        </FrameLayout>
 
     </com.google.android.material.appbar.AppBarLayout>
 

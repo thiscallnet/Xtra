@@ -5,10 +5,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
-import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.FragmentManager
 import androidx.navigation.fragment.findNavController
@@ -19,6 +16,7 @@ import androidx.viewpager2.widget.ViewPager2
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentMediaPagerBinding
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
+import com.github.andreyasadchy.xtra.ui.common.PlayerOverlayTabAvoidance
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
@@ -41,6 +39,7 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
     private val binding get() = _binding!!
     private var firstLaunch = true
     private val configuredRecyclerViews = mutableSetOf<RecyclerView>()
+    private var playerOverlayTabAvoidance: PlayerOverlayTabAvoidance? = null
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -135,17 +134,14 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
                 viewPager.setCurrentItem(0, false)
                 firstLaunch = false
             }
-            ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
-                val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-                toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                    topMargin = insets.top
-                }
-                windowInsets
-            }
             TabLayoutMediator(tabLayout, viewPager) { tab, position ->
                 tab.text = getString(if (position == 0) R.string.following_categories else R.string.channels)
             }.attach()
             viewPager.doOnLayout { configureCurrentPage() }
+        }
+        playerOverlayTabAvoidance?.close()
+        playerOverlayTabAvoidance = requireActivity().findViewById<View>(R.id.playerContainer)?.let { playerContainer ->
+            PlayerOverlayTabAvoidance(binding.appBar, binding.tabLayout, binding.viewPager, playerContainer)
         }
     }
 
@@ -200,6 +196,8 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
     override fun onDestroyView() {
         dispatchPagerScrollState(false)
         configuredRecyclerViews.clear()
+        playerOverlayTabAvoidance?.close()
+        playerOverlayTabAvoidance = null
         super.onDestroyView()
         _binding = null
     }
