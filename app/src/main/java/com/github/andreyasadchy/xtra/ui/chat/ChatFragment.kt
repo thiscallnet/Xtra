@@ -133,7 +133,6 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.UsernameRecommen
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
-import com.github.andreyasadchy.xtra.ui.player.PlayerFragment
 import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
@@ -1591,7 +1590,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     if (!viewModel.raidClosed) {
                                         if (raid.openStream) {
                                             if (requireContext().prefs().getBoolean(C.CHAT_RAIDS_AUTO_SWITCH, false) &&
-                                                (parentFragment is Media3PlayerFragment || parentFragment is PlayerFragment)
+                                                (parentFragment is Media3PlayerFragment)
                                             ) {
                                                 (requireActivity() as? MainActivity)?.startStream(
                                                     Stream(
@@ -1664,9 +1663,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             viewModel.playbackMessage.collectLatest {
                                 if (it != null) {
                                     if (it.live != null) {
-                                        (parentFragment as? Media3PlayerFragment)?.updateLiveStatus(it.live, it.serverTime, channelLogin) ?: (parentFragment as? PlayerFragment)?.updateLiveStatus(it.live, it.serverTime, channelLogin)
+                                        (parentFragment as? Media3PlayerFragment)?.updateLiveStatus(it.live, it.serverTime, channelLogin)
                                     }
-                                    (parentFragment as? Media3PlayerFragment)?.updateViewerCount(it.viewers) ?: (parentFragment as? PlayerFragment)?.updateViewerCount(it.viewers)
+                                    (parentFragment as? Media3PlayerFragment)?.updateViewerCount(it.viewers)
                                 }
                             }
                         }
@@ -1677,7 +1676,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 if (it != null) {
                                     when (val parent = parentFragment) {
                                         is Media3PlayerFragment -> parent.updateStreamInfo(it.title, it.gameId, null, it.gameName)
-                                        is PlayerFragment -> parent.updateStreamInfo(it.title, it.gameId, null, it.gameName)
                                         is MultiviewFragment -> parent.updateViewingMetadata(
                                             channelId = channelId,
                                             channelLogin = channelLogin,
@@ -1726,8 +1724,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             channelLogin = channelLogin,
                             chatUrl = chatUrl,
                             createdAt = args.getString(KEY_CREATED_AT),
-                            getCurrentPosition = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentPosition else (parentFragment as PlayerFragment)::getCurrentPosition,
-                            getCurrentSpeed = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentSpeed else (parentFragment as PlayerFragment)::getCurrentSpeed
+                            getCurrentPosition = (parentFragment as Media3PlayerFragment)::getCurrentPosition,
+                            getCurrentSpeed = (parentFragment as Media3PlayerFragment)::getCurrentSpeed
                         )
                     }
                 } else {
@@ -2166,8 +2164,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         videoId = videoId,
                         createdAt = args.getString(KEY_CREATED_AT),
                         startTime = startTime,
-                        getCurrentPosition = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentPosition else (parentFragment as PlayerFragment)::getCurrentPosition,
-                        getCurrentSpeed = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentSpeed else (parentFragment as PlayerFragment)::getCurrentSpeed
+                        getCurrentPosition = (parentFragment as Media3PlayerFragment)::getCurrentPosition,
+                        getCurrentSpeed = (parentFragment as Media3PlayerFragment)::getCurrentSpeed
                     )
                 }
             }
@@ -2218,8 +2216,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 videoId = args.getString(KEY_VIDEO_ID),
                 createdAt = args.getString(KEY_CREATED_AT),
                 startTime = args.getInt(KEY_START_TIME),
-                getCurrentPosition = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentPosition else (parentFragment as PlayerFragment)::getCurrentPosition,
-                getCurrentSpeed = if (parentFragment is Media3PlayerFragment) (parentFragment as Media3PlayerFragment)::getCurrentSpeed else (parentFragment as PlayerFragment)::getCurrentSpeed
+                getCurrentPosition = (parentFragment as Media3PlayerFragment)::getCurrentPosition,
+                getCurrentSpeed = (parentFragment as Media3PlayerFragment)::getCurrentSpeed
             )
         }
         refreshMessagingEnabled()
@@ -2228,7 +2226,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun currentPositionProvider(): () -> Long? = {
         when (val parent = parentFragment) {
             is Media3PlayerFragment -> parent.getCurrentPosition()
-            is PlayerFragment -> parent.getCurrentPosition()
             else -> null
         }
     }
@@ -2236,7 +2233,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun currentSpeedProvider(): () -> Float? = {
         when (val parent = parentFragment) {
             is Media3PlayerFragment -> parent.getCurrentSpeed()
-            is PlayerFragment -> parent.getCurrentSpeed()
             else -> null
         }
     }
@@ -4117,7 +4113,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 channelImage = channelImage
             )
         )
-        (parentFragment as? Media3PlayerFragment)?.minimize() ?: (parentFragment as? PlayerFragment)?.minimize()
+        (parentFragment as? Media3PlayerFragment)?.minimize()
     }
 
     override fun onTranslateMessageClicked(chatMessage: ChatMessage, languageTag: String?) {

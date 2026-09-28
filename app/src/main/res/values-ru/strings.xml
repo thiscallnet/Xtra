@@ -1477,4 +1477,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Упомянуть %1$s</string>
     <string name="drops_move_progress">Перетащите заголовок, чтобы переместить. Нажмите, чтобы открыть.</string>
+    <string name="playback_notification_channel">Воспроизведение мультимедиа</string>
+    <string name="playback_notification_channel_description">Элементы управления воспроизведением мультимедиа и состояние запуска.</string>
+    <string name="resuming_playback">Возобновление воспроизведения</string>
 </resources>

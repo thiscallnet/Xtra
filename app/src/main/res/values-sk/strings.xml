@@ -1500,4 +1500,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Spomenúť používateľa %1$s</string>
     <string name="drops_move_progress">Potiahnutím nadpis presuňte. Ťuknutím otvorte.</string>
+    <string name="playback_notification_channel">Prehrávanie médií</string>
+    <string name="playback_notification_channel_description">Ovládacie prvky prehrávania médií a jeho stav pri spustení.</string>
+    <string name="resuming_playback">Obnovuje sa prehrávanie</string>
 </resources>

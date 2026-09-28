@@ -1478,4 +1478,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Sebut %1$s</string>
     <string name="drops_move_progress">Seret judul untuk memindahkan. Ketuk untuk membuka.</string>
+    <string name="playback_notification_channel">Pemutaran media</string>
+    <string name="playback_notification_channel_description">Kontrol pemutaran media dan status awal pemutaran.</string>
+    <string name="resuming_playback">Melanjutkan pemutaran</string>
 </resources>

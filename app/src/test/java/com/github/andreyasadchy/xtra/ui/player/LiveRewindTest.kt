@@ -317,13 +317,13 @@ class LiveRewindTest {
 
     @Test
     fun liveClipIsUnavailableDuringRewindOrSourceTransition() {
-        assertFalse(canUseLiveSource(BasePlaybackService.STREAM, false, true))
-        assertFalse(canUseLiveSource(BasePlaybackService.STREAM, true, false))
-        assertTrue(canUseLiveSource(BasePlaybackService.STREAM, false, false))
-        assertFalse(canUseLiveClipSource(BasePlaybackService.STREAM, false, true))
-        assertFalse(canUseLiveClipSource(BasePlaybackService.STREAM, true, false))
-        assertTrue(canUseLiveClipSource(BasePlaybackService.STREAM, false, false))
-        assertFalse(canUseLiveClipSource(BasePlaybackService.VIDEO, false, false))
+        assertFalse(canUseLiveSource(PlaybackContract.STREAM, false, true))
+        assertFalse(canUseLiveSource(PlaybackContract.STREAM, true, false))
+        assertTrue(canUseLiveSource(PlaybackContract.STREAM, false, false))
+        assertFalse(canUseLiveClipSource(PlaybackContract.STREAM, false, true))
+        assertFalse(canUseLiveClipSource(PlaybackContract.STREAM, true, false))
+        assertTrue(canUseLiveClipSource(PlaybackContract.STREAM, false, false))
+        assertFalse(canUseLiveClipSource(PlaybackContract.VIDEO, false, false))
     }
 
     @Test

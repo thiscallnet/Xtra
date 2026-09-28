@@ -20,6 +20,8 @@ object SettingsMigration {
     private const val DEFAULT_SPEEDS = "0.25,0.5,0.75,1.0,1.25,1.5,1.75,2.0,3.0,4.0,8.0"
     private const val DEFAULT_CHAT_WIDTH_PERCENT = 30
     private const val TIMESTAMP_FORMAT_SCHEMA_VERSION = 1
+    private const val LEGACY_PLAYER_BACKEND = "player"
+    private const val LEGACY_CUSTOM_PLAYBACK_SERVICE = "debug_use_custom_playback_service_v2"
 
     /** Settings reset deliberately names the keys it owns; authentication and app data are separate. */
     internal val RESETTABLE_PREFERENCE_KEYS = setOf(
@@ -347,12 +349,12 @@ object SettingsMigration {
         C.WATCH_STREAK_OBSERVED_IDS,
         C.WATCH_STREAK_STATE_ACCOUNT_ID,
         C.NETWORK_LIBRARY,
-        C.PLAYER,
+        LEGACY_PLAYER_BACKEND,
         C.DEBUG_CHAT_FULL_MSG,
         C.DEBUG_API_COMMANDS,
         C.DEBUG_API_CHAT_MESSAGES,
         C.DEBUG_WEBSOCKET_INFO,
-        C.DEBUG_USE_CUSTOM_PLAYBACK_SERVICE,
+        LEGACY_CUSTOM_PLAYBACK_SERVICE,
         C.DEBUG_EVENT_SUB_CHAT,
         C.DEBUG_PLAYER_MENU_PLAYLIST_TAGS,
         "delete_recent_searches",

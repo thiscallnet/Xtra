@@ -61,6 +61,7 @@ import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.media3.session.MediaController
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.TimeBar
@@ -139,6 +140,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     protected var chatFragment: ChatFragment? = null
 
     protected var videoType: String? = null
+    protected var restoredPlaybackController: MediaController? = null
+        private set
     protected val xtraModule
         get() = (requireContext().applicationContext as XtraApp).xtraModule
     private var isPortrait = false
@@ -1112,6 +1115,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             upAction(event)
                         }
                     }
+                    if (!isMaximized) {
+                        (activity as? MainActivity)?.onMinimizedPlayerPositionChanged(275L)
+                    }
                 }
                 true
             }
@@ -1388,7 +1394,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                     // Media3 recorder source.
                                     updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
                                     if (isLiveRewindEnabled() &&
-                                        videoType == BasePlaybackService.STREAM &&
+                                        videoType == PlaybackContract.STREAM &&
                                         liveRewindStreamCreatedAt.isNullOrBlank() &&
                                         !stream.createdAt.isNullOrBlank()
                                     ) {
@@ -1399,7 +1405,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                         return@collectLatest
                                     }
                                     if (isLiveRewindEnabled() &&
-                                        videoType == BasePlaybackService.STREAM &&
+                                        videoType == PlaybackContract.STREAM &&
                                         hasLiveStreamSessionChanged(
                                             oldId = liveRewindStreamId,
                                             oldCreatedAt = liveRewindStreamCreatedAt,
@@ -1536,7 +1542,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                             (codec == "av01" && !supportedCodecs.contains("av1")) || ((codec == "hev1" || codec == "hvc1") && !supportedCodecs.contains("h265"))
                                         }
                                     }
-                                    viewModel.qualities = filtered
+                                    val qualities = filtered
                                         .sortedByDescending {
                                             it.bitrate
                                         }
@@ -1549,12 +1555,33 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                         .toMutableList().apply {
                                             add(VideoQuality(AUDIO_ONLY_QUALITY))
                                         }
-                                    setDefaultQuality()
+                                    viewModel.qualities = qualities
+                                    viewModel.updateQualities = false
+                                    val restoredQuality = restorePlaybackQuality(qualities)
+                                    val currentPlayer = restoredPlaybackController
+                                    val attachingExistingPlayback = requireArguments()
+                                        .getBoolean(KEY_RESTORED_PLAYBACK) &&
+                                        currentPlayer?.currentMediaItem != null
+                                    if (attachingExistingPlayback) {
+                                        val isAudioOnly = androidx.media3.common.C.TRACK_TYPE_VIDEO in
+                                            currentPlayer.trackSelectionParameters.disabledTrackTypes
+                                        val currentUri = currentPlayer.currentMediaItem
+                                            ?.localConfiguration?.uri?.toString()
+                                        viewModel.quality = if (isAudioOnly) {
+                                            qualities.find { it.name == AUDIO_ONLY_QUALITY }
+                                        } else {
+                                            currentUri?.let { uri -> qualities.find { it.url == uri } }
+                                                ?: restoredQuality
+                                        } ?: qualities.firstOrNull()
+                                    } else {
+                                        setDefaultQuality()
+                                    }
                                     changePlayerMode()
                                     val url = viewModel.quality?.url ?: viewModel.qualities?.firstOrNull()?.url
-                                    if (url != null) {
+                                    if (url != null && !attachingExistingPlayback) {
                                         startClip(url)
                                     }
+                                    setQualityText()
                                     viewModel.clipUrls.value = null
                                 }
                             }
@@ -2109,6 +2136,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         SleepTimerDialog.newInstance((activity as? MainActivity)?.getSleepTimerTimeLeft() ?: 0).show(childFragmentManager, null)
     }
 
+    fun findVideoUrl() {
+        val stream = viewModel.stream.value ?: return
+        (activity as? MainActivity)?.findVideoUrl(
+            streamId = stream.id,
+            channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+            streamCreatedAt = stream.createdAt,
+        )
+    }
+
     fun getQualities(): List<Pair<String, VideoQuality>>? {
         val qualities = viewModel.qualities
         return if (!qualities.isNullOrEmpty()) {
@@ -2474,7 +2510,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun updateLiveStatus(live: Boolean, serverTime: Long?, channelLogin: String?) {
         if (channelLogin == requireArguments().getString(KEY_CHANNEL_LOGIN)) {
             if (live) {
-                if (isLiveRewindEnabled() && videoType == BasePlaybackService.STREAM) {
+                if (isLiveRewindEnabled() && videoType == PlaybackContract.STREAM) {
                     viewModel.loadStreamInfo(
                         channelId = requireArguments().getString(KEY_CHANNEL_ID),
                         channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
@@ -2486,7 +2522,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     )
                     startLiveRewindTicker()
                 }
-                if (videoType == BasePlaybackService.STREAM) startStreamUptimeTicker()
+                if (videoType == PlaybackContract.STREAM) startStreamUptimeTicker()
                 restartPlayer()
             } else {
                 onLiveStreamWentOffline()
@@ -2681,10 +2717,41 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     protected fun setDefaultQuality() {
+        viewModel.qualities?.let { qualities ->
+            restorePlaybackQuality(qualities)?.let { restoredQuality ->
+                viewModel.quality = restoredQuality
+                return
+            }
+        }
         val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
         viewModel.quality = resolveDefaultQualityForNetwork(cellular)
+    }
+
+    protected fun restorePlaybackQuality(qualities: List<VideoQuality>): VideoQuality? {
+        if (!requireArguments().getBoolean(KEY_RESTORED_PLAYBACK)) return null
+        val savedQualities = decodePlaybackQualities(
+            xtraModule.json,
+            requireArguments().getString(KEY_RESTORED_QUALITIES),
+        )
+        val restoredQuality = decodePlaybackQuality(
+            xtraModule.json,
+            requireArguments().getString(KEY_RESTORED_QUALITY),
+        )
+        val restoredPreviousQuality = decodePlaybackQuality(
+            xtraModule.json,
+            requireArguments().getString(KEY_RESTORED_PREVIOUS_QUALITY),
+        )
+        viewModel.previousQuality = resolvePlaybackQuality(qualities, restoredPreviousQuality)
+        viewModel.restoreQuality = requireArguments().getBoolean(KEY_RESTORED_QUALITY_RESTORE) &&
+            viewModel.previousQuality != null
+        val savedSelection = restoredQuality?.takeIf { candidate ->
+            savedQualities == null || savedQualities.any {
+                it.name == candidate.name && it.url == candidate.url
+            }
+        }
+        return resolvePlaybackQuality(qualities, savedSelection)
     }
 
     private fun resolveDefaultQualityForNetwork(cellular: Boolean): VideoQuality? {
@@ -3104,15 +3171,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         requireContext().prefs().getBoolean(C.PLAYER_LIVE_REWIND, true)
 
     protected fun isLiveRewindAvailable(): Boolean =
-        videoType == BasePlaybackService.STREAM &&
+        videoType == PlaybackContract.STREAM &&
             isLiveRewindEnabled() &&
             liveRewindVod != null
 
-    private fun prepareLiveRewind(
+    protected fun prepareLiveRewind(
         requestedStreamId: String? = null,
         requestedStreamCreatedAt: String? = null,
     ) {
-        if (!isLiveRewindEnabled() || videoType != BasePlaybackService.STREAM) {
+        if (!isLiveRewindEnabled() || videoType != PlaybackContract.STREAM) {
             stopLiveRewindTicker()
             liveRewindVod = null
             pausedLivePositionMs = null
@@ -3268,7 +3335,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun updateStreamUptime() {
-        if (videoType != BasePlaybackService.STREAM || isLiveRewindAvailable()) return
+        if (videoType != PlaybackContract.STREAM || isLiveRewindAvailable()) return
         if (!requireContext().prefs().getBoolean(C.UI_UPTIME, true)) {
             hideStreamUptime()
             return
@@ -3887,7 +3954,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 if (requireContext().prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
                     val id = requireArguments().getString(KEY_VIDEO_ID)?.toLongOrNull()
                     if (id != null) {
-                        viewModel.getVideoPosition(id)
+                        val fallbackPosition = requireArguments().getLong(KEY_RESTORED_POSITION, -1L)
+                            .takeIf { it >= 0L }
+                        viewModel.getVideoPosition(id, fallbackPosition)
                     } else {
                         playVideo(false, 0)
                     }
@@ -3910,12 +3979,74 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
             OFFLINE_VIDEO -> {
                 if (requireContext().prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
-                    viewModel.getOfflineVideoPosition(requireArguments().getInt(KEY_OFFLINE_VIDEO_ID))
+                    val fallbackPosition = requireArguments().getLong(KEY_RESTORED_POSITION, -1L)
+                        .takeIf { it >= 0L }
+                    viewModel.getOfflineVideoPosition(
+                        requireArguments().getInt(KEY_OFFLINE_VIDEO_ID),
+                        fallbackPosition,
+                    )
                 } else {
                     viewLifecycleOwner.lifecycleScope.launch {
                         viewModel.savedOfflineVideoPosition.value = 0
                     }
                 }
+            }
+        }
+    }
+
+    protected fun attachToExistingPlaybackSession(controller: MediaController) {
+        restoredPlaybackController = controller
+        viewModel.started = true
+        when (videoType) {
+            STREAM -> {
+                viewModel.useCustomProxy = requireContext().prefs().getBoolean(C.PLAYER_STREAM_PROXY, false)
+                viewModel.loadStreamInfo(
+                    channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                    channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+                    viewerCount = requireArguments().getInt(KEY_VIEWER_COUNT).takeIf { it != -1 },
+                    loop = !requireContext().prefs().isChatEnabled() || isLiveRewindEnabled(),
+                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
+                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+                    refreshForLiveRewind = isLiveRewindEnabled(),
+                )
+                prepareLiveRewind()
+            }
+            VIDEO -> {
+                val videoId = requireArguments().getString(KEY_VIDEO_ID)
+                val videoUrl = requireArguments().getString(KEY_URL)
+                if (videoId.isNullOrBlank() && !videoUrl.isNullOrBlank()) {
+                    val isAudioOnly = androidx.media3.common.C.TRACK_TYPE_VIDEO in
+                        controller.trackSelectionParameters.disabledTrackTypes
+                    configureDirectVideoQualities(
+                        videoUrl = videoUrl,
+                        currentUri = controller.currentMediaItem?.localConfiguration?.uri?.toString(),
+                        preserveCurrentQuality = true,
+                        audioOnly = isAudioOnly,
+                    )
+                }
+            }
+            CLIP -> {
+                viewModel.loadClip(
+                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+                    id = requireArguments().getString(KEY_CLIP_ID),
+                )
+            }
+            OFFLINE_VIDEO -> {
+                val isAudioOnly = androidx.media3.common.C.TRACK_TYPE_VIDEO in
+                    controller.trackSelectionParameters.disabledTrackTypes
+                val qualities = listOf(
+                    VideoQuality(SOURCE_QUALITY, url = requireArguments().getString(KEY_URL)),
+                    VideoQuality(AUDIO_ONLY_QUALITY),
+                )
+                viewModel.qualities = qualities
+                viewModel.updateQualities = false
+                val restoredQuality = restorePlaybackQuality(qualities)
+                viewModel.quality = if (isAudioOnly) qualities.last() else qualities.first()
+                if (!isAudioOnly) restoredQuality?.let { viewModel.quality = it }
+                changePlayerMode()
+                setQualityText()
             }
         }
     }
@@ -3954,7 +4085,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 val list = urls.map {
                     VideoQuality(it.key, url = it.value)
                 }
-                viewModel.qualities = list
+                val fallbackQualities = list
                     .sortedByDescending {
                         it.bitrate
                     }
@@ -3973,21 +4104,83 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         audio?.let { remove(it) }
                         add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
                     }
-                viewModel.quality = viewModel.qualities?.firstOrNull()
+                val currentQuality = viewModel.quality
+                viewModel.qualities = fallbackQualities
+                viewModel.updateQualities = false
+                viewModel.quality = when {
+                    currentQuality != null -> resolvePlaybackQuality(fallbackQualities, currentQuality)
+                    requireArguments().getBoolean(KEY_RESTORED_PLAYBACK) ->
+                        restorePlaybackQuality(fallbackQualities)
+                    else -> null
+                } ?: fallbackQualities.firstOrNull()
                 viewModel.quality?.url
             }?.let { url ->
                 startVideo(url, playbackPosition, false)
             }
         } else {
             viewModel.playbackPosition = playbackPosition
+            val videoId = requireArguments().getString(KEY_VIDEO_ID)
+            val directVideoUrl = requireArguments().getString(KEY_URL)
+            if (videoId.isNullOrBlank() && !directVideoUrl.isNullOrBlank()) {
+                val url = configureDirectVideoQualities(directVideoUrl)
+                startVideo(url ?: directVideoUrl, playbackPosition, multivariantPlaylist = true)
+                return
+            }
             viewModel.loadVideo(
                 networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                 gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), requireContext().prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_VIDEO, true)),
-                videoId = requireArguments().getString(KEY_VIDEO_ID),
+                videoId = videoId,
                 playerType = requireContext().prefs().getString(C.TOKEN_PLAYER_TYPE_VIDEO, "channel_home_live"),
                 supportedCodecs = requireContext().prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
             )
         }
+    }
+
+    protected fun configureDirectVideoQualities(
+        videoUrl: String,
+        currentUri: String? = null,
+        preserveCurrentQuality: Boolean = false,
+        audioOnly: Boolean = false,
+    ): String? {
+        val directVideoQuality = parseTwitchDirectVideoUrl(videoUrl)
+        val template = directVideoQuality?.template
+            ?: videoUrl.removeSuffix("/chunked/index-dvr.m3u8")
+        val querySuffix = directVideoQuality?.querySuffix.orEmpty()
+        val qualities = TwitchApiHelper.defaultQualityList.map { quality ->
+            val name = if (quality == "chunked") "source" else quality
+            VideoQuality(name, url = "$template/$quality/index-dvr.m3u8$querySuffix")
+        }.sortedByDescending { it.bitrate }
+            .sortedByDescending {
+                it.name?.substringAfter("p", "")?.takeWhile { value -> value.isDigit() }?.toIntOrNull()
+            }
+            .sortedByDescending {
+                it.name?.substringBefore("p", "")?.takeWhile { value -> value.isDigit() }?.toIntOrNull()
+            }
+            .toMutableList()
+            .apply {
+                find { it.name.equals("source", ignoreCase = true) }?.let { source ->
+                    remove(source)
+                    add(0, VideoQuality(SOURCE_QUALITY, source.codecs, source.bitrate, source.url))
+                }
+                val audio = find { it.name?.startsWith("audio", ignoreCase = true) == true }
+                audio?.let(::remove)
+                add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
+            }
+        viewModel.qualities = qualities
+        viewModel.updateQualities = false
+        val restoredQuality = restorePlaybackQuality(qualities)
+        viewModel.quality = when {
+            preserveCurrentQuality && audioOnly -> qualities.find { it.name == AUDIO_ONLY_QUALITY }
+            preserveCurrentQuality -> currentUri?.let { uri -> qualities.find { it.url == uri } }
+            else -> null
+        } ?: restoredQuality
+            ?: directVideoQuality?.qualityName?.let { qualityName ->
+                qualities.find { it.name.equals(qualityName, ignoreCase = true) }
+            }
+            ?: qualities.firstOrNull()
+        changePlayerMode()
+        setQualityText()
+        return viewModel.quality?.url
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -4145,6 +4338,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                 isAnimating = false
                                 setListener(null)
                                 activePointerId = -1
+                                if (!isMaximized) {
+                                    (activity as? MainActivity)?.onMinimizedPlayerPositionChanged()
+                                }
                             }
                         }
                     )
@@ -4347,10 +4543,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
-    protected fun getVideoArguments(item: Video, offset: Long?, ignoreSavedPosition: Boolean): Bundle {
+    protected fun getVideoArguments(
+        item: Video,
+        offset: Long?,
+        ignoreSavedPosition: Boolean,
+        videoUrl: String? = null,
+    ): Bundle {
         return Bundle().apply {
             putString(KEY_TYPE, VIDEO)
             putString(KEY_VIDEO_ID, item.id)
+            putString(KEY_URL, videoUrl)
             putString(KEY_CHANNEL_ID, item.channelId)
             putString(KEY_CHANNEL_LOGIN, item.channelLogin)
             putString(KEY_CHANNEL_NAME, item.channelName)
@@ -4501,6 +4703,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         protected const val KEY_VIDEO_OFFSET_SECONDS = "videoOffsetSeconds"
         protected const val KEY_VIDEO_CREATED_AT = "videoCreatedAt"
         protected const val KEY_VIDEO_ANIMATED_PREVIEW = "videoAnimatedPreview"
+        protected const val KEY_RESTORED_PLAYBACK = "restoredPlayback"
+        protected const val KEY_RESTORED_PAUSED = "restoredPaused"
+        protected const val KEY_RESTORED_POSITION = "restoredPosition"
+        protected const val KEY_RESTORED_QUALITIES = "restoredQualities"
+        protected const val KEY_RESTORED_QUALITY = "restoredQuality"
+        protected const val KEY_RESTORED_PREVIOUS_QUALITY = "restoredPreviousQuality"
+        protected const val KEY_RESTORED_QUALITY_RESTORE = "restoredQualityRestore"
         protected const val KEY_OFFSET = "offset"
         protected const val KEY_IGNORE_SAVED_POSITION = "ignoreSavedPosition"
         protected const val KEY_TAP_ELAPSED_MS = "tapElapsedMs"

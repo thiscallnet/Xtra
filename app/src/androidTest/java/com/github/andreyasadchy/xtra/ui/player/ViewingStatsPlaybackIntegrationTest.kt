@@ -26,24 +26,55 @@ class ViewingStatsPlaybackIntegrationTest {
         val module = app.xtraModule
         val recorder = module.viewingStatsRecorder
         recorder.reset()
-
-        val service = TestPlaybackService().apply {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        lateinit var player: AlwaysPlayingPlayer
+        instrumentation.runOnMainSync {
+            player = AlwaysPlayingPlayer(app)
+        }
+        val service = PlaybackService().apply {
             xtraModule = module
-            type = BasePlaybackService.STREAM
-            streamId = "stream-integration"
-            channelId = "channel-integration"
-            channelLogin = "channel-integration"
-            channelName = "Integration channel"
+            setViewingMetadata(
+                ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
+                "stream-integration",
+                Bundle().apply {
+                    putString(PlaybackService.CHANNEL_ID, "channel-integration")
+                    putString(PlaybackService.CHANNEL_LOGIN, "channel-integration")
+                    putString(PlaybackService.CHANNEL_NAME, "Integration channel")
+                    putString(PlaybackService.GAME_ID, "game-1")
+                    putString(PlaybackService.GAME_NAME, "League of Legends")
+                    putString(PlaybackService.TITLE, "First title")
+                },
+            )
         }
 
         try {
-            service.updateViewingMetadata("game-1", "League of Legends", "First title")
+            instrumentation.runOnMainSync {
+                service.handleViewingMetadataCommand(
+                    Bundle().apply {
+                        putString(PlaybackService.STREAM_ID, "stream-integration")
+                        putString(PlaybackService.GAME_ID, "game-1")
+                        putString(PlaybackService.GAME_NAME, "League of Legends")
+                        putString(PlaybackService.TITLE, "First title")
+                    },
+                    player,
+                )
+            }
             recorder.awaitIdle()
             delay(30)
-            service.updateViewingMetadata("game-2", "Just Chatting", "Second title")
+            instrumentation.runOnMainSync {
+                service.handleViewingMetadataCommand(
+                    Bundle().apply {
+                        putString(PlaybackService.STREAM_ID, "stream-integration")
+                        putString(PlaybackService.GAME_ID, "game-2")
+                        putString(PlaybackService.GAME_NAME, "Just Chatting")
+                        putString(PlaybackService.TITLE, "Second title")
+                    },
+                    player,
+                )
+            }
             recorder.awaitIdle()
             delay(30)
-            service.stopViewingStats()
+            recorder.release("playback-service:primary")
             recorder.awaitIdle()
 
             val intervals = module.database.viewingStats().getRecentIntervals(
@@ -56,8 +87,11 @@ class ViewingStatsPlaybackIntegrationTest {
             assertEquals(1L, module.database.viewingStats().getOverview(0L, System.currentTimeMillis() + 1_000L).sessionCount)
             assertTrue(intervals.all { it.watchedMs > 0L })
         } finally {
-            service.stopViewingStats()
+            recorder.release("playback-service:primary")
             recorder.reset()
+            instrumentation.runOnMainSync {
+                player.release()
+            }
         }
     }
 
@@ -67,29 +101,67 @@ class ViewingStatsPlaybackIntegrationTest {
         val module = app.xtraModule
         val recorder = module.viewingStatsRecorder
         recorder.reset()
-
-        val service = TestPlaybackService().apply {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        lateinit var player: AlwaysPlayingPlayer
+        instrumentation.runOnMainSync {
+            player = AlwaysPlayingPlayer(app)
+        }
+        val service = PlaybackService().apply {
             xtraModule = module
-            type = BasePlaybackService.STREAM
-            streamId = "stream-partial"
-            channelId = "channel-partial"
-            channelLogin = "channel-partial"
-            channelName = "Partial channel"
+            setViewingMetadata(
+                ViewingPlaybackMetadata.CONTENT_TYPE_LIVE,
+                "stream-partial",
+                Bundle().apply {
+                    putString(PlaybackService.CHANNEL_ID, "channel-partial")
+                    putString(PlaybackService.CHANNEL_LOGIN, "channel-partial")
+                    putString(PlaybackService.CHANNEL_NAME, "Partial channel")
+                    putString(PlaybackService.GAME_ID, "game-1")
+                    putString(PlaybackService.GAME_NAME, "League of Legends")
+                    putString(PlaybackService.TITLE, "First title")
+                },
+            )
         }
 
         try {
-            service.updateViewingMetadata("game-1", "League of Legends", "First title")
+            instrumentation.runOnMainSync {
+                service.handleViewingMetadataCommand(
+                    Bundle().apply {
+                        putString(PlaybackService.STREAM_ID, "stream-partial")
+                        putString(PlaybackService.GAME_ID, "game-1")
+                        putString(PlaybackService.GAME_NAME, "League of Legends")
+                        putString(PlaybackService.TITLE, "First title")
+                    },
+                    player,
+                )
+            }
             recorder.awaitIdle()
             delay(30)
             // A PubSub refresh may contain only one category field. Both
             // fields must remain from the existing category identity.
-            service.updateViewingMetadata(null, "Just Chatting", "Updated title")
+            instrumentation.runOnMainSync {
+                service.handleViewingMetadataCommand(
+                    Bundle().apply {
+                        putString(PlaybackService.STREAM_ID, "stream-partial")
+                        putString(PlaybackService.GAME_NAME, "Just Chatting")
+                        putString(PlaybackService.TITLE, "Updated title")
+                    },
+                    player,
+                )
+            }
             recorder.awaitIdle()
             delay(30)
-            service.updateViewingMetadata("game-2", null, null)
+            instrumentation.runOnMainSync {
+                service.handleViewingMetadataCommand(
+                    Bundle().apply {
+                        putString(PlaybackService.STREAM_ID, "stream-partial")
+                        putString(PlaybackService.GAME_ID, "game-2")
+                    },
+                    player,
+                )
+            }
             recorder.awaitIdle()
             delay(30)
-            service.stopViewingStats()
+            recorder.release("playback-service:primary")
             recorder.awaitIdle()
 
             val intervals = module.database.viewingStats().getRecentIntervals(
@@ -106,8 +178,11 @@ class ViewingStatsPlaybackIntegrationTest {
                 module.database.viewingStats().getOverview(0L, System.currentTimeMillis() + 1_000L).sessionCount,
             )
         } finally {
-            service.stopViewingStats()
+            recorder.release("playback-service:primary")
             recorder.reset()
+            instrumentation.runOnMainSync {
+                player.release()
+            }
         }
     }
 
@@ -203,12 +278,6 @@ class ViewingStatsPlaybackIntegrationTest {
                 player.release()
             }
         }
-    }
-
-    private class TestPlaybackService : BasePlaybackService() {
-        override fun isViewingPlaybackPlaying(): Boolean = true
-
-        fun stopViewingStats() = releaseViewingStats()
     }
 
     private class AlwaysPlayingPlayer(context: Context) : ForwardingSimpleBasePlayer(

@@ -29,7 +29,7 @@ data class DesiredHlsQuality(
     val codecs: String? = null,
 ) {
     val isAuto: Boolean
-        get() = name.equals(BasePlaybackService.AUTO_QUALITY, ignoreCase = true)
+        get() = name.equals(PlaybackContract.AUTO_QUALITY, ignoreCase = true)
 
     private val dimensions: Pair<Int, Int>?
         get() = QUALITY_DIMENSIONS.find(name)?.let { match ->
@@ -39,16 +39,15 @@ data class DesiredHlsQuality(
         }
 
     @OptIn(UnstableApi::class)
+    // A quality label stays meaningful across streams; its bitrate does not.
     fun matches(format: Format): Boolean {
-        val labelMatches = format.label.equals(name, ignoreCase = true)
-        val bitrateMatches = bitrate == null || format.bitrate <= 0 || format.bitrate <= bitrate
         val codecsMatch = videoCodecsMatch(codecs, format.codecs)
-        val variantMatches = bitrateMatches && codecsMatch
-        if (labelMatches && variantMatches) return true
+        if (!codecsMatch) return false
+        if (format.label.equals(name, ignoreCase = true)) return true
 
-        val (height, fps) = dimensions ?: return name.equals(BasePlaybackService.SOURCE_QUALITY, ignoreCase = true) &&
-            variantMatches
-        return format.height == height && floor(format.frameRate).toInt() <= fps && variantMatches
+        val (height, fps) = dimensions
+            ?: return name.equals(PlaybackContract.SOURCE_QUALITY, ignoreCase = true)
+        return format.height == height && floor(format.frameRate).toInt() <= fps
     }
 
     @OptIn(UnstableApi::class)
@@ -79,12 +78,12 @@ data class DesiredHlsQuality(
 
 /** Thread-safe quality intent shared by the player service and its playback-thread selections. */
 class SmoothHlsQualityPolicy {
-    private val desired = AtomicReference(DesiredHlsQuality(BasePlaybackService.AUTO_QUALITY))
+    private val desired = AtomicReference(DesiredHlsQuality(PlaybackContract.AUTO_QUALITY))
 
     fun set(name: String?, bitrate: Int? = null, codecs: String? = null) {
         desired.set(
             DesiredHlsQuality(
-                name = name?.takeIf { it.isNotBlank() } ?: BasePlaybackService.AUTO_QUALITY,
+                name = name?.takeIf { it.isNotBlank() } ?: PlaybackContract.AUTO_QUALITY,
                 bitrate = bitrate,
                 codecs = codecs,
             ),
@@ -92,6 +91,19 @@ class SmoothHlsQualityPolicy {
     }
 
     fun snapshot(): DesiredHlsQuality = desired.get()
+}
+
+internal fun resumptionHlsQuality(quality: VideoQuality?): DesiredHlsQuality {
+    val savedQuality = quality ?: return DesiredHlsQuality(PlaybackContract.AUTO_QUALITY)
+    val name = savedQuality.name?.takeIf { it.isNotBlank() }
+        ?: return DesiredHlsQuality(PlaybackContract.AUTO_QUALITY)
+    if (name.equals(PlaybackContract.AUTO_QUALITY, ignoreCase = true) ||
+        name.equals(PlaybackContract.AUDIO_ONLY_QUALITY, ignoreCase = true) ||
+        name.equals(PlaybackContract.CHAT_ONLY_QUALITY, ignoreCase = true)
+    ) {
+        return DesiredHlsQuality(PlaybackContract.AUTO_QUALITY)
+    }
+    return DesiredHlsQuality(name, savedQuality.bitrate, savedQuality.codecs)
 }
 
 internal fun videoQualityTrackOverride(
@@ -103,8 +115,8 @@ internal fun videoQualityTrackOverride(
         bitrate = quality.bitrate,
         codecs = quality.codecs,
     )
-    if (desired.isAuto || quality.name == BasePlaybackService.AUDIO_ONLY_QUALITY ||
-        quality.name == BasePlaybackService.CHAT_ONLY_QUALITY
+    if (desired.isAuto || quality.name == PlaybackContract.AUDIO_ONLY_QUALITY ||
+        quality.name == PlaybackContract.CHAT_ONLY_QUALITY
     ) {
         return null
     }

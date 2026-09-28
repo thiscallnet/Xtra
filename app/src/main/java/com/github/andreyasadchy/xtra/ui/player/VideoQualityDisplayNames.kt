@@ -13,7 +13,7 @@ internal fun videoQualityDisplayNames(
     val special = specialLabel(name)?.toString()
     val baseLabel = special ?: name
     val details = buildList {
-        val codec = if (name == BasePlaybackService.AUDIO_ONLY_QUALITY) {
+        val codec = if (name == PlaybackContract.AUDIO_ONLY_QUALITY) {
             quality.audioCodecName()
         } else {
             quality.videoCodecName()
@@ -21,8 +21,8 @@ internal fun videoQualityDisplayNames(
         codec?.let(::add)
         quality.bitrate?.takeIf { it > 0 }?.let { add(it.toMegabitsLabel()) }
     }
-    val showDetailsForSpecial = name == BasePlaybackService.SOURCE_QUALITY ||
-        name == BasePlaybackService.AUDIO_ONLY_QUALITY
+    val showDetailsForSpecial = name == PlaybackContract.SOURCE_QUALITY ||
+        name == PlaybackContract.AUDIO_ONLY_QUALITY
     val label = if ((special != null && !showDetailsForSpecial) || details.isEmpty()) {
         baseLabel
     } else {

@@ -1478,4 +1478,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">%1$s kullanıcısından bahset</string>
     <string name="drops_move_progress">Taşımak için başlığı sürükleyin. Açmak için dokunun.</string>
+    <string name="playback_notification_channel">Medya oynatma</string>
+    <string name="playback_notification_channel_description">Medya oynatma kontrolleri ve oynatma başlangıç durumu.</string>
+    <string name="resuming_playback">Oynatma sürdürülüyor</string>
 </resources>

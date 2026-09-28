@@ -1477,4 +1477,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">Mencionar a %1$s</string>
     <string name="drops_move_progress">Arrastra o título para mover. Toca para abrir.</string>
+    <string name="playback_notification_channel">Reprodución multimedia</string>
+    <string name="playback_notification_channel_description">Controis e estado de inicio da reprodución multimedia.</string>
+    <string name="resuming_playback">Retomando a reprodución</string>
 </resources>

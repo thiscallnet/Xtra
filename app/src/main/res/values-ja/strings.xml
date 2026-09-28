@@ -1477,4 +1477,7 @@
     <string name="chat_username_recommendation_login">@%1$s</string>
     <string name="use_username">%1$s にメンション</string>
     <string name="drops_move_progress">タイトルをドラッグして移動します。タップして開きます。</string>
+    <string name="playback_notification_channel">メディア再生</string>
+    <string name="playback_notification_channel_description">メディア再生の操作と再生開始の状態。</string>
+    <string name="resuming_playback">再生を再開しています</string>
 </resources>

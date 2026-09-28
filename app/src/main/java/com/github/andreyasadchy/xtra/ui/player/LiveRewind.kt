@@ -220,7 +220,7 @@ fun canUseLiveSource(
     playbackType: String?,
     liveRewindActive: Boolean,
     liveRewindTransitioning: Boolean,
-): Boolean = playbackType == BasePlaybackService.STREAM &&
+): Boolean = playbackType == PlaybackContract.STREAM &&
     !liveRewindActive &&
     !liveRewindTransitioning
 

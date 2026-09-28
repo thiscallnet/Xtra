@@ -8,6 +8,7 @@ import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.PlayerId
 import androidx.media3.exoplayer.source.MediaSource
@@ -25,11 +26,14 @@ import com.github.andreyasadchy.xtra.ui.player.SmoothHlsQualityPolicy
 import com.github.andreyasadchy.xtra.ui.player.SmoothHlsTrackSelectionFactory
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
+import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
+import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicLong
 
 data class LiveMediaPreloadCandidate(
     val channelLogin: String,
@@ -77,7 +81,9 @@ class StreamMedia3Runtime(
 
     private val context = context.applicationContext
     private val states = mutableListOf<Generation>()
+    private val sourceInstanceCounter = AtomicLong()
     private var currentGeneration: Generation? = null
+    private var primaryPlaybackMediaId: String? = null
     private var desiredCandidates: List<LiveMediaPreloadCandidate> = emptyList()
     private val playbackPreferences = context.prefs()
     private val tokenPreferences = context.tokenPrefs()
@@ -152,6 +158,7 @@ class StreamMedia3Runtime(
             generation.entries.remove(removed.channelLogin)
             debug("preload_evicted", entry.channelLogin)
             generation.manager.remove(entry.mediaItem)
+            releaseClipDataSourceFactoryIfUnretained(entry.mediaItem.mediaId)
             managerChanged = true
             if (entry.rank == 0) generation.targetPreloadState.rankZeroSampleComplete = false
         }
@@ -160,7 +167,7 @@ class StreamMedia3Runtime(
             val candidate = desired[planned.channelLogin] ?: return@forEach
             val login = candidate.channelLogin.trim().lowercase()
             val item = generation.hlsFactory.createLiveMediaItem(
-                mediaId = mediaId(generation.configuration, login, candidate.url),
+                mediaId = sourceInstanceId(mediaId(generation.configuration, login, candidate.url)),
                 uri = candidate.url,
                 title = candidate.title,
                 channelName = candidate.channelName,
@@ -200,13 +207,16 @@ class StreamMedia3Runtime(
             if (keep == null) {
                 if (shouldResetPreloadManager(generation.player != null)) {
                     generation.manager.reset()
+                    val removedMediaIds = generation.entries.values.map { it.mediaItem.mediaId }
                     generation.entries.clear()
+                    removedMediaIds.forEach(::releaseClipDataSourceFactoryIfUnretained)
                 } else {
                     generation.entries.values.toList()
                         .filterNot { generation.playbackOwnership.protects(it.mediaItem) }
                         .forEach {
                             generation.manager.remove(it.mediaItem)
                             generation.entries.remove(it.channelLogin)
+                            releaseClipDataSourceFactoryIfUnretained(it.mediaItem.mediaId)
                         }
                     generation.manager.setCurrentPlayingIndex(0)
                     generation.manager.invalidate()
@@ -220,6 +230,7 @@ class StreamMedia3Runtime(
                     .forEach {
                         generation.manager.remove(it.mediaItem)
                         generation.entries.remove(it.channelLogin)
+                        releaseClipDataSourceFactoryIfUnretained(it.mediaItem.mediaId)
                     }
                 generation.manager.setCurrentPlayingIndex(0)
                 generation.manager.invalidate()
@@ -253,11 +264,13 @@ class StreamMedia3Runtime(
         title: String? = null,
         channelName: String? = null,
         channelLogo: String? = null,
+        uniqueSourceInstance: Boolean = true,
     ): MediaItem {
         val generation = ensureGeneration()
         val login = channelLogin.trim().lowercase()
+        val contentMediaId = mediaId(generation.configuration, login, url)
         return generation.hlsFactory.createLiveMediaItem(
-            mediaId(generation.configuration, login, url),
+            if (uniqueSourceInstance) sourceInstanceId(contentMediaId) else contentMediaId,
             url,
             title,
             channelName,
@@ -272,10 +285,12 @@ class StreamMedia3Runtime(
         title: String? = null,
         channelName: String? = null,
         channelLogo: String? = null,
+        uniqueSourceInstance: Boolean = true,
     ): MediaItem {
         val generation = ensureGeneration()
+        val contentMediaId = mediaId(generation.configuration, "vod:$videoId", url)
         return generation.hlsFactory.createVodMediaItem(
-            mediaId(generation.configuration, "vod:$videoId", url),
+            if (uniqueSourceInstance) sourceInstanceId(contentMediaId) else contentMediaId,
             url,
             title,
             channelName,
@@ -309,38 +324,65 @@ class StreamMedia3Runtime(
     @Synchronized
     fun setPrimaryPlaybackMediaItem(mediaItem: MediaItem?) {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 playback handoff must run on the main looper" }
-        val targetGeneration = mediaItem?.let { target ->
-            states.asReversed().firstOrNull { generation ->
-                generation.entries.values.any { it.mediaItem === target }
+        val targetEntry = mediaItem?.let { target ->
+            states.asReversed().firstNotNullOfOrNull { generation ->
+                generation.entries.values.firstOrNull { it.mediaItem.mediaId == target.mediaId }
+                    ?.let { generation to it }
             }
         }
-        val currentMediaItem = states.asReversed()
-            .firstOrNull { it.playbackOwnership.currentMediaItem() != null }
-            ?.playbackOwnership
-            ?.currentMediaItem()
-        if (currentMediaItem === mediaItem && (mediaItem == null || targetGeneration != null)) return
+        val currentMediaId = primaryPlaybackMediaId
+        if (currentMediaId == mediaItem?.mediaId) return
         states.forEach { it.playbackOwnership.release() }
-        targetGeneration?.playbackOwnership?.setPrimaryMediaItem(mediaItem)
+        targetEntry?.let { (generation, entry) -> generation.playbackOwnership.setPrimaryMediaItem(entry.mediaItem) }
+        primaryPlaybackMediaId = mediaItem?.mediaId
+        currentMediaId?.let(::releaseClipDataSourceFactoryIfUnretained)
         if (desiredCandidates.isNotEmpty()) reconcile(desiredCandidates)
     }
 
     @Synchronized
     fun createLiveMediaSource(mediaItem: MediaItem): MediaSource {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 live source creation must run on the main looper" }
-        return ensureGeneration().hlsFactory.createMediaSource(mediaItem)
+        return createHlsMediaSource(mediaItem)
+    }
+
+    @Synchronized
+    fun createHlsMediaSource(mediaItem: MediaItem): MediaSource {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 HLS source creation must run on the main looper" }
+        val generation = ensureGeneration()
+        return generation.hlsFactory.createMediaSource(mediaItem)
+    }
+
+    @Synchronized
+    fun clipDataSourceFactory(mediaId: String): DataSource.Factory? =
+        states.asReversed()
+            .asSequence()
+            .mapNotNull { it.hlsFactory.clipDataSourceFactory(mediaId) }
+            .firstOrNull()
+
+    @Synchronized
+    fun primaryPlaybackClipDataSourceFactory(mediaId: String): DataSource.Factory? =
+        primaryPlaybackMediaId
+            ?.takeIf { it == mediaId }
+            ?.let(::clipDataSourceFactory)
+
+    @Synchronized
+    fun releaseTransientMediaItem(mediaId: String) {
+        releaseClipDataSourceFactoryIfUnretained(mediaId)
     }
 
     @Synchronized
     fun buildPlaybackPlayer(
         playerContext: Context,
-        configure: ExoPlayer.Builder.() -> Unit,
+        configure: ExoPlayer.Builder.(AdaptiveLivePlaybackController, AdaptiveLiveLoadControl) -> Unit,
     ): ExoPlayer {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Playback player creation must run on the main looper" }
         states.firstOrNull { it.player != null }?.player?.let { return it }
         val generation = ensureGeneration()
         generation.player?.let { return it }
         return generation.builder.buildExoPlayer(
-            ExoPlayer.Builder(playerContext).apply(configure)
+            ExoPlayer.Builder(playerContext).apply {
+                configure(generation.adaptiveLiveController, generation.adaptiveLiveLoadControl)
+            },
         ).also {
             // Claim this runtime generation before playback can deliver audio.
             // Older generation sinks then become inert and cannot flush the
@@ -390,6 +432,11 @@ class StreamMedia3Runtime(
     fun releasePlaybackPlayer(player: ExoPlayer?) {
         if (player == null) return
         val playbackGenerations = states.filter { it.player === player }.toSet()
+        if (playbackGenerations.isNotEmpty()) {
+            val releasedMediaId = primaryPlaybackMediaId
+            primaryPlaybackMediaId = null
+            releasedMediaId?.let(::releaseClipDataSourceFactoryIfUnretained)
+        }
         states.forEach { generation ->
             if (generation.player === player) {
                 xtraModule.liveCaptionManager.deactivateAudioBufferSink(generation.captionAudioSink)
@@ -422,11 +469,21 @@ class StreamMedia3Runtime(
             }
         }
         currentGeneration = null
-        val loadControl = LivePlaybackPolicies.forLowLatency(configuration.lowLatency)
-            .buffers
-            .buildLoadControl {
+        val initialLivePolicy = LivePlaybackPolicies.forLowLatency(configuration.lowLatency)
+        val adaptiveLiveController = AdaptiveLivePlaybackController(
+            initialPolicy = initialLivePolicy,
+            adaptiveEnabled = false,
+        )
+        val playbackLoadControl = AdaptiveLiveLoadControl(
+            controller = adaptiveLiveController,
+            initialPolicy = initialLivePolicy,
+            // Live latency settings only apply to actual live items. VOD keeps the
+            // 15–50 second normal buffer policy for stable seeks and transient networks.
+            nonLivePolicy = LivePlaybackPolicies.NORMAL,
+            delegate = LivePlaybackPolicies.NORMAL.buffers.buildLoadControl {
                 setPlayerTargetBufferBytes(PlayerId.PRELOAD.name, PRELOAD_TARGET_BYTES)
-            }
+            },
+        )
         val targetPreloadState = TargetPreloadState()
         val statusControl = TargetPreloadStatusControl<Int, DefaultPreloadManager.PreloadStatus> { rank ->
             when (rank) {
@@ -453,7 +510,7 @@ class StreamMedia3Runtime(
                     SmoothHlsTrackSelectionFactory(qualitySelectionPolicy),
                 )
             }
-            .setLoadControl(loadControl)
+            .setLoadControl(playbackLoadControl)
             .setRenderersFactory(
                 LiveCaptionRenderersFactory(
                     context = context,
@@ -468,6 +525,8 @@ class StreamMedia3Runtime(
             manager = builder.build(),
             captionAudioSink = captionAudioSink,
             targetPreloadState = targetPreloadState,
+            adaptiveLiveController = adaptiveLiveController,
+            adaptiveLiveLoadControl = playbackLoadControl,
         )
         generation.manager.addListener(object : PreloadManagerListener {
             override fun onCompleted(mediaItem: MediaItem) {
@@ -494,6 +553,41 @@ class StreamMedia3Runtime(
         currentGeneration = generation
         debug("generation_created", null)
         return generation
+    }
+
+    fun newSourceInstanceId(contentIdentity: String): String = sourceInstanceId(contentIdentity)
+
+    fun newSourceInstanceMediaItem(mediaItem: MediaItem, uri: String?): MediaItem {
+        val contentIdentity = sourceContentIdentity(mediaItem.mediaId)
+        return mediaItem.buildUpon()
+            .setMediaId(sourceInstanceId(contentIdentity))
+            .setUri(uri)
+            .build()
+    }
+
+    private fun sourceInstanceId(contentIdentity: String): String =
+        "$contentIdentity:${SystemClock.elapsedRealtimeNanos()}:${sourceInstanceCounter.incrementAndGet()}"
+
+    private fun sourceContentIdentity(mediaId: String): String {
+        // Generated source IDs end in elapsed-realtime nanos and a process counter.
+        val counterSeparator = mediaId.lastIndexOf(':')
+        val elapsedSeparator = mediaId.lastIndexOf(':', counterSeparator - 1)
+        if (elapsedSeparator <= 0 || counterSeparator <= elapsedSeparator) return mediaId
+
+        val elapsedRealtimeNanos = mediaId.substring(elapsedSeparator + 1, counterSeparator).toLongOrNull()
+        val instanceSequence = mediaId.substring(counterSeparator + 1).toLongOrNull()
+        return if (elapsedRealtimeNanos != null && instanceSequence != null && instanceSequence > 0) {
+            mediaId.substring(0, elapsedSeparator)
+        } else {
+            mediaId
+        }
+    }
+
+    private fun releaseClipDataSourceFactoryIfUnretained(mediaId: String) {
+        if (primaryPlaybackMediaId == mediaId ||
+            states.any { generation -> generation.entries.values.any { it.mediaItem.mediaId == mediaId } }
+        ) return
+        states.forEach { it.hlsFactory.releaseMediaItem(mediaId) }
     }
 
     private fun mediaId(configuration: StreamPlaybackConfiguration, login: String, url: String): String {
@@ -556,6 +650,8 @@ class StreamMedia3Runtime(
         val manager: DefaultPreloadManager,
         val captionAudioSink: LiveCaptionManager.AudioBufferSinkSession,
         val targetPreloadState: TargetPreloadState,
+        val adaptiveLiveController: AdaptiveLivePlaybackController,
+        val adaptiveLiveLoadControl: AdaptiveLiveLoadControl,
         val entries: StreamMedia3PreloadEntries<Entry> = StreamMedia3PreloadEntries(),
         var player: ExoPlayer? = null,
         val playbackOwnership: StreamMedia3PlaybackOwnership = StreamMedia3PlaybackOwnership(),
