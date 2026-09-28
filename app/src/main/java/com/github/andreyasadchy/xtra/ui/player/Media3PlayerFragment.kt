@@ -1115,9 +1115,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             upAction(event)
                         }
                     }
-                    if (!isMaximized) {
-                        (activity as? MainActivity)?.onMinimizedPlayerPositionChanged(275L)
-                    }
                 }
                 true
             }
@@ -4338,9 +4335,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                 isAnimating = false
                                 setListener(null)
                                 activePointerId = -1
-                                if (!isMaximized) {
-                                    (activity as? MainActivity)?.onMinimizedPlayerPositionChanged()
-                                }
                             }
                         }
                     )
