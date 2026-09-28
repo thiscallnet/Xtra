@@ -89,6 +89,7 @@ import com.github.andreyasadchy.xtra.ui.tv.TvRemoteKeyHandler
 import com.github.andreyasadchy.xtra.ui.main.MainViewModel.Companion.MainViewModelFactory
 import com.github.andreyasadchy.xtra.ui.player.Media3Fragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
+import com.github.andreyasadchy.xtra.ui.player.PlayerQualityNetworkProfile
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.PlaybackService
 import com.github.andreyasadchy.xtra.ui.saved.SavedMediaFragment
@@ -162,7 +163,7 @@ class MainActivity : AppCompatActivity() {
         private set
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var qualityNetworkCallback: ConnectivityManager.NetworkCallback? = null
-    private var lastPlaybackNetworkCellular: Boolean? = null
+    private var lastPlaybackNetworkProfile: PlayerQualityNetworkProfile? = null
     private var pipActionReceiver: BroadcastReceiver? = null
     private lateinit var prefs: SharedPreferences
     var settingsResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -541,21 +542,20 @@ class MainActivity : AppCompatActivity() {
                     return
                 }
 
-                val cellular =
-                    networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)
+                val profile = PlayerQualityNetworkProfile.from(networkCapabilities)
 
                 lifecycleScope.launch {
-                    val previous = lastPlaybackNetworkCellular
-                    lastPlaybackNetworkCellular = cellular
+                    val previous = lastPlaybackNetworkProfile
+                    lastPlaybackNetworkProfile = profile
 
                     // First callback only establishes the baseline.
-                    // Only a real Wi-Fi/non-cellular <-> cellular transition
-                    // should reapply a playing stream's default.
-                    if (previous == null || previous == cellular) {
+                    // Only a change between quality profiles should reapply
+                    // a playing stream's default.
+                    if (previous == null || previous == profile) {
                         return@launch
                     }
 
-                    (playerFragment as? Media3PlayerFragment)?.reapplyNetworkDefaultQuality(cellular)
+                    (playerFragment as? Media3PlayerFragment)?.reapplyNetworkDefaultQuality(profile)
                 }
             }
         }

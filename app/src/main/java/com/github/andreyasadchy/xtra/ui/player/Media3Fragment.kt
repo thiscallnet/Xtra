@@ -2222,10 +2222,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         selectedQuality?.takeIf { persistSavedQuality }?.let { quality ->
             val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-            val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-            if ((!cellular && requireContext().prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved") == "saved") ||
-                (cellular && requireContext().prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved") == "saved")
-            ) {
+            val profile = PlayerQualityNetworkProfile.from(networkCapabilities)
+            if (profile.qualityPreference(requireContext().prefs())?.substringBefore(" ") == "saved") {
                 requireContext().prefs().edit { putString(C.PLAYER_QUALITY, quality.name) }
             }
         }

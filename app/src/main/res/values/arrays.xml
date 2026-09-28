@@ -366,6 +366,36 @@
         <item>audio_only</item>
     </string-array>
 
+    <string-array name="playerMeteredWifiQualityEntries" translatable="false">
+        <item>@string/settings_metered_wifi_quality_use_mobile</item>
+        <item>@string/saved_value</item>
+        <item>@string/auto</item>
+        <item>@string/source</item>
+        <item>1080p60</item>
+        <item>1080p</item>
+        <item>720p60</item>
+        <item>720p</item>
+        <item>480p</item>
+        <item>360p</item>
+        <item>160p</item>
+        <item>@string/audio_only</item>
+    </string-array>
+
+    <string-array name="playerMeteredWifiQualityValues" translatable="false">
+        <item>mobile_data</item>
+        <item>saved</item>
+        <item>auto</item>
+        <item>Source</item>
+        <item>1080p60</item>
+        <item>1080</item>
+        <item>720p60</item>
+        <item>720</item>
+        <item>480</item>
+        <item>360</item>
+        <item>160</item>
+        <item>audio_only</item>
+    </string-array>
+
     <string-array name="languageEntries" translatable="false">
         <item>@string/lang_auto</item>
         <item>@string/lang_de</item>

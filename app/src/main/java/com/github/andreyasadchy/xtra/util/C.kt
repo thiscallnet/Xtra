@@ -222,6 +222,7 @@ object C {
     const val PLAYER_USE_VIDEO_POSITIONS = "player_use_videopositions"
     const val PLAYER_DEFAULT_QUALITY = "player_defaultquality"
     const val PLAYER_DEFAULT_CELLULAR_QUALITY = "player_default_cellular_quality"
+    const val PLAYER_DEFAULT_METERED_WIFI_QUALITY = "player_default_metered_wifi_quality"
     const val PLAYER_LOW_LATENCY = "player_low_latency"
     const val DEFAULT_PLAYER_LOW_LATENCY = true
     const val LOW_LATENCY_TARGET_OFFSET_MS = 2_000L

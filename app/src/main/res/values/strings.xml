@@ -460,6 +460,8 @@
     <string name="settings_portrait_columns">Default portrait columns</string>
     <string name="settings_landscape_columns">Default landscape / large-screen columns</string>
     <string name="settings_mobile_data_quality">Mobile data quality</string>
+    <string name="settings_metered_wifi_quality">Metered Wi-Fi quality</string>
+    <string name="settings_metered_wifi_quality_use_mobile">Use mobile data quality</string>
     <string name="settings_background_playback">Background playback</string>
     <string name="settings_background_playback_summary">Keep stream audio playing when Xtra is not on screen or the device is locked.</string>
     <string name="settings_continue_after_closing">Continue after closing Xtra</string>
