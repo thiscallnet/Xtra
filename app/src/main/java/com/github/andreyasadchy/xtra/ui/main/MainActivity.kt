@@ -75,7 +75,6 @@ import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.repository.auth.AuthSessionMaintenanceState
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
-import com.github.andreyasadchy.xtra.ui.common.PlayerOverlayContentInset
 import com.github.andreyasadchy.xtra.ui.download.StreamDownloadService
 import com.github.andreyasadchy.xtra.ui.download.VideoDownloadService
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
@@ -177,7 +176,6 @@ class MainActivity : AppCompatActivity() {
     private var updateNotificationSnackbar: Snackbar? = null
     private var updateNotificationPermissionLauncher: ActivityResultLauncher<String>? = null
     private var fragmentLifecycleCallbacks: FragmentManager.FragmentLifecycleCallbacks? = null
-    private var playerOverlayContentInset: PlayerOverlayContentInset? = null
     private var startupTasksReady = false
     private var pendingBottomNavigationItemId: Int? = null
     private var bottomNavigationTransactionInFlight = false
@@ -239,17 +237,6 @@ class MainActivity : AppCompatActivity() {
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        if (!isTv) {
-            playerOverlayContentInset = PlayerOverlayContentInset(
-                root = binding.root,
-                content = binding.navHostFragment,
-                bottomNavigation = binding.navBarContainer,
-                playerContainer = binding.playerContainer,
-                isInPictureInPictureMode = {
-                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode
-                },
-            )
-        }
         appBackgroundController = ActivityBackgroundController(
             root = binding.root,
             image = binding.appBackgroundImage,
@@ -302,14 +289,9 @@ class MainActivity : AppCompatActivity() {
             } else {
                 windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.displayCutout())
             }
-            val playerContentInset = playerOverlayContentInset
-            if (playerContentInset != null) {
-                playerContentInset.updateSystemInsets(insets.left, insets.right)
-            } else {
-                binding.navHostFragment.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                    leftMargin = insets.left
-                    rightMargin = insets.right
-                }
+            binding.navHostFragment.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                leftMargin = insets.left
+                rightMargin = insets.right
             }
             binding.navBarContainer.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 leftMargin = insets.left
@@ -940,12 +922,10 @@ class MainActivity : AppCompatActivity() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         setNavBarColor(newConfig.orientation == Configuration.ORIENTATION_PORTRAIT)
-        playerOverlayContentInset?.scheduleUpdate(350L)
     }
 
     override fun onResume() {
         super.onResume()
-        playerOverlayContentInset?.scheduleUpdate(350L)
         findViewById<Toolbar>(R.id.toolbar)?.let {
             ProfileMenuBinder.bind(it, this)
             TwitchInboxMenuBinder.bind(it, this)
@@ -994,8 +974,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        playerOverlayContentInset?.close()
-        playerOverlayContentInset = null
         PlaybackRuntimeDiagnostic.clear(playbackDiagnosticOwner)
         appBackgroundController.stop()
         PerfFrameMetricsDiagnostics.detach()
@@ -1450,20 +1428,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     fun onPlayerReturnedToBrowsing(playerStillOpen: Boolean) {
-        if (!playerStillOpen) playerOverlayContentInset?.restore()
         (application as XtraApp).xtraModule.streamPreviewCoordinator.onPlaybackReturned(playerStillOpen)
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackReturned(playerStillOpen)
     }
 
     fun onPlayerEnteredPlayback(isLive: Boolean = true, channelLogin: String? = null) {
-        playerOverlayContentInset?.restore()
         viewModel.isPlayerOpened = true
         (application as XtraApp).xtraModule.streamFeedRefreshCoordinator.playbackEntered(isLive)
         (application as XtraApp).xtraModule.streamPreviewCoordinator.onFullscreenPlaybackStarted(channelLogin)
-    }
-
-    fun onMinimizedPlayerPositionChanged(delayMillis: Long = 0L) {
-        playerOverlayContentInset?.scheduleUpdate(delayMillis)
     }
 
     fun onPlayerChangedPlayback(isLive: Boolean) {
