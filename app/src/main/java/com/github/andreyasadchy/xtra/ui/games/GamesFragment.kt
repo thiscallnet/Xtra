@@ -124,7 +124,7 @@ class GamesFragment : PagedListFragment(), Scrollable, GamesSortDialog.OnFilter 
                 WindowInsetsCompat.CONSUMED
             }
         }
-        pagingAdapter = GamesAdapter(this) { addTag(it) }
+        pagingAdapter = GamesAdapter(this, adaptSingleColumn = true) { addTag(it) }
         setAdapter(binding.recyclerViewLayout.recyclerView, pagingAdapter)
     }
 
@@ -162,6 +162,10 @@ class GamesFragment : PagedListFragment(), Scrollable, GamesSortDialog.OnFilter 
         }
         val enableScrollTopButton = !args.tags.isNullOrEmpty()
         initializeAdapter(binding.recyclerViewLayout, pagingAdapter, enableScrollTopButton = enableScrollTopButton, gridPage = GridPage.BROWSE_GAMES)
+        binding.recyclerViewLayout.recyclerView.apply {
+            onSpanCountChanged = { pagingAdapter.notifyDataSetChanged() }
+            pagingAdapter.notifyDataSetChanged()
+        }
         if (enableScrollTopButton && requireContext().prefs().getBoolean(C.UI_SCROLL_TOP, true)) {
             binding.recyclerViewLayout.scrollTop.setOnClickListener {
                 scrollToTop()

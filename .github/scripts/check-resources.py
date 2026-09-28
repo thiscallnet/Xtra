@@ -113,6 +113,10 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "drops_show_summary",
     # Following categories empty-state copy uses the default English wording until translated.
     "following_categories_empty",
+    # Saved page empty-state copy ships with the default English wording until translated.
+    "bookmarks_empty",
+    "downloads_empty",
+    "saved_filters_empty",
     # Drops browsing controls use the default English wording until translated.
     "drops_progress_accessibility",
     "drops_minimize_progress",

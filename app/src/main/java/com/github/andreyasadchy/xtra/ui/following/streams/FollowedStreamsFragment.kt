@@ -71,6 +71,10 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
         )
         setAdapter(binding.recyclerView, streamsAdapter)
         binding.recyclerView.usePageGrid(GridPage.FOLLOWED_STREAMS)
+        binding.recyclerView.apply {
+            streamsAdapter.setSingleColumnPresentation(gridSpanCount == 1)
+            onSpanCountChanged = { streamsAdapter.setSingleColumnPresentation(it == 1) }
+        }
         streamPreloadViewportController = StreamPreloadViewportController(
             fragment = this,
             coordinator = (requireActivity().application as XtraApp).xtraModule.streamPreloadCoordinator,

@@ -64,6 +64,9 @@
     <string name="following_starts_today">Today at %1$s</string>
     <string name="following_see_all">See all</string>
     <string name="downloads">Downloads</string>
+    <string name="bookmarks_empty">No bookmarks yet. Saved streams and videos will appear here.</string>
+    <string name="downloads_empty">No downloads yet. Downloaded streams and videos will appear here.</string>
+    <string name="saved_filters_empty">No saved filters yet. Your saved filters will appear here.</string>
     <plurals name="clips_count">
         <item quantity="one">%d clip</item>
         <item quantity="other">%d clips</item>

@@ -27,8 +27,14 @@ class FollowingStreamsListAdapter(
     compact: Boolean,
 ) : ListAdapter<Stream, RecyclerView.ViewHolder>(DIFF_CALLBACK) {
 
-    private val compactDelegate = if (compact) StreamsCompactAdapter(fragment, selectTag) else null
-    private val shelfDelegate = if (compact) null else StreamsShelfPagingAdapter(fragment, selectTag)
+    private val compactDelegate = StreamsCompactAdapter(fragment, selectTag)
+    private val shelfDelegate = StreamsShelfPagingAdapter(fragment, selectTag)
+    private val compactPreference = compact
+    private var singleColumnPresentation = false
+    private var attachedRecyclerView: RecyclerView? = null
+
+    private val usesCompactLayout: Boolean
+        get() = compactPreference || singleColumnPresentation
 
     init {
         setHasStableIds(true)
@@ -48,19 +54,36 @@ class FollowingStreamsListAdapter(
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
-        compactDelegate?.attachImageScheduler(recyclerView)
-        shelfDelegate?.attachImageScheduler(recyclerView)
+        attachedRecyclerView = recyclerView
+        attachActiveDelegate(recyclerView)
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
-        compactDelegate?.detachImageScheduler()
-        shelfDelegate?.detachImageScheduler()
+        detachActiveDelegate()
+        attachedRecyclerView = null
         super.onDetachedFromRecyclerView(recyclerView)
     }
 
+    fun setSingleColumnPresentation(enabled: Boolean) {
+        if (singleColumnPresentation == enabled) return
+        val wasCompactLayout = usesCompactLayout
+        singleColumnPresentation = enabled
+        if (wasCompactLayout == usesCompactLayout) return
+        if (wasCompactLayout) compactDelegate.detachImageScheduler()
+        else shelfDelegate.detachImageScheduler()
+        attachedRecyclerView?.let(::attachActiveDelegate)
+        notifyDataSetChanged()
+    }
+
+    override fun getItemViewType(position: Int): Int =
+        if (usesCompactLayout) VIEW_TYPE_COMPACT else VIEW_TYPE_SHELF
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        return compactDelegate?.onCreateViewHolder(parent, viewType)
-            ?: shelfDelegate!!.onCreateViewHolder(parent, viewType)
+        return if (viewType == VIEW_TYPE_COMPACT) {
+            compactDelegate.onCreateViewHolder(parent, viewType)
+        } else {
+            shelfDelegate.onCreateViewHolder(parent, viewType)
+        }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
@@ -88,8 +111,8 @@ class FollowingStreamsListAdapter(
 
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
         when (holder) {
-            is StreamsCompactAdapter.PagingViewHolder -> compactDelegate?.recycleViewHolder(holder)
-            is StreamsShelfPagingAdapter.ViewHolder -> shelfDelegate?.recycleViewHolder(holder)
+            is StreamsCompactAdapter.PagingViewHolder -> compactDelegate.recycleViewHolder(holder)
+            is StreamsShelfPagingAdapter.ViewHolder -> shelfDelegate.recycleViewHolder(holder)
         }
         super.onViewRecycled(holder)
     }
@@ -107,7 +130,20 @@ class FollowingStreamsListAdapter(
         }
     }
 
+    private fun attachActiveDelegate(recyclerView: RecyclerView) {
+        if (usesCompactLayout) compactDelegate.attachImageScheduler(recyclerView)
+        else shelfDelegate.attachImageScheduler(recyclerView)
+    }
+
+    private fun detachActiveDelegate() {
+        if (usesCompactLayout) compactDelegate.detachImageScheduler()
+        else shelfDelegate.detachImageScheduler()
+    }
+
     private companion object {
+        const val VIEW_TYPE_COMPACT = 0
+        const val VIEW_TYPE_SHELF = 1
+
         val DIFF_CALLBACK = object : DiffUtil.ItemCallback<Stream>() {
             override fun areItemsTheSame(oldItem: Stream, newItem: Stream): Boolean =
                 oldItem.streamIdentity() == newItem.streamIdentity()

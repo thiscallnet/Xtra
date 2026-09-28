@@ -98,6 +98,8 @@ class DownloadsFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.nothingHere.setText(R.string.downloads_empty)
+        binding.nothingHere.textAlignment = View.TEXT_ALIGNMENT_CENTER
         binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
         pagingAdapter = DownloadsAdapter(
             fragment = this,
