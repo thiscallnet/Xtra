@@ -39,15 +39,6 @@ class VideoPlaybackPolicyTest {
         assertFalse(policy(backgroundPlaybackEnabled = false))
     }
 
-    @Test
-    fun backgroundOwnedVideoDisableIsRestoredOnlyForNormalForegroundPlayback() {
-        assertTrue(restorePolicy(backgroundOwnedVideoDisable = true))
-        assertFalse(restorePolicy(backgroundOwnedVideoDisable = false))
-        assertFalse(restorePolicy(backgroundOwnedVideoDisable = true, audioOnly = true))
-        assertFalse(restorePolicy(backgroundOwnedVideoDisable = true, chatOnly = true))
-        assertFalse(restorePolicy(backgroundOwnedVideoDisable = true, videoAlreadySuppressed = true))
-    }
-
     private fun policy(
         backgroundPlaybackEnabled: Boolean = true,
         isInPictureInPicture: Boolean = false,
@@ -68,15 +59,4 @@ class VideoPlaybackPolicyTest {
         videoAlreadySuppressed = videoAlreadySuppressed,
     )
 
-    private fun restorePolicy(
-        backgroundOwnedVideoDisable: Boolean,
-        audioOnly: Boolean = false,
-        chatOnly: Boolean = false,
-        videoAlreadySuppressed: Boolean = false,
-    ) = shouldRestoreVideoAfterBackground(
-        backgroundOwnedVideoDisable = backgroundOwnedVideoDisable,
-        audioOnly = audioOnly,
-        chatOnly = chatOnly,
-        videoAlreadySuppressed = videoAlreadySuppressed,
-    )
 }

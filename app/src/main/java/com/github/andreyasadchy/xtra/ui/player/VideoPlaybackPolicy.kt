@@ -26,15 +26,3 @@ internal fun shouldDisableVideoForBackground(
         !chatOnly &&
         !videoAlreadySuppressed
 }
-
-internal fun shouldRestoreVideoAfterBackground(
-    backgroundOwnedVideoDisable: Boolean,
-    audioOnly: Boolean,
-    chatOnly: Boolean,
-    videoAlreadySuppressed: Boolean,
-): Boolean {
-    return backgroundOwnedVideoDisable &&
-        !audioOnly &&
-        !chatOnly &&
-        !videoAlreadySuppressed
-}
