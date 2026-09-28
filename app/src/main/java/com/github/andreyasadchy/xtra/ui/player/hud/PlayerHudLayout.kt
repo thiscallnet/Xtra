@@ -1544,10 +1544,8 @@ class PlayerHudLayout @JvmOverloads constructor(
         val parentGroup = parent as? ViewGroup ?: return HudRect(0f, 0f, rootWidth, rootHeight)
         val aspect = parentGroup.findViewById<View>(R.id.aspectRatioFrameLayout)
             ?: return HudRect(0f, 0f, rootWidth, rootHeight)
-        val output = listOf(
-            parentGroup.findViewById<View>(R.id.playerSurface),
-            parentGroup.findViewById<View>(R.id.playerTextureView),
-        ).firstOrNull { it?.isShown == true && it.measuredWidth > 0 && it.measuredHeight > 0 }
+        val output = parentGroup.findViewById<View>(R.id.playerSurface)
+            ?.takeIf { it.isShown && it.measuredWidth > 0 && it.measuredHeight > 0 }
 
         fun offsetToAncestor(view: View): Pair<Float, Float>? {
             var current: View? = view

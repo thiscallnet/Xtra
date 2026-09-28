@@ -572,8 +572,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             lastTvFocusedControl = binding.playerControls.playPause
             binding.dragView.requestFocus()
         }
-        binding.playerTextureView.visibility = View.GONE
-        binding.playerSurface.visibility = View.VISIBLE
         with(binding) {
             phoneChatOverlayGesture = PhoneChatOverlayGestureController(
                 context = requireContext(),

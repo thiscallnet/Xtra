@@ -13,7 +13,6 @@ import android.os.SystemClock
 import android.text.format.DateUtils
 import android.util.Log
 import android.view.SurfaceView
-import android.view.TextureView
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
@@ -173,50 +172,25 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var hasEstablishedLiveBufferHealth = false
     private var lastLiveBufferHealthOffsetMs: Long? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
-    private val useTextureVideoOutput = shouldUseTextureVideoOutput()
-    private val videoOutputOwner = VideoOutputOwner<Player, View>(
+    private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
         attachTarget = { currentPlayer, target ->
-            when (target) {
-                is SurfaceView -> currentPlayer.setVideoSurfaceView(target)
-                is TextureView -> currentPlayer.setVideoTextureView(target)
-                else -> error("Unsupported video output view: ${target.javaClass.name}")
-            }
+            currentPlayer.setVideoSurfaceView(target)
         },
         detachTarget = { currentPlayer, target ->
-            when (target) {
-                is SurfaceView -> currentPlayer.clearVideoSurfaceView(target)
-                is TextureView -> currentPlayer.clearVideoTextureView(target)
-                else -> error("Unsupported video output view: ${target.javaClass.name}")
-            }
+            currentPlayer.clearVideoSurfaceView(target)
         },
     )
 
-    private val videoOutputView: View
-        get() = if (useTextureVideoOutput) {
-            binding.playerTextureView
-        } else {
-            binding.playerSurface
-        }
+    private val videoOutputView: SurfaceView
+        get() = binding.playerSurface
 
     private fun configureVideoOutputView() {
-        binding.playerTextureView.visibility =
-            if (useTextureVideoOutput) View.VISIBLE else View.GONE
-        binding.playerSurface.visibility =
-            if (useTextureVideoOutput) View.GONE else View.VISIBLE
+        binding.playerSurface.visibility = View.VISIBLE
+        binding.playerSurface.setOnTouchListener { _, event ->
+            forwardVideoSurfaceTouch(binding.playerSurface, binding.dragView, event)
+        }
 
-        binding.playerSurface.setOnTouchListener(
-            if (useTextureVideoOutput) {
-                null
-            } else {
-                View.OnTouchListener { _, event ->
-                    forwardVideoSurfaceTouch(binding.playerSurface, binding.dragView, event)
-                }
-            },
-        )
-
-        if (!useTextureVideoOutput &&
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE
-        ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             binding.playerSurface.setSurfaceLifecycle(
                 SurfaceView.SURFACE_LIFECYCLE_FOLLOWS_ATTACHMENT,
             )
@@ -309,7 +283,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         if (BuildConfig.DEBUG) {
             Log.d(
                 "VideoSurface",
-                "renderer=${videoOutputView.javaClass.simpleName} textureOutput=$useTextureVideoOutput",
+                "renderer=${videoOutputView.javaClass.simpleName}",
             )
         }
 

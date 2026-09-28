@@ -40,7 +40,6 @@ import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewQuality
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewSelectionCandidate
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreviewSelectionPolicy
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
-import com.github.andreyasadchy.xtra.ui.player.isAndroidEmulator
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.github.andreyasadchy.xtra.util.prefs
@@ -589,7 +588,7 @@ class StreamPreviewCoordinator(
 
     private fun createPreviewView(): PlayerView =
         (LayoutInflater.from(context).inflate(
-            if (isAndroidEmulator()) R.layout.view_stream_preview_texture else R.layout.view_stream_preview,
+            R.layout.view_stream_preview,
             null,
             false,
         ) as PlayerView).apply {
