@@ -73,6 +73,12 @@ internal fun videoInfoRows(
         .joinToString(", ")
     add("Codecs" to codecs.ifBlank { UNKNOWN_VALUE })
     add("Protocol" to info.contentProtocol.orUnknown())
+    add("App playlist proxy route" to formatAppProxyRoute(
+        info.appProxyRoute,
+        info.appProxyServer,
+        info.lastStreamRequestType,
+    ))
+    add("Current playback URL" to info.currentPlaybackUrl.orUnknown())
     add("Latency mode" to latencyMode(info))
     add("Render surface" to viewMetrics.renderSurface.orUnknown())
 
@@ -95,6 +101,19 @@ internal fun videoInfoRows(
     add("Twitch prefetch" to twitchPrefetchState(info))
     add("Manifest requests" to info.manifestLoadCount.toString())
     add("Media chunk requests" to info.mediaLoadCount.toString())
+}
+
+internal fun formatAppProxyRoute(route: String?, proxyServer: String?, requestType: String?): String {
+    val routeValue = when (route) {
+    "PROXY" -> proxyServer?.takeIf { it.isNotBlank() }
+        ?.let { "Proxy confirmed ($it)" }
+        ?: "Proxy confirmed"
+    "DIRECT" -> "Direct confirmed"
+    "NOT_TARGETED" -> "Not targeted for this request"
+    "UNKNOWN" -> "Unknown (cached or unavailable)"
+    else -> "Unknown (no successful playlist request observed)"
+    }
+    return requestType?.takeIf { it.isNotBlank() }?.let { "$routeValue · $it" } ?: routeValue
 }
 
 internal fun latencyMode(info: PlaybackVideoInfo): String {

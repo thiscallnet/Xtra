@@ -75,6 +75,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
+import java.util.function.Consumer;
 
 import kotlin.jvm.functions.Function0;
 import okhttp3.Call;
@@ -120,6 +121,8 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
     @Nullable private final Call.Factory multivariantPlaylistProxyClient;
     @Nullable private final Call.Factory mediaPlaylistProxyClient;
     private final Function0<Boolean> getProxyMediaPlaylist;
+    @Nullable private final StreamRequestRouteTracker requestRouteTracker;
+    @Nullable private final Consumer<StreamRequestObservation> requestObserver;
 
     /**
      * Creates an instance.
@@ -132,6 +135,10 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
      *     sure response handling is a fast operation when using a direct executor.
      */
     public Factory(HttpEngine httpEngine, Executor executor, boolean proxyMultivariantPlaylist, boolean proxyMediaPlaylist, @Nullable HttpEngine proxyClient, @Nullable Call.Factory multivariantPlaylistProxyClient, @Nullable Call.Factory mediaPlaylistProxyClient, Function0<Boolean> getProxyMediaPlaylist) {
+      this(httpEngine, executor, proxyMultivariantPlaylist, proxyMediaPlaylist, proxyClient, multivariantPlaylistProxyClient, mediaPlaylistProxyClient, null, null, getProxyMediaPlaylist);
+    }
+
+    public Factory(HttpEngine httpEngine, Executor executor, boolean proxyMultivariantPlaylist, boolean proxyMediaPlaylist, @Nullable HttpEngine proxyClient, @Nullable Call.Factory multivariantPlaylistProxyClient, @Nullable Call.Factory mediaPlaylistProxyClient, @Nullable StreamRequestRouteTracker requestRouteTracker, @Nullable Consumer<StreamRequestObservation> requestObserver, Function0<Boolean> getProxyMediaPlaylist) {
       this.httpEngine = checkNotNull(httpEngine);
       this.executor = executor;
       this.proxyMultivariantPlaylist = proxyMultivariantPlaylist; // xtra: proxy
@@ -140,6 +147,8 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
       this.multivariantPlaylistProxyClient = multivariantPlaylistProxyClient;
       this.mediaPlaylistProxyClient = mediaPlaylistProxyClient;
       this.getProxyMediaPlaylist = getProxyMediaPlaylist;
+      this.requestRouteTracker = requestRouteTracker;
+      this.requestObserver = requestObserver;
       defaultRequestProperties = new RequestProperties();
       requestPriority = REQUEST_PRIORITY_MEDIUM;
       connectTimeoutMs = DEFAULT_CONNECT_TIMEOUT_MILLIS;
@@ -297,6 +306,8 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
               multivariantPlaylistProxyClient,
               mediaPlaylistProxyClient,
               getProxyMediaPlaylist,
+              requestRouteTracker,
+              requestObserver,
               requestPriority,
               connectTimeoutMs,
               readTimeoutMs,
@@ -403,6 +414,10 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
   @Nullable private final Call.Factory multivariantPlaylistProxyClient;
   @Nullable private final Call.Factory mediaPlaylistProxyClient;
   private final Function0<Boolean> getProxyMediaPlaylist;
+  @Nullable private final StreamRequestRouteTracker requestRouteTracker;
+  @Nullable private final Consumer<StreamRequestObservation> requestObserver;
+  private boolean requestUsedProxyEngine;
+  private boolean requestProxyTargeted;
   @Nullable private Response response;
   @Nullable private InputStream responseByteStream;
 
@@ -416,6 +431,8 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
       @Nullable Call.Factory multivariantPlaylistProxyClient,
       @Nullable Call.Factory mediaPlaylistProxyClient,
       Function0<Boolean> getProxyMediaPlaylist,
+      @Nullable StreamRequestRouteTracker requestRouteTracker,
+      @Nullable Consumer<StreamRequestObservation> requestObserver,
       int requestPriority,
       int connectTimeoutMs,
       int readTimeoutMs,
@@ -434,6 +451,8 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
     this.multivariantPlaylistProxyClient = multivariantPlaylistProxyClient;
     this.mediaPlaylistProxyClient = mediaPlaylistProxyClient;
     this.getProxyMediaPlaylist = getProxyMediaPlaylist;
+    this.requestRouteTracker = requestRouteTracker;
+    this.requestObserver = requestObserver;
     this.requestPriority = requestPriority;
     this.connectTimeoutMs = connectTimeoutMs;
     this.readTimeoutMs = readTimeoutMs;
@@ -631,6 +650,7 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
     transferStarted(dataSpec);
 
     skipFully(bytesToSkip, dataSpec);
+    recordRequestObservation(responseInfo.getUrl(), nativeProxyRoute(responseInfo), null);
     return bytesRemaining;
   }
 
@@ -792,14 +812,15 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
       DataSpec dataSpec, UrlRequest.Callback urlRequestCallback) throws IOException {
     HttpEngine httpEngine; // xtra: proxy
     String host = dataSpec.uri.getHost();
-    if (proxyClient != null && host != null &&
-            ((proxyMultivariantPlaylist && host.matches(TwitchHlsRequestRules.MULTIVARIANT_PLAYLIST_REGEX)) ||
-                    (proxyMediaPlaylist && host.matches(TwitchHlsRequestRules.MEDIA_PLAYLIST_REGEX) && getProxyMediaPlaylist.invoke()))
-    ) {
+    requestProxyTargeted = host != null &&
+        ((proxyMultivariantPlaylist && host.matches(TwitchHlsRequestRules.MULTIVARIANT_PLAYLIST_REGEX)) ||
+            (proxyMediaPlaylist && host.matches(TwitchHlsRequestRules.MEDIA_PLAYLIST_REGEX) && getProxyMediaPlaylist.invoke()));
+    if (proxyClient != null && requestProxyTargeted) {
       httpEngine = proxyClient;
     } else {
       httpEngine = this.httpEngine;
     }
+    requestUsedProxyEngine = httpEngine == proxyClient && proxyClient != null;
     UrlRequest.Builder requestBuilder =
         httpEngine
             .newUrlRequestBuilder(dataSpec.uri.toString(), executor, urlRequestCallback)
@@ -1120,7 +1141,36 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
       throw e;
     }
 
+    if (requestObserver != null && requestRouteTracker != null) {
+      StreamRequestObservation observation = requestRouteTracker.observation(
+          response.request().url().toString(), requestType(dataSpec), call);
+      requestObserver.accept(requestProxyTargeted ? observation : new StreamRequestObservation(
+          observation.getUrl(), observation.getRequestType(), StreamProxyRoute.NOT_TARGETED, observation.getProxyServer()));
+    }
     return bytesRemaining;
+  }
+
+  private void recordRequestObservation(String url, StreamProxyRoute route, @Nullable String proxyServer) {
+    if (requestObserver == null) return;
+    requestObserver.accept(new StreamRequestObservation(
+        url,
+        requestType(currentDataSpec),
+        requestProxyTargeted ? route : StreamProxyRoute.NOT_TARGETED,
+        proxyServer));
+  }
+
+  private StreamProxyRoute nativeProxyRoute(UrlResponseInfo info) {
+    if (!requestProxyTargeted) return StreamProxyRoute.NOT_TARGETED;
+    if (info.wasCached() && info.getReceivedByteCount() <= 0) return StreamProxyRoute.UNKNOWN;
+    if (info.getReceivedByteCount() <= 0) return StreamProxyRoute.UNKNOWN;
+    return requestUsedProxyEngine ? StreamProxyRoute.PROXY : StreamProxyRoute.DIRECT;
+  }
+
+  private static String requestType(DataSpec dataSpec) {
+    String host = dataSpec.uri.getHost();
+    if (host != null && host.matches(TwitchHlsRequestRules.MULTIVARIANT_PLAYLIST_REGEX)) return "Multivariant playlist";
+    if (host != null && host.matches(TwitchHlsRequestRules.MEDIA_PLAYLIST_REGEX)) return "Media playlist";
+    return "Media segment";
   }
 
   private Request makeRequest(DataSpec dataSpec) throws HttpDataSourceException {

@@ -48,6 +48,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.concurrent.ExecutionException;
 
 import kotlin.jvm.functions.Function0;
@@ -89,6 +90,8 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
 
     @Nullable private final Call.Factory mediaPlaylistProxyClient; // xtra: proxy
     private final Function0<Boolean> getProxyMediaPlaylist;
+    @Nullable private final StreamRequestRouteTracker requestRouteTracker;
+    @Nullable private final Consumer<StreamRequestObservation> requestObserver;
 
     /**
      * Creates an instance.
@@ -97,9 +100,15 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
      *     sources created by the factory.
      */
     public Factory(Call.Factory callFactory, @Nullable Call.Factory mediaPlaylistProxyClient, Function0<Boolean> getProxyMediaPlaylist) {
+      this(callFactory, mediaPlaylistProxyClient, null, null, getProxyMediaPlaylist);
+    }
+
+    public Factory(Call.Factory callFactory, @Nullable Call.Factory mediaPlaylistProxyClient, @Nullable StreamRequestRouteTracker requestRouteTracker, @Nullable Consumer<StreamRequestObservation> requestObserver, Function0<Boolean> getProxyMediaPlaylist) {
       this.callFactory = callFactory;
       this.mediaPlaylistProxyClient = mediaPlaylistProxyClient; // xtra: proxy
       this.getProxyMediaPlaylist = getProxyMediaPlaylist;
+      this.requestRouteTracker = requestRouteTracker;
+      this.requestObserver = requestObserver;
       defaultRequestProperties = new RequestProperties();
     }
 
@@ -177,7 +186,7 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
     public OkHttpDataSource createDataSource() {
       OkHttpDataSource dataSource =
           new OkHttpDataSource( // xtra: proxy
-              callFactory, mediaPlaylistProxyClient, getProxyMediaPlaylist, userAgent, cacheControl, defaultRequestProperties, contentTypePredicate);
+              callFactory, mediaPlaylistProxyClient, requestRouteTracker, requestObserver, getProxyMediaPlaylist, userAgent, cacheControl, defaultRequestProperties, contentTypePredicate);
       if (transferListener != null) {
         dataSource.addTransferListener(transferListener);
       }
@@ -202,10 +211,14 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
 
   @Nullable private final Call.Factory mediaPlaylistProxyClient; // xtra: proxy
   private final Function0<Boolean> getProxyMediaPlaylist;
+  @Nullable private final StreamRequestRouteTracker requestRouteTracker;
+  @Nullable private final Consumer<StreamRequestObservation> requestObserver;
 
   private OkHttpDataSource(
       Call.Factory callFactory,
       @Nullable Call.Factory mediaPlaylistProxyClient, // xtra: proxy
+      @Nullable StreamRequestRouteTracker requestRouteTracker,
+      @Nullable Consumer<StreamRequestObservation> requestObserver,
       Function0<Boolean> getProxyMediaPlaylist,
       @Nullable String userAgent,
       @Nullable CacheControl cacheControl,
@@ -215,6 +228,8 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
     this.callFactory = checkNotNull(callFactory);
     this.mediaPlaylistProxyClient = mediaPlaylistProxyClient; // xtra: proxy
     this.getProxyMediaPlaylist = getProxyMediaPlaylist;
+    this.requestRouteTracker = requestRouteTracker;
+    this.requestObserver = requestObserver;
     this.userAgent = userAgent;
     this.cacheControl = cacheControl;
     this.defaultRequestProperties = defaultRequestProperties;
@@ -358,7 +373,19 @@ public class OkHttpDataSource extends BaseDataSource implements HttpDataSource {
       throw e;
     }
 
+    if (requestObserver != null && requestRouteTracker != null) {
+      String requestType = requestType(dataSpec);
+      requestObserver.accept(requestRouteTracker.observation(
+          response.request().url().toString(), requestType, call));
+    }
     return bytesToRead;
+  }
+
+  private static String requestType(DataSpec dataSpec) {
+    String host = dataSpec.uri.getHost();
+    if (host != null && host.matches(TwitchHlsRequestRules.MULTIVARIANT_PLAYLIST_REGEX)) return "Multivariant playlist";
+    if (host != null && host.matches(TwitchHlsRequestRules.MEDIA_PLAYLIST_REGEX)) return "Media playlist";
+    return "Media segment";
   }
 
   @UnstableApi
