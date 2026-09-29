@@ -16,6 +16,7 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicInteger
 
 fun interface TwitchHlsDiagnosticsSink {
     fun onPlaylistParsed(
@@ -24,6 +25,33 @@ fun interface TwitchHlsDiagnosticsSink {
     )
 }
 
+internal fun HlsMediaPlaylist.copyWithInterstitials(
+    interstitials: List<HlsMediaPlaylist.Interstitial>,
+): HlsMediaPlaylist = HlsMediaPlaylist(
+    playlistType,
+    baseUri,
+    tags,
+    startOffsetUs,
+    preciseStart,
+    startTimeUs,
+    hasDiscontinuitySequence,
+    discontinuitySequence,
+    mediaSequence,
+    version,
+    targetDurationUs,
+    partTargetDurationUs,
+    hasIndependentSegments,
+    hasEndTag,
+    hasProgramDateTime,
+    protectionSchemes,
+    segments,
+    trailingParts,
+    serverControl,
+    renditionReports,
+    interstitials,
+    lastSeenInitSegment,
+)
+
 @androidx.media3.common.util.UnstableApi
 class TwitchHlsPlaylistParserFactory(
     private val lowLatencyEnabled: Boolean,
@@ -31,6 +59,7 @@ class TwitchHlsPlaylistParserFactory(
 ) : HlsPlaylistParserFactory {
 
     private val delegate = DefaultHlsPlaylistParserFactory()
+    private val parseCount = AtomicInteger()
 
     override fun createPlaylistParser(): ParsingLoadable.Parser<HlsPlaylist> =
         wrap(delegate.createPlaylistParser())
@@ -82,11 +111,12 @@ class TwitchHlsPlaylistParserFactory(
                     ByteArrayInputStream(finalAdaptation.playlistText.toByteArray(StandardCharsets.UTF_8)),
                 )
             }
-            if (parsed is HlsMediaPlaylist) {
+            val playlistBeforeInterstitialRestore = parsed as? HlsMediaPlaylist
+            if (playlistBeforeInterstitialRestore != null) {
                 parsed = restoreTwitchAdInterstitials(
                     parser = parser,
                     playlistUri = uri,
-                    playlist = parsed,
+                    playlist = playlistBeforeInterstitialRestore,
                     playlistText = finalAdaptation.playlistText,
                 )
             }
@@ -95,15 +125,46 @@ class TwitchHlsPlaylistParserFactory(
                 rawPlaylist = finalAdaptation.playlistText,
                 playlistUri = uri,
             )
+            val compatibleMediaPlaylist = compatible as? HlsMediaPlaylist
+            val collectExpandedDiagnostics = BuildConfig.DEBUG || BuildConfig.PERF_DIAGNOSTICS
             val finalDiagnostics = finalAdaptation.diagnostics.copy(
                 twitchPrefetchActive = finalAdaptation.diagnostics.twitchPrefetchTranslated,
-                partTargetDurationMs = (compatible as? HlsMediaPlaylist)
+                partTargetDurationMs = compatibleMediaPlaylist
                     ?.partTargetDurationUs
                     ?.takeIf { it != C.TIME_UNSET }
                     ?.div(1_000L),
+                parseIndex = if (collectExpandedDiagnostics) parseCount.incrementAndGet() else 0,
+                rawHasEndTag = collectExpandedDiagnostics && raw.lineSequence()
+                    .any { it.trim().equals("#EXT-X-ENDLIST", ignoreCase = true) },
+                adaptedHasEndTag = collectExpandedDiagnostics && finalAdaptation.playlistText.lineSequence()
+                    .any { it.trim().equals("#EXT-X-ENDLIST", ignoreCase = true) },
+                parsedBeforeInterstitialRestoreHasEndTag = playlistBeforeInterstitialRestore
+                    ?.hasEndTag
+                    ?.takeIf { collectExpandedDiagnostics },
+                restoredInterstitialCount = if (collectExpandedDiagnostics) {
+                    ((compatibleMediaPlaylist?.interstitials?.size ?: 0) -
+                        (playlistBeforeInterstitialRestore?.interstitials?.size ?: 0)).coerceAtLeast(0)
+                } else {
+                    0
+                },
+                parsedHasEndTag = compatibleMediaPlaylist?.hasEndTag?.takeIf { collectExpandedDiagnostics },
+                parsedHasIndependentSegments = compatibleMediaPlaylist
+                    ?.hasIndependentSegments
+                    ?.takeIf { collectExpandedDiagnostics },
+                parsedHasProgramDateTime = compatibleMediaPlaylist
+                    ?.hasProgramDateTime
+                    ?.takeIf { collectExpandedDiagnostics },
+                parsedPreciseStart = compatibleMediaPlaylist?.preciseStart?.takeIf { collectExpandedDiagnostics },
+                parsedPlaylistType = compatibleMediaPlaylist?.playlistType?.takeIf { collectExpandedDiagnostics },
+                mediaSequence = compatibleMediaPlaylist?.mediaSequence?.takeIf { collectExpandedDiagnostics },
+                playlistDurationMs = compatibleMediaPlaylist?.durationUs
+                    ?.takeIf { it != C.TIME_UNSET }
+                    ?.div(1_000L)
+                    ?.takeIf { collectExpandedDiagnostics },
+                segmentCount = compatibleMediaPlaylist?.segments?.size?.takeIf { collectExpandedDiagnostics },
             )
             diagnostics?.onPlaylistParsed(finalDiagnostics, compatible)
-            logDiagnostics(finalDiagnostics)
+            logDiagnostics(finalDiagnostics, compatible)
             compatible
         }
 
@@ -133,30 +194,7 @@ class TwitchHlsPlaylistParserFactory(
             .toList()
         if (restored.isEmpty()) return playlist
 
-        return HlsMediaPlaylist(
-            playlist.playlistType,
-            playlist.baseUri,
-            playlist.tags,
-            playlist.startOffsetUs,
-            playlist.hasPositiveStartOffset,
-            playlist.startTimeUs,
-            playlist.hasDiscontinuitySequence,
-            playlist.discontinuitySequence,
-            playlist.mediaSequence,
-            playlist.version,
-            playlist.targetDurationUs,
-            playlist.partTargetDurationUs,
-            playlist.hasEndTag,
-            playlist.hasProgramDateTime,
-            playlist.preciseStart,
-            playlist.protectionSchemes,
-            playlist.segments,
-            playlist.trailingParts,
-            playlist.serverControl,
-            playlist.renditionReports,
-            playlist.interstitials + restored,
-            playlist.lastSeenInitSegment,
-        )
+        return playlist.copyWithInterstitials(playlist.interstitials + restored)
     }
 
     private fun HlsMediaPlaylist.Interstitial.copyWithAssetUri(
@@ -184,8 +222,9 @@ class TwitchHlsPlaylistParserFactory(
         skipControlLabelId,
     )
 
-    private fun logDiagnostics(diagnostics: TwitchHlsPlaylistDiagnostics) {
+    private fun logDiagnostics(diagnostics: TwitchHlsPlaylistDiagnostics, parsed: HlsPlaylist) {
         if (!BuildConfig.DEBUG && !BuildConfig.PERF_DIAGNOSTICS) return
+        val mediaPlaylist = parsed as? HlsMediaPlaylist
         Log.d(
             "TwitchLL",
             "targetMs=${diagnostics.declaredTargetDurationMs ?: -1L} " +
@@ -193,7 +232,21 @@ class TwitchHlsPlaylistParserFactory(
                 "avgSegmentMs=${diagnostics.averageSegmentDurationMs ?: -1L} " +
                 "prefetchCount=${diagnostics.twitchPrefetchCount} " +
                 "translated=${diagnostics.twitchPrefetchTranslated} " +
-                "container=${diagnostics.container ?: "Unknown"}",
+                "container=${diagnostics.container ?: "Unknown"} " +
+                "parseIndex=${diagnostics.parseIndex} " +
+                "rawEndTag=${diagnostics.rawHasEndTag} " +
+                "adaptedEndTag=${diagnostics.adaptedHasEndTag} " +
+                "preRestoreEndTag=${diagnostics.parsedBeforeInterstitialRestoreHasEndTag ?: false} " +
+                "restoredInterstitials=${diagnostics.restoredInterstitialCount} " +
+                "parsedEndTag=${diagnostics.parsedHasEndTag ?: false} " +
+                "independentSegments=${diagnostics.parsedHasIndependentSegments ?: false} " +
+                "programDateTime=${diagnostics.parsedHasProgramDateTime ?: false} " +
+                "preciseStart=${diagnostics.parsedPreciseStart ?: false} " +
+                "playlistType=${diagnostics.parsedPlaylistType ?: mediaPlaylist?.playlistType ?: -1} " +
+                "mediaSequence=${diagnostics.mediaSequence ?: -1L} " +
+                "playlistDurationMs=${diagnostics.playlistDurationMs ?: -1L} " +
+                "segments=${diagnostics.segmentCount ?: mediaPlaylist?.segments?.size ?: 0} " +
+                "trailingParts=${mediaPlaylist?.trailingParts?.size ?: 0}",
         )
     }
 }

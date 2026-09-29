@@ -4,14 +4,18 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.text.format.DateUtils
 import android.util.Log
+import android.view.PixelCopy
 import android.view.SurfaceView
 import android.view.View
 import android.view.animation.DecelerateInterpolator
@@ -46,6 +50,7 @@ import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
 import androidx.media3.session.SessionToken
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
@@ -55,6 +60,7 @@ import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Video
+import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
 import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
 import com.github.andreyasadchy.xtra.ui.common.logVideoTracks
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
@@ -66,6 +72,7 @@ import com.github.andreyasadchy.xtra.ui.player.clip.ClipSizeEstimator
 import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
@@ -140,6 +147,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                 .takeIf { args.containsKey(PlaybackService.VIDEO_QUALITY_FRAME_RATE) },
                         ),
                         controller,
+                        sourceConfirmed = qualityUri != null && qualityUri == currentUri,
                     )
                 }
             }
@@ -147,7 +155,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
     }
     private var streamRecoveryJob: Job? = null
+    private var endedLiveRecoveryJob: Job? = null
+    private var endedLiveRecoveryGeneration = 0L
+    private var liveStatusEventGeneration = 0L
     private var liveStallWatchdogJob: Job? = null
+    private var liveRewindStateSyncJob: Job? = null
+    private var liveRewindStateSyncGeneration = 0L
     private val liveRecoveryState = LivePlaybackStallRecoveryState()
     private var strictAutomaticQualityRestore = false
     private var recoveringBehindLiveWindow = false
@@ -157,6 +170,15 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var qualityRetryAttempts = 0
     private var qualityRequestInFlight = false
     private var qualityRequestGeneration = 0
+    private var resumeQualityGeneration = 0L
+    private var resumeQualityController: MediaController? = null
+    private var resumeQualityMediaId: String? = null
+    private var resumeQualityConfirmationPending = false
+    private var resumeQualityConfirmationAvailable = false
+    private var resumeConfirmedQuality: VideoQuality? = null
+    private var deferredAutomaticQuality: VideoQuality? = null
+    private var resumeQualityConfirmationTimeoutJob: Job? = null
+    private var qualityRequestDeferred = false
     private var vodStartSequence = 0
     private var pendingAudioOnlySourceSwitch = false
     private var pendingPlaybackPrepareAfterChatOnly = false
@@ -172,12 +194,42 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var hasEstablishedLiveBufferHealth = false
     private var lastLiveBufferHealthOffsetMs: Long? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
+    private var lastSurfaceViewAttachedAtMs: Long? = null
+    private var lastSurfaceViewDetachedAtMs: Long? = null
+    private var lastSurfaceCreatedAtMs: Long? = null
+    private var lastSurfaceDestroyedAtMs: Long? = null
+    private var lastPlayerOutputAttachedAtMs: Long? = null
+    private var lastPlayerOutputDetachedAtMs: Long? = null
+    private var lastMediaItemTransitionAtMs: Long? = null
+    private var lastPrepareStartedAtMs: Long? = null
+    private var lastObservedPlaybackState = Player.STATE_IDLE
+    private var videoOutputBindingGeneration = 0L
+    private var surfaceHolderGeneration = 0L
+    private val surfacePixelSampledItemTokens = mutableSetOf<String>()
     private val videoOutputOwner = VideoOutputOwner<Player, SurfaceView>(
         attachTarget = { currentPlayer, target ->
             currentPlayer.setVideoSurfaceView(target)
+            if (BuildConfig.DEBUG) {
+                lastPlayerOutputAttachedAtMs = SystemClock.elapsedRealtime()
+                videoOutputBindingGeneration += 1L
+                Log.d(
+                    "PlaybackLifecycle",
+                    "event=video_output_attach_actual generation=$videoOutputBindingGeneration " +
+                        "itemToken=${diagnosticToken(currentPlayer.currentMediaItem?.mediaId)}",
+                )
+            }
         },
         detachTarget = { currentPlayer, target ->
             currentPlayer.clearVideoSurfaceView(target)
+            if (BuildConfig.DEBUG) {
+                lastPlayerOutputDetachedAtMs = SystemClock.elapsedRealtime()
+                videoOutputBindingGeneration += 1L
+                Log.d(
+                    "PlaybackLifecycle",
+                    "event=video_output_detach_actual generation=$videoOutputBindingGeneration " +
+                        "itemToken=${diagnosticToken(currentPlayer.currentMediaItem?.mediaId)}",
+                )
+            }
         },
     )
 
@@ -186,6 +238,54 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     private fun configureVideoOutputView() {
         binding.playerSurface.visibility = View.VISIBLE
+        if (BuildConfig.DEBUG) {
+            binding.playerSurface.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) {
+                    lastSurfaceViewAttachedAtMs = SystemClock.elapsedRealtime()
+                    logSurfaceLifecycle(
+                        "surface_view_attached",
+                        binding.playerSurface.isAttachedToWindow,
+                        binding.playerSurface.holder.surface.isValid,
+                    )
+                }
+
+                override fun onViewDetachedFromWindow(view: View) {
+                    lastSurfaceViewDetachedAtMs = SystemClock.elapsedRealtime()
+                    logSurfaceLifecycle(
+                        "surface_view_detached",
+                        binding.playerSurface.isAttachedToWindow,
+                        binding.playerSurface.holder.surface.isValid,
+                    )
+                }
+            })
+            binding.playerSurface.holder.addCallback(object : android.view.SurfaceHolder.Callback {
+                override fun surfaceCreated(holder: android.view.SurfaceHolder) {
+                    lastSurfaceCreatedAtMs = SystemClock.elapsedRealtime()
+                    surfaceHolderGeneration += 1L
+                    logSurfaceLifecycle(
+                        "surface_holder_created",
+                        binding.playerSurface.isAttachedToWindow,
+                        holder.surface.isValid,
+                    )
+                }
+
+                override fun surfaceChanged(
+                    holder: android.view.SurfaceHolder,
+                    format: Int,
+                    width: Int,
+                    height: Int,
+                ) = Unit
+
+                override fun surfaceDestroyed(holder: android.view.SurfaceHolder) {
+                    lastSurfaceDestroyedAtMs = SystemClock.elapsedRealtime()
+                    logSurfaceLifecycle(
+                        "surface_holder_destroyed",
+                        binding.playerSurface.isAttachedToWindow,
+                        holder.surface.isValid,
+                    )
+                }
+            })
+        }
         binding.playerSurface.setOnTouchListener { _, event ->
             forwardVideoSurfaceTouch(binding.playerSurface, binding.dragView, event)
         }
@@ -378,6 +478,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
             viewLifecycleOwner.lifecycleScope.launch {
                 if (controllerFuture !== future || view == null || !isAdded) return@launch
+                val reconnectingStreamSession = videoType == STREAM && controller.currentMediaItem != null
+                if (reconnectingStreamSession) beginLiveRewindStateSync()
                 // Install the new output while background playback still owns
                 // the disabled video track. The service can then restore video
                 // directly onto this Surface instead of racing the attachment.
@@ -402,9 +504,23 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     showPlayerError(R.string.player_error) { restartPlayer() }
                     return@launch
                 }
+                if (reconnectingStreamSession) {
+                    synchronizeLiveRewindStateBeforeSessionRestore(controller)
+                }
                 logVideoSurfaceBinding("controller_connected", controller, videoOutputView)
                 val attachingRestoredSession = requireArguments().getBoolean(KEY_RESTORED_PLAYBACK) &&
                     controller.currentMediaItem != null
+                val reconcilingExistingStream = videoType == STREAM &&
+                    controller.currentMediaItem != null &&
+                    viewModel.quality?.name != AUDIO_ONLY_QUALITY &&
+                    viewModel.quality?.name != CHAT_ONLY_QUALITY
+                val resumeQualityRequestId = if (reconcilingExistingStream) {
+                    beginResumeQualityConfirmation(controller)
+                } else {
+                    invalidateResumeQualityConfirmation("session_not_restored")
+                    null
+                }
+                qualityRequestDeferred = false
                 if (attachingRestoredSession) {
                     attachToExistingPlaybackSession(controller)
                     if (BuildConfig.DEBUG) {
@@ -414,18 +530,66 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 val listener = object : Player.Listener {
 
                     override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        if (BuildConfig.DEBUG) {
+                            lastMediaItemTransitionAtMs = SystemClock.elapsedRealtime()
+                            Log.d(
+                                "PlaybackLifecycle",
+                                "event=media_item_transition reason=$reason " +
+                                    "itemToken=${diagnosticToken(mediaItem?.mediaId)}",
+                            )
+                        }
+                        bindPendingResumeAppliedQuality(mediaItem)
+                        if (mediaItem == null ||
+                            mediaItem.mediaId != viewModel.resumeAppliedVideoQualityMediaId
+                        ) {
+                            clearResumeAppliedQualityTarget()
+                        }
+                        if (resumeQualityController === controller &&
+                            mediaItem?.mediaId != resumeQualityMediaId
+                        ) {
+                            invalidateResumeQualityConfirmation(
+                                "media_item_transition",
+                                drainDeferredQualityRequest = true,
+                            )
+                        }
+                        if (mediaItem?.mediaId != viewModel.confirmedVideoQualityMediaId) {
+                            viewModel.confirmedVideoQuality = null
+                            viewModel.confirmedVideoQualityMediaId = null
+                        }
                         resetLiveBufferHealth()
                         updateProgress()
                         refreshClipAvailability()
                         applyPendingAudioOnlySourceSwitch()
                         applyPendingPlaybackPrepareAfterChatOnly()
+                        if (isLiveRewindStateSyncPending() && mediaItem != null && videoType == STREAM) {
+                            requestLiveRewindStateSync(controller, "media_item_transition")
+                        }
                     }
 
                     override fun onPlaybackStateChanged(playbackState: Int) {
+                        if (BuildConfig.DEBUG) {
+                            if (playbackState == Player.STATE_BUFFERING &&
+                                lastObservedPlaybackState == Player.STATE_IDLE
+                            ) {
+                                lastPrepareStartedAtMs = SystemClock.elapsedRealtime()
+                            }
+                            lastObservedPlaybackState = playbackState
+                        }
+                        if (BuildConfig.DEBUG && playbackState == Player.STATE_READY) {
+                            player?.let { logPlaybackTimeline("state_ready", it) }
+                        } else if (BuildConfig.DEBUG && playbackState == Player.STATE_ENDED) {
+                            player?.let { logPlaybackTimeline("state_ended", it) }
+                        }
                         if (playbackState == Player.STATE_ENDED) {
-                            onLiveRewindPlaybackError()
+                            val handledByLiveRewind = onLiveRewindPlaybackError()
+                            if (!handledByLiveRewind && player?.playWhenReady == true) {
+                                verifyEndedLivePlayback(trigger = "playback_ended")
+                            }
                         }
                         if (playbackState == Player.STATE_READY) {
+                            if (isLiveRewindStateSyncPending() && videoType == STREAM) {
+                                requestLiveRewindStateSync(controller, "playback_ready")
+                            }
                             recoveringBehindLiveWindow = false
                             updateLiveStallWatchdog(isBuffering = false)
                             clearPlayerError()
@@ -445,6 +609,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
 
                     override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "PlaybackLifecycle",
+                                "event=play_when_ready playWhenReady=$playWhenReady reason=$reason " +
+                                    "state=${player?.playbackState} " +
+                                    "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
+                            )
+                        }
                         if (!playWhenReady) {
                             cancelLiveStallRecovery(resetBudget = true)
                         } else if (player?.playbackState == Player.STATE_BUFFERING) {
@@ -461,6 +633,20 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
 
                     override fun onAvailableCommandsChanged(availableCommands: Player.Commands) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "PlaybackLifecycle",
+                                "event=available_commands_changed " +
+                                    "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)} " +
+                                    "seekInItemAvailable=${availableCommands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)} " +
+                                    "seekBackAvailable=${availableCommands.contains(Player.COMMAND_SEEK_BACK)} " +
+                                    "seekForwardAvailable=${availableCommands.contains(Player.COMMAND_SEEK_FORWARD)} " +
+                                    "seekToNextAvailable=${availableCommands.contains(Player.COMMAND_SEEK_TO_NEXT)}",
+                            )
+                        }
+                        if (videoType == STREAM && controller.currentMediaItem != null) {
+                            requestLiveRewindStateSync(controller, "available_commands_changed")
+                        }
                         renderPlaybackChrome()
                         val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
                         updateDurationIfNeeded(duration)
@@ -481,6 +667,21 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
 
                     override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                        if (BuildConfig.DEBUG && reason == Player.DISCONTINUITY_REASON_SEEK) {
+                            player?.let { currentPlayer ->
+                                Log.d(
+                                    "PlaybackLifecycle",
+                                    "event=position_seek reason=$reason " +
+                                        "oldItemToken=${diagnosticToken(oldPosition.mediaItem?.mediaId)} " +
+                                        "newItemToken=${diagnosticToken(newPosition.mediaItem?.mediaId)} " +
+                                        "oldPositionMs=${oldPosition.positionMs} newPositionMs=${newPosition.positionMs} " +
+                                        "live=${currentPlayer.isCurrentMediaItemLive} " +
+                                        "dynamic=${currentPlayer.isCurrentMediaItemDynamic} " +
+                                        "seekable=${currentPlayer.isCurrentMediaItemSeekable} " +
+                                        "playWhenReady=${currentPlayer.playWhenReady}",
+                                )
+                            }
+                        }
                         val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
                         updateDurationIfNeeded(duration)
                         updateProgress()
@@ -495,7 +696,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         if (isPlaying && videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
-                            liveRecoveryState.onPlaybackStarted(liveRecoveryState.currentGeneration())
+                            liveRecoveryState.onPlaybackStarted(
+                                liveRecoveryState.currentGeneration(),
+                                nowMs = SystemClock.elapsedRealtime(),
+                            )
                             cancelLiveStallRecovery(resetBudget = false)
                         }
                         updateProgress()
@@ -522,13 +726,18 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                             if (viewModel.qualities?.find { it.name == AUTO_QUALITY } != null
                                 && viewModel.quality?.name != AUDIO_ONLY_QUALITY
                                 && !viewModel.hidden) {
-                                changeQuality(viewModel.quality, persistSavedQuality = false)
+                                viewModel.quality?.let {
+                                    reapplyQualityAutomatically(it, source = "tracks")
+                                }
                             }
                             chatFragment?.startReplayChatLoad()
                         }
                     }
 
                     override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                        if (BuildConfig.DEBUG) {
+                            player?.let { logPlaybackTimeline("timeline_changed", it, reason) }
+                        }
                         refreshClipAvailability()
                         val duration = player?.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0
                         updateDurationIfNeeded(duration)
@@ -590,6 +799,32 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e(tag, "Player error", error)
+                        if (BuildConfig.DEBUG) {
+                            val controller = player
+                            val videoSize = controller?.videoSize
+                            val surface = view?.findViewById<SurfaceView>(R.id.playerSurface)
+                            Log.w(
+                                "PlaybackRecovery",
+                                "event=player_error_context errorCode=${error.errorCode} " +
+                                    "itemToken=${diagnosticToken(controller?.currentMediaItem?.mediaId)} " +
+                                    "quality=${viewModel.confirmedVideoQuality?.name ?: viewModel.quality?.name ?: "unknown"} " +
+                                    "videoWidth=${videoSize?.width ?: 0} videoHeight=${videoSize?.height ?: 0} " +
+                                    "live=${controller?.isCurrentMediaItemLive} " +
+                                    "dynamic=${controller?.isCurrentMediaItemDynamic} " +
+                                    "seekable=${controller?.isCurrentMediaItemSeekable} " +
+                                    "surfaceAttached=${surface?.isAttachedToWindow} " +
+                                    "surfaceValid=${surface?.holder?.surface?.isValid} " +
+                                    "isResumed=$isResumed isMinimized=${!isMaximized} " +
+                                    "msSinceViewAttach=${elapsedSince(lastSurfaceViewAttachedAtMs)} " +
+                                    "msSinceViewDetach=${elapsedSince(lastSurfaceViewDetachedAtMs)} " +
+                                    "msSinceSurfaceCreated=${elapsedSince(lastSurfaceCreatedAtMs)} " +
+                                    "msSinceSurfaceDestroyed=${elapsedSince(lastSurfaceDestroyedAtMs)} " +
+                                    "msSinceOutputAttached=${elapsedSince(lastPlayerOutputAttachedAtMs)} " +
+                                    "msSinceOutputDetached=${elapsedSince(lastPlayerOutputDetachedAtMs)} " +
+                                    "msSinceMediaItemTransition=${elapsedSince(lastMediaItemTransitionAtMs)} " +
+                                    "msSincePrepareStarted=${elapsedSince(lastPrepareStartedAtMs)}",
+                            )
+                        }
                         viewModel.pendingVideoQuality = null
                         if (onLiveRewindPlaybackError()) return
                         if (isLiveRewindActiveOrSwitching()) return
@@ -632,16 +867,16 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                                     viewModel.useCustomProxy && responseCode >= 400 -> {
                                                         showPlayerError(R.string.proxy_error) { restartPlayer() }
                                                         viewModel.useCustomProxy = false
-                                                        scheduleStreamRecovery()
+                                                        scheduleStreamRecovery(trigger = "player_error")
                                                     }
                                                     else -> {
                                                         showPlayerError(R.string.player_error) { restartPlayer() }
-                                                        scheduleStreamRecovery()
+                                                        scheduleStreamRecovery(trigger = "player_error")
                                                     }
                                                 }
                                             } else {
                                                 showPlayerError(R.string.connection_error) { restartPlayer() }
-                                                scheduleStreamRecovery()
+                                                scheduleStreamRecovery(trigger = "player_error")
                                             }
                                         }
                                     }, ContextCompat.getMainExecutor(requireContext()))
@@ -707,6 +942,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
                     override fun onRenderedFirstFrame() {
                         logVideoSurfaceBinding("first_frame", controller, videoOutputView)
+                        sampleRenderedSurfaceFrame(controller, videoOutputView)
                         if (liveSurfaceRestoreListener != null) finishLiveSurfaceRestore(controller)
                         else hideVideoOutputCover()
                         refreshPlayerHudLayout()
@@ -729,6 +965,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 }
                 controller.addListener(listener)
                 playerListener = listener
+                if (controller.playbackState == Player.STATE_ENDED && !onLiveRewindPlaybackError()) {
+                    verifyEndedLivePlayback(trigger = "session_attached")
+                }
                 if (attachingRestoredSession) {
                     // A listener added after the controller is already prepared
                     // does not receive its initial tracks callback.
@@ -740,12 +979,23 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 configureClipControl()
                 refreshClipAvailability()
                 restoreClipEditorIfNeeded()
-                requestCurrentVideoQuality(controller)
-                // A listener added after the controller is already prepared does
-                // not receive an initial onTracksChanged callback. Retry any
-                // quality request that arrived while the controller was connecting.
+                // Queue quality discovery behind the already-armed resume gate.
+                // Its fresh URLs are reconciled after current-item quality is known.
                 if (controller.currentMediaItem != null) {
                     requestQualities()
+                }
+                resumeQualityRequestId?.let { requestId ->
+                    scheduleResumeQualityConfirmationTimeout(requestId, controller)
+                }
+                requestCurrentVideoQuality(controller) { actualQuality, sourceConfirmed ->
+                    resumeQualityRequestId?.let { requestId ->
+                        completeResumeQualityConfirmation(
+                            requestId,
+                            controller,
+                            actualQuality,
+                            sourceConfirmed,
+                        )
+                    }
                 }
                 tryStartPendingAudioOnly()
                 if (controller.currentMediaItem != null && controller.playbackState == Player.STATE_IDLE) {
@@ -783,7 +1033,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     player?.let { player ->
                         if (player.playbackState != Player.STATE_ENDED) {
                             player.playWhenReady = true
-                            player.prepare()
                         }
                     }
                 }
@@ -814,7 +1063,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }, ContextCompat.getMainExecutor(requireContext()))
     }
 
-    private fun scheduleStreamRecovery() {
+    private fun scheduleStreamRecovery(trigger: String) {
         val context = context ?: return
         if (!isAdded || view == null
             || !context.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
@@ -832,16 +1081,24 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
             return
         }
-        queueStreamRecovery(attempt)
+        queueStreamRecovery(attempt, trigger)
     }
 
-    private fun queueStreamRecovery(attempt: Int) {
+    private fun queueStreamRecovery(attempt: Int, trigger: String) {
         val currentContext = context ?: return
         streamRecoveryJob?.cancel()
         liveStallWatchdogJob?.cancel()
         liveStallWatchdogJob = null
         val delayMs = (1500L shl (attempt - 1).coerceAtMost(3)).coerceAtMost(12000L)
         val recoveryGeneration = liveRecoveryState.beginRecoveryGeneration()
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackRecovery",
+                "event=queued cause=$trigger attempt=$attempt delayMs=$delayMs " +
+                    "state=${player?.playbackState} playWhenReady=${player?.playWhenReady} " +
+                    "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
+            )
+        }
         streamRecoveryJob = viewLifecycleOwner.lifecycleScope.launch {
             delay(delayMs)
             if (currentContext.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
@@ -851,10 +1108,145 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 && liveRecoveryState.currentGeneration() == recoveryGeneration
             ) {
                 try {
-                    recoverLiveStreamAutomatically()
+                    recoverLiveStreamAutomatically(trigger, attempt)
                 } catch (_: Exception) {
                 }
             }
+        }
+    }
+
+    private fun logPlaybackTimeline(event: String, controller: Player, reason: Int = -1) {
+        if (!BuildConfig.DEBUG) return
+        val timeline = controller.currentTimeline
+        val window = if (timeline.isEmpty) null else timeline.getWindow(0, Timeline.Window())
+        val manifest = window?.manifest
+        val hlsManifest = manifest as? HlsManifest
+        Log.d(
+            "PlaybackLifecycle",
+            "event=$event reason=$reason itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)} " +
+                "timelineEmpty=${timeline.isEmpty} timelineWindows=${timeline.windowCount} " +
+                "currentItemLive=${controller.isCurrentMediaItemLive} " +
+                "currentItemDynamic=${controller.isCurrentMediaItemDynamic} " +
+                "currentItemSeekable=${controller.isCurrentMediaItemSeekable} " +
+                "windowPlaceholder=${window?.isPlaceholder} manifest=${manifest?.javaClass?.simpleName ?: "none"} " +
+                "hlsEndTag=${hlsManifest?.mediaPlaylist?.hasEndTag ?: "n/a"} " +
+                "windowLive=${window?.isLive} windowDynamic=${window?.isDynamic} " +
+                "windowSeekable=${window?.isSeekable} windowDurationMs=${window?.durationMs} " +
+                "windowDefaultPositionMs=${window?.defaultPositionMs ?: Media3C.TIME_UNSET} " +
+                "liveTargetMs=${window?.liveConfiguration?.targetOffsetMs ?: Media3C.TIME_UNSET} " +
+                "playWhenReady=${controller.playWhenReady} state=${controller.playbackState}",
+        )
+    }
+
+    private fun verifyEndedLivePlayback(trigger: String) {
+        val controller = player ?: return
+        val mediaItem = controller.currentMediaItem ?: return
+        if (!isAdded || view == null || videoType != STREAM ||
+            isLiveRewindActiveOrSwitching() || !controller.playWhenReady ||
+            controller.playbackState != Player.STATE_ENDED ||
+            endedLiveRecoveryJob?.isActive == true || streamRecoveryJob?.isActive == true
+        ) {
+            return
+        }
+
+        val requestGeneration = ++endedLiveRecoveryGeneration
+        val sourceGeneration = liveRecoveryState.currentGeneration()
+        val mediaId = mediaItem.mediaId
+        val previousStream = viewModel.stream.value
+        val previousStatusKnown = viewModel.streamStatusKnown.value
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "EndedLiveRecovery",
+                "event=ended trigger=$trigger generation=$requestGeneration " +
+                    "itemToken=${diagnosticToken(mediaId)} playWhenReady=true " +
+                    "attempts=${liveRecoveryState.endedRecoveryAttempts()}",
+            )
+        }
+        endedLiveRecoveryJob = viewLifecycleOwner.lifecycleScope.launch {
+            val status = viewModel.refreshLiveStatusNow(
+                channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+                networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
+                gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+            )
+            if (requestGeneration != endedLiveRecoveryGeneration ||
+                sourceGeneration != liveRecoveryState.currentGeneration() ||
+                player !== controller ||
+                controller.currentMediaItem?.mediaId != mediaId ||
+                controller.playbackState != Player.STATE_ENDED ||
+                !controller.playWhenReady || !isAdded || view == null
+            ) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "EndedLiveRecovery",
+                        "event=check_finished decision=stale generation=$requestGeneration " +
+                            "itemToken=${diagnosticToken(mediaId)}",
+                    )
+                }
+                return@launch
+            }
+
+            when (status) {
+                is FreshLiveStatus.Live -> {
+                    val newSession = hasLiveStreamSessionChanged(
+                        oldId = previousStream?.id,
+                        oldCreatedAt = previousStream?.createdAt,
+                        newId = status.stream.id,
+                        newCreatedAt = status.stream.createdAt,
+                    ) || (previousStream == null && previousStatusKnown)
+                    if (newSession) liveRecoveryState.resetEndedRecoveryBudget()
+                    val attempt = liveRecoveryState.claimEndedRecovery(
+                        sourceGeneration = sourceGeneration,
+                        nowMs = SystemClock.elapsedRealtime(),
+                    )
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "EndedLiveRecovery",
+                            "event=check_finished status=live decision=${if (attempt == null) "budget_exhausted" else "recover"} " +
+                                "generation=$requestGeneration attempt=${attempt ?: "none"} " +
+                                "streamSessionToken=${diagnosticToken(status.stream.id ?: status.stream.createdAt)} " +
+                                "itemToken=${diagnosticToken(mediaId)}",
+                        )
+                    }
+                    if (attempt == null) {
+                        showPlayerError(R.string.player_error) { restartPlayer() }
+                    } else {
+                        queueStreamRecovery(attempt, trigger = "ended_live")
+                    }
+                }
+                FreshLiveStatus.Offline -> {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "EndedLiveRecovery",
+                            "event=check_finished status=offline decision=no_recovery " +
+                                "generation=$requestGeneration itemToken=${diagnosticToken(mediaId)}",
+                        )
+                    }
+                    showPlayerError(R.string.stream_ended) { restartPlayer() }
+                }
+                FreshLiveStatus.Unknown -> {
+                    if (BuildConfig.DEBUG) {
+                        Log.w(
+                            "EndedLiveRecovery",
+                            "event=check_finished status=unknown decision=wait_for_network " +
+                                "generation=$requestGeneration itemToken=${diagnosticToken(mediaId)}",
+                        )
+                    }
+                    showPlayerError(R.string.connection_error) {
+                        verifyEndedLivePlayback(trigger = "user_retry")
+                    }
+                }
+            }
+        }
+    }
+
+    private fun cancelEndedLiveRecovery(reason: String) {
+        endedLiveRecoveryGeneration++
+        endedLiveRecoveryJob?.cancel()
+        endedLiveRecoveryJob = null
+        if (BuildConfig.DEBUG) {
+            Log.d("EndedLiveRecovery", "event=cancel reason=$reason generation=$endedLiveRecoveryGeneration")
         }
     }
 
@@ -885,7 +1277,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 }
                 return@launch
             }
-            queueStreamRecovery(attempt)
+            queueStreamRecovery(attempt, trigger = "stall_watchdog")
         }
     }
 
@@ -906,6 +1298,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     private fun supersedeAutomaticRecoveryForSourceTransition() {
+        cancelEndedLiveRecovery(reason = "source_transition")
         cancelLiveStallRecovery(resetBudget = true)
         strictAutomaticQualityRestore = false
         pendingSourceSwitchQuality.clear()
@@ -1087,7 +1480,85 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         startStreamInternal(url, null)
     }
 
+    override fun onStreamBecameLive(eventSequence: Long?) {
+        liveStatusEventGeneration++
+        val controller = player
+        val state = controller?.playbackState
+        val playWhenReady = controller?.playWhenReady == true
+        val decision = when {
+            videoType != STREAM -> "ignore_non_stream"
+            controller?.currentMediaItem == null -> {
+                restartPlayer()
+                "start_missing_source"
+            }
+            state == Player.STATE_ENDED && playWhenReady -> {
+                verifyEndedLivePlayback(trigger = "stream_up")
+                "verify_ended"
+            }
+            playWhenReady && (state == Player.STATE_IDLE || controller.playerError != null) -> {
+                scheduleStreamRecovery(trigger = "stream_up")
+                "recover_idle"
+            }
+            else -> "keep_source"
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLifecycle",
+                "event=stream_up sequence=${eventSequence ?: "none"} state=${state ?: "none"} " +
+                    "playWhenReady=$playWhenReady decision=$decision " +
+                    "itemToken=${diagnosticToken(controller?.currentMediaItem?.mediaId)}",
+            )
+        }
+    }
+
+    override fun onStreamBecameOffline(eventSequence: Long?) {
+        val requestGeneration = ++liveStatusEventGeneration
+        if (videoType != STREAM) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackLifecycle",
+                    "event=stream_down sequence=${eventSequence ?: "none"} decision=ignore_non_stream",
+                )
+            }
+            return
+        }
+        val mediaId = player?.currentMediaItem?.mediaId
+        viewLifecycleOwner.lifecycleScope.launch {
+            val status = viewModel.refreshLiveStatusNow(
+                channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+                networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
+                gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+            )
+            val decision = when {
+                requestGeneration != liveStatusEventGeneration ||
+                    player?.currentMediaItem?.mediaId != mediaId -> "stale"
+                status === FreshLiveStatus.Offline -> {
+                    onLiveStreamWentOffline()
+                    "confirm_offline"
+                }
+                status is FreshLiveStatus.Live -> "retain_live"
+                else -> "keep_last_known"
+            }
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackLifecycle",
+                    "event=stream_down sequence=${eventSequence ?: "none"} " +
+                        "status=${when (status) {
+                            is FreshLiveStatus.Live -> "live"
+                            FreshLiveStatus.Offline -> "offline"
+                            FreshLiveStatus.Unknown -> "unknown"
+                        }} decision=$decision generation=$requestGeneration " +
+                        "itemToken=${diagnosticToken(mediaId)}",
+                )
+            }
+        }
+    }
+
     override fun onStreamQualityReset() {
+        invalidateResumeQualityConfirmation("stream_quality_reset")
+        clearResumeAppliedQualityTarget()
         pendingSourceSwitchQuality.clear()
         viewModel.adAvoidanceQualityState.clear()
     }
@@ -1100,10 +1571,17 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     ): ListenableFuture<SessionResult>? {
         viewModel.adAvoidanceQualityState.clear()
         if (videoType == STREAM) {
+            clearPausedLivePositionForSourceReplacement(
+                playbackRequested = playWhenReady ?: (player?.playWhenReady == true),
+            )
+            if (!preserveQuality && !requireArguments().getBoolean(KEY_RESTORED_PLAYBACK)) {
+                viewModel.restoredQualityBootstrapConsumed = false
+            }
             if (automaticRecovery) {
                 liveRecoveryState.beginRecoveryGeneration()
                 strictAutomaticQualityRestore = true
             } else {
+                cancelEndedLiveRecovery(reason = "user_source_start")
                 liveRecoveryState.beginUserGeneration()
                 strictAutomaticQualityRestore = false
             }
@@ -1125,15 +1603,24 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         viewModel.qualities = null
         viewModel.quality = null
         viewModel.pendingVideoQuality = null
+        viewModel.confirmedVideoQualityMediaId = null
         if (!preserveQuality) viewModel.confirmedVideoQuality = null
         viewModel.updateQualities = true
         setQualityText()
         return sendStreamToService(url, playWhenReady)
     }
 
-    private suspend fun recoverLiveStreamAutomatically() {
+    private suspend fun recoverLiveStreamAutomatically(trigger: String, attempt: Int) {
         val controller = player ?: return
         if (!controller.playWhenReady) return
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackRecovery",
+                "event=begin cause=$trigger attempt=$attempt state=${controller.playbackState} " +
+                    "playerErrorCode=${controller.playerError?.errorCode ?: "none"} " +
+                    "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
+            )
+        }
         val login = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: return
         val oldQualities = viewModel.qualities
         val oldQuality = viewModel.quality
@@ -1151,8 +1638,22 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
         }
         if (url.isNullOrBlank()) {
+            if (BuildConfig.DEBUG) {
+                Log.w(
+                    "PlaybackRecovery",
+                    "event=finish cause=$trigger attempt=$attempt result=fresh_url_unavailable " +
+                        "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
+                )
+            }
             showPlayerError(R.string.player_error) { restartPlayer() }
             return
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackRecovery",
+                "event=source_start cause=$trigger attempt=$attempt " +
+                    "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
+            )
         }
         val result = startStreamInternal(
             url = url,
@@ -1169,6 +1670,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         } catch (_: Exception) {
             false
         }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackRecovery",
+                "event=finish cause=$trigger attempt=$attempt result=${if (success) "started" else "start_failed"} " +
+                    "state=${player?.playbackState} playWhenReady=${player?.playWhenReady} " +
+                    "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
+            )
+        }
         if (!success) {
             restoreQualityAfterSourceSwitchFailure(oldQualities, oldQuality, oldUpdateQualities)
             showPlayerError(R.string.player_error) { restartPlayer() }
@@ -1176,6 +1685,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null): ListenableFuture<SessionResult>? {
+        invalidateResumeQualityConfirmation("stream_source_start")
+        clearResumeAppliedQualityTarget()
         invalidateQualityRequest()
         viewModel.playlistUrl = null
         val requestedPlayWhenReady = playWhenReady ?: if (requireArguments().getBoolean(KEY_RESTORED_PLAYBACK)) {
@@ -1271,6 +1782,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         useRestoredQualitySnapshot: Boolean = false,
         restoredStartupQualityName: String? = null,
     ) {
+        if (videoType != STREAM) viewModel.restoredQualityBootstrapConsumed = false
         clearPlayerError()
         resetProgressRenderState()
         invalidateQualityRequest()
@@ -1413,11 +1925,57 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun rewind() {
-        player?.seekBack()
+        val controller = player ?: return
+        val seekStepMs = transportSeekIncrementMs(LiveTapSeekDirection.BACKWARD)
+        if (handleLiveTransportSeek(LiveTapSeekDirection.BACKWARD, seekStepMs)) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackLifecycle",
+                    "event=live_transport_seek_request direction=back stepMs=$seekStepMs " +
+                        "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)} " +
+                        "positionMs=${controller.currentPosition} playWhenReady=${controller.playWhenReady}",
+                )
+            }
+            return
+        }
+        if (handleTransportSeekFallback(controller, LiveTapSeekDirection.BACKWARD, seekStepMs)) return
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLifecycle",
+                "event=transport_seek_request direction=back " +
+                    "commandAvailable=${controller.availableCommands.contains(Player.COMMAND_SEEK_BACK)} " +
+                    "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)} " +
+                    "positionMs=${controller.currentPosition} playWhenReady=${controller.playWhenReady}",
+            )
+        }
+        controller.seekBack()
     }
 
     override fun fastForward() {
-        player?.seekForward()
+        val controller = player ?: return
+        val seekStepMs = transportSeekIncrementMs(LiveTapSeekDirection.FORWARD)
+        if (handleLiveTransportSeek(LiveTapSeekDirection.FORWARD, seekStepMs)) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackLifecycle",
+                    "event=live_transport_seek_request direction=forward stepMs=$seekStepMs " +
+                        "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)} " +
+                        "positionMs=${controller.currentPosition} playWhenReady=${controller.playWhenReady}",
+                )
+            }
+            return
+        }
+        if (handleTransportSeekFallback(controller, LiveTapSeekDirection.FORWARD, seekStepMs)) return
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLifecycle",
+                "event=transport_seek_request direction=forward " +
+                    "commandAvailable=${controller.availableCommands.contains(Player.COMMAND_SEEK_FORWARD)} " +
+                    "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)} " +
+                    "positionMs=${controller.currentPosition} playWhenReady=${controller.playWhenReady}",
+            )
+        }
+        controller.seekForward()
     }
 
     override fun seek(position: Long) {
@@ -1425,9 +1983,36 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun seekToLivePosition() {
-        player?.let { controller ->
-            controller.playWhenReady = true
-            controller.seekToDefaultPosition()
+        seekToLivePosition(origin = "user_button")
+    }
+
+    override fun seekToLivePosition(origin: String) {
+        val controller = player ?: return
+        val stateBefore = controller.playbackState
+        val mediaId = controller.currentMediaItem?.mediaId
+        cancelEndedLiveRecovery(reason = "seek_to_live_$origin")
+        cancelLiveStallRecovery(resetBudget = false)
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLifecycle",
+                "event=seek_default_live action=begin origin=$origin state=$stateBefore " +
+                    "playWhenReady=${controller.playWhenReady} itemToken=${diagnosticToken(mediaId)}",
+            )
+        }
+        controller.playWhenReady = true
+        controller.seekToDefaultPosition()
+        val stateAfterSeek = controller.playbackState
+        val prepared = controller.currentMediaItem != null &&
+            (stateAfterSeek == Player.STATE_IDLE || stateAfterSeek == Player.STATE_ENDED)
+        if (prepared) controller.prepare()
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLifecycle",
+                "event=seek_default_live action=complete origin=$origin stateBefore=$stateBefore " +
+                    "stateAfter=${controller.playbackState} prepared=$prepared " +
+                    "playWhenReady=${controller.playWhenReady} " +
+                    "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
+            )
         }
     }
 
@@ -1495,7 +2080,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val oldQualities = viewModel.qualities
         val oldQuality = viewModel.quality
         val oldUpdateQualities = viewModel.updateQualities
-        val login = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: return false
+        val login = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: run {
+            logLiveReturnResult("missing_channel_login", controller)
+            return false
+        }
         val proxyUrl = requireContext().prefs().getString(C.PLAYER_PROXY_URL, "")
         val url = if (viewModel.useCustomProxy && !proxyUrl.isNullOrBlank()) {
             proxyUrl.replace("\$channel", login)
@@ -1505,8 +2093,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             } catch (_: Exception) {
                 null
             }
-        } ?: return false
+        } ?: run {
+            logLiveReturnResult("fresh_url_unavailable", controller)
+            return false
+        }
         val result = startStreamInternal(url, wasPlaying, preserveQuality = true) ?: run {
+            logLiveReturnResult("source_start_unavailable", controller)
             restoreQualityAfterSourceSwitchFailure(
                 qualities = oldQualities,
                 quality = oldQuality,
@@ -1523,6 +2115,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         } catch (_: Exception) {
             false
         }
+        logLiveReturnResult(if (success) "source_started" else "source_start_failed", controller)
         if (!success) {
             restoreQualityAfterSourceSwitchFailure(
                 qualities = oldQualities,
@@ -1531,6 +2124,16 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             )
         }
         return success
+    }
+
+    private fun logLiveReturnResult(result: String, controller: MediaController) {
+        if (!BuildConfig.DEBUG) return
+        Log.d(
+            "LiveRewind",
+            "event=return_to_live result=$result state=${controller.playbackState} " +
+                "playWhenReady=${controller.playWhenReady} " +
+                "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
+        )
     }
 
     private fun restoreQualityAfterSourceSwitchFailure(
@@ -1546,18 +2149,112 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         setQualityText()
     }
 
-    override suspend fun getLiveRewindVodId(): String? {
-        val result = player?.sendCustomCommand(
+    private suspend fun synchronizeLiveRewindStateBeforeSessionRestore(controller: MediaController) {
+        val mediaId = controller.currentMediaItem?.mediaId ?: return
+        val generation = ++liveRewindStateSyncGeneration
+        liveRewindStateSyncJob?.cancel()
+        val serviceState = readLiveRewindServiceState(controller)
+        if (!isCurrentLiveRewindStateSync(controller, mediaId, generation)) return
+        val resolved = serviceState?.let(::applyLiveRewindServiceState) == true
+        logLiveRewindStateSync("controller_connected", serviceState, resolved, controller)
+        if (!resolved) {
+            scheduleLiveRewindStateSyncPolling(
+                controller = controller,
+                mediaId = mediaId,
+                generation = generation,
+                reason = "controller_connected",
+            )
+        }
+    }
+
+    private fun requestLiveRewindStateSync(controller: MediaController, reason: String) {
+        if (videoType != STREAM) return
+        val mediaId = controller.currentMediaItem?.mediaId ?: return
+        beginLiveRewindStateSync()
+        liveRewindStateSyncJob?.cancel()
+        val generation = ++liveRewindStateSyncGeneration
+        scheduleLiveRewindStateSyncPolling(controller, mediaId, generation, reason)
+    }
+
+    private fun cancelLiveRewindStateSync() {
+        liveRewindStateSyncGeneration++
+        liveRewindStateSyncJob?.cancel()
+        liveRewindStateSyncJob = null
+    }
+
+    private fun scheduleLiveRewindStateSyncPolling(
+        controller: MediaController,
+        mediaId: String,
+        generation: Long,
+        reason: String,
+    ) {
+        liveRewindStateSyncJob?.cancel()
+        liveRewindStateSyncJob = viewLifecycleOwner.lifecycleScope.launch {
+            repeat(LIVE_REWIND_STATE_SYNC_POLL_ATTEMPTS) { attempt ->
+                delay(LIVE_REWIND_STATE_SYNC_POLL_INTERVAL_MS)
+                if (!isCurrentLiveRewindStateSync(controller, mediaId, generation)) return@launch
+                val serviceState = readLiveRewindServiceState(controller)
+                if (!isCurrentLiveRewindStateSync(controller, mediaId, generation)) return@launch
+                val resolved = serviceState?.let(::applyLiveRewindServiceState) == true
+                logLiveRewindStateSync(reason, serviceState, resolved, controller)
+                if (resolved) return@launch
+                if (attempt == LIVE_REWIND_STATE_SYNC_POLL_ATTEMPTS - 1 && BuildConfig.DEBUG) {
+                    Log.w(
+                        "LiveRewind",
+                        "event=state_sync_unresolved attempts=${LIVE_REWIND_STATE_SYNC_POLL_ATTEMPTS} " +
+                            "itemToken=${diagnosticToken(mediaId)}",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun isCurrentLiveRewindStateSync(
+        controller: MediaController,
+        mediaId: String,
+        generation: Long,
+    ): Boolean = liveRewindStateSyncGeneration == generation &&
+        player === controller &&
+        controller.currentMediaItem?.mediaId == mediaId &&
+        isAdded && view != null
+
+    private suspend fun readLiveRewindServiceState(controller: MediaController): LiveRewindServiceState? = try {
+        val result = controller.sendCustomCommand(
             SessionCommand(PlaybackService.GET_LIVE_REWIND_STATE, Bundle.EMPTY),
             Bundle.EMPTY,
-        ) ?: return null
-        return withContext(Dispatchers.IO) {
-            runCatching {
-                result.get().takeIf { it.resultCode == SessionResult.RESULT_SUCCESS }
-                    ?.extras?.takeIf { it.getBoolean(PlaybackService.LIVE_REWIND_ACTIVE) }
-                    ?.getString(PlaybackService.REWIND_VIDEO_ID)
-            }.getOrNull()
+        ).awaitFuture()
+        result.takeIf { it.resultCode == SessionResult.RESULT_SUCCESS }?.extras?.let { extras ->
+            LiveRewindServiceState(
+                active = extras.getBoolean(PlaybackService.LIVE_REWIND_ACTIVE),
+                transitioning = extras.getBoolean(PlaybackService.LIVE_REWIND_TRANSITIONING),
+                vodId = extras.getString(PlaybackService.REWIND_VIDEO_ID),
+            )
         }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        if (BuildConfig.DEBUG) Log.w("LiveRewind", "Failed to synchronize service rewind state", error)
+        null
+    }
+
+    private fun logLiveRewindStateSync(
+        reason: String,
+        state: LiveRewindServiceState?,
+        resolved: Boolean,
+        controller: MediaController,
+    ) {
+        if (!BuildConfig.DEBUG) return
+        Log.d(
+            "LiveRewind",
+            "event=state_sync reason=$reason result=${if (state == null) "unavailable" else "received"} " +
+                "active=${state?.active ?: false} transitioning=${state?.transitioning ?: false} " +
+                "vodToken=${diagnosticToken(state?.vodId)} resolved=$resolved " +
+                "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
+        )
+    }
+
+    override suspend fun getLiveRewindVodId(): String? = player?.let { controller ->
+        readLiveRewindServiceState(controller)?.takeIf { it.active }?.vodId
     }
 
     override fun setPlaybackSpeed(speed: Float) {
@@ -1908,39 +2605,391 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
     }
 
-    private fun requestCurrentVideoQuality(controller: MediaController) {
+    private fun beginResumeQualityConfirmation(controller: MediaController): Long? {
+        val mediaId = controller.currentMediaItem?.mediaId ?: return null
+        val generation = ++resumeQualityGeneration
+        resumeQualityController = controller
+        resumeQualityMediaId = mediaId
+        resumeQualityConfirmationPending = true
+        resumeQualityConfirmationAvailable = false
+        resumeConfirmedQuality = null
+        deferredAutomaticQuality = null
+        resumeQualityConfirmationTimeoutJob?.cancel()
+        resumeQualityConfirmationTimeoutJob = null
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackResumption",
+                "resume_quality_gate action=begin generation=$generation " +
+                    "itemToken=${diagnosticToken(mediaId)}",
+            )
+        }
+        return generation
+    }
+
+    private fun invalidateResumeQualityConfirmation(
+        reason: String,
+        drainDeferredQualityRequest: Boolean = false,
+    ) {
+        val hadResumeGate = resumeQualityController != null
+        val generation = resumeQualityGeneration
+        val mediaId = resumeQualityMediaId
+        val shouldDrainQualityRequest = drainDeferredQualityRequest && qualityRequestDeferred
+        qualityRequestDeferred = false
+        resumeQualityConfirmationTimeoutJob?.cancel()
+        resumeQualityConfirmationTimeoutJob = null
+        resumeQualityGeneration++
+        resumeQualityController = null
+        resumeQualityMediaId = null
+        resumeQualityConfirmationPending = false
+        resumeQualityConfirmationAvailable = false
+        resumeConfirmedQuality = null
+        deferredAutomaticQuality = null
+        if (BuildConfig.DEBUG && hadResumeGate) {
+            Log.d(
+                "PlaybackResumption",
+                "resume_quality_gate action=invalidate reason=$reason generation=$generation " +
+                    "itemToken=${diagnosticToken(mediaId)}",
+            )
+        }
+        if (shouldDrainQualityRequest && isAdded && view != null &&
+            viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)
+        ) {
+            requestQualities()
+        }
+    }
+
+    private fun scheduleResumeQualityConfirmationTimeout(
+        generation: Long,
+        controller: MediaController,
+    ) {
+        resumeQualityConfirmationTimeoutJob?.cancel()
+        resumeQualityConfirmationTimeoutJob = viewLifecycleOwner.lifecycleScope.launch {
+            delay(RESUME_QUALITY_CONFIRMATION_TIMEOUT_MS)
+            if (generation != resumeQualityGeneration ||
+                resumeQualityController !== controller ||
+                !resumeQualityConfirmationPending
+            ) {
+                return@launch
+            }
+            if (controller.currentMediaItem?.mediaId != resumeQualityMediaId) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "PlaybackResumption",
+                        "quality_confirmation action=drop_stale_timeout generation=$generation " +
+                            "itemToken=${diagnosticToken(resumeQualityMediaId)}",
+                    )
+                }
+                invalidateResumeQualityConfirmation(
+                    "stale_confirmation_timeout",
+                    drainDeferredQualityRequest = true,
+                )
+                return@launch
+            }
+            val deferred = deferredAutomaticQuality
+            val drainQualityRequest = qualityRequestDeferred
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackResumption",
+                    "quality_confirmation generation=$generation result=timeout " +
+                        "itemToken=${diagnosticToken(resumeQualityMediaId)}",
+                )
+            }
+            invalidateResumeQualityConfirmation("confirmation_timeout")
+            if (drainQualityRequest) {
+                deferredAutomaticQuality = deferred
+                requestQualities()
+            } else {
+                deferred?.let { reapplyQualityAutomatically(it, source = "confirmation_timeout") }
+            }
+        }
+    }
+
+    private fun clearResumeAppliedQualityTarget() {
+        viewModel.resumeAppliedVideoQuality = null
+        viewModel.resumeAppliedVideoQualityMediaId = null
+        viewModel.pendingResumeAppliedVideoQuality = null
+        viewModel.pendingResumeAppliedSourceMediaId = null
+    }
+
+    private fun bindPendingResumeAppliedQuality(mediaItem: MediaItem?) {
+        val target = viewModel.pendingResumeAppliedVideoQuality ?: return
+        val sourceMediaId = viewModel.pendingResumeAppliedSourceMediaId
+        if (mediaItem == null) {
+            clearResumeAppliedQualityTarget()
+            return
+        }
+        if (mediaItem.mediaId == sourceMediaId) return
+        viewModel.resumeAppliedVideoQuality = target
+        viewModel.resumeAppliedVideoQualityMediaId = mediaItem.mediaId
+        viewModel.pendingResumeAppliedVideoQuality = null
+        viewModel.pendingResumeAppliedSourceMediaId = null
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackResumption",
+                "resume_applied_quality itemToken=${diagnosticToken(mediaItem.mediaId)} " +
+                    "targetName=${target.name} action=bound_after_source_switch",
+            )
+        }
+    }
+
+    private fun sameLogicalVideoQuality(left: VideoQuality, right: VideoQuality): Boolean {
+        if (!left.name.equals(right.name, ignoreCase = true)) return false
+        if (left.bitrate != null && right.bitrate != null && left.bitrate != right.bitrate) return false
+        val leftCodecs = left.codecs?.takeIf(String::isNotBlank) ?: return true
+        val rightCodecs = right.codecs?.takeIf(String::isNotBlank) ?: return true
+        return leftCodecs.split(',').map(String::trim).any { wanted ->
+            rightCodecs.split(',').map(String::trim).any { it.equals(wanted, ignoreCase = true) }
+        }
+    }
+
+    private fun applyConfirmedResumeQualityMismatch(
+        quality: VideoQuality,
+        controller: MediaController,
+    ) {
+        val sourceMediaId = controller.currentMediaItem?.mediaId
+        val currentUri = controller.currentMediaItem?.localConfiguration?.uri?.toString()
+        val willReplaceSource = !quality.url.isNullOrBlank() && currentUri != quality.url
+        invalidateResumeQualityConfirmation("confirmed_quality_mismatch")
+        clearResumeAppliedQualityTarget()
+        if (sourceMediaId != null) {
+            viewModel.pendingResumeAppliedVideoQuality = quality
+            viewModel.pendingResumeAppliedSourceMediaId = sourceMediaId
+        }
+        changeQuality(quality, persistSavedQuality = false)
+        if (!willReplaceSource && sourceMediaId != null) {
+            viewModel.resumeAppliedVideoQuality = quality
+            viewModel.resumeAppliedVideoQualityMediaId = sourceMediaId
+            viewModel.pendingResumeAppliedVideoQuality = null
+            viewModel.pendingResumeAppliedSourceMediaId = null
+        } else {
+            bindPendingResumeAppliedQuality(controller.currentMediaItem)
+        }
+    }
+
+    private fun completeResumeQualityConfirmation(
+        generation: Long,
+        controller: MediaController,
+        actualQuality: VideoQuality?,
+        sourceConfirmed: Boolean,
+    ) {
+        val expectedMediaId = resumeQualityMediaId
+        if (generation != resumeQualityGeneration ||
+            resumeQualityController !== controller ||
+            player !== controller ||
+            expectedMediaId == null ||
+            controller.currentMediaItem?.mediaId != expectedMediaId
+        ) {
+            if (generation == resumeQualityGeneration) {
+                invalidateResumeQualityConfirmation(
+                    "stale_confirmation",
+                    drainDeferredQualityRequest = true,
+                )
+            }
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackResumption",
+                    "quality_confirmation action=drop_stale generation=$generation " +
+                        "itemToken=${diagnosticToken(expectedMediaId)}",
+                )
+            }
+            return
+        }
+
+        val confirmed = actualQuality.takeIf { sourceConfirmed }
+        resumeQualityConfirmationPending = false
+        resumeQualityConfirmationAvailable = confirmed != null
+        resumeConfirmedQuality = confirmed
+        resumeQualityConfirmationTimeoutJob?.cancel()
+        resumeQualityConfirmationTimeoutJob = null
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackResumption",
+                "quality_confirmation generation=$generation itemToken=${diagnosticToken(expectedMediaId)} " +
+                    "result=${if (confirmed != null) "success" else "unavailable"} " +
+                    "confirmedName=${confirmed?.name ?: "none"}",
+            )
+        }
+
+        val deferred = deferredAutomaticQuality
+        val drainQualityRequest = qualityRequestDeferred
+        qualityRequestDeferred = false
+        if (drainQualityRequest) {
+            // Prefer the refreshed rendition URLs, then reconcile once. Keep the
+            // latest track callback as a fallback if discovery returns no list.
+            requestQualities()
+        } else {
+            deferredAutomaticQuality = null
+            deferred?.let { reapplyQualityAutomatically(it, source = "confirmation") }
+        }
+    }
+
+    private fun reapplyQualityAutomatically(quality: VideoQuality, source: String) {
+        val controller = player
+        val currentMediaId = controller?.currentMediaItem?.mediaId
+        val appliesToCurrentResume = videoType == STREAM &&
+            controller != null &&
+            resumeQualityController === controller &&
+            resumeQualityMediaId != null &&
+            resumeQualityMediaId == currentMediaId
+        if (appliesToCurrentResume && resumeQualityConfirmationPending) {
+            deferredAutomaticQuality = quality
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackResumption",
+                    "automatic_quality target=${quality.name} source=$source action=deferred " +
+                        "generation=$resumeQualityGeneration itemToken=${diagnosticToken(currentMediaId)}",
+                )
+            }
+            return
+        }
+
+        deferredAutomaticQuality = null
+
+        if (appliesToCurrentResume && resumeQualityConfirmationAvailable) {
+            val confirmed = resumeConfirmedQuality
+            val concreteVideoQuality = quality.name != AUTO_QUALITY &&
+                quality.name != SOURCE_QUALITY &&
+                quality.name != AUDIO_ONLY_QUALITY &&
+                quality.name != CHAT_ONLY_QUALITY
+            val matches = concreteVideoQuality && confirmed != null &&
+                requestedVideoQualityMatches(quality, confirmed, controller)
+            val sourceReplacement = concreteVideoQuality && confirmed != null &&
+                !quality.url.isNullOrBlank() &&
+                controller.currentMediaItem?.localConfiguration?.uri?.toString() != quality.url
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackResumption",
+                    "resume_quality_reconcile target=${quality.name} " +
+                        "confirmed=${confirmed?.name ?: "none"} " +
+                        "action=${when {
+                            matches -> "keep_current_source"
+                            concreteVideoQuality && confirmed != null && sourceReplacement -> "replace_source"
+                            concreteVideoQuality && confirmed != null -> "keep_current_source"
+                            else -> "apply_existing_behavior"
+                        }} " +
+                        "sourceReplacement=$sourceReplacement " +
+                        "generation=$resumeQualityGeneration itemToken=${diagnosticToken(currentMediaId)}",
+                )
+            }
+            if (matches) {
+                changeQuality(quality, persistSavedQuality = false)
+            } else if (concreteVideoQuality && confirmed != null) {
+                applyConfirmedResumeQualityMismatch(quality, controller)
+            } else {
+                invalidateResumeQualityConfirmation("automatic_quality_reconcile")
+                changeQuality(quality, persistSavedQuality = false)
+            }
+            return
+        }
+
+        if (appliesToCurrentResume && BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackResumption",
+                "resume_quality_reconcile target=${quality.name} confirmed=none " +
+                    "action=apply_existing_behavior generation=$resumeQualityGeneration " +
+                    "itemToken=${diagnosticToken(currentMediaId)}",
+            )
+        }
+        if (appliesToCurrentResume) {
+            invalidateResumeQualityConfirmation("confirmation_unavailable")
+        }
+        changeQuality(quality, persistSavedQuality = false)
+    }
+
+    private fun requestCurrentVideoQuality(
+        controller: MediaController,
+        onComplete: (VideoQuality?, Boolean) -> Unit = { _, _ -> },
+    ) {
+        val requestedMediaId = controller.currentMediaItem?.mediaId
         val request = controller.sendCustomCommand(
             SessionCommand(PlaybackService.GET_VIDEO_QUALITY, Bundle.EMPTY),
             Bundle.EMPTY,
         )
         request.addListener({
             val result = runCatching { request.get() }.getOrNull()
-            if (!isAdded || view == null || result?.resultCode != SessionResult.RESULT_SUCCESS) return@addListener
+            if (!isAdded || view == null || result?.resultCode != SessionResult.RESULT_SUCCESS) {
+                onComplete(null, false)
+                return@addListener
+            }
             val qualityUri = result.extras.getString(PlaybackService.VIDEO_QUALITY_URI)
-            val currentUri = controller.currentMediaItem?.localConfiguration?.uri?.toString()
-            if (qualityUri != null && qualityUri != currentUri) return@addListener
+            val currentMediaItem = controller.currentMediaItem
+            val currentUri = currentMediaItem?.localConfiguration?.uri?.toString()
+            if (requestedMediaId != currentMediaItem?.mediaId ||
+                (qualityUri != null && qualityUri != currentUri)
+            ) {
+                onComplete(null, false)
+                return@addListener
+            }
             val name = result.extras.getString(PlaybackService.VIDEO_QUALITY_NAME)
-                ?.takeIf(String::isNotBlank) ?: return@addListener
-            updateConfirmedVideoQuality(
-                VideoQuality(
-                    name = name,
-                    codecs = result.extras.getString(PlaybackService.VIDEO_QUALITY_CODECS),
-                    bitrate = result.extras.getInt(PlaybackService.VIDEO_QUALITY_BITRATE)
-                        .takeIf { result.extras.containsKey(PlaybackService.VIDEO_QUALITY_BITRATE) },
-                ),
-                controller,
+                ?.takeIf(String::isNotBlank) ?: run {
+                    onComplete(null, false)
+                    return@addListener
+                }
+            val actualQuality = VideoQuality(
+                name = name,
+                codecs = result.extras.getString(PlaybackService.VIDEO_QUALITY_CODECS),
+                bitrate = result.extras.getInt(PlaybackService.VIDEO_QUALITY_BITRATE)
+                    .takeIf { result.extras.containsKey(PlaybackService.VIDEO_QUALITY_BITRATE) },
             )
+            val sourceConfirmed = requestedMediaId != null && qualityUri != null && qualityUri == currentUri
+            updateConfirmedVideoQuality(
+                actualQuality,
+                controller,
+                sourceConfirmed = sourceConfirmed,
+            )
+            onComplete(actualQuality, sourceConfirmed)
         }, ContextCompat.getMainExecutor(requireContext()))
     }
 
-    private fun updateConfirmedVideoQuality(actualQuality: VideoQuality, controller: MediaController) {
+    private fun updateConfirmedVideoQuality(
+        actualQuality: VideoQuality,
+        controller: MediaController,
+        sourceConfirmed: Boolean,
+    ) {
+        val currentMediaId = controller.currentMediaItem?.mediaId
+        val appliedQuality = viewModel.resumeAppliedVideoQuality
+        if (sourceConfirmed &&
+            currentMediaId == viewModel.resumeAppliedVideoQualityMediaId &&
+            appliedQuality != null &&
+            !sameLogicalVideoQuality(appliedQuality, actualQuality)
+        ) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackResumption",
+                    "resume_applied_quality action=decoder_mismatch " +
+                        "itemToken=${diagnosticToken(currentMediaId)} " +
+                        "targetName=${appliedQuality.name} actualName=${actualQuality.name}",
+                )
+            }
+            clearResumeAppliedQualityTarget()
+        }
         viewModel.confirmedVideoQuality = actualQuality
+        viewModel.confirmedVideoQualityMediaId = currentMediaId.takeIf { sourceConfirmed }
         viewModel.pendingVideoQuality?.let { requested ->
             if (requestedVideoQualityMatches(requested, actualQuality, controller)) {
                 viewModel.pendingVideoQuality = null
             }
         }
         setQualityText()
+    }
+
+    private fun hasConfirmedCurrentLiveQuality(
+        requestedQuality: VideoQuality,
+        currentPlayer: Player,
+    ): Boolean {
+        if (videoType != STREAM ||
+            requestedQuality.name == AUTO_QUALITY ||
+            requestedQuality.name == AUDIO_ONLY_QUALITY ||
+            requestedQuality.name == CHAT_ONLY_QUALITY ||
+            currentPlayer.playbackState == Player.STATE_IDLE ||
+            currentPlayer.playbackState == Player.STATE_ENDED
+        ) {
+            return false
+        }
+        val currentMediaItem = currentPlayer.currentMediaItem ?: return false
+        val confirmedQuality = viewModel.confirmedVideoQuality ?: return false
+        return viewModel.confirmedVideoQualityMediaId == currentMediaItem.mediaId &&
+            requestedVideoQualityMatches(requestedQuality, confirmedQuality, currentPlayer)
     }
 
     private fun requestedVideoQualityMatches(
@@ -1964,6 +3013,18 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
+        if (videoType == STREAM && persistSavedQuality) {
+            viewModel.restoredQualityBootstrapConsumed = true
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackResumption",
+                    "user_quality target=${selectedQuality?.name ?: "none"} " +
+                        "generation=$resumeQualityGeneration",
+                )
+            }
+            invalidateResumeQualityConfirmation("explicit_quality_choice")
+            clearResumeAppliedQualityTarget()
+        }
         val previousQuality = viewModel.quality
         val qualityChanged = previousQuality?.let {
             it.name != selectedQuality?.name || it.url != selectedQuality?.url
@@ -2183,9 +3244,43 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                 }.build()
                                 val qualityUri = quality.url
                                 player.currentMediaItem?.let { mediaItem ->
-                                    if (!qualityUri.isNullOrBlank() &&
-                                        mediaItem.localConfiguration?.uri?.toString() != qualityUri
-                                    ) {
+                                    val currentUri = mediaItem.localConfiguration?.uri?.toString()
+                                    val uriMatches = currentUri == qualityUri
+                                    val confirmedMatches = !persistSavedQuality &&
+                                        currentUri != null && hasConfirmedCurrentLiveQuality(quality, player)
+                                    val appliedTargetMatches = !persistSavedQuality &&
+                                        viewModel.resumeAppliedVideoQualityMediaId == mediaItem.mediaId &&
+                                        viewModel.resumeAppliedVideoQuality?.let {
+                                            sameLogicalVideoQuality(quality, it)
+                                        } == true
+                                    val sourceReplacement = !qualityUri.isNullOrBlank() &&
+                                        !uriMatches && !confirmedMatches && !appliedTargetMatches
+                                    if (BuildConfig.DEBUG && videoType == STREAM && !persistSavedQuality) {
+                                        Log.d(
+                                            "PlaybackResumption",
+                                            "event=quality_reconcile targetName=${quality.name} " +
+                                                "confirmedName=${viewModel.confirmedVideoQuality?.name ?: "none"} " +
+                                                "itemToken=${diagnosticToken(mediaItem.mediaId)} " +
+                                                "currentUriHash=${diagnosticToken(currentUri)} " +
+                                                "targetUriHash=${diagnosticToken(qualityUri)} " +
+                                                "uriExactMatch=$uriMatches confirmedMatchesTarget=$confirmedMatches " +
+                                                "appliedTargetMatches=$appliedTargetMatches " +
+                                                "sourceReplacement=$sourceReplacement " +
+                                                "reason=${when {
+                                                    !sourceReplacement && confirmedMatches -> "confirmed_current_item_quality"
+                                                    !sourceReplacement -> "uri_match"
+                                                    else -> "quality_diff_or_unconfirmed"
+                                                }}",
+                                        )
+                                    }
+                                    if (sourceReplacement) {
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                                "PlaybackResumption",
+                                                "event=quality_source_replace oldItemToken=${diagnosticToken(mediaItem.mediaId)} " +
+                                                    "targetName=${quality.name}",
+                                            )
+                                        }
                                         if (viewModel.playlistUrl == null) {
                                             viewModel.playlistUrl = mediaItem.localConfiguration?.uri
                                         }
@@ -2210,15 +3305,46 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                 }
                                 setVideoOutputVisible(true)
                             } else {
-                                player.currentMediaItem?.let {
-                                    if (it.localConfiguration?.uri?.toString() != quality.url) {
+                                player.currentMediaItem?.let { mediaItem ->
+                                    val currentUri = mediaItem.localConfiguration?.uri?.toString()
+                                    val uriMatches = currentUri == quality.url
+                                    val confirmedMatches = !persistSavedQuality &&
+                                        currentUri != null && hasConfirmedCurrentLiveQuality(quality, player)
+                                    val appliedTargetMatches = !persistSavedQuality &&
+                                        viewModel.resumeAppliedVideoQualityMediaId == mediaItem.mediaId &&
+                                        viewModel.resumeAppliedVideoQuality?.let {
+                                            sameLogicalVideoQuality(quality, it)
+                                        } == true
+                                    val sourceReplacement = !quality.url.isNullOrBlank() &&
+                                        !uriMatches && !confirmedMatches && !appliedTargetMatches
+                                    if (BuildConfig.DEBUG && videoType == STREAM && !persistSavedQuality) {
+                                        Log.d(
+                                            "PlaybackResumption",
+                                            "event=quality_reconcile targetName=${quality.name} " +
+                                                "confirmedName=${viewModel.confirmedVideoQuality?.name ?: "none"} " +
+                                                "itemToken=${diagnosticToken(mediaItem.mediaId)} " +
+                                                "currentUriHash=${diagnosticToken(currentUri)} " +
+                                                "targetUriHash=${diagnosticToken(quality.url)} " +
+                                                "uriExactMatch=$uriMatches confirmedMatchesTarget=$confirmedMatches " +
+                                                "appliedTargetMatches=$appliedTargetMatches " +
+                                                "sourceReplacement=$sourceReplacement",
+                                        )
+                                    }
+                                    if (sourceReplacement) {
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                                "PlaybackResumption",
+                                                "event=quality_source_replace oldItemToken=${diagnosticToken(mediaItem.mediaId)} " +
+                                                    "targetName=${quality.name}",
+                                            )
+                                        }
                                         val position = player.currentPosition
                                         player.sendCustomCommand(
                                             SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
                                             Bundle.EMPTY,
                                         )
                                         val sourceInstance = xtraModule.streamMedia3Runtime
-                                            .newSourceInstanceMediaItem(it, quality.url)
+                                            .newSourceInstanceMediaItem(mediaItem, quality.url)
                                         player.setMediaItem(sourceInstance)
                                         xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(sourceInstance)
                                         player.prepare()
@@ -2245,7 +3371,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
         applyPendingPlaybackPrepareAfterChatOnly()
         if (videoType == STREAM && persistSavedQuality && player?.isPlaying == true) {
-            liveRecoveryState.onPlaybackStarted(liveRecoveryState.currentGeneration())
+            liveRecoveryState.onPlaybackStarted(
+                liveRecoveryState.currentGeneration(),
+                nowMs = SystemClock.elapsedRealtime(),
+            )
         }
         persistPlaybackQuality()
     }
@@ -2349,6 +3478,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun startAudioOnly() {
+        viewModel.restoredQualityBootstrapConsumed = true
+        invalidateResumeQualityConfirmation("audio_only_selected")
+        clearResumeAppliedQualityTarget()
         if (videoType == STREAM && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
             cancelLiveStallRecovery(resetBudget = true)
             pendingSourceSwitchQuality.clear()
@@ -2484,6 +3616,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     private fun releaseController(controller: MediaController? = player) {
+        invalidateResumeQualityConfirmation("controller_released")
         qualityRequestGeneration++
         qualityRequestInFlight = false
         streamRecoveryJob?.cancel()
@@ -2514,6 +3647,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     private fun requestQualities(onReady: (() -> Unit)? = null) {
         onReady?.let { pendingQualityCallbacks += it }
+        if (resumeQualityConfirmationPending) {
+            qualityRequestDeferred = true
+            return
+        }
         if (qualityRequestInFlight) return
 
         val currentPlayer = player ?: run {
@@ -2576,6 +3713,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     null
                 }
                 if (!list.isNullOrEmpty()) {
+                    val currentSelection = viewModel.quality
                     viewModel.qualities = list.asSequence()
                         .sortedByDescending { it.bitrate }
                         .sortedByDescending {
@@ -2606,7 +3744,27 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     } else {
                         pendingQualityToRestore
                     }
-                    setDefaultQuality()
+                    val strictRestore = strictAutomaticQualityRestore
+                    strictAutomaticQualityRestore = false
+                    val restoredQuality = when {
+                        qualityToRestore != null -> {
+                            if (strictRestore) {
+                                qualityToRestore.resolveExact(viewModel.qualities)
+                            } else {
+                                qualityToRestore.resolve(viewModel.qualities, ::findQuality)
+                            }
+                        }
+                        currentSelection != null ->
+                            resolvePlaybackQuality(viewModel.qualities, currentSelection) ?: currentSelection
+                        else -> {
+                            setDefaultQuality()
+                            viewModel.quality
+                        }
+                    }
+                    if (qualityToRestore != null || currentSelection != null || restoredQuality != null) {
+                        viewModel.restoredQualityBootstrapConsumed = true
+                    }
+                    restoredQuality?.let { viewModel.quality = it }
                     if (
                         BuildConfig.DEBUG &&
                         initialQualityRequest &&
@@ -2618,21 +3776,22 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         )?.name ?: AUTO_QUALITY
                         Log.d(
                             "PlaybackResumption",
-                            "quality_resolved saved=$savedQuality resolved=${viewModel.quality?.name ?: "unresolved"}",
+                            "quality_resolved saved=$savedQuality resolved=${restoredQuality?.name ?: "unresolved"}",
                         )
-                    }
-                    val strictRestore = strictAutomaticQualityRestore
-                    strictAutomaticQualityRestore = false
-                    val restoredQuality = if (strictRestore && qualityToRestore != null) {
-                        qualityToRestore.resolveExact(viewModel.qualities)
-                    } else {
-                        qualityToRestore?.resolve(viewModel.qualities, ::findQuality)
                     }
                     if (returningFromAdAvoidance) {
                         viewModel.adAvoidanceQualityState.clear()
                     }
                     changePlayerMode()
                     if (strictRestore && qualityToRestore != null && restoredQuality == null) {
+                        if (BuildConfig.DEBUG) {
+                            Log.w(
+                                "PlaybackRecovery",
+                                "event=strict_quality_restore action=pause reason=target_unavailable " +
+                                    "targetName=${qualityToRestore.name} " +
+                                    "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
+                            )
+                        }
                         viewModel.quality = VideoQuality(
                             qualityToRestore.name,
                             qualityToRestore.codecs,
@@ -2642,7 +3801,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         showPlayerError(R.string.player_error) { restartPlayer() }
                     } else {
                         (restoredQuality ?: viewModel.quality)?.let {
-                            changeQuality(it, persistSavedQuality = false)
+                            reapplyQualityAutomatically(it, source = "qualities")
                         }
                     }
                     setQualityText()
@@ -2652,6 +3811,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 }
             }
             qualityRequestInFlight = false
+            if (!resumeQualityConfirmationPending) {
+                deferredAutomaticQuality?.let { deferred ->
+                    deferredAutomaticQuality = null
+                    reapplyQualityAutomatically(deferred, source = "qualities_unavailable")
+                }
+            }
             // The service can answer before the HLS multivariant playlist is
             // available. Keep callbacks pending; onTracksChanged/onTimelineChanged
             // will retry and only a non-empty list may open the dialog.
@@ -3127,8 +4292,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun onStop() {
+        cancelLiveRewindStateSync()
         logVideoSurfaceBinding("on_stop", player, view?.let { videoOutputView })
         super.onStop()
+        invalidateResumeQualityConfirmation("fragment_on_stop")
+        qualityRequestDeferred = false
+        invalidateQualityRequest()
         if (isClipEditorVisible()) {
             player?.pause()
             return
@@ -3204,14 +4373,51 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun onNetworkRestored() {
-        if (isResumed) {
-            if (videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
-                if (player?.playWhenReady == true) {
-                    scheduleStreamRecovery()
+        if (!isResumed) return
+        if (videoType == STREAM) {
+            val controller = player
+            if (isLiveRewindActiveOrSwitching()) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "PlaybackRecovery",
+                        "event=network_restored decision=retain_rewind_source " +
+                            "state=${controller?.playbackState} playWhenReady=${controller?.playWhenReady} " +
+                            "itemToken=${diagnosticToken(controller?.currentMediaItem?.mediaId)}",
+                    )
                 }
-            } else {
-                player?.prepare()
+                return
             }
+            val endedNeedsVerification = controller?.playWhenReady == true &&
+                controller.currentMediaItem != null && controller.playbackState == Player.STATE_ENDED
+            if (endedNeedsVerification) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "PlaybackRecovery",
+                        "event=network_restored decision=verify_ended_live " +
+                            "state=${controller.playbackState} playWhenReady=${controller.playWhenReady} " +
+                            "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
+                    )
+                }
+                verifyEndedLivePlayback(trigger = "network_restored")
+                return
+            }
+            val needsRecovery = controller?.playWhenReady == true &&
+                controller.currentMediaItem != null &&
+                (controller.playbackState == Player.STATE_IDLE || controller.playerError != null)
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackRecovery",
+                    "event=network_restored decision=${if (needsRecovery) "recover" else "keep_source"} " +
+                        "state=${controller?.playbackState} playWhenReady=${controller?.playWhenReady} " +
+                        "playerErrorCode=${controller?.playerError?.errorCode ?: "none"} " +
+                        "itemToken=${diagnosticToken(controller?.currentMediaItem?.mediaId)}",
+                )
+            }
+            if (needsRecovery) {
+                scheduleStreamRecovery(trigger = "network_restored")
+            }
+        } else {
+            player?.prepare()
         }
     }
 
@@ -3231,8 +4437,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun onDestroyView() {
+        cancelLiveRewindStateSync()
         cancelLiveStallRecovery(resetBudget = true)
         pendingSourceSwitchQuality.clear()
+        invalidateResumeQualityConfirmation("fragment_view_destroyed")
+        qualityRequestDeferred = false
         qualityRequestGeneration++
         qualityRequestInFlight = false
         nativeCues = emptyList()
@@ -3282,14 +4491,80 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     private fun attachVideoOutput(currentPlayer: Player) {
         videoOutputOwner.attach(currentPlayer, videoOutputView)
-        logVideoSurfaceBinding("attach", currentPlayer, videoOutputView)
+        logVideoSurfaceBinding("attach_attempt", currentPlayer, videoOutputView)
     }
 
     private fun detachVideoOutput() {
         val currentPlayer = videoOutputOwner.attachedPlayer() ?: return
-        logVideoSurfaceBinding("detach", currentPlayer, videoOutputView)
+        logVideoSurfaceBinding("detach_attempt", currentPlayer, videoOutputView)
         videoOutputOwner.clear()
     }
+
+    private fun sampleRenderedSurfaceFrame(controller: Player, surfaceView: SurfaceView) {
+        if (!BuildConfig.DEBUG || Build.VERSION.SDK_INT < Build.VERSION_CODES.N ||
+            !surfaceView.isAttachedToWindow || surfaceView.width <= 0 || surfaceView.height <= 0
+        ) {
+            return
+        }
+        val itemToken = diagnosticToken(controller.currentMediaItem?.mediaId)
+        if (itemToken in surfacePixelSampledItemTokens) return
+
+        val surface = surfaceView.holder.surface
+        if (!surface.isValid) {
+            Log.d("PlaybackLifecycle", "event=surface_pixel_sample itemToken=$itemToken result=surface_invalid")
+            return
+        }
+        surfacePixelSampledItemTokens += itemToken
+
+        val bitmap = Bitmap.createBitmap(32, 18, Bitmap.Config.ARGB_8888)
+        try {
+            PixelCopy.request(surfaceView, bitmap, { result ->
+                if (result == PixelCopy.SUCCESS) {
+                    var lumaSum = 0L
+                    var nonBlackPixels = 0
+                    for (y in 0 until bitmap.height) {
+                        for (x in 0 until bitmap.width) {
+                            val pixel = bitmap.getPixel(x, y)
+                            val luma = (android.graphics.Color.red(pixel) * 2126 +
+                                android.graphics.Color.green(pixel) * 7152 +
+                                android.graphics.Color.blue(pixel) * 722) / 10_000
+                            lumaSum += luma
+                            if (luma > 8) nonBlackPixels++
+                        }
+                    }
+                    Log.d(
+                        "PlaybackLifecycle",
+                        "event=surface_pixel_sample itemToken=$itemToken result=$result " +
+                            "sourceWidth=${surfaceView.width} sourceHeight=${surfaceView.height} " +
+                            "sampleWidth=${bitmap.width} sampleHeight=${bitmap.height} " +
+                            "nonBlackPixels=$nonBlackPixels " +
+                            "averageLuma=${lumaSum / (bitmap.width * bitmap.height)}",
+                    )
+                } else {
+                    Log.d("PlaybackLifecycle", "event=surface_pixel_sample itemToken=$itemToken result=$result")
+                }
+                bitmap.recycle()
+            }, Handler(Looper.getMainLooper()))
+        } catch (_: RuntimeException) {
+            bitmap.recycle()
+            Log.d("PlaybackLifecycle", "event=surface_pixel_sample itemToken=$itemToken result=request_failed")
+        }
+    }
+
+    private fun logSurfaceLifecycle(event: String, surfaceAttached: Boolean, surfaceValid: Boolean) {
+        if (!BuildConfig.DEBUG) return
+        Log.d(
+            "PlaybackLifecycle",
+            "event=$event holderGeneration=$surfaceHolderGeneration " +
+                "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)} " +
+                "surfaceAttached=$surfaceAttached surfaceValid=$surfaceValid " +
+                "outputBindingGeneration=$videoOutputBindingGeneration",
+        )
+    }
+
+    private fun elapsedSince(eventTimeMs: Long?): String = eventTimeMs?.let {
+        (SystemClock.elapsedRealtime() - it).coerceAtLeast(0L).toString()
+    } ?: "never"
 
     companion object {
         private const val CLIP_EDITOR_TAG = "liveClipEditor"
@@ -3299,8 +4574,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         private const val STATE_CLIP_VOD_PLAYING = "vodClipPlaying"
         private const val STATE_CLIP_VOD_OPEN = "vodClipOpen"
         private const val LIVE_SURFACE_RESTORE_TIMEOUT_MS = 4_000L
+        private const val LIVE_REWIND_STATE_SYNC_POLL_ATTEMPTS = 32
+        private const val LIVE_REWIND_STATE_SYNC_POLL_INTERVAL_MS = 200L
         private const val CLIP_EDITOR_COVER_TIMEOUT_MS = 5_000L
         private const val QUALITY_RETRY_DELAY_MS = 500L
+        private const val RESUME_QUALITY_CONFIRMATION_TIMEOUT_MS = 5_000L
         private const val MAX_QUALITY_RETRY_ATTEMPTS = 10
 
         fun newInstance(item: Stream, tapElapsedMs: Long? = null): Media3Fragment {

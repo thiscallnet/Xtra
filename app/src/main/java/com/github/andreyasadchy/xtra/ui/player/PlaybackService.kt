@@ -69,6 +69,8 @@ import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
+import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
+import com.github.andreyasadchy.xtra.ui.common.identityId
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipSizeEstimator
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipSnapshot
@@ -111,6 +113,7 @@ class PlaybackService : MediaSessionService() {
     private var bootstrapForegroundActive = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private var playbackPlayer: ExoPlayer? = null
+    private var playbackSessionPlayer: PlaybackSessionPlayer? = null
     private var adaptiveLiveController: AdaptiveLivePlaybackController? = null
     private var adaptiveLiveSpeedControl: AdaptiveLivePlaybackSpeedControl? = null
     private val liveClipBufferManager = LiveClipBufferManager()
@@ -155,6 +158,7 @@ class PlaybackService : MediaSessionService() {
     private var liveRewindActive = false
     private var liveRewindVodId: String? = null
     private var liveRewindTransitioning = false
+    private var lastMediaButtonSeekable: Boolean? = null
     private var liveStreamUri: String? = null
     private var liveStreamExtras: Bundle? = null
     private var resumptionState: PlaybackState? = null
@@ -168,6 +172,7 @@ class PlaybackService : MediaSessionService() {
             key == C.SYSTEM_MEDIA_SHOW_GO_LIVE
         ) {
             Handler(Looper.getMainLooper()).post {
+                invalidatePlaybackSessionPlayerState()
                 playbackPlayer?.let {
                     refreshCurrentMediaItemMetadata(it)
                     refreshMediaButtonPreferences(it)
@@ -257,6 +262,15 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    if (BuildConfig.DEBUG) {
+                        Log.w(
+                            "PlaybackRecovery",
+                            "event=player_error origin=service errorCode=${error.errorCode} " +
+                                "background=$backgroundPlayback state=${player.playbackState} " +
+                                "playWhenReady=${player.playWhenReady} " +
+                                "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)}",
+                        )
+                    }
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFailed() }
                     if (backgroundPlayback
                         && prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
@@ -268,6 +282,22 @@ class PlaybackService : MediaSessionService() {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     updateViewingStats(player)
+                    if (BuildConfig.DEBUG) {
+                        val positionMs = player.currentPosition
+                        val bufferedPositionMs = player.bufferedPosition
+                        val liveOffsetMs = player.currentLiveOffset
+                            .takeIf { it != Media3C.TIME_UNSET }
+                        Log.d(
+                            "PlaybackLifecycle",
+                            "event=playback_state pid=${Process.myPid()} player=${player.identityId()} " +
+                                "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)} state=$playbackState " +
+                                "playWhenReady=${player.playWhenReady} isPlaying=${player.isPlaying} " +
+                                "positionMs=$positionMs bufferedPositionMs=$bufferedPositionMs " +
+                                "bufferAheadMs=${(bufferedPositionMs - positionMs).coerceAtLeast(0L)} " +
+                                "liveOffsetMs=${liveOffsetMs ?: -1L} " +
+                                "videoSize=${player.videoSize.width}x${player.videoSize.height}",
+                        )
+                    }
                     if (playbackState == Player.STATE_READY) {
                         streamStartupTrace?.markReady()
                         backgroundRecoveryTimer?.cancel()
@@ -277,6 +307,15 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "PlaybackLifecycle",
+                            "event=play_when_ready pid=${Process.myPid()} player=${player.identityId()} " +
+                                "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)} " +
+                                "value=$playWhenReady reason=$reason " +
+                                "suppression=${player.playbackSuppressionReason} state=${player.playbackState}",
+                        )
+                    }
                     resumptionState?.let { state ->
                         saveResumptionState(
                             state.copy(position = player.currentPosition, paused = !playWhenReady),
@@ -285,6 +324,15 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "PlaybackLifecycle",
+                            "event=media_item_transition pid=${Process.myPid()} player=${player.identityId()} " +
+                                "itemToken=${diagnosticToken(mediaItem?.mediaId)} reason=$reason " +
+                                "state=${player.playbackState} playWhenReady=${player.playWhenReady} " +
+                                "positionMs=${player.currentPosition} bufferedPositionMs=${player.bufferedPosition}",
+                        )
+                    }
                     val livePolicy = LivePlaybackPolicies.forLowLatency(
                         prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
                     )
@@ -345,6 +393,15 @@ class PlaybackService : MediaSessionService() {
                     streamStartupTrace?.markFirstFrame()
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFirstFrame(it.channelLogin) }
                     diagnostics.recordRenderedFirstFrame(player.currentTracks)
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "PlaybackLifecycle",
+                            "event=rendered_first_frame pid=${Process.myPid()} player=${player.identityId()} " +
+                                "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)} " +
+                                "state=${player.playbackState} playWhenReady=${player.playWhenReady} " +
+                                "positionMs=${player.currentPosition}",
+                        )
+                    }
                 }
 
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
@@ -358,6 +415,7 @@ class PlaybackService : MediaSessionService() {
                 override fun onTimelineChanged(timeline: Timeline, reason: Int) {
                     syncVodClipSource()
                     captureLiveClipManifest()
+                    refreshMediaButtonPreferencesIfSeekabilityChanged(player)
                 }
 
                 override fun onAudioSessionIdChanged(audioSessionId: Int) {
@@ -400,19 +458,26 @@ class PlaybackService : MediaSessionService() {
                 format: Format,
                 decoderReuseEvaluation: DecoderReuseEvaluation?,
             ) {
-                val inputUri = runCatching {
+                val inputMediaItem = runCatching {
                     eventTime.timeline
                         .getWindow(eventTime.windowIndex, Timeline.Window())
-                        .mediaItem.localConfiguration?.uri?.toString()
+                        .mediaItem
                 }.getOrNull()
-                val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
-                if (inputUri != null && currentUri != null && inputUri != currentUri) return
-                diagnostics.recordVideoInputFormat(format)
-                val quality = diagnostics.confirmedVideoQuality() ?: return
+                val inputMediaId = inputMediaItem?.mediaId
+                val inputUri = inputMediaItem?.localConfiguration?.uri?.toString()
+                val currentMediaItem = player.currentMediaItem
+                val currentUri = currentMediaItem?.localConfiguration?.uri?.toString()
+                if (inputMediaId == null || inputUri == null ||
+                    inputMediaId != currentMediaItem?.mediaId || inputUri != currentUri
+                ) {
+                    return
+                }
+                diagnostics.recordVideoInputFormat(format, inputMediaId, inputUri)
+                val quality = diagnostics.confirmedVideoQuality(inputMediaId, inputUri) ?: return
                 mediaSession?.broadcastCustomCommand(
                     SessionCommand(VIDEO_INPUT_FORMAT_CHANGED, Bundle.EMPTY),
                     Bundle().apply {
-                        inputUri?.let { putString(VIDEO_QUALITY_URI, it) }
+                        putString(VIDEO_QUALITY_URI, inputUri)
                         putString(VIDEO_QUALITY_NAME, quality.name)
                         putString(VIDEO_QUALITY_CODECS, quality.codecs)
                         quality.bitrate?.let { putInt(VIDEO_QUALITY_BITRATE, it) }
@@ -505,41 +570,9 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         })
-        mediaSession = MediaSession.Builder(
-            this,
-            object : ForwardingSimpleBasePlayer(player) {
-                override fun getState(): State {
-                    val state = super.getState()
-                    val enhancedSeekEnabled = prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true) &&
-                        prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_SEEK_BUTTONS, true) &&
-                        player.isCurrentMediaItemSeekable
-                    val availableCommands = state.availableCommands.buildUpon().apply {
-                        if (enhancedSeekEnabled) {
-                            add(COMMAND_SEEK_TO_NEXT)
-                            add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                        }
-                    }.build()
-                    return state
-                        .buildUpon()
-                        .setAvailableCommands(availableCommands)
-                        .build()
-                }
-
-                override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
-                    return when (seekCommand) {
-                        COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
-                            player.seekForward()
-                            Futures.immediateVoidFuture()
-                        }
-                        COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
-                            player.seekBack()
-                            Futures.immediateVoidFuture()
-                        }
-                        else -> super.handleSeek(mediaItemIndex, positionMs, seekCommand)
-                    }
-                }
-            }
-        ).apply {
+        val sessionPlayer = PlaybackSessionPlayer(player)
+        playbackSessionPlayer = sessionPlayer
+        mediaSession = MediaSession.Builder(this, sessionPlayer).apply {
             setSessionActivity(
                 PendingIntent.getActivity(
                     this@PlaybackService,
@@ -554,6 +587,33 @@ class PlaybackService : MediaSessionService() {
             setCallback(
                 object : MediaSession.Callback {
                     override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+                        if (session.isMediaNotificationController(controller)) {
+                            val basePlayerCommands = if (controller.isTrusted) {
+                                MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS
+                            } else {
+                                MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_PLAYER_COMMANDS
+                            }
+                            val playerCommands = basePlayerCommands.buildUpon().apply {
+                                mediaNotificationControllerSeekCommandAdditions(isMediaNotificationController = true)
+                                    .forEach { command -> add(command) }
+                            }.build()
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "PlaybackLifecycle",
+                                    "event=media_notification_controller_connected trusted=${controller.isTrusted} " +
+                                        "getTimeline=${playerCommands.contains(Player.COMMAND_GET_TIMELINE)} " +
+                                        "getCurrentMediaItem=${playerCommands.contains(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)} " +
+                                        "getMetadata=${playerCommands.contains(Player.COMMAND_GET_METADATA)} " +
+                                        "seekPrevious=${playerCommands.contains(Player.COMMAND_SEEK_TO_PREVIOUS)} " +
+                                        "seekNext=${playerCommands.contains(Player.COMMAND_SEEK_TO_NEXT)} " +
+                                        "playerTimeline=${session.player.isCommandAvailable(Player.COMMAND_GET_TIMELINE)} " +
+                                        "playerCurrentMediaItem=${session.player.isCommandAvailable(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)}",
+                                )
+                            }
+                            return MediaSession.ConnectionResult.AcceptedResultBuilder(session, controller)
+                                .setAvailablePlayerCommands(playerCommands)
+                                .build()
+                        }
                         val connectionResult = super.onConnect(session, controller)
                         if (!isTrustedController(controller)) return connectionResult
                         val sessionCommands = connectionResult.availableSessionCommands.buildUpon().apply {
@@ -596,6 +656,7 @@ class PlaybackService : MediaSessionService() {
                         val playerCommands = connectionResult.availablePlayerCommands.buildUpon()
                             .addAll(player.availableCommands)
                             .apply {
+                                add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                                 if (player.isCommandAvailable(Player.COMMAND_SET_VIDEO_SURFACE)) {
                                     add(Player.COMMAND_SET_VIDEO_SURFACE)
                                 }
@@ -630,15 +691,15 @@ class PlaybackService : MediaSessionService() {
                                     restoreVideo = true,
                                     reason = "go_live",
                                 )
-                                liveRewindTransitioning = true
+                                setLiveRewindSessionState(transitioning = true)
                                 val result = startLiveStream(player, extras, beginNewPlayback = false)
                                 result.addListener({
                                     val succeeded = runCatching { result.get().resultCode == SessionResult.RESULT_SUCCESS }.getOrDefault(false)
-                                    if (succeeded) {
-                                        liveRewindActive = false
-                                        liveRewindVodId = null
-                                    }
-                                    liveRewindTransitioning = false
+                                    setLiveRewindSessionState(
+                                        active = if (succeeded) false else liveRewindActive,
+                                        vodId = if (succeeded) null else liveRewindVodId,
+                                        transitioning = false,
+                                    )
                                     updatePrimaryPlaybackWatchState(player)
                                     refreshMediaButtonPreferences(player)
                                 }, MoreExecutors.directExecutor())
@@ -650,11 +711,11 @@ class PlaybackService : MediaSessionService() {
                                     restoreVideo = true,
                                     reason = "start_stream",
                                 )
-                                liveRewindTransitioning = true
+                                setLiveRewindSessionState(transitioning = true)
                                 val result = try {
                                     startLiveStream(player, customCommand.customExtras)
                                 } catch (_: Exception) {
-                                    liveRewindTransitioning = false
+                                    setLiveRewindSessionState(transitioning = false)
                                     updatePrimaryPlaybackWatchState(player)
                                     return Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
                                 }
@@ -662,11 +723,11 @@ class PlaybackService : MediaSessionService() {
                                     val succeeded = runCatching {
                                         result.get().resultCode == SessionResult.RESULT_SUCCESS
                                     }.getOrDefault(false)
-                                    if (succeeded) {
-                                        liveRewindActive = false
-                                        liveRewindVodId = null
-                                    }
-                                    liveRewindTransitioning = false
+                                    setLiveRewindSessionState(
+                                        active = if (succeeded) false else liveRewindActive,
+                                        vodId = if (succeeded) null else liveRewindVodId,
+                                        transitioning = false,
+                                    )
                                     updatePrimaryPlaybackWatchState(player)
                                 }, MoreExecutors.directExecutor())
                                 return result
@@ -685,7 +746,7 @@ class PlaybackService : MediaSessionService() {
                                     if (BuildConfig.DEBUG) Log.d("LiveRewind", "Cannot rewind without an active live source to restore")
                                     return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                                 }
-                                liveRewindTransitioning = true
+                                setLiveRewindSessionState(transitioning = true)
                                 try {
                                     player.setMediaSource(createVodMediaSource(uri))
                                     player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
@@ -694,16 +755,17 @@ class PlaybackService : MediaSessionService() {
                                     player.playWhenReady = customCommand.customExtras.getBoolean(PLAY_WHEN_READY, true)
                                     player.seekTo(customCommand.customExtras.getLong(PLAYBACK_POSITION))
                                     clearLiveClipState()
-                                    liveRewindVodId = vodId
-                                    liveRewindActive = true
+                                    setLiveRewindSessionState(active = true, vodId = vodId)
                                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                                 } catch (_: Exception) {
-                                    liveRewindActive = previousPlayback.liveRewindActive
-                                    liveRewindVodId = previousPlayback.liveRewindVodId
+                                    setLiveRewindSessionState(
+                                        active = previousPlayback.liveRewindActive,
+                                        vodId = previousPlayback.liveRewindVodId,
+                                    )
                                     restoreLiveRewindPlayback(player, previousPlayback)
                                     Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
                                 } finally {
-                                    liveRewindTransitioning = false
+                                    setLiveRewindSessionState(transitioning = false)
                                     if (!liveRewindActive && player.isCurrentMediaItemLive) {
                                         player.currentMediaItem?.let(::updateLiveClipSource)
                                     }
@@ -1179,14 +1241,17 @@ class PlaybackService : MediaSessionService() {
                                 )
                             }
                             GET_VIDEO_QUALITY -> {
-                                val quality = diagnostics.confirmedVideoQuality()
+                                val currentMediaItem = session.player.currentMediaItem
+                                val currentUri = currentMediaItem?.localConfiguration?.uri?.toString()
+                                val quality = diagnostics.confirmedVideoQuality(
+                                    currentMediaItem?.mediaId,
+                                    currentUri,
+                                )
                                 Futures.immediateFuture(
                                     SessionResult(
                                         SessionResult.RESULT_SUCCESS,
                                         Bundle().apply {
-                                            session.player.currentMediaItem?.localConfiguration?.uri?.toString()?.let {
-                                                putString(VIDEO_QUALITY_URI, it)
-                                            }
+                                            currentUri?.let { putString(VIDEO_QUALITY_URI, it) }
                                             quality?.name?.let { putString(VIDEO_QUALITY_NAME, it) }
                                             quality?.codecs?.let { putString(VIDEO_QUALITY_CODECS, it) }
                                             quality?.bitrate?.let { putInt(VIDEO_QUALITY_BITRATE, it) }
@@ -1346,6 +1411,41 @@ class PlaybackService : MediaSessionService() {
                 }
             )
         }.build()
+    }
+
+    private fun invalidatePlaybackSessionPlayerState() {
+        val player = playbackPlayer ?: return
+        val sessionPlayer = playbackSessionPlayer ?: return
+        val invalidate = Runnable {
+            if (playbackSessionPlayer !== sessionPlayer) return@Runnable
+            sessionPlayer.invalidateServiceState()
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackLifecycle",
+                    "event=session_player_state_invalidated liveRewindActive=$liveRewindActive " +
+                        "liveRewindTransitioning=$liveRewindTransitioning " +
+                        "seekable=${player.isCurrentMediaItemSeekable} " +
+                        "seekInItemAvailable=${player.isCommandAvailable(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)}",
+                )
+            }
+        }
+        if (Looper.myLooper() == player.applicationLooper) {
+            invalidate.run()
+        } else {
+            Handler(player.applicationLooper).post(invalidate)
+        }
+    }
+
+    private fun setLiveRewindSessionState(
+        active: Boolean = liveRewindActive,
+        vodId: String? = liveRewindVodId,
+        transitioning: Boolean = liveRewindTransitioning,
+    ) {
+        val commandStateChanged = liveRewindActive != active || liveRewindTransitioning != transitioning
+        liveRewindActive = active
+        liveRewindVodId = vodId
+        liveRewindTransitioning = transitioning
+        if (commandStateChanged) invalidatePlaybackSessionPlayerState()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -1577,9 +1677,7 @@ class PlaybackService : MediaSessionService() {
                 putString(TITLE, state.title)
                 putBoolean(PLAY_WHEN_READY, isForPlay || !state.paused)
             }
-            liveRewindActive = false
-            liveRewindVodId = null
-            liveRewindTransitioning = false
+            setLiveRewindSessionState(active = false, vodId = null, transitioning = false)
         }
         beginPrimaryPlaybackWatchState()
 
@@ -2113,6 +2211,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun refreshMediaButtonPreferences(player: Player) {
+        lastMediaButtonSeekable = player.isCurrentMediaItemSeekable
         val session = mediaSession ?: return
         if (!prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true)) {
             session.setMediaButtonPreferences(emptyList())
@@ -2146,6 +2245,50 @@ class PlaybackService : MediaSessionService() {
             }
         }
         session.setMediaButtonPreferences(buttons)
+    }
+
+    private fun refreshMediaButtonPreferencesIfSeekabilityChanged(player: Player) {
+        if (player.isCurrentMediaItemSeekable == lastMediaButtonSeekable) return
+        refreshMediaButtonPreferences(player)
+    }
+
+    private inner class PlaybackSessionPlayer(
+        private val player: ExoPlayer,
+    ) : ForwardingSimpleBasePlayer(player) {
+
+        fun invalidateServiceState() {
+            invalidateState()
+        }
+
+        override fun getState(): State {
+            val state = super.getState()
+            val seekCommandAdditions = mediaSessionSeekCommandAdditions(
+                systemMediaControlsEnabled = prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true),
+                systemSeekButtonsEnabled = prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_SEEK_BUTTONS, true),
+                liveRewindActive = this@PlaybackService.liveRewindActive,
+                liveRewindTransitioning = this@PlaybackService.liveRewindTransitioning,
+                seekable = player.isCurrentMediaItemSeekable,
+            )
+            val availableCommands = state.availableCommands.buildUpon().apply {
+                if (seekCommandAdditions.seekToPrevious) add(COMMAND_SEEK_TO_PREVIOUS)
+                if (seekCommandAdditions.seekToNext) add(COMMAND_SEEK_TO_NEXT)
+                if (seekCommandAdditions.seekInCurrentMediaItem) add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+            }.build()
+            return state.buildUpon().setAvailableCommands(availableCommands).build()
+        }
+
+        override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> =
+            when (seekCommand) {
+                COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
+                    player.seekForward()
+                    Futures.immediateVoidFuture()
+                }
+                COMMAND_SEEK_TO_PREVIOUS, COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM -> {
+                    player.seekBack()
+                    Futures.immediateVoidFuture()
+                }
+                else -> super.handleSeek(mediaItemIndex, positionMs, seekCommand)
+            }
     }
 
     private class StreamStartupTrace(
@@ -2245,8 +2388,7 @@ class PlaybackService : MediaSessionService() {
             liveStreamUri = uri
             liveStreamExtras = Bundle(snapshot.liveStreamExtras)
             proxyMediaPlaylist = snapshot.proxyMediaPlaylist
-            liveRewindActive = snapshot.liveRewindActive
-            liveRewindVodId = snapshot.liveRewindVodId
+            setLiveRewindSessionState(active = snapshot.liveRewindActive, vodId = snapshot.liveRewindVodId)
             updateLiveClipSource(mediaItem)
             true
         } catch (error: Exception) {
@@ -2604,7 +2746,10 @@ class PlaybackService : MediaSessionService() {
         }
         Log.d(
             "BackgroundVideo",
-            "background_video action=$action owned=$owned " +
+            "background_video action=$action owned=$owned pid=${Process.myPid()} player=${player.identityId()} " +
+                "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)} state=${player.playbackState} " +
+                "playWhenReady=${player.playWhenReady} isPlaying=${player.isPlaying} " +
+                "positionMs=${player.currentPosition} bufferedPositionMs=${player.bufferedPosition} " +
                 "disabledTrackTypes=${player.trackSelectionParameters.disabledTrackTypes} " +
                 "selectedVideoTrack=$selectedVideoTrack hasMediaItem=${player.currentMediaItem != null}",
         )
@@ -2616,12 +2761,47 @@ class PlaybackService : MediaSessionService() {
         session: MediaSession,
         startInForegroundRequired: Boolean,
     ): ListenableFuture<Void?> {
+        val player = session.player
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLifecycle",
+                "event=media_notification_update startInForegroundRequired=$startInForegroundRequired " +
+                    "bootstrapForegroundActive=$bootstrapForegroundActive ongoing=${isPlaybackOngoing()} " +
+                    "mediaItemCount=${player.mediaItemCount} playWhenReady=${player.playWhenReady} " +
+                    "playbackState=${player.playbackState}",
+            )
+        }
         if (bootstrapForegroundActive && !startInForegroundRequired) {
             if (BuildConfig.DEBUG) Log.d(RESUMPTION_TAG, "deferred transient idle notification update")
             return Futures.immediateVoidFuture()
         }
 
         val future = super.onUpdateNotificationAsync(session, startInForegroundRequired)
+        if (BuildConfig.DEBUG) {
+            Futures.addCallback(
+                future,
+                object : FutureCallback<Void?> {
+                    override fun onSuccess(result: Void?) {
+                        Log.d(
+                            "PlaybackLifecycle",
+                            "event=media_notification_update_complete " +
+                                "startInForegroundRequired=$startInForegroundRequired " +
+                                "ongoingAfter=${isPlaybackOngoing()}",
+                        )
+                    }
+
+                    override fun onFailure(t: Throwable) {
+                        Log.e(
+                            "PlaybackLifecycle",
+                            "event=media_notification_update_failed " +
+                                "startInForegroundRequired=$startInForegroundRequired " +
+                                "error=${t.javaClass.simpleName}",
+                        )
+                    }
+                },
+                MoreExecutors.directExecutor(),
+            )
+        }
         if (bootstrapForegroundActive && startInForegroundRequired) {
             Futures.addCallback(
                 future,
@@ -2722,6 +2902,7 @@ class PlaybackService : MediaSessionService() {
         }
         if (::xtraModule.isInitialized) xtraModule.streamMedia3Runtime.releasePlaybackPlayer(playbackPlayer)
         playbackPlayer = null
+        playbackSessionPlayer = null
         adaptiveLiveController = null
         adaptiveLiveSpeedControl = null
         super.onDestroy()

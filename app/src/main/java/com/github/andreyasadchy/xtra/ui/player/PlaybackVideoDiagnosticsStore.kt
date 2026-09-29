@@ -15,6 +15,11 @@ import kotlin.math.roundToInt
 /** Small lock-free snapshot store shared by Media3 callbacks and the service command path. */
 class PlaybackVideoDiagnosticsStore {
     private data class PendingVideoSize(val width: Int, val height: Int)
+    private data class ConfirmedVideoQuality(
+        val mediaId: String,
+        val uri: String,
+        val quality: VideoQuality,
+    )
 
     private val state = AtomicReference(
         PlaybackVideoInfo(media3Version = MediaLibraryInfo.VERSION),
@@ -23,7 +28,7 @@ class PlaybackVideoDiagnosticsStore {
     private val awaitingRenderedFirstFrame = AtomicBoolean(false)
     private val renderedFirstFrameObserved = AtomicBoolean(false)
     private val previousSelectedVideoQuality = AtomicReference<VideoQuality?>(null)
-    private val lastConfirmedVideoQuality = AtomicReference<VideoQuality?>(null)
+    private val lastConfirmedVideoQuality = AtomicReference<ConfirmedVideoQuality?>(null)
 
     fun update(block: (PlaybackVideoInfo) -> PlaybackVideoInfo) {
         state.updateAndGet(block)
@@ -31,9 +36,18 @@ class PlaybackVideoDiagnosticsStore {
 
     fun snapshot(): PlaybackVideoInfo = state.get()
 
-    fun confirmedVideoQuality(): VideoQuality? = lastConfirmedVideoQuality.get()
+    fun confirmedVideoQuality(mediaId: String?, uri: String?): VideoQuality? {
+        if (mediaId == null || uri == null) return null
+        return lastConfirmedVideoQuality.get()
+            ?.takeIf { it.mediaId == mediaId && it.uri == uri }
+            ?.quality
+    }
 
-    fun recordVideoInputFormat(format: androidx.media3.common.Format) {
+    fun recordVideoInputFormat(
+        format: androidx.media3.common.Format,
+        mediaId: String?,
+        uri: String?,
+    ) {
         if (format.width <= 0 || format.height <= 0) return
         val frameRate = format.frameRate.takeIf { it > 0f && it.isFinite() }
         val qualityName = buildString {
@@ -41,14 +55,15 @@ class PlaybackVideoDiagnosticsStore {
             append('p')
             frameRate?.roundToInt()?.takeIf { it > 30 }?.let(::append)
         }
-        lastConfirmedVideoQuality.set(
-            VideoQuality(
-                name = qualityName,
-                codecs = format.codecs,
-                bitrate = format.bitrate.takeIf { it > 0 },
-                frameRate = frameRate,
-            ),
+        val confirmedQuality = VideoQuality(
+            name = qualityName,
+            codecs = format.codecs,
+            bitrate = format.bitrate.takeIf { it > 0 },
+            frameRate = frameRate,
         )
+        if (mediaId != null && uri != null) {
+            lastConfirmedVideoQuality.set(ConfirmedVideoQuality(mediaId, uri, confirmedQuality))
+        }
         update { current ->
             current.copy(
                 selectedVideoWidth = format.width,

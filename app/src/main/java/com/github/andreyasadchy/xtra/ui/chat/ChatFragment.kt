@@ -1660,12 +1660,21 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            viewModel.playbackMessage.collectLatest {
-                                if (it != null) {
-                                    if (it.live != null) {
-                                        (parentFragment as? Media3PlayerFragment)?.updateLiveStatus(it.live, it.serverTime, channelLogin)
+                            launch {
+                                viewModel.playbackLiveEvents.collect { event ->
+                                    (parentFragment as? Media3PlayerFragment)?.updateLiveStatus(
+                                        live = event.live,
+                                        serverTime = event.serverTime,
+                                        channelLogin = channelLogin,
+                                        eventSequence = event.sequence,
+                                    )
+                                }
+                            }
+                            launch {
+                                viewModel.playbackViewers.collectLatest { viewers ->
+                                    viewers?.let {
+                                        (parentFragment as? Media3PlayerFragment)?.updateViewerCount(it)
                                     }
-                                    (parentFragment as? Media3PlayerFragment)?.updateViewerCount(it.viewers)
                                 }
                             }
                         }

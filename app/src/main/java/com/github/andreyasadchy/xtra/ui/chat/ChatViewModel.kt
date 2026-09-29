@@ -156,11 +156,11 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -783,8 +783,11 @@ class ChatViewModel(
     val predictionBetState: StateFlow<PredictionBetState> = _predictionBetState
     private val _streamInfo = MutableStateFlow<PubSubUtils.StreamInfo?>(null)
     val streamInfo: StateFlow<PubSubUtils.StreamInfo?> = _streamInfo
-    private val _playbackMessage = MutableStateFlow<PubSubUtils.PlaybackMessage?>(null)
-    val playbackMessage: StateFlow<PubSubUtils.PlaybackMessage?> = _playbackMessage
+    private val playbackLiveEventSequence = AtomicLong()
+    private val playbackLiveEventQueue = PlaybackLiveEventQueue()
+    internal val playbackLiveEvents: Flow<PlaybackLiveEvent> = playbackLiveEventQueue.events
+    private val _playbackViewers = MutableStateFlow<Int?>(null)
+    val playbackViewers: StateFlow<Int?> = _playbackViewers
     var streamId: String? = null
     private val rewardList = mutableListOf<ChatMessage>()
     val namePaints = mutableListOf<NamePaint>()
@@ -5884,7 +5887,21 @@ class ChatViewModel(
                         ))
                     }
                 }
-                _playbackMessage.value = playbackMessage
+                playbackMessage.live?.let { live ->
+                    val event = PlaybackLiveEvent(
+                        sequence = playbackLiveEventSequence.incrementAndGet(),
+                        live = live,
+                        serverTime = playbackMessage.serverTime,
+                    )
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "PlaybackLifecycle",
+                            "event=pubsub_status_queued sequence=${event.sequence} live=${event.live}",
+                        )
+                    }
+                    playbackLiveEventQueue.send(event)
+                }
+                playbackMessage.viewers?.let { _playbackViewers.value = it }
             }
         }
 

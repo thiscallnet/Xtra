@@ -22,6 +22,7 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.text.format.DateFormat
 import android.text.format.DateUtils
+import android.util.Log
 import android.util.Rational
 import android.util.TypedValue
 import android.view.GestureDetector
@@ -63,6 +64,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.session.MediaController
+import androidx.media3.common.C as Media3C
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.TimeBar
@@ -83,6 +86,7 @@ import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.RadioButtonDialogFragment
 import com.github.andreyasadchy.xtra.ui.common.formatStreamUptime
 import com.github.andreyasadchy.xtra.ui.common.parseStreamStartedAtMs
+import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -114,6 +118,7 @@ import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.color.MaterialColors
+import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.timepicker.MaterialTimePicker
 import com.google.android.material.timepicker.TimeFormat
 import coil3.imageLoader
@@ -192,6 +197,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var liveRewindStreamId: String? = null
     private var liveRewindStreamCreatedAt: String? = null
     private var livePlaybackMode: LivePlaybackMode = LivePlaybackMode.Live
+    private var liveRewindStateSyncPending = false
     private var liveRewindScrubPositionMs: Long? = null
     private var liveRewindDiscoveryJob: Job? = null
     private var liveRewindTickerJob: Job? = null
@@ -401,7 +407,32 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open suspend fun returnToLivePlayback(): Boolean = false
     protected open suspend fun getLiveRewindVodId(): String? = null
     protected fun isLiveRewindActiveOrSwitching(): Boolean =
-        isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
+        liveRewindStateSyncPending || isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
+
+    protected fun isLiveRewindStateSyncPending(): Boolean = liveRewindStateSyncPending
+
+    protected fun beginLiveRewindStateSync() {
+        liveRewindStateSyncPending = true
+        updateLiveRewindUi()
+    }
+
+    protected fun applyLiveRewindServiceState(state: LiveRewindServiceState): Boolean {
+        if (state.active && !state.vodId.isNullOrBlank()) {
+            livePlaybackMode = LivePlaybackMode.Rewound(state.vodId)
+        } else if (!state.active && !state.transitioning) {
+            livePlaybackMode = LivePlaybackMode.Live
+        }
+        liveRewindSwitching = state.transitioning
+        if (state.isResolved) {
+            liveRewindStateSyncPending = false
+            liveRewindReturningLive = false
+            if (livePlaybackMode is LivePlaybackMode.Live) pausedLivePositionMs = null
+        } else {
+            liveRewindStateSyncPending = true
+        }
+        updateLiveRewindUi()
+        return state.isResolved
+    }
 
     /**
      * SurfaceView can become measurable one traversal after audio-only
@@ -453,6 +484,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun fastForward() {}
     open fun seek(position: Long) {}
     open fun seekToLivePosition() {}
+    protected open fun seekToLivePosition(origin: String) = seekToLivePosition()
+    protected fun clearPausedLivePositionForSourceReplacement(playbackRequested: Boolean) {
+        if (playbackRequested) pausedLivePositionMs = null
+    }
     open fun setPlaybackSpeed(speed: Float) {}
     open fun changeVolume(volume: Float) {}
     open fun updateProgress() {}
@@ -1435,8 +1470,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     seekLive.visibility = View.VISIBLE
                     seekLive.setOnClickListener {
                         showController(force = true)
-                        pausedLivePositionMs = null
-                        seekToLivePosition()
+                        seekToCurrentLiveEdge()
                     }
                     viewersLayout.apply {
                         isClickable = true
@@ -1571,6 +1605,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                             currentUri?.let { uri -> qualities.find { it.url == uri } }
                                                 ?: restoredQuality
                                         } ?: qualities.firstOrNull()
+                                        viewModel.restoredQualityBootstrapConsumed = true
                                     } else {
                                         setDefaultQuality()
                                     }
@@ -2505,7 +2540,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         )
     }
 
-    fun updateLiveStatus(live: Boolean, serverTime: Long?, channelLogin: String?) {
+    fun updateLiveStatus(
+        live: Boolean,
+        serverTime: Long?,
+        channelLogin: String?,
+        eventSequence: Long? = null,
+    ) {
         if (channelLogin == requireArguments().getString(KEY_CHANNEL_LOGIN)) {
             if (live) {
                 if (isLiveRewindEnabled() && videoType == PlaybackContract.STREAM) {
@@ -2521,11 +2561,19 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     startLiveRewindTicker()
                 }
                 if (videoType == PlaybackContract.STREAM) startStreamUptimeTicker()
-                restartPlayer()
+                onStreamBecameLive(eventSequence)
             } else {
-                onLiveStreamWentOffline()
+                onStreamBecameOffline(eventSequence)
             }
         }
+    }
+
+    protected open fun onStreamBecameLive(eventSequence: Long?) {
+        restartPlayer()
+    }
+
+    protected open fun onStreamBecameOffline(eventSequence: Long?) {
+        onLiveStreamWentOffline()
     }
 
     fun updateStreamInfo(title: String?, gameId: String?, gameSlug: String?, gameName: String?) {
@@ -2718,6 +2766,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         viewModel.qualities?.let { qualities ->
             restorePlaybackQuality(qualities)?.let { restoredQuality ->
                 viewModel.quality = restoredQuality
+                viewModel.restoredQualityBootstrapConsumed = true
                 return
             }
         }
@@ -2725,9 +2774,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
         val profile = PlayerQualityNetworkProfile.from(networkCapabilities)
         viewModel.quality = resolveDefaultQualityForNetwork(profile)
+        viewModel.restoredQualityBootstrapConsumed = true
     }
 
     protected fun restorePlaybackQuality(qualities: List<VideoQuality>): VideoQuality? {
+        if (viewModel.restoredQualityBootstrapConsumed) {
+            return viewModel.quality?.let { resolvePlaybackQuality(qualities, it) ?: it }
+        }
         if (!requireArguments().getBoolean(KEY_RESTORED_PLAYBACK)) return null
         val savedQualities = decodePlaybackQualities(
             xtraModule.json,
@@ -2749,7 +2802,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 it.name == candidate.name && it.url == candidate.url
             }
         }
-        return resolvePlaybackQuality(qualities, savedSelection)
+        return resolvePlaybackQuality(qualities, savedSelection)?.also {
+            viewModel.restoredQualityBootstrapConsumed = true
+        }
     }
 
     private fun resolveDefaultQualityForNetwork(profile: PlayerQualityNetworkProfile): VideoQuality? {
@@ -3167,6 +3222,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     protected fun isLiveRewindAvailable(): Boolean =
         videoType == PlaybackContract.STREAM &&
             isLiveRewindEnabled() &&
+            !liveRewindStateSyncPending &&
             liveRewindVod != null
 
     protected fun prepareLiveRewind(
@@ -3262,10 +3318,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         liveRewindSwitching = false
         pausedLivePositionMs = null
         viewLifecycleOwner.lifecycleScope.launch {
-            livePlaybackMode = if (getLiveRewindVodId() == vod.id) {
-                LivePlaybackMode.Rewound(vod.id)
-            } else {
-                LivePlaybackMode.Live
+            val ownerVodId = getLiveRewindVodId()
+            livePlaybackMode = when {
+                ownerVodId == vod.id -> LivePlaybackMode.Rewound(vod.id)
+                ownerVodId == null && liveRewindStateSyncPending -> livePlaybackMode
+                else -> LivePlaybackMode.Live
             }
             updateLiveRewindUi()
             if (livePlaybackMode is LivePlaybackMode.Rewound) {
@@ -3427,7 +3484,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val playbackRequested = isPlaybackRequested()
         if (shouldSeekToLiveAfterPausedLive(livePlaybackMode, playbackRequested, pausedLivePositionMs)) {
             pausedLivePositionMs = null
-            seekToLivePosition()
+            seekToLivePosition(origin = "auto_resume_paused_live")
         }
         pausedLivePositionMs = liveRewindPausedPositionMs(
             mode = livePlaybackMode,
@@ -3618,9 +3675,89 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun handleLiveTapSeekDoubleTap(direction: LiveTapSeekDirection): Boolean {
-        if (!isMaximized || requireContext().isTelevision() || !isLiveRewindAvailable() ||
-            liveRewindStreamOffline || liveRewindSwitching || liveRewindReturningLive
-        ) {
+        if (!isMaximized || requireContext().isTelevision()) {
+            return false
+        }
+        return handleLiveRewindSeek(direction, LIVE_TAP_SEEK_STEP_MS)
+    }
+
+    protected fun handleLiveTransportSeek(
+        direction: LiveTapSeekDirection,
+        stepMs: Long,
+    ): Boolean {
+        if (livePlaybackMode !is LivePlaybackMode.Live) return false
+        return handleLiveRewindSeek(direction, stepMs)
+    }
+
+    protected fun transportSeekIncrementMs(direction: LiveTapSeekDirection): Long {
+        val key = if (direction == LiveTapSeekDirection.BACKWARD) C.PLAYER_REWIND else C.PLAYER_FORWARD
+        val seconds = requireContext().prefs().getString(key, "10")?.toLongOrNull() ?: 10L
+        return seconds.coerceAtLeast(0L).coerceAtMost(Long.MAX_VALUE / 1_000L) * 1_000L
+    }
+
+    protected fun handleTransportSeekFallback(
+        currentPlayer: Player,
+        direction: LiveTapSeekDirection,
+        stepMs: Long,
+    ): Boolean {
+        val commands = currentPlayer.availableCommands
+        val nativeCommand = if (direction == LiveTapSeekDirection.BACKWARD) {
+            Player.COMMAND_SEEK_BACK
+        } else {
+            Player.COMMAND_SEEK_FORWARD
+        }
+        val blockedReason = if (videoType == PlaybackContract.STREAM) {
+            when {
+                liveRewindStreamOffline -> "offline"
+                liveRewindSwitching || liveRewindReturningLive -> "transition"
+                else -> null
+            }
+        } else {
+            null
+        }
+        val durationMs = currentPlayer.duration.takeUnless { it == Media3C.TIME_UNSET || it < 0L }
+        val currentPositionMs = currentPlayer.currentPosition.takeIf { it >= 0L }
+        val seekInItemAvailable = commands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+        val decision = transportSeekDecision(
+            nativeSeekAvailable = commands.contains(nativeCommand),
+            currentItemAvailable = currentPlayer.currentMediaItem != null,
+            seekInCurrentMediaItemAvailable = seekInItemAvailable,
+            seekable = currentPlayer.isCurrentMediaItemSeekable,
+            blockedReason = blockedReason,
+            currentPositionMs = currentPositionMs,
+            durationMs = durationMs,
+            direction = direction,
+            stepMs = stepMs,
+        )
+        if (decision == TransportSeekDecision.UseNativeCommand) return false
+
+        val rejectionReason = (decision as? TransportSeekDecision.Rejected)?.reason
+        val targetPositionMs = (decision as? TransportSeekDecision.SeekTo)?.positionMs
+        if (targetPositionMs != null && targetPositionMs != currentPositionMs) {
+            currentPlayer.seekTo(targetPositionMs)
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLifecycle",
+                "event=transport_seek_fallback_${if (rejectionReason == null) "handled" else "rejected"} " +
+                    "direction=${if (direction == LiveTapSeekDirection.BACKWARD) "back" else "forward"} " +
+                    "reason=${rejectionReason ?: "same_item_seek"} " +
+                    "seekBackAvailable=${commands.contains(Player.COMMAND_SEEK_BACK)} " +
+                    "seekForwardAvailable=${commands.contains(Player.COMMAND_SEEK_FORWARD)} " +
+                    "seekInItemAvailable=$seekInItemAvailable seekable=${currentPlayer.isCurrentMediaItemSeekable} " +
+                    "itemToken=${diagnosticToken(currentPlayer.currentMediaItem?.mediaId)} " +
+                    "positionMs=${currentPositionMs ?: -1L} targetMs=${targetPositionMs ?: -1L} " +
+                    "durationMs=${durationMs ?: -1L} playWhenReady=${currentPlayer.playWhenReady}",
+            )
+        }
+        return true
+    }
+
+    private fun handleLiveRewindSeek(
+        direction: LiveTapSeekDirection,
+        stepMs: Long,
+    ): Boolean {
+        if (!isLiveRewindAvailable() || liveRewindStreamOffline || liveRewindSwitching || liveRewindReturningLive) {
             return false
         }
         val edgeMs = currentLiveEdgeMs()
@@ -3645,7 +3782,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             playbackRequested = playbackRequested,
             pausedLivePositionMs = pausedLivePositionMs,
         )
-        val target = liveTapSeekAccumulator.addTap(currentPositionMs, edgeMs, direction)
+        val target = liveTapSeekAccumulator.addTap(currentPositionMs, edgeMs, direction, stepMs)
         liveRewindScrubPositionMs = target.positionMs
         showController(force = true)
         showLiveRewindPreview(target.positionMs)
@@ -3752,7 +3889,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private fun seekToCurrentLiveEdge() {
         if (shouldSeekToLiveAfterLiveTarget(livePlaybackMode, true)) {
             pausedLivePositionMs = null
-            seekToLivePosition()
+            seekToLivePosition(origin = "user_timeline")
         } else {
             goLive()
         }
@@ -3843,7 +3980,18 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     onSuccess?.invoke()
                 }
             } else {
-                onFailure?.invoke()
+                if (onFailure != null) {
+                    onFailure()
+                } else {
+                    updateLiveRewindUi()
+                    Snackbar.make(
+                        binding.playerBackground,
+                        R.string.connection_error,
+                        Snackbar.LENGTH_LONG,
+                    ).setAction(R.string.retry) {
+                        goLive(force = true)
+                    }.show()
+                }
             }
         }
     }
@@ -3861,7 +4009,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.playerControls.timelineContent.clearLiveRewindPreview()
     }
 
-    private fun onLiveStreamWentOffline() {
+    protected fun onLiveStreamWentOffline() {
         if (view == null) return
         cancelLiveTapSeek()
         streamUptimeWasLive = false

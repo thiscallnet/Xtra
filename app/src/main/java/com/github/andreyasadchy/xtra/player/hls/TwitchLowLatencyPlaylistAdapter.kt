@@ -22,6 +22,19 @@ data class TwitchHlsPlaylistDiagnostics(
     val effectiveReloadTargetDurationMs: Long? = null,
     val partTargetDurationMs: Long? = null,
     val container: String? = null,
+    val parseIndex: Int = 0,
+    val rawHasEndTag: Boolean = false,
+    val adaptedHasEndTag: Boolean = false,
+    val parsedBeforeInterstitialRestoreHasEndTag: Boolean? = null,
+    val restoredInterstitialCount: Int = 0,
+    val parsedHasEndTag: Boolean? = null,
+    val parsedHasIndependentSegments: Boolean? = null,
+    val parsedHasProgramDateTime: Boolean? = null,
+    val parsedPreciseStart: Boolean? = null,
+    val parsedPlaylistType: Int? = null,
+    val mediaSequence: Long? = null,
+    val playlistDurationMs: Long? = null,
+    val segmentCount: Int? = null,
 )
 
 /**

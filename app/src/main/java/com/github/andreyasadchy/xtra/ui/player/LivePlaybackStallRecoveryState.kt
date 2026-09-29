@@ -1,6 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.player
 
-/** Tracks when an already-playing live source is eligible for stalled-buffer recovery. */
+/** Tracks bounded recovery state for an active live source. */
 internal class LivePlaybackStallRecoveryState(
     private val stallTimeoutMs: Long = DEFAULT_STALL_TIMEOUT_MS,
     private val maxAttempts: Int = DEFAULT_MAX_ATTEMPTS,
@@ -10,6 +10,8 @@ internal class LivePlaybackStallRecoveryState(
     private var bufferingSinceMs: Long? = null
     private var attempts = 0
     private var recoveryInFlight = false
+    private var endedRecoveryAttempts = 0
+    private var playbackStartedAtMs: Long? = null
 
     @Synchronized
     fun currentGeneration(): Long = generation
@@ -22,6 +24,8 @@ internal class LivePlaybackStallRecoveryState(
         bufferingSinceMs = null
         attempts = 0
         recoveryInFlight = false
+        endedRecoveryAttempts = 0
+        playbackStartedAtMs = null
         return generation
     }
 
@@ -37,10 +41,11 @@ internal class LivePlaybackStallRecoveryState(
 
     /** Call only after actual playback resumes, not on READY/onPrepared alone. */
     @Synchronized
-    fun onPlaybackStarted(sourceGeneration: Long): Boolean {
+    fun onPlaybackStarted(sourceGeneration: Long, nowMs: Long? = null): Boolean {
         if (sourceGeneration != generation) return false
         hasPlayed = true
         bufferingSinceMs = null
+        playbackStartedAtMs = nowMs
         if (recoveryInFlight) {
             attempts = 0
             recoveryInFlight = false
@@ -98,8 +103,37 @@ internal class LivePlaybackStallRecoveryState(
     @Synchronized
     fun recoveryAttempts(): Int = attempts
 
+    /** Claims one fresh-status-confirmed retry for a live item that reached STATE_ENDED. */
+    @Synchronized
+    fun claimEndedRecovery(sourceGeneration: Long, nowMs: Long): Int? {
+        if (sourceGeneration != generation) return null
+        val startedAtMs = playbackStartedAtMs
+        if (startedAtMs != null && nowMs >= startedAtMs &&
+            nowMs - startedAtMs >= ENDED_RECOVERY_STABILITY_MS
+        ) {
+            endedRecoveryAttempts = 0
+        }
+        playbackStartedAtMs = null
+        if (endedRecoveryAttempts >= maxAttempts) return null
+        endedRecoveryAttempts++
+        return endedRecoveryAttempts
+    }
+
+    @Synchronized
+    fun resetEndedRecoveryBudget() {
+        endedRecoveryAttempts = 0
+        playbackStartedAtMs = null
+    }
+
+    @Synchronized
+    fun endedRecoveryAttempts(): Int = endedRecoveryAttempts
+
+    @Synchronized
+    fun isEndedRecoveryExhausted(): Boolean = endedRecoveryAttempts >= maxAttempts
+
     companion object {
         const val DEFAULT_STALL_TIMEOUT_MS = 30_000L
         const val DEFAULT_MAX_ATTEMPTS = 3
+        const val ENDED_RECOVERY_STABILITY_MS = 120_000L
     }
 }
