@@ -43,6 +43,10 @@ data class PlaybackVideoInfo(
     val manifestBytesLoaded: Long = 0L,
     val mediaLoadCount: Long = 0L,
     val mediaBytesLoaded: Long = 0L,
+    val currentPlaybackUrl: String? = null,
+    val lastStreamRequestType: String? = null,
+    val appProxyRoute: String? = null,
+    val appProxyServer: String? = null,
     val media3Version: String = MediaLibraryInfo.VERSION,
 ) {
 
@@ -80,6 +84,10 @@ data class PlaybackVideoInfo(
         putLong(KEY_MANIFEST_BYTES_LOADED, manifestBytesLoaded)
         putLong(KEY_MEDIA_LOAD_COUNT, mediaLoadCount)
         putLong(KEY_MEDIA_BYTES_LOADED, mediaBytesLoaded)
+        putNullableString(KEY_CURRENT_PLAYBACK_URL, currentPlaybackUrl)
+        putNullableString(KEY_LAST_STREAM_REQUEST_TYPE, lastStreamRequestType)
+        putNullableString(KEY_APP_PROXY_ROUTE, appProxyRoute)
+        putNullableString(KEY_APP_PROXY_SERVER, appProxyServer)
         putString(KEY_MEDIA3_VERSION, media3Version)
     }
 
@@ -117,6 +125,10 @@ data class PlaybackVideoInfo(
         private const val KEY_MANIFEST_BYTES_LOADED = "manifestBytesLoaded"
         private const val KEY_MEDIA_LOAD_COUNT = "mediaLoadCount"
         private const val KEY_MEDIA_BYTES_LOADED = "mediaBytesLoaded"
+        private const val KEY_CURRENT_PLAYBACK_URL = "currentPlaybackUrl"
+        private const val KEY_LAST_STREAM_REQUEST_TYPE = "lastStreamRequestType"
+        private const val KEY_APP_PROXY_ROUTE = "appProxyRoute"
+        private const val KEY_APP_PROXY_SERVER = "appProxyServer"
         private const val KEY_MEDIA3_VERSION = "media3Version"
 
         fun fromBundle(bundle: Bundle): PlaybackVideoInfo = PlaybackVideoInfo(
@@ -154,6 +166,10 @@ data class PlaybackVideoInfo(
             manifestBytesLoaded = bundle.getLong(KEY_MANIFEST_BYTES_LOADED, 0L),
             mediaLoadCount = bundle.getLong(KEY_MEDIA_LOAD_COUNT, 0L),
             mediaBytesLoaded = bundle.getLong(KEY_MEDIA_BYTES_LOADED, 0L),
+            currentPlaybackUrl = bundle.getString(KEY_CURRENT_PLAYBACK_URL),
+            lastStreamRequestType = bundle.getString(KEY_LAST_STREAM_REQUEST_TYPE),
+            appProxyRoute = bundle.getString(KEY_APP_PROXY_ROUTE),
+            appProxyServer = bundle.getString(KEY_APP_PROXY_SERVER),
             media3Version = bundle.getString(KEY_MEDIA3_VERSION) ?: MediaLibraryInfo.VERSION,
         )
     }

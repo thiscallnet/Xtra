@@ -2225,7 +2225,14 @@ class PlaybackService : MediaSessionService() {
 
     private fun videoDiagnosticsSnapshot(player: Player): PlaybackVideoInfo {
         syncTwitchHlsDiagnostics(player)
-        return diagnostics.snapshot(player)
+        val mediaItem = player.currentMediaItem
+        val request = mediaItem?.mediaId?.let(xtraModule.streamMedia3Runtime::proxyPlaylistObservationFor)
+        return diagnostics.snapshot(player).copy(
+            currentPlaybackUrl = mediaItem?.localConfiguration?.uri?.toString(),
+            lastStreamRequestType = request?.requestType,
+            appProxyRoute = request?.route?.name,
+            appProxyServer = request?.proxyServer,
+        )
     }
 
     private fun savePosition() {

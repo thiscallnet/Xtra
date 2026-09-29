@@ -25,6 +25,8 @@ import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
+import com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestObservation
+import com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestRouteTracker
 import com.github.andreyasadchy.xtra.player.lowlatency.TwitchHlsRequestRules.MEDIA_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.player.lowlatency.TwitchHlsRequestRules.MULTIVARIANT_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfiguration
@@ -46,11 +48,32 @@ import java.util.concurrent.ConcurrentHashMap
 
 /** Per-source state used by the live playlist proxy callback. */
 class StreamProxyState {
+    constructor(onProxyPlaylistObservation: (StreamRequestObservation) -> Unit = {}) {
+        this.onProxyPlaylistObservation = onProxyPlaylistObservation
+    }
+
+    private val onProxyPlaylistObservation: (StreamRequestObservation) -> Unit
+    val requestRouteTracker = StreamRequestRouteTracker()
+    @Volatile
+    private var primaryPlayback = false
+
     @Volatile
     var proxyMediaPlaylist: Boolean = false
 
     @Volatile
     var twitchHlsDiagnostics: TwitchHlsPlaylistDiagnostics? = null
+
+    fun recordRequestObservation(observation: StreamRequestObservation) {
+        if (!primaryPlayback) return
+        if (observation.requestType.endsWith("playlist", ignoreCase = true)) {
+            onProxyPlaylistObservation(observation)
+        }
+    }
+
+    fun setPrimaryPlayback(isPrimary: Boolean) {
+        primaryPlayback = isPrimary
+    }
+
 }
 
 /**
@@ -63,6 +86,7 @@ class StreamHlsMediaSourceFactory(
     private val xtraModule: XtraModule,
     private val configuration: StreamPlaybackConfiguration,
     private val proxyStates: MutableMap<String, StreamProxyState> = ConcurrentHashMap(),
+    private val onProxyPlaylistObservation: (String, StreamRequestObservation) -> Unit = { _, _ -> },
 ) : MediaSource.Factory {
 
     private var drmSessionManagerProvider: DrmSessionManagerProvider? = null
@@ -80,7 +104,9 @@ class StreamHlsMediaSourceFactory(
         ) {
             return defaultMediaSourceFactory.createMediaSource(mediaItem)
         }
-        val state = proxyStates.getOrPut(mediaItem.mediaId) { StreamProxyState() }
+        val state = proxyStates.getOrPut(mediaItem.mediaId) {
+            StreamProxyState { observation -> onProxyPlaylistObservation(mediaItem.mediaId, observation) }
+        }
         val streamSource = mediaItem.liveConfiguration.targetOffsetMs != androidx.media3.common.C.TIME_UNSET
         val sourceDataSourceFactory = DefaultDataSource.Factory(
             context,
@@ -185,6 +211,7 @@ class StreamHlsMediaSourceFactory(
 
     @SuppressLint("NewApi")
     private fun dataSourceFactory(state: StreamProxyState, streamSource: Boolean): DataSource.Factory {
+        val observeRequest = java.util.function.Consumer<StreamRequestObservation>(state::recordRequestObservation)
         val proxyHost = configuration.proxyHost.takeIf { streamSource }
         val proxyPort = configuration.proxyPort.takeIf { streamSource }
         val proxyUser = configuration.proxyUser.takeIf { streamSource }
@@ -195,10 +222,10 @@ class StreamHlsMediaSourceFactory(
 
         val upstreamFactory: DataSource.Factory = when {
             configuration.networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null ->
-                createHttpEngineFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist)
+                createHttpEngineFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist, observeRequest)
             configuration.networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null ->
-                createCronetFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist)
-            else -> createOkHttpFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist)
+                createCronetFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist, observeRequest)
+            else -> createOkHttpFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist, observeRequest)
         }
         return upstreamFactory.apply {
             if (streamSource && configuration.streamHeaders.isNotEmpty()) {
@@ -220,6 +247,7 @@ class StreamHlsMediaSourceFactory(
         proxyPassword: String?,
         proxyMultivariantPlaylist: Boolean,
         proxyMediaPlaylist: Boolean,
+        observeRequest: java.util.function.Consumer<StreamRequestObservation>,
     ): DataSource.Factory {
         val host = proxyHost.orEmpty()
         val port = proxyPort ?: 0
@@ -255,10 +283,10 @@ class StreamHlsMediaSourceFactory(
             }?.build()
         } else null
         val multivariantProxy = if (proxyMultivariantPlaylist && proxyClient == null) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX)
+            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker)
         } else null
         val mediaProxy = if (proxyMediaPlaylist && proxyClient == null) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX)
+            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX, state.requestRouteTracker)
         } else null
         return HttpEngineDataSource.Factory(
             xtraModule.httpEngine.value,
@@ -268,6 +296,8 @@ class StreamHlsMediaSourceFactory(
             proxyClient,
             multivariantProxy,
             mediaProxy,
+            state.requestRouteTracker,
+            observeRequest,
         ) { state.proxyMediaPlaylist }
     }
 
@@ -279,6 +309,7 @@ class StreamHlsMediaSourceFactory(
         proxyPassword: String?,
         proxyMultivariantPlaylist: Boolean,
         proxyMediaPlaylist: Boolean,
+        observeRequest: java.util.function.Consumer<StreamRequestObservation>,
     ): DataSource.Factory {
         val host = proxyHost.orEmpty()
         val port = proxyPort ?: 0
@@ -321,10 +352,10 @@ class StreamHlsMediaSourceFactory(
             }?.build()
         } else null
         val multivariantProxy = if (proxyMultivariantPlaylist && proxyClient == null) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX)
+            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker)
         } else null
         val mediaProxy = if (proxyMediaPlaylist && proxyClient == null) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX)
+            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX, state.requestRouteTracker)
         } else null
         return CronetDataSource.Factory(
             xtraModule.cronetEngine.value,
@@ -334,6 +365,8 @@ class StreamHlsMediaSourceFactory(
             proxyClient,
             multivariantProxy,
             mediaProxy,
+            state.requestRouteTracker,
+            observeRequest,
         ) { state.proxyMediaPlaylist }
     }
 
@@ -345,18 +378,21 @@ class StreamHlsMediaSourceFactory(
         proxyPassword: String?,
         proxyMultivariantPlaylist: Boolean,
         proxyMediaPlaylist: Boolean,
+        observeRequest: java.util.function.Consumer<StreamRequestObservation>,
     ): DataSource.Factory {
         val host = proxyHost.orEmpty()
         val port = proxyPort ?: 0
         val multivariantProxy = if (proxyMultivariantPlaylist) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX)
+            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker)
         } else null
         val mediaProxy = if (proxyMediaPlaylist) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX)
+            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX, state.requestRouteTracker)
         } else null
         return OkHttpDataSource.Factory(
-            multivariantProxy ?: xtraModule.okHttpClient.value,
-            mediaProxy,
+            state.requestRouteTracker.instrument(multivariantProxy ?: xtraModule.okHttpClient.value),
+            mediaProxy?.let(state.requestRouteTracker::instrument),
+            state.requestRouteTracker,
+            observeRequest,
         ) { state.proxyMediaPlaylist }
     }
 
@@ -366,7 +402,8 @@ class StreamHlsMediaSourceFactory(
         proxyUser: String?,
         proxyPassword: String?,
         hostPattern: String,
-    ): okhttp3.Call.Factory? {
+        routeTracker: StreamRequestRouteTracker? = null,
+    ): okhttp3.OkHttpClient? {
         if (proxyHost.isNullOrBlank() || proxyPort == null) return null
         return xtraModule.okHttpClient.value.newBuilder().apply {
             val allowDirectFallback = context.prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true)
@@ -384,7 +421,7 @@ class StreamHlsMediaSourceFactory(
                     response.request.newBuilder().header("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)).build()
                 }
             }
-        }.build()
+        }.build().let { client -> routeTracker?.instrument(client) ?: client }
     }
 }
 

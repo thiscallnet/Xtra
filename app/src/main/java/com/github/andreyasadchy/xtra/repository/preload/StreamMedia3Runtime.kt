@@ -33,6 +33,7 @@ import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 
 data class LiveMediaPreloadCandidate(
@@ -83,7 +84,9 @@ class StreamMedia3Runtime(
     private val states = mutableListOf<Generation>()
     private val sourceInstanceCounter = AtomicLong()
     private var currentGeneration: Generation? = null
+    @Volatile
     private var primaryPlaybackMediaId: String? = null
+    private val proxyPlaylistObservations = ConcurrentHashMap<String, com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestObservation>()
     private var desiredCandidates: List<LiveMediaPreloadCandidate> = emptyList()
     private val playbackPreferences = context.prefs()
     private val tokenPreferences = context.tokenPrefs()
@@ -332,6 +335,20 @@ class StreamMedia3Runtime(
         }
         val currentMediaId = primaryPlaybackMediaId
         if (currentMediaId == mediaItem?.mediaId) return
+        currentMediaId?.let(proxyPlaylistObservations::remove)
+        mediaItem?.mediaId?.let(proxyPlaylistObservations::remove)
+        currentMediaId?.let { currentId ->
+            states.forEach { it.hlsFactory.findState(currentId)?.setPrimaryPlayback(false) }
+        }
+        targetEntry?.let { (generation, entry) ->
+            generation.hlsFactory.findState(entry.mediaItem.mediaId)?.setPrimaryPlayback(true)
+        }
+        if (targetEntry == null) {
+            mediaItem?.mediaId?.let { mediaId ->
+                states.asReversed().firstNotNullOfOrNull { it.hlsFactory.findState(mediaId) }
+                    ?.setPrimaryPlayback(true)
+            }
+        }
         states.forEach { it.playbackOwnership.release() }
         targetEntry?.let { (generation, entry) -> generation.playbackOwnership.setPrimaryMediaItem(entry.mediaItem) }
         primaryPlaybackMediaId = mediaItem?.mediaId
@@ -429,6 +446,10 @@ class StreamMedia3Runtime(
             .firstOrNull()
 
     @Synchronized
+    fun proxyPlaylistObservationFor(mediaId: String): com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestObservation? =
+        if (primaryPlaybackMediaId != mediaId) null else proxyPlaylistObservations[mediaId]
+
+    @Synchronized
     fun releasePlaybackPlayer(player: ExoPlayer?) {
         if (player == null) return
         val playbackGenerations = states.filter { it.player === player }.toSet()
@@ -500,7 +521,9 @@ class StreamMedia3Runtime(
                 else -> DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_NOT_PRELOADED
             }
         }
-        val hlsFactory = StreamHlsMediaSourceFactory(context, xtraModule, configuration)
+        val hlsFactory = StreamHlsMediaSourceFactory(context, xtraModule, configuration) { mediaId, observation ->
+            if (primaryPlaybackMediaId == mediaId) proxyPlaylistObservations[mediaId] = observation
+        }
         val captionAudioSink = xtraModule.liveCaptionManager.createAudioBufferSinkSession()
         val builder = DefaultPreloadManager.Builder(context, statusControl)
             .setMediaSourceFactory(hlsFactory)
