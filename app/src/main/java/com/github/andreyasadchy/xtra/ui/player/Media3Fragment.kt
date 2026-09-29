@@ -1430,6 +1430,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         } catch (_: Exception) {
             null
         } ?: return false
+        invalidateQualityRequest()
         val oldQualities = viewModel.qualities
         val oldQuality = viewModel.quality
         val oldUpdateQualities = viewModel.updateQualities
@@ -1468,6 +1469,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             false
         }
         if (!success) {
+            invalidateQualityRequest()
             restoreQualityAfterSourceSwitchFailure(
                 qualities = oldQualities,
                 quality = oldQuality,
