@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.player
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -35,8 +36,15 @@ private enum class SwipeControlAction {
     SPEED,
 }
 
+private enum class SwipeControlOrientation {
+    BOTH,
+    PORTRAIT,
+    LANDSCAPE,
+}
+
 private data class SwipeControlsSettings(
     val enabled: Boolean,
+    val orientation: SwipeControlOrientation,
     val leftAction: SwipeControlAction,
     val rightAction: SwipeControlAction,
     val topAction: SwipeControlAction,
@@ -48,6 +56,12 @@ private data class SwipeControlsSettings(
     val speedStep: Float,
     val ignoreWhenLocked: Boolean,
 ) {
+    fun isAvailableIn(orientation: Int): Boolean = when (this.orientation) {
+        SwipeControlOrientation.BOTH -> true
+        SwipeControlOrientation.PORTRAIT -> orientation == Configuration.ORIENTATION_PORTRAIT
+        SwipeControlOrientation.LANDSCAPE -> orientation == Configuration.ORIENTATION_LANDSCAPE
+    }
+
     fun actionAt(x: Float, y: Float, width: Int, height: Int): SwipeControlAction {
         if (width <= 0 || height <= 0 || y < 0f || y > height) return SwipeControlAction.OFF
         val topHeight = height * speedZoneHeightPercent / 100f
@@ -74,6 +88,11 @@ private data class SwipeControlsSettings(
 
             return SwipeControlsSettings(
                 enabled = preferences.getBoolean(C.PLAYER_SWIPE_CONTROLS_ENABLED, false),
+                orientation = when (preferences.getString(C.PLAYER_SWIPE_CONTROLS_ORIENTATION, "both")) {
+                    "portrait" -> SwipeControlOrientation.PORTRAIT
+                    "landscape" -> SwipeControlOrientation.LANDSCAPE
+                    else -> SwipeControlOrientation.BOTH
+                },
                 leftAction = action(C.PLAYER_SWIPE_LEFT_GESTURE, "brightness"),
                 rightAction = action(C.PLAYER_SWIPE_RIGHT_GESTURE, "volume"),
                 topAction = action(C.PLAYER_SWIPE_TOP_GESTURE, "off"),
@@ -231,7 +250,9 @@ internal class PlayerSwipeGestureController(
         if (!canHandle) return false
         brightness.attach(window)
         val settings = SwipeControlsSettings.read(context)
-        if (!settings.enabled || (interactionLocked && settings.ignoreWhenLocked)) return false
+        if (!settings.enabled || !settings.isAvailableIn(context.resources.configuration.orientation) ||
+            (interactionLocked && settings.ignoreWhenLocked)
+        ) return false
         val action = settings.actionAt(event.x, event.y, host.width, host.height)
         if (action == SwipeControlAction.OFF) return false
         val value = when (action) {

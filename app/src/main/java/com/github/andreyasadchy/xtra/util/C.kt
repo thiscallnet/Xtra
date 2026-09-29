@@ -166,6 +166,7 @@ object C {
     const val FONT_MONOSPACE = "monospace"
     const val PLAYER_DOUBLE_TAP = "player_doubletap"
     const val PLAYER_SWIPE_CONTROLS_ENABLED = "player_swipe_controls_enabled"
+    const val PLAYER_SWIPE_CONTROLS_ORIENTATION = "player_swipe_controls_orientation"
     const val PLAYER_SWIPE_LEFT_GESTURE = "player_swipe_left_gesture"
     const val PLAYER_SWIPE_RIGHT_GESTURE = "player_swipe_right_gesture"
     const val PLAYER_SWIPE_TOP_GESTURE = "player_swipe_top_gesture"

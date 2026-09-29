@@ -498,6 +498,10 @@
     <string name="settings_player_swipe_controls">Swipe controls</string>
     <string name="settings_player_swipe_controls_summary">Adjust brightness and volume with vertical swipes in the fullscreen player</string>
     <string name="settings_player_swipe_enabled_summary">Use the left and right edges of the fullscreen player</string>
+    <string name="settings_player_swipe_orientation">Available in</string>
+    <string name="settings_player_swipe_orientation_portrait">Portrait</string>
+    <string name="settings_player_swipe_orientation_landscape">Landscape</string>
+    <string name="settings_player_swipe_orientation_both">Both orientations</string>
     <string name="settings_player_swipe_left_gesture">Left swipe gesture</string>
     <string name="settings_player_swipe_right_gesture">Right swipe gesture</string>
     <string name="settings_player_swipe_top_gesture">Top swipe gesture</string>
