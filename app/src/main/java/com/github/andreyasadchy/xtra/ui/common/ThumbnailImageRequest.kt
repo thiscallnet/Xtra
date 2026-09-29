@@ -292,8 +292,8 @@ internal class StreamThumbnailRequestHandle(
 
 internal fun ImageRequest.Builder.thumbnailState(): ImageRequest.Builder = apply {
     placeholder(R.drawable.bg_thumbnail_placeholder)
-    error(R.drawable.ic_thumbnail_error)
-    fallback(R.drawable.ic_thumbnail_error)
+    error(R.drawable.bg_thumbnail_placeholder)
+    fallback(R.drawable.bg_thumbnail_placeholder)
 }
 
 private enum class StreamThumbnailDisplayState {
@@ -341,6 +341,7 @@ private fun streamMetadataSame(oldItem: Stream, newItem: Stream): Boolean {
             oldItem.createdAt == newItem.createdAt &&
             oldItem.viewerCount == newItem.viewerCount &&
             oldItem.tags == newItem.tags &&
+            oldItem.broadcasterType == newItem.broadcasterType &&
             oldItem.dropsAvailable == newItem.dropsAvailable
 }
 
@@ -405,7 +406,7 @@ private class StreamImageTarget(
             )
         ) return
         if (thumbnailRequestKey != null) {
-            view.setImageResource(R.drawable.ic_thumbnail_error)
+            view.setImageResource(R.drawable.bg_thumbnail_placeholder)
             view.setTag(R.id.stream_thumbnail_display_state, StreamThumbnailDisplayState.ERROR)
             return
         }

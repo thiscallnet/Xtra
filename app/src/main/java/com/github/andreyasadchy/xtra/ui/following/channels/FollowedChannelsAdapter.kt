@@ -199,6 +199,9 @@ class FollowedChannelsAdapter(
                     } else {
                         localText.visibility = View.GONE
                     }
+                    updateAccessibilityDescription()
+                } else {
+                    root.contentDescription = null
                 }
             }
         }
@@ -224,6 +227,17 @@ class FollowedChannelsAdapter(
                 } else {
                     userFollowed.visibility = View.GONE
                 }
+                updateAccessibilityDescription()
+            }
+        }
+
+        private fun updateAccessibilityDescription() {
+            with(binding) {
+                root.contentDescription = listOf(username, userStream, userFollowed, accountText, localText)
+                    .filter { it.visibility == View.VISIBLE }
+                    .mapNotNull { it.text?.toString()?.takeIf(String::isNotBlank) }
+                    .joinToString(separator = ", ")
+                    .ifBlank { null }
             }
         }
     }

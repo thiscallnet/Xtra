@@ -7,10 +7,11 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MenuItem
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.content.edit
+import androidx.core.graphics.drawable.DrawableCompat
 import androidx.lifecycle.lifecycleScope
 import coil3.imageLoader
 import coil3.request.ImageRequest
@@ -26,8 +27,9 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
-import com.google.android.material.imageview.ShapeableImageView
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.shape.ShapeAppearanceModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -37,8 +39,7 @@ import kotlinx.coroutines.withContext
 object ProfileMenuBinder {
 
     private const val ACTION_SIZE_DP = 48
-    private const val AVATAR_SIZE_DP = 40
-    private const val AVATAR_PADDING_DP = 4
+    private const val AVATAR_SIZE_DP = 36
     private const val BADGE_SIZE_DP = 17
     private const val AUTH_BADGE_TAG = "xtra.auth-health-badge"
 
@@ -57,29 +58,23 @@ object ProfileMenuBinder {
         val avatarViews = createAvatar(activity, item, contentDescription)
         item.actionView = avatarViews.container
         if (!isLoggedIn) {
-            showPlaceholder(activity, avatarViews.image)
+            showPlaceholder(avatarViews.image)
             avatarViews.container.setOnClickListener { launchLogin(activity) }
             return
         }
 
         val authHealth = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
         bindAuthHealthBadge(activity, avatarViews.container, authHealth)
-        avatarViews.container.setOnClickListener {
-            if (authHealth.requiresUserAction) {
-                showAuthHealthDialog(activity, authHealth)
-            } else {
-                activity.startActivity(Intent(activity, AccountActivity::class.java))
-            }
-        }
+        avatarViews.container.setOnClickListener { openProfile(activity) }
         item.actionView = avatarViews.container
 
         val cachedUserId = activity.tokenPrefs().getString(C.PROFILE_IMAGE_USER_ID, null)
         val cachedUrl = activity.tokenPrefs().getString(C.PROFILE_IMAGE_URL, null)
         if (cachedUserId == userId && !cachedUrl.isNullOrBlank()) {
-            showPlaceholder(activity, avatarViews.image)
+            showPlaceholder(avatarViews.image)
             loadImage(activity, avatarViews.image, cachedUrl)
         } else {
-            showPlaceholder(activity, avatarViews.image)
+            showPlaceholder(avatarViews.image)
             loadProfileImage(activity, avatarViews.image, userId, login)
         }
     }
@@ -96,13 +91,7 @@ object ProfileMenuBinder {
         }
         val health = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
         bindAuthHealthBadge(activity, container, health)
-        container.setOnClickListener {
-            if (health.requiresUserAction) {
-                showAuthHealthDialog(activity, health)
-            } else {
-                activity.startActivity(Intent(activity, AccountActivity::class.java))
-            }
-        }
+        container.setOnClickListener { openProfile(activity) }
     }
 
     private data class AvatarViews(
@@ -114,10 +103,9 @@ object ProfileMenuBinder {
         val density = context.resources.displayMetrics.density
         val actionSize = (ACTION_SIZE_DP * density).toInt()
         val avatarSize = (AVATAR_SIZE_DP * density).toInt()
-        val padding = (AVATAR_PADDING_DP * density).toInt()
         val image = ShapeableImageView(context).apply {
             layoutParams = FrameLayout.LayoutParams(avatarSize, avatarSize, Gravity.CENTER)
-            setPadding(padding, padding, padding, padding)
+            setBackgroundResource(R.drawable.bg_profile_avatar_empty)
             this.contentDescription = contentDescription
             importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
             scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
@@ -146,6 +134,15 @@ object ProfileMenuBinder {
     private fun launchLogin(activity: MainActivity) {
         val intent = Intent(activity, TwitchWebLoginActivity::class.java)
         activity.loginResultLauncher?.launch(intent) ?: activity.startActivity(intent)
+    }
+
+    private fun openProfile(activity: MainActivity) {
+        val health = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
+        if (health.requiresUserAction) {
+            showAuthHealthDialog(activity, health)
+        } else {
+            activity.startActivity(Intent(activity, AccountActivity::class.java))
+        }
     }
 
     private fun bindAuthHealthBadge(context: Context, container: FrameLayout, health: AuthHealth) {
@@ -204,22 +201,24 @@ object ProfileMenuBinder {
         val intent: Intent,
     )
 
-    private fun showPlaceholder(context: Context, avatar: ShapeableImageView) {
-        val drawable = ContextCompat.getDrawable(context, R.drawable.baseline_person_black_24)?.mutate()
-        if (drawable != null) {
-            DrawableCompat.setTint(
-                drawable,
-                com.google.android.material.color.MaterialColors.getColor(
-                    context,
-                    com.google.android.material.R.attr.colorOnSurfaceVariant,
-                    Color.GRAY,
-                ),
-            )
-        }
-        avatar.setImageDrawable(drawable)
+    private fun showPlaceholder(avatar: ShapeableImageView) {
+        avatar.scaleType = ImageView.ScaleType.FIT_CENTER
+        ContextCompat.getDrawable(avatar.context, R.drawable.baseline_person_black_24)
+            ?.mutate()
+            ?.let { icon ->
+                DrawableCompat.setTint(
+                    icon,
+                    MaterialColors.getColor(
+                        avatar,
+                        com.google.android.material.R.attr.colorOnSurfaceVariant,
+                    ),
+                )
+                avatar.setImageDrawable(icon)
+            }
     }
 
     private fun loadImage(context: Context, avatar: ShapeableImageView, url: String) {
+        avatar.scaleType = ImageView.ScaleType.CENTER_CROP
         context.imageLoader.enqueue(
             ImageRequest.Builder(context).apply {
                 data(TwitchApiHelper.getProfileImage(url) ?: url)

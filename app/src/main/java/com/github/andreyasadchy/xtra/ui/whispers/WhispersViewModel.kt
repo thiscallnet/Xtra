@@ -33,6 +33,8 @@ class WhispersViewModel(private val repository: WhispersRepository) : ViewModel(
     private val _uiState = MutableStateFlow(WhispersUiState())
     val uiState: StateFlow<WhispersUiState> = _uiState.asStateFlow()
     private var loadJob: Job? = null
+    private var refreshAfterLoadJob: Job? = null
+    private var refreshQueued = false
     private var searchJob: Job? = null
     private var nextCursor: String? = null
 
@@ -58,12 +60,48 @@ class WhispersViewModel(private val repository: WhispersRepository) : ViewModel(
         if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(refreshing = true, error = null)
+            runCatching { repository.getCachedThreads() }.getOrNull()?.let { page ->
+                nextCursor = page.nextCursor
+                updateConversations(page.threads, page.hasNextPage)
+            }
             runCatching { repository.getThreads() }.onSuccess { page ->
                 nextCursor = page.nextCursor
                 updateConversations(page.threads, page.hasNextPage)
             }.onFailure { error -> _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
             _uiState.value = _uiState.value.copy(refreshing = false)
         }
+    }
+
+    fun refreshWhenIdle() {
+        if (loadJob?.isActive != true) {
+            refresh()
+            return
+        }
+        refreshQueued = true
+        if (refreshAfterLoadJob?.isActive == true) return
+        refreshAfterLoadJob = viewModelScope.launch {
+            while (true) {
+                val activeLoad = loadJob?.takeIf { it.isActive } ?: break
+                activeLoad.join()
+            }
+            refreshAfterLoadJob = null
+            if (refreshQueued) {
+                refreshQueued = false
+                refresh()
+            }
+        }
+    }
+
+    fun markThreadRead(threadId: String) {
+        val current = _uiState.value
+        val updated = current.conversations.map { thread ->
+            if (thread.id == threadId) thread.copy(unreadCount = 0, isUnread = false) else thread
+        }
+        if (updated == current.conversations) return
+        _uiState.value = current.copy(
+            conversations = updated,
+            filteredConversations = filter(updated, current.searchQuery),
+        )
     }
 
     fun loadMore() {

@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -168,10 +169,56 @@ class SettingsLayoutPreview(
     }
 
     private fun addNavigationBar() {
-        val bar = chipRow(items.filter { it.enabled }, selectedUsesDefault = true)
+        val enabled = items.filter { it.enabled }
+        val bar = if (enabled.size > 5) {
+            compactNavigationRow(enabled)
+        } else {
+            chipRow(enabled, selectedUsesDefault = true)
+        }
         previewFrame.addView(bar, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(49)).apply {
             gravity = Gravity.BOTTOM
         })
+    }
+
+    private fun compactNavigationRow(items: List<SettingsDragListItem>): View = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(6), dp(4), dp(6), dp(4))
+        items.forEach { item ->
+            val selected = item.default
+            val icon = ImageView(context).apply {
+                setImageResource(
+                    when (item.key) {
+                        "0" -> R.drawable.ic_games_black_24dp
+                        "4" -> R.drawable.ic_explore
+                        "1" -> R.drawable.baseline_home_black_24
+                        "2" -> R.drawable.ic_favorite_black_24dp
+                        "3" -> R.drawable.ic_file_download_black_24dp
+                        "5" -> R.drawable.ic_statistics
+                        "6" -> R.drawable.ic_drops
+                        else -> R.drawable.baseline_home_black_24
+                    },
+                )
+                imageTintList = android.content.res.ColorStateList.valueOf(
+                    if (selected) themeColor(com.google.android.material.R.attr.colorOnPrimaryContainer, Color.WHITE)
+                    else Color.argb(220, 255, 255, 255),
+                )
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            addView(FrameLayout(context).apply {
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                if (selected) {
+                    background = roundedBackground(
+                        themeColor(com.google.android.material.R.attr.colorPrimaryContainer, Color.DKGRAY),
+                        dp(18),
+                    )
+                }
+                addView(icon, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                marginStart = dp(2)
+                marginEnd = dp(2)
+            })
+        }
     }
 
     private fun addTabStrip(top: Int) {
@@ -181,7 +228,10 @@ class SettingsLayoutPreview(
         })
     }
 
-    private fun chipRow(visibleItems: List<SettingsDragListItem>, selectedUsesDefault: Boolean): HorizontalScrollView {
+    private fun chipRow(
+        visibleItems: List<SettingsDragListItem>,
+        selectedUsesDefault: Boolean,
+    ): HorizontalScrollView {
         val row = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -196,32 +246,34 @@ class SettingsLayoutPreview(
             })
         } else {
             visibleItems.forEach { item ->
-                val selected = selectedUsesDefault && item.default
-                row.addView(TextView(context).apply {
-                    text = item.text
-                    gravity = Gravity.CENTER
-                    maxLines = 1
-                    ellipsize = android.text.TextUtils.TruncateAt.END
-                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10f)
-                    setTextColor(if (selected) {
-                        themeColor(com.google.android.material.R.attr.colorOnPrimaryContainer, Color.WHITE)
-                    } else {
-                        Color.argb(215, 255, 255, 255)
-                    })
-                    background = roundedBackground(
-                        if (selected) themeColor(com.google.android.material.R.attr.colorPrimaryContainer, Color.DKGRAY)
-                        else Color.rgb(42, 48, 60),
-                        dp(8),
-                    )
-                    setPadding(dp(9), 0, dp(9), 0)
-                }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(29)).apply {
-                    marginEnd = dp(5)
-                })
+                row.addView(navigationChip(item.text, selectedUsesDefault && item.default))
             }
         }
         return HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
             addView(row, ViewGroup.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+    }
+
+    private fun navigationChip(label: String, selected: Boolean): TextView = TextView(context).apply {
+        text = label
+        gravity = Gravity.CENTER
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10f)
+        setTextColor(if (selected) {
+            themeColor(com.google.android.material.R.attr.colorOnPrimaryContainer, Color.WHITE)
+        } else {
+            Color.argb(215, 255, 255, 255)
+        })
+        background = roundedBackground(
+            if (selected) themeColor(com.google.android.material.R.attr.colorPrimaryContainer, Color.DKGRAY)
+            else Color.rgb(42, 48, 60),
+            dp(8),
+        )
+        setPadding(dp(9), 0, dp(9), 0)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(29)).apply {
+            marginEnd = dp(5)
         }
     }
 

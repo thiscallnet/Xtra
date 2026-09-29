@@ -28,6 +28,8 @@ class GridRecyclerView : RecyclerView {
     private val prefs = context.prefs()
     private val gridLayoutManager: GridLayoutManager
     private var gridPage: GridPage? = null
+    var onSpanCountChanged: ((Int) -> Unit)? = null
+    val gridSpanCount: Int get() = gridLayoutManager.spanCount
     private var temporarilySingleColumn = false
     private var pinchAllowed: () -> Boolean = { true }
     private var pinchListener: RecyclerView.OnItemTouchListener? = null
@@ -108,6 +110,7 @@ class GridRecyclerView : RecyclerView {
             }
             gridLayoutManager.spanCount = columns
             addItemDecoration(columns)
+            onSpanCountChanged?.invoke(columns)
         }
         updateGridAccessibilityActions()
     }
@@ -170,6 +173,7 @@ class GridRecyclerView : RecyclerView {
         gridLayoutManager.spanCount = columns
         position?.let { gridLayoutManager.scrollToPositionWithOffset(it, offset) }
         GridColumnPreferences.set(context, page, orientation, columns)
+        onSpanCountChanged?.invoke(columns)
         updateGridAccessibilityActions()
         return true
     }

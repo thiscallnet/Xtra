@@ -26,10 +26,15 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.os.ext.SdkExtensions
 import android.util.Log
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
 import android.view.KeyEvent
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -121,7 +126,6 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.navigation.NavigationBarView
-import com.google.android.material.color.MaterialColors
 import com.google.android.material.snackbar.Snackbar
 import java.util.Locale
 import kotlinx.coroutines.flow.collectLatest
@@ -129,6 +133,14 @@ import kotlinx.coroutines.launch
 import org.chromium.net.CronetProvider
 import java.util.Timer
 import kotlin.concurrent.schedule
+import kotlin.math.roundToInt
+
+private data class RootNavigationDestination(
+    val key: String,
+    val id: Int,
+    val label: Int,
+    val icon: Int,
+)
 
 class MainActivity : AppCompatActivity() {
 
@@ -153,6 +165,16 @@ class MainActivity : AppCompatActivity() {
         const val EXTRA_START_PLAYBACK = "android.intent.extra.START_PLAYBACK"
 
         private const val DEEP_LINK_NAV_DEBOUNCE_MS = 500L
+
+        private val ROOT_NAVIGATION_DESTINATIONS = listOf(
+            RootNavigationDestination("0", R.id.rootGamesFragment, R.string.browse, R.drawable.ic_games_black_24dp),
+            RootNavigationDestination("4", R.id.rootDiscoverFragment, R.string.discover, R.drawable.ic_explore),
+            RootNavigationDestination("1", R.id.rootTopFragment, R.string.following_overview, R.drawable.baseline_home_black_24),
+            RootNavigationDestination("2", R.id.followPagerFragment, R.string.following, R.drawable.ic_favorite_black_24dp),
+            RootNavigationDestination("3", R.id.savedPagerFragment, R.string.saved, R.drawable.ic_file_download_black_24dp),
+            RootNavigationDestination("5", R.id.statisticsFragment, R.string.statistics, R.drawable.ic_statistics),
+            RootNavigationDestination("6", R.id.dropsFragment, R.string.drops, R.drawable.ic_drops),
+        )
     }
 
     private lateinit var binding: ActivityMainBinding
@@ -166,6 +188,7 @@ class MainActivity : AppCompatActivity() {
     private var lastPlaybackNetworkProfile: PlayerQualityNetworkProfile? = null
     private var pipActionReceiver: BroadcastReceiver? = null
     private lateinit var prefs: SharedPreferences
+    private var appliedUiStyle: String? = null
     var settingsResultLauncher: ActivityResultLauncher<Intent>? = null
     var loginResultLauncher: ActivityResultLauncher<Intent>? = null
     var logoutResultLauncher: ActivityResultLauncher<Intent>? = null
@@ -190,16 +213,56 @@ class MainActivity : AppCompatActivity() {
     private var keepStateNavigator: KeepStateFragmentNavigator? = null
     private var lastDeepLinkNavKey: String? = null
     private var lastDeepLinkNavTime = 0L
+    private var useNavigationRail = false
+    private var hasNavigationDestinations = true
+    private var enabledNavigationDestinations: List<RootNavigationDestination> = emptyList()
+    private var committedBottomNavigationDestinationId: Int? = null
     private val isTv: Boolean get() = isTelevision()
 
     private fun rootNavigationView(): NavigationBarView =
-        if (isTv) binding.tvNavRail else binding.navBar
+        if (useNavigationRail) binding.tvNavRail else binding.navBar
+
+    private fun navigationViews(): List<NavigationBarView> =
+        listOf(binding.navBar, binding.tvNavRail)
+
+    private fun updateNavigationPresentation(configuration: Configuration) {
+        useNavigationRail = isTv || configuration.smallestScreenWidthDp >= 600
+        val showNavigation = isTv || hasNavigationDestinations
+        binding.tvNavigationContainer.isVisible = useNavigationRail && showNavigation
+        binding.navBarContainer.isVisible = !useNavigationRail && showNavigation
+        binding.tvSearch.isVisible = isTv
+        binding.tvAccount.isVisible = isTv
+        binding.tvSettings.isVisible = isTv
+        binding.tvNavigationContainer.layoutParams = binding.tvNavigationContainer.layoutParams.apply {
+            width = if (isTv) {
+                resources.getDimensionPixelSize(R.dimen.tv_navigation_width)
+            } else {
+                (
+                    resources.getDimensionPixelSize(R.dimen.adaptive_navigation_rail_width) *
+                        configuration.fontScale.coerceAtLeast(1f)
+                    ).roundToInt()
+            }
+        }
+        val expressivePhoneNavigation = !useNavigationRail &&
+            prefs.getString(C.SETTINGS_UI_STYLE, "expressive") == "expressive"
+        val densePhoneNavigation = !useNavigationRail && enabledNavigationDestinations.size > 5
+        binding.navBar.labelVisibilityMode = when {
+            densePhoneNavigation -> NavigationBarView.LABEL_VISIBILITY_UNLABELED
+            expressivePhoneNavigation -> NavigationBarView.LABEL_VISIBILITY_SELECTED
+            else -> NavigationBarView.LABEL_VISIBILITY_LABELED
+        }
+        binding.navBar.setItemHorizontalTranslationEnabled(!densePhoneNavigation)
+        binding.tvNavRail.labelVisibilityMode = NavigationBarView.LABEL_VISIBILITY_LABELED
+        binding.mainNavigationDivider.isVisible = !useNavigationRail &&
+            prefs.getString(C.SETTINGS_UI_STYLE, "expressive") != "expressive"
+    }
 
     //Lifecycle methods
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = prefs()
+        appliedUiStyle = prefs.getString(C.SETTINGS_UI_STYLE, "expressive") ?: "expressive"
         val app = application as XtraApp
         val restoringSettings = app.hasPendingSettingsRestoreMigration
         try {
@@ -237,7 +300,9 @@ class MainActivity : AppCompatActivity() {
         LiveNotificationScheduler.migrateMode(this)
         applyTheme()
         binding = ActivityMainBinding.inflate(layoutInflater)
+        binding.mainNavigationDivider.isVisible = prefs.getString(C.SETTINGS_UI_STYLE, "expressive") != "expressive"
         setContentView(binding.root)
+        updateNavigationPresentation(resources.configuration)
         appBackgroundController = ActivityBackgroundController(
             root = binding.root,
             image = binding.appBackgroundImage,
@@ -298,6 +363,18 @@ class MainActivity : AppCompatActivity() {
                 leftMargin = insets.left
                 rightMargin = insets.right
             }
+            if (!isTv && useNavigationRail) {
+                val leadingInset = if (binding.root.layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+                    insets.right
+                } else {
+                    insets.left
+                }
+                binding.tvNavigationContainer.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                    marginStart = leadingInset
+                    topMargin = insets.top
+                    bottomMargin = insets.bottom
+                }
+            }
             windowInsets
         }
         settingsResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -311,18 +388,12 @@ class MainActivity : AppCompatActivity() {
         }
         loginResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
-                findViewById<Toolbar>(R.id.toolbar)?.let {
-                    ProfileMenuBinder.bind(it, this)
-                    TwitchInboxMenuBinder.bind(it, this)
-                }
+                bindVisibleToolbarMenu()
                 restartActivity()
             }
         }
         logoutResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            findViewById<Toolbar>(R.id.toolbar)?.let {
-                ProfileMenuBinder.bind(it, this)
-                TwitchInboxMenuBinder.bind(it, this)
-            }
+            bindVisibleToolbarMenu()
             restartActivity()
         }
         authMaintenanceResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -434,8 +505,7 @@ class MainActivity : AppCompatActivity() {
                             && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                     if (isNetworkAvailable && !isFinishing && !isDestroyed && NetworkInterferenceReporter.tryAcquireWarningPermit()) {
                         networkFilterSnackbar?.dismiss()
-                        networkFilterSnackbar = Snackbar.make(
-                            binding.root,
+                        networkFilterSnackbar = makeNavigationSnackbar(
                             R.string.network_filter_warning,
                             Snackbar.LENGTH_LONG,
                         ).also { it.show() }
@@ -497,7 +567,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 authSessionMaintainer.authHealth.collectLatest {
-                    findViewById<Toolbar>(R.id.toolbar)?.let { toolbar ->
+                    allToolbarViews().forEach { toolbar ->
                         ProfileMenuBinder.refreshAuthHealth(toolbar, this@MainActivity)
                     }
                 }
@@ -856,8 +926,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateSettingsIndicator(state: UpdateState? = null) {
-        findViewById<Toolbar>(R.id.toolbar)?.let {
-            SettingsUpdateIndicator.update(it, this, state)
+        allToolbarViews().forEach { toolbar ->
+            SettingsUpdateIndicator.update(toolbar, this, state)
         }
     }
 
@@ -921,15 +991,20 @@ class MainActivity : AppCompatActivity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        updateNavigationPresentation(newConfig)
+        committedBottomNavigationDestinationId?.let(::selectCommittedBottomNavigationItem)
         setNavBarColor(newConfig.orientation == Configuration.ORIENTATION_PORTRAIT)
     }
 
     override fun onResume() {
         super.onResume()
-        findViewById<Toolbar>(R.id.toolbar)?.let {
-            ProfileMenuBinder.bind(it, this)
-            TwitchInboxMenuBinder.bind(it, this)
+        val currentUiStyle = prefs.getString(C.SETTINGS_UI_STYLE, "expressive") ?: "expressive"
+        if (appliedUiStyle != currentUiStyle) {
+            appliedUiStyle = currentUiStyle
+            recreate()
+            return
         }
+        bindVisibleToolbarMenu()
         if (prefs.getBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) && !LiveNotificationScheduler.canPostNotifications(this)) {
             prefs.edit { putBoolean(C.LIVE_NOTIFICATIONS_ENABLED, false) }
             LiveNotificationScheduler.refresh(this)
@@ -1010,8 +1085,7 @@ class MainActivity : AppCompatActivity() {
     private fun showNetworkFeedback(isNetworkAvailable: Boolean, showRestored: Boolean = false) {
         if (!isNetworkAvailable) {
             if (networkSnackbar == null) {
-                networkSnackbar = Snackbar.make(
-                    binding.root,
+                networkSnackbar = makeNavigationSnackbar(
                     R.string.no_connection,
                     Snackbar.LENGTH_INDEFINITE,
                 ).setAction(R.string.retry) {
@@ -1023,10 +1097,17 @@ class MainActivity : AppCompatActivity() {
             networkSnackbar?.dismiss()
             networkSnackbar = null
             if (showRestored) {
-                Snackbar.make(binding.root, R.string.connection_restored, Snackbar.LENGTH_SHORT).show()
+                makeNavigationSnackbar(R.string.connection_restored, Snackbar.LENGTH_SHORT).show()
             }
         }
     }
+
+    private fun makeNavigationSnackbar(message: Int, duration: Int): Snackbar =
+        Snackbar.make(binding.root, message, duration).also { snackbar ->
+            if (!useNavigationRail && binding.navBarContainer.isVisible) {
+                snackbar.setAnchorView(binding.navBarContainer)
+            }
+        }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -1738,6 +1819,16 @@ class MainActivity : AppCompatActivity() {
             prefs.getString(C.UI_NAVIGATION_TAB_LIST, null),
             isTv,
         )
+        enabledNavigationDestinations = tabList.mapNotNull { entry ->
+            val parts = entry.split(':')
+            if (parts.getOrNull(2) == "1") {
+                ROOT_NAVIGATION_DESTINATIONS.firstOrNull { it.key == parts[0] }
+            } else {
+                null
+            }
+        }
+        hasNavigationDestinations = enabledNavigationDestinations.isNotEmpty()
+        updateNavigationPresentation(resources.configuration)
         navController.setGraph(navController.navInflater.inflate(R.navigation.nav_graph).also {
             val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
             when {
@@ -1760,6 +1851,7 @@ class MainActivity : AppCompatActivity() {
                         ) {
                             completeBottomNavigationSelection(destinationId)
                         } else {
+                            bindVisibleToolbarMenu()
                             drainBottomNavigation()
                         }
                     }
@@ -1768,37 +1860,17 @@ class MainActivity : AppCompatActivity() {
                     rootNavigationView().post { drainBottomNavigation() }
                 }
         }
-        rootNavigationView().apply {
+        navigationViews().forEach { navigationView ->
+            navigationView.apply {
             val menuBuilder = menu as? MenuBuilder
             menuBuilder?.stopDispatchingItemsChanged()
             try {
-            if (tabList.any { it.split(':')[2] != "0" }) {
-                tabList.forEach {
-                    val split = it.split(':')
-                    val key = split[0]
-                    val enabled = split[2] != "0"
-                    if (enabled) {
-                        when (key) {
-                            "0" -> menu.add(Menu.NONE, R.id.rootGamesFragment, Menu.NONE, R.string.browse).setIcon(R.drawable.ic_games_black_24dp)
-                            "4" -> menu.add(Menu.NONE, R.id.rootDiscoverFragment, Menu.NONE, R.string.discover).setIcon(R.drawable.ic_explore)
-                            "1" -> menu.add(Menu.NONE, R.id.rootTopFragment, Menu.NONE, R.string.following_overview).setIcon(R.drawable.baseline_home_black_24)
-                            "2" -> {
-                                menu.add(Menu.NONE, R.id.followPagerFragment, Menu.NONE, R.string.following).setIcon(R.drawable.ic_favorite_black_24dp)
-                            }
-                            "3" -> {
-                                menu.add(Menu.NONE, R.id.savedPagerFragment, Menu.NONE, R.string.saved).setIcon(R.drawable.ic_file_download_black_24dp)
-                            }
-                            "5" -> {
-                                menu.add(Menu.NONE, R.id.statisticsFragment, Menu.NONE, R.string.statistics).setIcon(R.drawable.ic_statistics)
-                            }
-                            "6" -> {
-                                menu.add(Menu.NONE, R.id.dropsFragment, Menu.NONE, R.string.drops).setIcon(R.drawable.ic_drops)
-                            }
-                        }
-                    }
+            menu.clear()
+            if (hasNavigationDestinations) {
+                enabledNavigationDestinations.forEach { destination ->
+                    menu.add(Menu.NONE, destination.id, Menu.NONE, destination.label)
+                        .setIcon(destination.icon)
                 }
-            } else {
-                binding.navBarContainer.visibility = View.GONE
             }
             } finally {
                 menuBuilder?.startDispatchingItemsChanged()
@@ -1808,11 +1880,13 @@ class MainActivity : AppCompatActivity() {
                 val menuView = getChildAt(0) as? ViewGroup ?: return@post
                 for (index in 0 until minOf(menu.size(), menuView.childCount)) {
                     menuView.getChildAt(index).setOnLongClickListener {
-                        openTabCustomization(C.UI_NAVIGATION_TAB_LIST)
+                        settingsResultLauncher?.let {
+                            openTabCustomization(C.UI_NAVIGATION_TAB_LIST, it)
+                        } ?: openTabCustomization(C.UI_NAVIGATION_TAB_LIST)
                         true
                     }
                 }
-                if (isTv && menu.size() > 0) {
+                if (isTv && navigationView === rootNavigationView() && menu.size() > 0) {
                     configureTvRootFocusOrder()
                     findViewById<View>(menu.getItem(0).itemId)?.post {
                         findViewById<View>(menu.getItem(0).itemId)?.requestFocus()
@@ -1826,14 +1900,20 @@ class MainActivity : AppCompatActivity() {
                 return@setOnItemSelectedListener false
             }
             setOnItemReselectedListener {
+                if (suppressBottomNavigationSelection) return@setOnItemReselectedListener
                 if (bottomNavigationTransactionInFlight) return@setOnItemReselectedListener
-                if (!navController.popBackStack(it.itemId, false)) {
-                    val currentFragment = (supportFragmentManager.findFragmentById(R.id.navHostFragment) as? NavHostFragment)
-                        ?.childFragmentManager
-                        ?.primaryNavigationFragment
-                    if (currentFragment is Scrollable && currentFragment.isResumed && currentFragment.view != null) {
-                        currentFragment.scrollToTop()
-                    }
+                reselectNavigationDestination(it.itemId)
+            }
+            }
+        }
+        committedBottomNavigationDestinationId = navigationDestinationId(navController.currentDestination)
+            ?: enabledNavigationDestinations.firstOrNull()?.id
+        committedBottomNavigationDestinationId?.let(::selectCommittedBottomNavigationItem)
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            navigationDestinationId(destination)?.let { destinationId ->
+                committedBottomNavigationDestinationId = destinationId
+                rootNavigationView().post {
+                    if (!isFinishing && !isDestroyed) selectCommittedBottomNavigationItem(destinationId)
                 }
             }
         }
@@ -1852,12 +1932,51 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun navigationDestinationId(destination: androidx.navigation.NavDestination?): Int? {
+        var current = destination
+        while (current != null) {
+            enabledNavigationDestinations.firstOrNull { it.id == current.id }?.let { return it.id }
+            current = current.parent
+        }
+        return null
+    }
+
+    private fun allToolbarViews(): List<Toolbar> {
+        val fragmentManager = (supportFragmentManager.findFragmentById(R.id.navHostFragment) as? NavHostFragment)
+            ?.childFragmentManager ?: return emptyList()
+        return fragmentManager.fragments.mapNotNull { fragment ->
+            fragment.view?.findViewById<Toolbar>(R.id.toolbar)
+        }.distinct()
+    }
+
+    private fun bindVisibleToolbarMenu() {
+        allToolbarViews().firstOrNull(Toolbar::isShown)?.let { toolbar ->
+            SettingsUpdateIndicator.update(toolbar, this)
+            ProfileMenuBinder.bind(toolbar, this)
+            TwitchInboxMenuBinder.bind(toolbar, this)
+        }
+    }
+
     private fun selectCommittedBottomNavigationItem(destinationId: Int) {
+        committedBottomNavigationDestinationId = destinationId
+        val navigationView = rootNavigationView()
+        if (navigationView.menu.findItem(destinationId) == null) return
         suppressBottomNavigationSelection = true
         try {
-            rootNavigationView().selectedItemId = destinationId
+            navigationView.selectedItemId = destinationId
         } finally {
             suppressBottomNavigationSelection = false
+        }
+    }
+
+    private fun reselectNavigationDestination(destinationId: Int) {
+        if (!navController.popBackStack(destinationId, false)) {
+            val currentFragment = (supportFragmentManager.findFragmentById(R.id.navHostFragment) as? NavHostFragment)
+                ?.childFragmentManager
+                ?.primaryNavigationFragment
+            if (currentFragment is Scrollable && currentFragment.isResumed && currentFragment.view != null) {
+                currentFragment.scrollToTop()
+            }
         }
     }
 
@@ -1870,6 +1989,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         selectCommittedBottomNavigationItem(committedDestinationId)
+        bindVisibleToolbarMenu()
         UiInteractionGovernor.setInteracting(bottomNavigationInteractionSource, false)
         bottomNavigationTransactionInFlight = false
         bottomNavigationDestinationInFlight = null
@@ -1884,13 +2004,18 @@ class MainActivity : AppCompatActivity() {
             if (isFinishing || isDestroyed || bottomNavigationTransactionInFlight) return@post
 
             val itemId = pendingBottomNavigationItemId ?: return@post
-            if (navController.currentDestination?.id == itemId) {
+            if (navigationDestinationId(navController.currentDestination) == itemId ||
+                committedBottomNavigationDestinationId == itemId
+            ) {
                 pendingBottomNavigationItemId = null
                 selectCommittedBottomNavigationItem(itemId)
                 return@post
             }
 
-            val item = rootNavigationView().menu.findItem(itemId) ?: return@post
+            if (enabledNavigationDestinations.none { it.id == itemId }) {
+                pendingBottomNavigationItemId = null
+                return@post
+            }
             val navigator = keepStateNavigator ?: return@post
             if (!navigator.beginBottomRootSelection(itemId)) {
                 return@post

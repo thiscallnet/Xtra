@@ -19,6 +19,9 @@
     <attr name="appFontFamilyRegular" format="string|reference" />
     <attr name="appFontFamilyMedium" format="string|reference" />
     <attr name="cardStyle" format="reference" />
+    <attr name="featuredCardStyle" format="reference" />
+    <attr name="sectionTitleStyle" format="reference" />
+    <attr name="sectionDividerColor" format="color|reference" />
     <attr name="bottomSheetButtonStyle" format="reference" />
     <attr name="elevatedButtonStyle" format="reference" />
     <attr name="dialogButtonStyle" format="reference" />

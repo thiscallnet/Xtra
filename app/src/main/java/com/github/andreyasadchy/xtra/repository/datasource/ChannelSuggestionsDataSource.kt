@@ -4,12 +4,16 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.util.C
+import kotlinx.coroutines.CancellationException
 
 class ChannelSuggestionsDataSource(
     private val channelLogin: String?,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
+    private val helixHeaders: Map<String, String>,
+    private val helixRepository: HelixRepository,
     private val networkLibrary: String?,
 ) : PagingSource<Int, Stream>() {
 
@@ -35,11 +39,14 @@ class ChannelSuggestionsDataSource(
                     )
                 }
             } ?: emptyList()
+            val streams = list.withHelixBroadcasterTypes(networkLibrary, helixHeaders, helixRepository)
             LoadResult.Page(
-                data = list,
+                data = streams,
                 prevKey = null,
                 nextKey = null
             )
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             LoadResult.Error(e)
         }

@@ -4,11 +4,14 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import androidx.appcompat.widget.SearchView
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
+import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -19,12 +22,14 @@ import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.AppBarConfiguration
 import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.viewpager2.widget.ViewPager2
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogUserResultBinding
 import com.github.andreyasadchy.xtra.databinding.FragmentSearchBinding
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
+import com.github.andreyasadchy.xtra.model.ui.RecentSearch
 import com.github.andreyasadchy.xtra.ui.drops.DropFiltersBottomSheet
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
@@ -35,6 +40,7 @@ import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel.Companion.SearchPagerViewModelFactory
 import com.github.andreyasadchy.xtra.ui.search.streams.StreamSearchFragment
+import com.github.andreyasadchy.xtra.ui.search.streams.SearchStreamSuggestionsHeaderAdapter
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
@@ -79,6 +85,9 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     private var initialQueryPending = false
     private var queryBeforeDropsFilters: String? = null
     private var suppressQuerySearch = false
+    private var searchTabKeys: List<String> = emptyList()
+    private lateinit var streamSuggestionsAdapter: SearchStreamSuggestionsHeaderAdapter
+    private lateinit var recentSearchesAdapter: SearchRecentQueryAdapter
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -116,6 +125,17 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
+        ViewCompat.setOnApplyWindowInsetsListener(binding.searchLandingScrollView) { scrollView, windowInsets ->
+            val navigationRailIsVisible =
+                activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false
+            val bottomInset = if (navigationRailIsVisible) {
+                windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+            } else {
+                0
+            }
+            scrollView.updatePadding(bottom = bottomInset)
+            windowInsets
+        }
         childFragmentManager.setFragmentResultListener(
             DropFiltersBottomSheet.RESULT_KEY,
             viewLifecycleOwner,
@@ -151,6 +171,39 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 configuredTabs,
                 this@SearchPagerFragment.dropsFilters.isNotEmpty(),
             )
+            searchTabKeys = tabs
+            streamSuggestionsAdapter = SearchStreamSuggestionsHeaderAdapter(this@SearchPagerFragment)
+            recentSearchesAdapter = SearchRecentQueryAdapter(
+                onClick = ::openRecentSearch,
+                onDelete = viewModel::deleteRecentSearch,
+            )
+            searchSuggestions.apply {
+                layoutManager = LinearLayoutManager(requireContext())
+                itemAnimator = null
+                isNestedScrollingEnabled = false
+                adapter = streamSuggestionsAdapter
+            }
+            recentSearchesRecyclerView.apply {
+                layoutManager = LinearLayoutManager(requireContext())
+                itemAnimator = null
+                isNestedScrollingEnabled = false
+                adapter = recentSearchesAdapter
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.cachedSuggestions.collectLatest {
+                        streamSuggestionsAdapter.submitStreams(it)
+                        updateLandingContent()
+                    }
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.recentSearches.collectLatest {
+                        updateLandingContent()
+                    }
+                }
+            }
             streamTabPosition = tabs.indexOf("1")
             if (tabs.size <= 1) {
                 tabLayout.visibility = View.GONE
@@ -208,6 +261,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             binding.dropsFilterButton.setOnClickListener { showDropsFilterPicker() }
             renderDropsFilters()
             updateDropsFilterVisibility()
+            updateSearchLandingVisibility()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_SEARCH_TABS)
             val navController = findNavController()
             val appBarConfiguration = AppBarConfiguration(setOf(R.id.rootGamesFragment, R.id.rootTopFragment, R.id.followPagerFragment, R.id.followMediaFragment, R.id.savedPagerFragment, R.id.savedMediaFragment))
@@ -280,6 +334,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 if (dropsFilters.isNotEmpty() && query.isNotBlank()) {
                     clearDropsFiltersForTextSearch()
                 }
+                updateSearchLandingVisibility()
                 searchCurrent(query.trim())
                 return false
             }
@@ -291,6 +346,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 if (dropsFilters.isNotEmpty() && query.isNotBlank()) {
                     clearDropsFiltersForTextSearch()
                 }
+                updateSearchLandingVisibility()
                 if (query.isNotEmpty()) {
                     job = lifecycleScope.launch {
                         delay(350L)
@@ -318,6 +374,13 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 }
             }
         }
+        updateSearchLandingVisibility()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        viewModel.refreshCachedSuggestions()
+        if (_binding != null) updateLandingContent()
     }
 
     private fun searchCurrent(query: String) {
@@ -334,6 +397,54 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
 
     fun setQuery(query: String?) {
         binding.searchView.setQuery(query, true)
+    }
+
+    private fun openRecentSearch(item: RecentSearch) {
+        val tabKey = when (item.type) {
+            RecentSearch.TYPE_VIDEO -> "0"
+            RecentSearch.TYPE_STREAM -> "1"
+            RecentSearch.TYPE_CHANNEL -> "2"
+            RecentSearch.TYPE_GAME -> "3"
+            else -> return
+        }
+        val position = searchTabKeys.indexOf(tabKey)
+        if (position < 0) return
+        suppressQuerySearch = true
+        binding.searchView.setQuery(item.query, false)
+        suppressQuerySearch = false
+        binding.viewPager.setCurrentItem(position, false)
+        updateSearchLandingVisibility()
+        binding.viewPager.post { searchCurrent(item.query) }
+    }
+
+    private fun updateLandingContent() {
+        if (_binding == null || !::recentSearchesAdapter.isInitialized) return
+        val availableTypes = searchTabKeys.mapNotNull { key ->
+            when (key) {
+                "0" -> RecentSearch.TYPE_VIDEO
+                "1" -> RecentSearch.TYPE_STREAM
+                "2" -> RecentSearch.TYPE_CHANNEL
+                "3" -> RecentSearch.TYPE_GAME
+                else -> null
+            }
+        }.toSet()
+        val items = if (requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
+            viewModel.recentSearches.value.filter { it.type in availableTypes }.take(8)
+        } else {
+            emptyList()
+        }
+        recentSearchesAdapter.submitList(items)
+        binding.recentSearchesTitle.isVisible = items.isNotEmpty()
+        val showIntro = viewModel.cachedSuggestions.value.isEmpty() && items.isEmpty()
+        binding.searchLandingTitle.isVisible = showIntro
+        binding.searchLandingSummary.isVisible = showIntro
+    }
+
+    private fun updateSearchLandingVisibility() {
+        if (_binding == null) return
+        val showLanding = binding.searchView.query.isNullOrBlank() && dropsFilters.isEmpty()
+        binding.searchLanding.isVisible = showLanding
+        binding.viewPager.isVisible = !showLanding
     }
 
     fun currentDropsFilter(): DropStreamFilter? = dropsFilters.firstOrNull()
@@ -363,6 +474,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             queryBeforeDropsFilters = binding.searchView.query.toString().trim()
         }
         dropsFilters = nextFilters
+        updateSearchLandingVisibility()
         if (nextFilters.isNotEmpty()) initialQueryPending = false
         renderDropsFilters()
         if (dropsFilters.isNotEmpty() && streamTabPosition >= 0 &&
@@ -393,6 +505,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         childFragmentManager.fragments
             .filterIsInstance<StreamSearchFragment>()
             .forEach { it.searchWithoutSaving(query) }
+        updateSearchLandingVisibility()
     }
 
     private fun renderDropsFilters() {

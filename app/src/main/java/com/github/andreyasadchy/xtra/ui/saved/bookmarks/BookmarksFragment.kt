@@ -46,6 +46,8 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
     private val binding get() = _binding!!
     private val viewModel: BookmarksViewModel by viewModels { BookmarksViewModelFactory }
     private lateinit var adapter: ListAdapter<Bookmark, out RecyclerView.ViewHolder>
+    private var bookmarksEmpty = true
+    private var sortBarBinding: SortBarBinding? = null
     override var enableNetworkCheck = false
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -56,6 +58,7 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
+        binding.nothingHere.textAlignment = View.TEXT_ALIGNMENT_CENTER
         adapter = BookmarksAdapter(this, {
             viewModel.updateVideo(
                 requireContext().filesDir.path,
@@ -93,6 +96,7 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
                 .show()
         })
         with(binding) {
+            nothingHere.setText(R.string.bookmarks_empty)
             adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
                 override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
                     adapter.unregisterAdapterDataObserver(this)
@@ -204,7 +208,11 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
                         }
                     }
                     adapter.submitList(sorted)
-                    binding.nothingHere.isVisible = sorted.isEmpty()
+                    bookmarksEmpty = sorted.isEmpty()
+                    binding.nothingHere.isVisible = bookmarksEmpty
+                    if ((parentFragment as? FragmentHost)?.currentFragment === this@BookmarksFragment) {
+                        sortBarBinding?.root?.isVisible = !bookmarksEmpty
+                    }
                 }
             }
         }
@@ -238,7 +246,8 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
     }
 
     override fun setupSortBar(sortBar: SortBarBinding) {
-        sortBar.root.visibility = View.VISIBLE
+        sortBarBinding = sortBar
+        sortBar.root.isVisible = !bookmarksEmpty
         sortBar.root.setOnClickListener {
             BookmarksSortDialog.newInstance(
                 sort = viewModel.sort,
@@ -286,6 +295,7 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
 
     override fun onDestroyView() {
         super.onDestroyView()
+        sortBarBinding = null
         _binding = null
     }
 }

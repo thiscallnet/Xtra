@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="140dp"
+    android:layout_height="128dp"
+    android:background="@drawable/bg_app_background_preview_screen"
+    android:clipToOutline="true"
+    android:orientation="vertical"
+    android:padding="4dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="12dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:maxLines="1"
+            android:text="@string/following_overview"
+            android:textAppearance="?attr/textAppearanceLabelSmall"
+            android:textColor="?attr/colorOnSurface"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:layout_width="12dp"
+            android:layout_height="12dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/baseline_search_black_24"
+            android:tint="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="2dp"
+        android:layout_weight="1"
+        android:background="?attr/colorPrimaryContainer">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="center"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_games_black_24dp"
+            android:tint="?attr/colorOnPrimaryContainer" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="3dp"
+            android:background="@drawable/bg_live_badge"
+            android:importantForAccessibility="no"
+            android:paddingStart="3dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="3dp"
+            android:paddingBottom="1dp"
+            android:text="@string/live"
+            android:textColor="@android:color/white"
+            android:textSize="6sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_margin="3dp"
+            android:background="@drawable/bg_stream_overlay"
+            android:importantForAccessibility="no"
+            android:paddingStart="3dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="3dp"
+            android:paddingBottom="1dp"
+            android:text="@string/settings_app_background_preview_viewers"
+            android:textColor="@android:color/white"
+            android:textSize="6sp" />
+    </FrameLayout>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="11dp"
+        android:layout_marginTop="2dp"
+        android:ellipsize="end"
+        android:importantForAccessibility="no"
+        android:maxLines="1"
+        android:text="@string/settings_app_background_preview_stream_title"
+        android:textAppearance="?attr/textAppearanceLabelSmall"
+        android:textColor="?attr/colorOnSurface"
+        android:textSize="7sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="9dp"
+        android:ellipsize="end"
+        android:importantForAccessibility="no"
+        android:maxLines="1"
+        android:text="@string/settings_app_background_preview_stream_detail"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:textSize="6sp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="12dp"
+        android:layout_marginTop="2dp"
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="0dp"
+            android:layout_height="11dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_games_black_24dp"
+            android:tint="?attr/colorOnSurfaceVariant" />
+
+        <ImageView
+            android:layout_width="0dp"
+            android:layout_height="11dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:src="@drawable/baseline_home_black_24"
+            android:tint="?attr/colorOnSurfaceVariant" />
+
+        <ImageView
+            android:layout_width="0dp"
+            android:layout_height="11dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_favorite_black_24dp"
+            android:tint="?attr/colorOnSurfaceVariant" />
+
+        <ImageView
+            android:layout_width="0dp"
+            android:layout_height="11dp"
+            android:layout_weight="1"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_file_download_black_24dp"
+            android:tint="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
+</LinearLayout>

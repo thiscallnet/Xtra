@@ -595,6 +595,8 @@ class XtraModule(application: Application) {
                 GameFeedMigrations.FROM_49,
                 NotificationMigrations.FROM_50,
                 EmoteUsageMigrations.FROM_51,
+                StreamFeedMigrations.FROM_52,
+                StreamFeedMigrations.FROM_53,
             )
         }.build()
 

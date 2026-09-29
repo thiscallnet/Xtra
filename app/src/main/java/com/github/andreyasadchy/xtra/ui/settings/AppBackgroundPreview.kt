@@ -3,13 +3,11 @@ package com.github.andreyasadchy.xtra.ui.settings
 import android.content.Context
 import android.graphics.drawable.GradientDrawable
 import android.util.AttributeSet
-import android.util.TypedValue
 import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.isGone
 import androidx.core.view.isVisible
@@ -54,8 +52,6 @@ class AppBackgroundPreviewView @JvmOverloads constructor(
     private val scrim = View(context).apply {
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
-    private val heading = TextView(context)
-    private val detail = TextView(context)
     private var imageRequest: Disposable? = null
     private var requestGeneration = 0
 
@@ -68,13 +64,14 @@ class AppBackgroundPreviewView @JvmOverloads constructor(
         clipToOutline = true
         addView(image, LayoutParams(-1, -1))
         addView(scrim, LayoutParams(-1, -1))
-        addView(LinearLayout(context).apply {
-            gravity = Gravity.CENTER_VERTICAL
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(4), dp(10), dp(4))
-            addView(heading, LinearLayout.LayoutParams(-1, -2))
-            addView(detail, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(3) })
-        }, LayoutParams(-1, -2).apply { gravity = Gravity.CENTER_VERTICAL })
+        val sample = LayoutInflater.from(context)
+            .inflate(R.layout.app_background_preview_sample, this, false)
+            .apply {
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                isClickable = false
+                isFocusable = false
+            }
+        addView(sample, LayoutParams(dp(140), dp(128), Gravity.CENTER))
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
     }
 
@@ -110,13 +107,7 @@ class AppBackgroundPreviewView @JvmOverloads constructor(
             image.isGone = true
             scrim.isGone = true
         }
-        heading.text = context.getString(R.string.settings_app_background_preview)
-        heading.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurface))
-        heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-        detail.text = context.getString(R.string.settings_app_background_preview_sample)
-        detail.setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant))
-        detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
-        contentDescription = context.getString(R.string.settings_app_background_preview_summary)
+        contentDescription = context.getString(R.string.settings_app_background_preview_content_description)
     }
 
     override fun onDetachedFromWindow() {

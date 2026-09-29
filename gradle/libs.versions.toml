@@ -27,6 +27,7 @@ preference = "1.2.1"
 recyclerview = "1.4.0"
 room = "2.8.4"
 serialization = "1.11.0"
+slidingpanelayout = "1.2.0"
 swiperefreshlayout = "1.2.0"
 viewpager2 = "1.1.0"
 work = "2.11.2"
@@ -71,6 +72,7 @@ room-compiler = { module = "androidx.room:room-compiler", version.ref = "room" }
 room-paging = { module = "androidx.room:room-paging", version.ref = "room" }
 room-runtime = { module = "androidx.room:room-runtime", version.ref = "room" }
 serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "serialization" }
+slidingpanelayout = { module = "androidx.slidingpanelayout:slidingpanelayout", version.ref = "slidingpanelayout" }
 swiperefreshlayout = { module = "androidx.swiperefreshlayout:swiperefreshlayout", version.ref = "swiperefreshlayout" }
 viewpager2 = { module = "androidx.viewpager2:viewpager2", version.ref = "viewpager2" }
 work-runtime = { module = "androidx.work:work-runtime", version.ref = "work" }

@@ -32,7 +32,6 @@ import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import com.github.andreyasadchy.xtra.repository.mergeDropsWithDashboard
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
-import com.github.andreyasadchy.xtra.ui.main.ProfileMenuBinder
 import com.github.andreyasadchy.xtra.ui.main.TwitchInboxMenuBinder
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
 import com.github.andreyasadchy.xtra.util.C
@@ -73,7 +72,6 @@ class DropsFragment : Fragment() {
         val activity = requireActivity() as MainActivity
         ensureToolbarMenu()
         SettingsUpdateIndicator.update(binding.toolbar, activity)
-        ProfileMenuBinder.bind(binding.toolbar, activity)
         TwitchInboxMenuBinder.bind(binding.toolbar, activity)
         binding.toolbar.setupWithNavController(
             navController,
@@ -135,13 +133,13 @@ class DropsFragment : Fragment() {
                 return true
             }
         })
+        val dropsLiveUpdateManager = (requireActivity().application as XtraApp).xtraModule.dropsLiveUpdateManager
         adapter = DropsAdapter(
             onClaim = viewModel::claim,
             onCampaignClick = viewModel::loadCampaignDetails,
             onFindStreams = ::findStreamsForCampaign,
             onFindStreamsForDrop = ::findStreamsForDrop,
-            onTrack = (requireActivity().application as XtraApp).xtraModule.dropsLiveUpdateManager::toggle,
-            isTracking = (requireActivity().application as XtraApp).xtraModule.dropsLiveUpdateManager::isTracking,
+            onTrack = dropsLiveUpdateManager::toggle,
             onImageClick = ::showDropImage,
         )
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
@@ -196,8 +194,11 @@ class DropsFragment : Fragment() {
                 }
                 launch {
                     viewModel.uiState.collect { state ->
-                        (requireActivity().application as XtraApp).xtraModule.dropsLiveUpdateManager.update(state.inventory.drops)
+                        dropsLiveUpdateManager.update(state.inventory.drops)
                     }
+                }
+                launch {
+                    dropsLiveUpdateManager.trackedDropId.collect(adapter::setTrackedDropId)
                 }
             }
         }
@@ -215,7 +216,8 @@ class DropsFragment : Fragment() {
 
     private fun render(state: DropsPageUiState) {
         binding.autoClaim.isVisible = selectedTab == TAB_INVENTORY
-        binding.summary.isVisible = selectedTab == TAB_INVENTORY
+        binding.summary.isVisible =
+            selectedTab == TAB_INVENTORY && state.inventory.authenticated
         binding.swipeRefresh.isRefreshing = state.inventory.refreshing ||
             (selectedTab == TAB_ALL_CAMPAIGNS && state.campaignsRefreshing)
         val safeInventory = if (state.inventory.error == null) {

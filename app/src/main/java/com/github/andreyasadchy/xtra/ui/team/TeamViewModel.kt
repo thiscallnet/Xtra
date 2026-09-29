@@ -14,6 +14,7 @@ import androidx.paging.cachedIn
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.Team
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.datasource.TeamMembersDataSource
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -26,6 +27,7 @@ import kotlinx.coroutines.launch
 class TeamViewModel(
     private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
+    private val helixRepository: HelixRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -41,6 +43,8 @@ class TeamViewModel(
         TeamMembersDataSource(
             teamName = args.teamName,
             gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext),
+            helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext),
+            helixRepository = helixRepository,
             graphQLRepository = graphQLRepository,
             networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
         )
@@ -78,7 +82,12 @@ class TeamViewModel(
                 val savedStateHandle = createSavedStateHandle()
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                TeamViewModel(application.applicationContext, xtraModule.graphQLRepository, savedStateHandle)
+                TeamViewModel(
+                    application.applicationContext,
+                    xtraModule.graphQLRepository,
+                    xtraModule.helixRepository,
+                    savedStateHandle,
+                )
             }
         }
     }

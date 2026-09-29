@@ -39,4 +39,12 @@ object StreamFeedMigrations {
                     "WHERE activeGeneration != 0"
         )
     }
+
+    val FROM_52 = Migration(52, 53) { db ->
+        db.execSQL("ALTER TABLE stream_feed_items ADD COLUMN broadcasterType TEXT")
+    }
+
+    val FROM_53 = Migration(53, 54) { db ->
+        db.execSQL("ALTER TABLE stream_feed_items ADD COLUMN broadcasterTypeFetchedAtEpochMs INTEGER")
+    }
 }

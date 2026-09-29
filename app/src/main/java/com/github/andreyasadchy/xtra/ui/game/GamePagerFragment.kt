@@ -3,21 +3,16 @@ package com.github.andreyasadchy.xtra.ui.game
 import android.content.Intent
 import android.content.res.Configuration
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.TextView
 import android.widget.Toast
 import androidx.constraintlayout.helper.widget.Flow
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.content.ContextCompat
-import androidx.core.content.res.use
 import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
-import androidx.core.view.marginBottom
-import androidx.core.view.marginTop
-import androidx.core.widget.TextViewCompat
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -54,7 +49,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
-import com.google.android.material.appbar.CollapsingToolbarLayout
+import com.google.android.material.chip.Chip
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
@@ -70,6 +65,8 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     private val args: GamePagerFragmentArgs by navArgs()
     private val viewModel: GamePagerViewModel by viewModels { GamePagerViewModelFactory }
     private var firstLaunch = true
+    private var gameTitle = ""
+    private var compactLandscapeAutoCollapseApplied = false
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -88,12 +85,65 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
         super.onViewCreated(view, savedInstanceState)
         with(binding) {
             val activity = requireActivity() as MainActivity
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                appBar.setExpanded(false, false)
+            gameTitle = args.gameName.orEmpty()
+            val visibilityOwnedIds = intArrayOf(
+                gameLayout.id,
+                gameImage.id,
+                gameName.id,
+                viewers.id,
+                broadcastersCount.id,
+                followers.id,
+                tagsLayout.id,
+            )
+            val compactHeroConstraints = ConstraintSet().apply {
+                clone(toolbarContainer)
+                visibilityOwnedIds.forEach { setVisibilityMode(it, ConstraintSet.VISIBILITY_MODE_IGNORE) }
+            }
+            val wideHeroConstraints = ConstraintSet().apply {
+                clone(toolbarContainer)
+                visibilityOwnedIds.forEach { setVisibilityMode(it, ConstraintSet.VISIBILITY_MODE_IGNORE) }
+                val gutter = resources.getDimensionPixelSize(R.dimen.channel_hero_wide_gutter)
+                connect(gameLayout.id, ConstraintSet.END, gameHeroSplit.id, ConstraintSet.START, gutter)
+                connect(tagsLayout.id, ConstraintSet.START, gameHeroSplit.id, ConstraintSet.END, gutter)
+                connect(tagsLayout.id, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP)
+            }
+            var heroUsesWideLayout: Boolean? = null
+            var heroOrientation: Int? = null
+            toolbarContainer.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                val useWideLayout = toolbarContainer.width >= resources.getDimensionPixelSize(
+                    R.dimen.game_hero_expanded_min_width,
+                )
+                val orientation = resources.configuration.orientation
+                val heroLayoutChanged = heroUsesWideLayout != useWideLayout
+                val orientationChanged = heroOrientation != orientation
+                if (!heroLayoutChanged && !orientationChanged) return@addOnLayoutChangeListener
+                if (heroLayoutChanged) {
+                    heroUsesWideLayout = useWideLayout
+                    if (useWideLayout) wideHeroConstraints.applyTo(toolbarContainer)
+                    else compactHeroConstraints.applyTo(toolbarContainer)
+                }
+                heroOrientation = orientation
+                val shouldAutoCollapse = orientation == Configuration.ORIENTATION_LANDSCAPE && !useWideLayout
+                if (shouldAutoCollapse != compactLandscapeAutoCollapseApplied) {
+                    appBar.post {
+                        val isCompactLandscape =
+                            resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                                toolbarContainer.width < resources.getDimensionPixelSize(
+                                    R.dimen.game_hero_expanded_min_width,
+                                )
+                        if (isCompactLandscape && !compactLandscapeAutoCollapseApplied) {
+                            appBar.setExpanded(false, false)
+                            compactLandscapeAutoCollapseApplied = true
+                        } else if (!isCompactLandscape && compactLandscapeAutoCollapseApplied) {
+                            appBar.setExpanded(true, false)
+                            compactLandscapeAutoCollapseApplied = false
+                        }
+                    }
+                }
             }
             if (args.gameName != null) {
                 gameLayout.visibility = View.VISIBLE
-                gameName.visibility = View.VISIBLE
+                gameName.visibility = View.GONE
                 gameName.text = args.gameName
             } else {
                 gameName.visibility = View.GONE
@@ -119,6 +169,8 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             val navController = findNavController()
             val appBarConfiguration = AppBarConfiguration(setOf(R.id.rootGamesFragment, R.id.rootTopFragment, R.id.followPagerFragment, R.id.followMediaFragment, R.id.savedPagerFragment, R.id.savedMediaFragment))
             toolbar.setupWithNavController(navController, appBarConfiguration)
+            collapsingToolbar.setTitleEnabled(false)
+            toolbar.title = gameTitle
             toolbar.menu.findItem(R.id.login).title = if (isLoggedIn) getString(R.string.log_out) else getString(R.string.log_in)
             toolbar.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
@@ -261,20 +313,8 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                         childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
                             if (fragment is Sortable) {
                                 fragment.setupSortBar(sortBar)
-                                sortBar.root.doOnLayout {
-                                    toolbarContainer.layoutParams = (toolbarContainer.layoutParams as CollapsingToolbarLayout.LayoutParams).apply { bottomMargin = toolbarContainer2.height }
-                                    val toolbarHeight = toolbarContainer.marginTop + toolbarContainer.marginBottom
-                                    toolbar.layoutParams = toolbar.layoutParams.apply { height = toolbarHeight }
-                                    collapsingToolbar.scrimVisibleHeightTrigger = toolbarHeight + 1
-                                }
                             } else {
                                 sortBar.root.visibility = View.GONE
-                                toolbarContainer2.doOnLayout {
-                                    toolbarContainer.layoutParams = (toolbarContainer.layoutParams as CollapsingToolbarLayout.LayoutParams).apply { bottomMargin = toolbarContainer2.height }
-                                    val toolbarHeight = toolbarContainer.marginTop + toolbarContainer.marginBottom
-                                    toolbar.layoutParams = toolbar.layoutParams.apply { height = toolbarHeight }
-                                    collapsingToolbar.scrimVisibleHeightTrigger = toolbarHeight + 1
-                                }
                             }
                         }
                     }
@@ -341,6 +381,8 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
 
     private fun updateGameLayout(game: Game?) {
         with(binding) {
+            gameTitle = game?.name ?: args.gameName.orEmpty()
+            toolbar.title = gameTitle
             val boxArt = game?.boxArtURL
                 ?.takeIf { it.isNotBlank() }
                 ?.let(TwitchApiHelper::getGameBoxArt)
@@ -360,7 +402,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             }
             if (game?.name != null && game.name != args.gameName) {
                 gameLayout.visibility = View.VISIBLE
-                gameName.visibility = View.VISIBLE
+                gameName.visibility = View.GONE
                 gameName.text = game.name
             }
             if (game?.viewerCount != null) {
@@ -410,20 +452,22 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                         endToEnd = tagsLayout.id
                     }
                     setWrapMode(Flow.WRAP_CHAIN)
+                    setHorizontalStyle(ConstraintSet.CHAIN_PACKED)
+                    setHorizontalBias(0f)
+                    setVerticalStyle(ConstraintSet.CHAIN_PACKED)
                 }
                 tagsLayout.addView(tagsFlowLayout)
                 val ids = mutableListOf<Int>()
                 for (tag in game.tags) {
-                    val text = TextView(requireContext())
+                    val chip = Chip(requireContext())
                     val id = View.generateViewId()
-                    text.id = id
+                    chip.id = id
                     ids.add(id)
-                    text.text = tag.name
-                    requireContext().obtainStyledAttributes(intArrayOf(com.google.android.material.R.attr.textAppearanceBodyMedium)).use {
-                        TextViewCompat.setTextAppearance(text, it.getResourceId(0, 0))
-                    }
+                    chip.text = tag.name
+                    chip.isClickable = tag.id != null
+                    chip.isFocusable = tag.id != null
                     if (tag.id != null) {
-                        text.setOnClickListener {
+                        chip.setOnClickListener {
                             findNavController().navigate(
                                 GamesFragmentDirections.actionGlobalGamesFragment(
                                     tags = arrayOf(tag)
@@ -431,9 +475,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                             )
                         }
                     }
-                    val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 5f, resources.displayMetrics).toInt()
-                    text.setPadding(padding, 0, padding, 0)
-                    tagsLayout.addView(text)
+                    tagsLayout.addView(chip)
                 }
                 tagsFlowLayout.referencedIds = ids.toIntArray()
             } else {

@@ -39,11 +39,16 @@ class EmoteUsageMigrationTest {
         seedSqlite.execSQL("DROP INDEX IF EXISTS index_emote_usage_viewer_id_channel_id")
         seedSqlite.execSQL("DROP INDEX IF EXISTS index_emote_usage_viewer_id_provider_emote_id")
         seedSqlite.execSQL("DROP TABLE IF EXISTS emote_usage")
+        StreamFeedMigrationTestFixtures.useVersion52Schema(seedSqlite)
         seedSqlite.execSQL("PRAGMA user_version = 51")
         seed.close()
 
         database = Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
-            .addMigrations(EmoteUsageMigrations.FROM_51)
+            .addMigrations(
+                EmoteUsageMigrations.FROM_51,
+                StreamFeedMigrations.FROM_52,
+                StreamFeedMigrations.FROM_53,
+            )
             .build()
         val db = checkNotNull(database)
         val dao = db.emoteUsage()

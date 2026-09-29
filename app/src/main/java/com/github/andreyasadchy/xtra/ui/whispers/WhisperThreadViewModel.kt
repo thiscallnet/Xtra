@@ -25,20 +25,25 @@ private val WHISPER_THREAD_DISCOVERY_DELAYS_MILLIS = longArrayOf(0L, 500L, 1_000
 
 data class WhisperThreadUiState(
     val peer: TwitchUserSummary,
+    val threadId: String? = null,
     val messages: List<WhisperMessage> = emptyList(),
     val initialLoading: Boolean = false,
     val loadingOlder: Boolean = false,
     val hasOlder: Boolean = false,
     val composer: String = "",
     val error: TwitchInboxError? = null,
+    val lastReadReceipt: WhisperThreadReadReceipt? = null,
+    val successfulSendCount: Long = 0,
 )
+
+data class WhisperThreadReadReceipt(val threadId: String, val messageId: String)
 
 class WhisperThreadViewModel(
     private val repository: WhispersRepository,
     peer: TwitchUserSummary,
     initialThreadId: String?,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(WhisperThreadUiState(peer))
+    private val _uiState = MutableStateFlow(WhisperThreadUiState(peer, threadId = initialThreadId))
     val uiState: StateFlow<WhisperThreadUiState> = _uiState.asStateFlow()
     private var threadId: String? = initialThreadId
     private var accountId = repository.currentUserId()
@@ -46,24 +51,51 @@ class WhisperThreadViewModel(
     private val pending = mutableMapOf<String, WhisperMessage>()
     private var olderCursor: String? = null
     private var hasLoadedOlderHistory = false
+    private var readEligible = false
+    private var latestRemoteMessageId: String? = null
+    private var lastMarkedReadReceipt: WhisperThreadReadReceipt? = null
+    private val readReceiptsInFlight = mutableSetOf<WhisperThreadReadReceipt>()
 
     init { loadInitial() }
 
     fun setComposer(value: String) { _uiState.value = _uiState.value.copy(composer = value) }
 
     fun loadInitial() {
-        if (threadId == null) return
+        val id = threadId ?: return
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(initialLoading = true, error = null)
-            runCatching { repository.getThread(threadId!!) }.onSuccess { details ->
+            runCatching { repository.getThread(id) }.onSuccess { details ->
                 mergeMessages(details.messages, replace = true)
                 olderCursor = details.nextCursor
                 hasLoadedOlderHistory = false
-                _uiState.value = _uiState.value.copy(initialLoading = false, hasOlder = olderCursor != null && details.hasOlderMessages, error = null)
-                details.messages.lastOrNull()?.id?.let { runCatching { repository.markThreadRead(threadId!!, it) } }
+                _uiState.value = _uiState.value.copy(
+                    initialLoading = false,
+                    hasOlder = olderCursor != null && details.hasOlderMessages,
+                    error = null,
+                )
+                details.messages.lastOrNull()?.id?.let { messageId ->
+                    latestRemoteMessageId = messageId
+                    markLatestMessageRead(id)
+                }
             }.onFailure { error -> _uiState.value = _uiState.value.copy(initialLoading = false, error = error.toInboxError()) }
         }
+    }
+
+    fun adoptThread(id: String) {
+        if (id.isBlank() || threadId != null) return
+        threadId = id
+        olderCursor = null
+        hasLoadedOlderHistory = false
+        latestRemoteMessageId = null
+        lastMarkedReadReceipt = null
+        _uiState.value = _uiState.value.copy(
+            threadId = id,
+            initialLoading = true,
+            hasOlder = false,
+            error = null,
+        )
+        loadInitial()
     }
 
     fun refreshLatest() {
@@ -73,8 +105,16 @@ class WhisperThreadViewModel(
             threadId = null
             olderCursor = null
             hasLoadedOlderHistory = false
+            latestRemoteMessageId = null
+            lastMarkedReadReceipt = null
             pending.clear()
-            _uiState.value = _uiState.value.copy(messages = emptyList(), hasOlder = false, error = TwitchInboxError.SignedOut)
+            _uiState.value = _uiState.value.copy(
+                threadId = null,
+                messages = emptyList(),
+                hasOlder = false,
+                error = TwitchInboxError.SignedOut,
+                lastReadReceipt = null,
+            )
             return
         }
         val id = threadId ?: return
@@ -84,7 +124,10 @@ class WhisperThreadViewModel(
                 mergeMessages(details.messages, replace = false)
                 if (!hasLoadedOlderHistory) olderCursor = details.nextCursor
                 _uiState.value = _uiState.value.copy(hasOlder = olderCursor != null && details.hasOlderMessages, error = null)
-                details.messages.lastOrNull()?.id?.let { runCatching { repository.markThreadRead(id, it) } }
+                details.messages.lastOrNull()?.id?.let { messageId ->
+                    latestRemoteMessageId = messageId
+                    markLatestMessageRead(id)
+                }
             }.onFailure { error -> _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
         }
     }
@@ -103,6 +146,11 @@ class WhisperThreadViewModel(
             }.onFailure { error -> _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
             _uiState.value = _uiState.value.copy(loadingOlder = false)
         }
+    }
+
+    fun setReadEligible(eligible: Boolean) {
+        readEligible = eligible
+        if (eligible) threadId?.let(::markLatestMessageRead)
     }
 
     fun send() {
@@ -128,8 +176,16 @@ class WhisperThreadViewModel(
             runCatching { repository.sendWhisper(_uiState.value.peer.id, message.text, message.nonce ?: repository.createWhisperNonce()) }.onSuccess { result ->
                 val confirmed = message.copy(nonce = result.nonce, localState = LocalSendState.CONFIRMED, sendError = null)
                 pending[message.id] = confirmed
-                _uiState.value = _uiState.value.copy(messages = _uiState.value.messages.map { if (it.id == message.id) confirmed else it }, error = null)
-                if (threadId == null) threadId = discoverThreadWithRetry(findThread = { repository.findRecentThreadByPeer(_uiState.value.peer.id) })
+                val current = _uiState.value
+                _uiState.value = current.copy(
+                    messages = current.messages.map { if (it.id == message.id) confirmed else it },
+                    error = null,
+                    successfulSendCount = current.successfulSendCount + 1,
+                )
+                if (threadId == null) {
+                    threadId = discoverThreadWithRetry(findThread = { repository.findRecentThreadByPeer(_uiState.value.peer.id) })
+                    if (threadId != null) _uiState.value = _uiState.value.copy(threadId = threadId)
+                }
                 if (threadId != null) refreshLatest()
             }.onFailure { error ->
                 val failed = message.copy(localState = LocalSendState.FAILED, sendError = error.sendDebugDetails())
@@ -147,6 +203,23 @@ class WhisperThreadViewModel(
     }
 
     private fun currentUserId() = repository.currentUserId().orEmpty()
+
+    private fun markLatestMessageRead(id: String) {
+        if (!readEligible || threadId != id) return
+        val messageId = latestRemoteMessageId ?: return
+        val receipt = WhisperThreadReadReceipt(id, messageId)
+        if (receipt == lastMarkedReadReceipt || !readReceiptsInFlight.add(receipt)) return
+        viewModelScope.launch {
+            val succeeded = runCatching { repository.markThreadRead(id, messageId) }.isSuccess
+            readReceiptsInFlight.remove(receipt)
+            if (succeeded) {
+                lastMarkedReadReceipt = receipt
+                if (threadId == id) {
+                    _uiState.value = _uiState.value.copy(lastReadReceipt = receipt)
+                }
+            }
+        }
+    }
 
     companion object {
         fun factory(repository: WhispersRepository, peer: TwitchUserSummary, threadId: String?) = object : ViewModelProvider.Factory {

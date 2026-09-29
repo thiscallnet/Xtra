@@ -15,23 +15,34 @@
             android:id="@+id/collapsingToolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:layout_scrollFlags="scroll|enterAlways|enterAlwaysCollapsed"
+            android:minHeight="?attr/actionBarSize"
+            app:layout_scrollFlags="scroll|exitUntilCollapsed"
             app:scrimVisibleHeightTrigger="147dp">
 
-            <LinearLayout
+            <androidx.constraintlayout.widget.ConstraintLayout
                 android:id="@+id/toolbarContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="?attr/actionBarSize"
-                android:layout_marginBottom="82dp"
-                android:gravity="center_horizontal"
-                android:orientation="vertical">
+                android:layout_marginBottom="8dp">
+
+                <androidx.constraintlayout.widget.Guideline
+                    android:id="@+id/gameHeroSplit"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    app:layout_constraintGuide_percent="0.62" />
 
                 <androidx.constraintlayout.widget.ConstraintLayout
                     android:id="@+id/gameLayout"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:layout_marginEnd="12dp"
                     android:visibility="gone"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
                     tools:visibility="visible">
 
                     <ImageView
@@ -64,10 +75,12 @@
                         app:layout_constraintStart_toEndOf="@id/gameImage"
                         app:layout_constraintTop_toTopOf="parent">
 
-                        <TextView
+                    <TextView
                             android:id="@+id/gameName"
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
+                            android:ellipsize="end"
+                            android:maxLines="2"
                             android:textAppearance="?attr/textAppearanceTitleMedium"
                             android:visibility="gone"
                             tools:text="@sample/games.json/top/game/name"
@@ -108,11 +121,11 @@
 
                 <androidx.constraintlayout.widget.ConstraintLayout
                     android:id="@+id/tagsLayout"
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="10dp"
+                    android:layout_marginStart="12dp"
                     android:layout_marginTop="7dp"
-                    android:layout_marginEnd="10dp"
+                    android:layout_marginEnd="16dp"
                     android:layout_marginBottom="7dp"
                     android:visibility="gone"
                     app:layout_constraintBottom_toBottomOf="parent"
@@ -120,7 +133,7 @@
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@id/gameLayout" />
 
-            </LinearLayout>
+            </androidx.constraintlayout.widget.ConstraintLayout>
 
             <com.google.android.material.appbar.MaterialToolbar
                 android:id="@+id/toolbar"
@@ -130,29 +143,39 @@
                 app:layout_collapseMode="pin"
                 app:menu="@menu/top_menu" />
 
-            <LinearLayout
-                android:id="@+id/toolbarContainer2"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:orientation="vertical"
-                app:layout_collapseMode="pin">
-
-                <com.google.android.material.tabs.TabLayout
-                    android:id="@+id/tabLayout"
-                    android:layout_width="match_parent"
-                    android:layout_height="?attr/tabLayoutHeight"
-                    app:tabGravity="fill"
-                    app:tabMaxWidth="0dp"
-                    app:tabMode="fixed" />
-
-                <include
-                    android:id="@+id/sortBar"
-                    layout="@layout/sort_bar" />
-
-            </LinearLayout>
-
         </com.google.android.material.appbar.CollapsingToolbarLayout>
+
+        <LinearLayout
+            android:id="@+id/toolbarContainer2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <com.google.android.material.tabs.TabLayout
+                android:id="@+id/tabLayout"
+                android:layout_width="match_parent"
+                android:layout_height="?attr/tabLayoutHeight"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp"
+                android:background="@drawable/bg_game_tab_track"
+                app:tabGravity="fill"
+                app:tabIndicator="@drawable/bg_game_tab_indicator"
+                app:tabIndicatorColor="?attr/colorSecondaryContainer"
+                app:tabIndicatorFullWidth="true"
+                app:tabIndicatorGravity="center"
+                app:tabIndicatorHeight="36dp"
+                app:tabMaxWidth="0dp"
+                app:tabMode="fixed"
+                app:tabSelectedTextColor="?attr/colorOnSecondaryContainer"
+                app:tabTextAppearance="?attr/textAppearanceLabelLarge"
+                app:tabTextColor="?attr/colorOnSurfaceVariant" />
+
+            <include
+                android:id="@+id/sortBar"
+                layout="@layout/sort_bar" />
+
+        </LinearLayout>
+
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.viewpager2.widget.ViewPager2

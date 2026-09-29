@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.db.StreamFeedState
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedPage
 import com.github.andreyasadchy.xtra.repository.ProcessLocalFeedSnapshot
+import com.github.andreyasadchy.xtra.repository.datasource.isBroadcasterTypeFresh
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -67,12 +68,15 @@ internal fun Stream.toCachedStreamFeedItem(
             createdAt = createdAt,
             viewerCount = viewerCount,
             tags = tags?.let(::encodeTags),
+            broadcasterType = broadcasterType,
+            broadcasterTypeFetchedAtEpochMs = broadcasterTypeFetchedAtEpochMs,
             generation = generation,
         )
     }
 }
 
 internal fun CachedStreamFeedItem.toStream(): Stream {
+    val broadcasterStatusFresh = isBroadcasterTypeFresh(broadcasterTypeFetchedAtEpochMs)
     return Stream(
         id = streamId,
         channelId = channelId,
@@ -88,6 +92,8 @@ internal fun CachedStreamFeedItem.toStream(): Stream {
         viewerCount = viewerCount,
         tags = tags?.let(::decodeTags),
         thumbnailGeneration = generation,
+        broadcasterType = broadcasterType.takeIf { broadcasterStatusFresh },
+        broadcasterTypeFetchedAtEpochMs = broadcasterTypeFetchedAtEpochMs.takeIf { broadcasterStatusFresh },
     )
 }
 

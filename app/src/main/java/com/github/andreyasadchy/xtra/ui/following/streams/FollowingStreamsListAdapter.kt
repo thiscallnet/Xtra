@@ -9,7 +9,6 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
 import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
-import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
@@ -18,17 +17,15 @@ import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
  * Keeps Following Live on the process-local feed snapshot instead of making
  * RecyclerView observe the Room-backed PagingSource.
  *
- * The existing row implementations are used as delegates so the compact and
- * regular layouts keep identical interactions and preview behavior.
+ * Following Live uses the stacked shelf presentation at every grid width while
+ * retaining its process-local list, stable identity and image scheduling.
  */
 class FollowingStreamsListAdapter(
     private val fragment: Fragment,
     selectTag: (String) -> Unit,
-    compact: Boolean,
 ) : ListAdapter<Stream, RecyclerView.ViewHolder>(DIFF_CALLBACK) {
 
-    private val compactDelegate = if (compact) StreamsCompactAdapter(fragment, selectTag) else null
-    private val shelfDelegate = if (compact) null else StreamsShelfPagingAdapter(fragment, selectTag)
+    private val shelfDelegate = StreamsShelfPagingAdapter(fragment, selectTag)
 
     init {
         setHasStableIds(true)
@@ -48,20 +45,18 @@ class FollowingStreamsListAdapter(
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
-        compactDelegate?.attachImageScheduler(recyclerView)
-        shelfDelegate?.attachImageScheduler(recyclerView)
+        attachActiveDelegate(recyclerView)
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
-        compactDelegate?.detachImageScheduler()
-        shelfDelegate?.detachImageScheduler()
+        detachActiveDelegate()
         super.onDetachedFromRecyclerView(recyclerView)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
-        return compactDelegate?.onCreateViewHolder(parent, viewType)
-            ?: shelfDelegate!!.onCreateViewHolder(parent, viewType)
-    }
+    override fun getItemViewType(position: Int): Int = VIEW_TYPE_SHELF
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
+        shelfDelegate.onCreateViewHolder(parent, viewType)
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         bindItem(holder, getItem(position))
@@ -70,44 +65,36 @@ class FollowingStreamsListAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
         val item = getItem(position)
         if (payloads.isNotEmpty() && payloads.all { it === StreamThumbnailChangedPayload }) {
-            when (holder) {
-                is StreamsCompactAdapter.PagingViewHolder -> {
-                    holder.beginThumbnailRefresh()
-                    holder.bindThumbnail(item)
-                }
-                is StreamsShelfPagingAdapter.ViewHolder -> {
-                    holder.beginThumbnailRefresh()
-                    holder.bindThumbnail(item)
-                }
-                else -> bindItem(holder, item)
-            }
+            val shelfHolder = holder as StreamsShelfPagingAdapter.ViewHolder
+            shelfHolder.beginThumbnailRefresh()
+            shelfHolder.bindThumbnail(item)
         } else {
             bindItem(holder, item)
         }
     }
 
     override fun onViewRecycled(holder: RecyclerView.ViewHolder) {
-        when (holder) {
-            is StreamsCompactAdapter.PagingViewHolder -> compactDelegate?.recycleViewHolder(holder)
-            is StreamsShelfPagingAdapter.ViewHolder -> shelfDelegate?.recycleViewHolder(holder)
-        }
+        shelfDelegate.recycleViewHolder(holder as StreamsShelfPagingAdapter.ViewHolder)
         super.onViewRecycled(holder)
     }
 
     private fun bindItem(holder: RecyclerView.ViewHolder, item: Stream?) {
-        when (holder) {
-            is StreamsCompactAdapter.PagingViewHolder -> {
-                holder.beginImageBind(item)
-                holder.bind(item)
-            }
-            is StreamsShelfPagingAdapter.ViewHolder -> {
-                holder.beginImageBind(item)
-                holder.bind(item)
-            }
-        }
+        val shelfHolder = holder as StreamsShelfPagingAdapter.ViewHolder
+        shelfHolder.beginImageBind(item)
+        shelfHolder.bind(item)
+    }
+
+    private fun attachActiveDelegate(recyclerView: RecyclerView) {
+        shelfDelegate.attachImageScheduler(recyclerView)
+    }
+
+    private fun detachActiveDelegate() {
+        shelfDelegate.detachImageScheduler()
     }
 
     private companion object {
+        const val VIEW_TYPE_SHELF = 0
+
         val DIFF_CALLBACK = object : DiffUtil.ItemCallback<Stream>() {
             override fun areItemsTheSame(oldItem: Stream, newItem: Stream): Boolean =
                 oldItem.streamIdentity() == newItem.streamIdentity()

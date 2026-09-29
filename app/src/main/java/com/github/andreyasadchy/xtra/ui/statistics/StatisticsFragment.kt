@@ -3,8 +3,11 @@ package com.github.andreyasadchy.xtra.ui.statistics
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -111,6 +114,10 @@ class StatisticsFragment : Fragment() {
         binding.topCategories.isNestedScrollingEnabled = false
         initialRootTopPadding = binding.root.paddingTop
         initialContentBottomPadding = binding.content.paddingBottom
+        binding.content.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateResponsiveLayout()
+        }
+        binding.content.post { updateResponsiveLayout() }
 
         binding.activityChart.onBucketSelected = { index, _ -> viewModel.selectBucket(index) }
         binding.viewBucketDetails.setOnClickListener {
@@ -230,10 +237,12 @@ class StatisticsFragment : Fragment() {
                 else -> getString(R.string.statistics_comparison_unchanged)
             }
             sessionsValue.text = formatCount(snapshot.sessionCount)
-            channelsValue.text = formatCount(snapshot.channelCount)
-            categoriesValue.text = formatCount(snapshot.categoryCount)
             activeDaysValue.text = formatCount(snapshot.activeDays)
             averageSessionValue.text = formatDuration(snapshot.averageSessionMs)
+            topChannelsHeading.text = getString(R.string.statistics_top_channels) +
+                " · " + formatCount(snapshot.channelCount)
+            topCategoriesHeading.text = getString(R.string.statistics_top_categories) +
+                " · " + formatCount(snapshot.categoryCount)
 
             activityChart.setBuckets(snapshot.timeline)
             activityChart.setSelectedIndex(state.selectedBucketIndex)
@@ -328,6 +337,64 @@ class StatisticsFragment : Fragment() {
     }
 
     private fun formatCount(value: Int): String = NumberFormat.getIntegerInstance().format(value)
+
+    private fun updateResponsiveLayout() {
+        val currentBinding = _binding ?: return
+        val availableWidth = currentBinding.content.width
+        if (availableWidth <= 0) return
+
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        val pageContent = currentBinding.content.getChildAt(0) ?: return
+        val pageParams = pageContent.layoutParams as? FrameLayout.LayoutParams ?: return
+        val maxPageWidth = dp(1200)
+        val targetWidth = if (availableWidth > maxPageWidth) maxPageWidth else ViewGroup.LayoutParams.MATCH_PARENT
+        val centeredGravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+        if (pageParams.width != targetWidth || pageParams.gravity != centeredGravity) {
+            pageParams.width = targetWidth
+            pageParams.gravity = centeredGravity
+            pageContent.layoutParams = pageParams
+        }
+
+        val expanded = availableWidth >= dp(840)
+        setResponsiveRow(
+            currentBinding.summaryChartRow,
+            expanded,
+            listOf(currentBinding.overviewCard, currentBinding.activitySection),
+        )
+        setResponsiveRow(
+            currentBinding.statisticsListsRow,
+            expanded,
+            listOf(currentBinding.channelsSection, currentBinding.categoriesSection),
+        )
+    }
+
+    private fun setResponsiveRow(row: LinearLayout, expanded: Boolean, children: List<View>) {
+        val density = resources.displayMetrics.density
+        fun dp(value: Int) = (value * density + 0.5f).toInt()
+        val orientation = if (expanded) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+        if (row.orientation != orientation) row.orientation = orientation
+        children.forEachIndexed { index, child ->
+            val params = child.layoutParams as? LinearLayout.LayoutParams ?: return@forEachIndexed
+            val width = if (expanded) 0 else ViewGroup.LayoutParams.MATCH_PARENT
+            val weight = if (expanded) 1f else 0f
+            val marginStart = if (expanded && index > 0) dp(16) else 0
+            val marginTop = when {
+                expanded -> dp(16)
+                row.id == R.id.summaryChartRow && index == 0 -> dp(16)
+                else -> dp(28)
+            }
+            if (params.width != width || params.weight != weight ||
+                params.marginStart != marginStart || params.topMargin != marginTop
+            ) {
+                params.width = width
+                params.weight = weight
+                params.marginStart = marginStart
+                params.topMargin = marginTop
+                child.layoutParams = params
+            }
+        }
+    }
 
     private fun weekdayName(index: Int): String {
         return resources.getStringArray(R.array.statistics_weekdays).getOrNull(index)

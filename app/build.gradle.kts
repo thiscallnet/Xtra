@@ -249,6 +249,7 @@ dependencies {
     implementation(libs.room.runtime)
     ksp(libs.room.compiler)
     implementation(libs.room.paging)
+    implementation(libs.slidingpanelayout)
     implementation(libs.swiperefreshlayout)
     implementation(libs.viewpager2)
     implementation(libs.work.runtime)

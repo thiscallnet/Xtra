@@ -2,143 +2,90 @@
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
+    style="?attr/featuredCardStyle"
     android:layout_width="match_parent"
     android:layout_height="220dp"
     android:layout_marginStart="8dp"
     android:layout_marginEnd="8dp"
     android:clickable="true"
     android:focusable="true"
-    android:foreground="?attr/selectableItemBackground"
-    app:cardBackgroundColor="?attr/colorSurfaceContainer"
-    app:cardCornerRadius="18dp"
-    app:cardElevation="5dp"
-    app:strokeColor="?attr/colorOutlineVariant"
-    app:strokeWidth="1dp">
+    android:foreground="?attr/selectableItemBackground">
 
-    <LinearLayout
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:orientation="horizontal">
+        android:background="@drawable/bg_thumbnail_placeholder">
+
+        <ImageView
+            android:id="@+id/thumbnail"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/live"
+            android:scaleType="centerCrop"
+            tools:src="@tools:sample/backgrounds/scenic" />
 
         <FrameLayout
-            android:layout_width="0dp"
+            android:id="@+id/previewHost"
+            android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_weight="1.7"
-            android:background="@drawable/bg_thumbnail_placeholder">
+            android:importantForAccessibility="no"
+            android:visibility="gone" />
 
-            <ImageView
-                android:id="@+id/thumbnail"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:contentDescription="@string/live"
-                android:scaleType="centerCrop"
-                tools:src="@tools:sample/backgrounds/scenic" />
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/bg_featured_stream_scrim"
+            android:importantForAccessibility="no" />
 
-            <FrameLayout
-                android:id="@+id/previewHost"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:importantForAccessibility="no"
-                android:visibility="gone" />
+        <TextView
+            android:id="@+id/liveBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|start"
+            android:layout_margin="14dp"
+            android:paddingStart="9dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="9dp"
+            android:paddingBottom="4dp"
+            android:text="@string/live"
+            android:textAllCaps="true"
+            android:textColor="@android:color/white"
+            android:textSize="11sp"
+            android:textStyle="bold" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/bg_featured_stream_scrim"
-                android:importantForAccessibility="no" />
-
-            <TextView
-                android:id="@+id/liveBadge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top|start"
-                android:layout_margin="12dp"
-                android:background="@drawable/bg_live_badge"
-                android:paddingStart="8dp"
-                android:paddingTop="3dp"
-                android:paddingEnd="8dp"
-                android:paddingBottom="3dp"
-                android:text="@string/live"
-                android:textAllCaps="true"
-                android:textColor="@android:color/white"
-                android:textSize="11sp"
-                android:textStyle="bold" />
-
-            <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
-                android:id="@+id/uptime"
-                style="@style/ThumbnailItem"
-                android:layout_gravity="top|end"
-                android:layout_margin="12dp"
-                android:background="@drawable/bg_stream_overlay"
-                android:drawableStart="@drawable/ic_stream_uptime"
-                android:drawableTint="@android:color/white"
-                android:drawablePadding="3dp"
-                android:paddingStart="6dp"
-                android:paddingTop="3dp"
-                android:paddingEnd="6dp"
-                android:paddingBottom="3dp"
-                android:maxLines="1"
-                android:singleLine="true"
-                android:visibility="gone"
-                tools:text="1:23:45"
-                tools:visibility="visible" />
-
-            <TextView
-                android:id="@+id/viewers"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|start"
-                android:layout_margin="12dp"
-                android:background="@drawable/bg_stream_overlay"
-                android:paddingStart="6dp"
-                android:paddingTop="3dp"
-                android:paddingEnd="6dp"
-                android:paddingBottom="3dp"
-                android:textColor="@android:color/white"
-                android:textSize="12sp"
-                tools:text="12.4K viewers" />
-
-            <TextView
-                android:id="@+id/dropsBadge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom|end"
-                android:layout_margin="12dp"
-                android:background="@drawable/bg_stream_overlay"
-                android:clickable="true"
-                android:drawableStart="@drawable/ic_drops"
-                android:drawableTint="@android:color/white"
-                android:drawablePadding="3dp"
-                android:ellipsize="end"
-                android:focusable="true"
-                android:maxLines="1"
-                android:paddingStart="6dp"
-                android:paddingTop="3dp"
-                android:paddingEnd="6dp"
-                android:paddingBottom="3dp"
-                android:textColor="@android:color/white"
-                android:textSize="12sp"
-                android:visibility="gone"
-                tools:text="3 Drops"
-                tools:visibility="visible" />
-        </FrameLayout>
+        <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
+            android:id="@+id/uptime"
+            style="@style/ThumbnailItem"
+            android:layout_gravity="top|end"
+            android:layout_margin="14dp"
+            android:background="@drawable/bg_stream_overlay"
+            android:drawableStart="@drawable/ic_stream_uptime"
+            android:drawableTint="@android:color/white"
+            android:drawablePadding="4dp"
+            android:paddingStart="8dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="5dp"
+            android:maxLines="1"
+            android:singleLine="true"
+            android:visibility="gone"
+            tools:text="1:23:45"
+            tools:visibility="visible" />
 
         <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:background="?attr/colorSurfaceContainerLow"
-            android:gravity="center_vertical"
-            android:orientation="vertical"
-            android:paddingStart="18dp"
-            android:paddingTop="18dp"
-            android:paddingEnd="18dp"
-            android:paddingBottom="18dp">
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="48dp"
+            android:gravity="bottom"
+            android:orientation="horizontal">
 
             <ImageView
                 android:id="@+id/avatar"
-                android:layout_width="42dp"
-                android:layout_height="42dp"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
                 android:background="@drawable/bg_following_avatar"
                 android:clipToOutline="true"
                 android:scaleType="centerCrop"
@@ -146,57 +93,107 @@
                 tools:src="@tools:sample/backgrounds/scenic"
                 tools:visibility="visible" />
 
-            <TextView
-                android:id="@+id/channel"
-                android:layout_width="match_parent"
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textAppearance="?attr/textAppearanceLabelLarge"
-                android:textColor="?attr/colorPrimary"
-                android:textStyle="bold"
-                tools:text="Channel name" />
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/title"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:ellipsize="end"
-                android:maxLines="3"
-                android:textAppearance="?attr/textAppearanceTitleMedium"
-                android:textStyle="bold"
-                tools:text="The stream title goes here" />
+                <TextView
+                    android:id="@+id/channel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceLabelLarge"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    tools:text="Channel name" />
 
-            <TextView
-                android:id="@+id/category"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="5dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textAppearance="?attr/textAppearanceBodySmall"
-                android:textColor="?android:attr/textColorSecondary"
-                tools:text="Just Chatting" />
+                <TextView
+                    android:id="@+id/title"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textColor="@android:color/white"
+                    android:textStyle="bold"
+                    tools:text="The stream title goes here" />
 
-            <TextView
-                android:id="@+id/tagOne"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/bg_following_tag"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:paddingStart="7dp"
-                android:paddingTop="3dp"
-                android:paddingEnd="7dp"
-                android:paddingBottom="3dp"
-                android:textAppearance="?attr/textAppearanceLabelSmall"
-                android:textColor="?android:attr/textColorSecondary"
-                android:visibility="gone"
-                tools:text="English"
-                tools:visibility="visible" />
+                <TextView
+                    android:id="@+id/category"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="#E6FFFFFF"
+                    tools:text="Just Chatting" />
+
+                <TextView
+                    android:id="@+id/tagOne"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="start"
+                    android:layout_marginTop="5dp"
+                    android:ellipsize="end"
+                    android:maxWidth="160dp"
+                    android:maxLines="1"
+                    android:paddingStart="10dp"
+                    android:paddingTop="5dp"
+                    android:paddingEnd="10dp"
+                    android:paddingBottom="5dp"
+                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                    android:textColor="@android:color/white"
+                    android:visibility="gone"
+                    tools:text="English"
+                    tools:visibility="visible" />
+            </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
+
+        <TextView
+            android:id="@+id/viewers"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:layout_marginStart="12dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_stream_overlay"
+            android:paddingStart="8dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="5dp"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            tools:text="12.4K viewers" />
+
+        <TextView
+            android:id="@+id/dropsBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginEnd="12dp"
+            android:layout_marginBottom="12dp"
+            android:background="@drawable/bg_stream_overlay"
+            android:clickable="true"
+            android:drawableStart="@drawable/ic_drops"
+            android:drawableTint="@android:color/white"
+            android:drawablePadding="4dp"
+            android:ellipsize="end"
+            android:focusable="true"
+            android:maxLines="1"
+            android:paddingStart="8dp"
+            android:paddingTop="5dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="5dp"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:text="3 Drops"
+            tools:visibility="visible" />
+    </FrameLayout>
 </com.google.android.material.card.MaterialCardView>

@@ -59,6 +59,9 @@
     <string name="following_starts_today">Today at %1$s</string>
     <string name="following_see_all">See all</string>
     <string name="downloads">Downloads</string>
+    <string name="bookmarks_empty">No bookmarks yet. Saved streams and videos will appear here.</string>
+    <string name="downloads_empty">No downloads yet. Downloaded streams and videos will appear here.</string>
+    <string name="saved_filters_empty">No saved filters yet. Your saved filters will appear here.</string>
     <plurals name="clips_count">
         <item quantity="one">%d clip</item>
         <item quantity="other">%d clips</item>
@@ -197,7 +200,10 @@
     <string name="settings_app_background">App background</string>
     <string name="settings_app_background_preview">Preview</string>
     <string name="settings_app_background_preview_summary">Preview of your app background behind browse screens and navigation.</string>
-    <string name="settings_app_background_preview_sample">Following - Browse screens - Navigation</string>
+    <string name="settings_app_background_preview_content_description">Miniature overview screen with a live stream card and bottom navigation.</string>
+    <string name="settings_app_background_preview_stream_title">Stream title</string>
+    <string name="settings_app_background_preview_stream_detail">Channel · Category</string>
+    <string name="settings_app_background_preview_viewers">520 viewers</string>
     <string name="settings_app_background_enabled">Custom app background</string>
     <string name="settings_app_background_enabled_summary">Show a photo behind the app\'s browse screens and navigation.</string>
     <string name="settings_app_background_choose">Choose background photo</string>
@@ -436,6 +442,9 @@
     <string name="settings_theme_device_colors">Use device colors</string>
     <string name="settings_theme_device_colors_summary">Use colors from your device wallpaper when supported.</string>
     <string name="settings_theme_system">System</string>
+    <string name="settings_ui_style">Interface style</string>
+    <string name="settings_ui_style_classic">Classic</string>
+    <string name="settings_ui_style_expressive">Expressive</string>
     <string name="settings_theme_amoled" translatable="false">AMOLED</string>
     <string name="settings_density_comfortable">Comfortable</string>
     <string name="settings_density_compact">Compact</string>
@@ -794,6 +803,9 @@ Metadata text</string>
     <string name="yes">Yes</string>
     <string name="no">No</string>
     <string name="search">Search</string>
+    <string name="search_landing_title">Explore Twitch</string>
+    <string name="search_landing_summary">Find live streams, channels, videos, and games.</string>
+    <string name="search_recent_searches">Recent searches</string>
     <string name="chat_replay_unavailable">Chat replay is unavailable</string>
     <string name="video_subscribers_only">This video is only available to subscribers.</string>
     <string name="player_error">Player error, retrying…</string>
@@ -1928,6 +1940,9 @@ Metadata text</string>
     <string name="drops_active_campaigns">Active campaigns</string>
     <string name="drops_upcoming">Upcoming</string>
     <string name="drops_summary">%1$d rewards ready · %2$d campaigns active</string>
+    <string name="drops_tracked">Tracked</string>
+    <string name="drops_more_actions">More</string>
+    <string name="drops_more_actions_for">More actions for %1$s</string>
     <string name="drops_auto_claim">Automatically claim completed Drops</string>
     <string name="drops_auto_claim_summary">Claims completed Drops while you are watching in Xtra. Twitch can change this private API at any time.</string>
     <string name="drops_ready_title">Watching earned you a Drop!</string>
@@ -2249,6 +2264,7 @@ Metadata text</string>
     <string name="statistics_weekday_sunday">Sunday</string>
     <string name="notifications">Notifications</string>
     <string name="whispers">Whispers</string>
+    <string name="select_whisper_conversation">Select a conversation</string>
     <string name="my_twitch">My Twitch</string>
     <string name="most_recent">Most Recent</string>
     <string name="search_for_people">Search for people</string>
@@ -2257,6 +2273,8 @@ Metadata text</string>
     <string name="reconnect_twitch">Reconnect Twitch</string>
     <string name="no_notifications_yet">No notifications yet</string>
     <string name="no_whispers_yet">No whispers yet</string>
+    <string name="whisper_no_messages_yet">No messages yet</string>
+    <string name="whisper_no_messages_description">Messages with %1$s will appear here.</string>
     <string name="no_people_found">No people found</string>
     <string name="couldnt_load_notifications">Couldn\'t load notifications</string>
     <string name="couldnt_load_whispers">Couldn\'t load whispers</string>

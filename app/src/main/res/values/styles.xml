@@ -25,6 +25,9 @@
         <item name="tabLayoutHeight">48dp</item>
         <item name="bottomNavigationHeight">80dp</item>
         <item name="cardStyle">@style/Card</item>
+        <item name="featuredCardStyle">@style/ClassicFeaturedStreamCard</item>
+        <item name="sectionTitleStyle">@style/ClassicSectionTitle</item>
+        <item name="sectionDividerColor">?attr/colorOutlineVariant</item>
         <item name="bottomSheetButtonStyle">@style/Widget.Material3.Button.ElevatedButton</item>
         <item name="elevatedButtonStyle">@style/Widget.Material3.Button.ElevatedButton</item>
         <item name="dialogButtonStyle">@style/Widget.Material3.Button.TextButton.Dialog</item>
@@ -58,6 +61,9 @@
         <item name="tabLayoutHeight">48dp</item>
         <item name="bottomNavigationHeight">80dp</item>
         <item name="cardStyle">@style/Card</item>
+        <item name="featuredCardStyle">@style/ClassicFeaturedStreamCard</item>
+        <item name="sectionTitleStyle">@style/ClassicSectionTitle</item>
+        <item name="sectionDividerColor">?attr/colorOutlineVariant</item>
         <item name="bottomSheetButtonStyle">@style/Widget.Material3.Button.ElevatedButton</item>
         <item name="elevatedButtonStyle">@style/Widget.Material3.Button.ElevatedButton</item>
         <item name="dialogButtonStyle">@style/Widget.Material3.Button.TextButton.Dialog</item>
@@ -97,6 +103,9 @@
         <item name="tabLayoutHeight">48dp</item>
         <item name="bottomNavigationHeight">80dp</item>
         <item name="cardStyle">@style/CardAmoled</item>
+        <item name="featuredCardStyle">@style/ClassicFeaturedStreamCard</item>
+        <item name="sectionTitleStyle">@style/ClassicSectionTitle</item>
+        <item name="sectionDividerColor">?attr/colorOutlineVariant</item>
         <item name="bottomSheetButtonStyle">@style/Widget.Material3.Button.ElevatedButton</item>
         <item name="elevatedButtonStyle">@style/Widget.Material3.Button.ElevatedButton</item>
         <item name="dialogButtonStyle">@style/Widget.Material3.Button.TextButton.Dialog</item>
@@ -140,6 +149,9 @@
         <item name="tabLayoutHeight">48dp</item>
         <item name="bottomNavigationHeight">80dp</item>
         <item name="cardStyle">@style/Card</item>
+        <item name="featuredCardStyle">@style/ClassicFeaturedStreamCard</item>
+        <item name="sectionTitleStyle">@style/ClassicSectionTitle</item>
+        <item name="sectionDividerColor">?attr/colorOutlineVariant</item>
         <item name="bottomSheetButtonStyle">@style/Widget.Material3.Button.ElevatedButton</item>
         <item name="elevatedButtonStyle">@style/Widget.Material3.Button.ElevatedButton</item>
         <item name="dialogButtonStyle">@style/Widget.Material3.Button.TextButton.Dialog</item>
@@ -252,7 +264,261 @@
     <style name="ModernPreferenceTheme" parent="@style/PreferenceTheme">
         <item name="android:listPreferredItemHeightSmall">56dp</item>
         <item name="android:listPreferredItemHeight">64dp</item>
-        <item name="preferenceCategoryTitleTextColor">@color/modernPrimary</item>
+        <item name="preferenceCategoryTitleTextColor">?attr/colorPrimary</item>
+    </style>
+
+    <style name="ExpressiveDarkTheme" parent="Theme.Material3Expressive.Dark.NoActionBar">
+        <item name="colorPrimary">@color/modernPrimary</item>
+        <item name="colorOnPrimary">@color/modernOnPrimary</item>
+        <item name="colorPrimaryContainer">@color/modernPrimaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/modernOnPrimaryContainer</item>
+        <item name="colorSecondary">@color/modernSecondary</item>
+        <item name="colorSecondaryContainer">@color/modernSecondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/modernOnSecondaryContainer</item>
+        <item name="colorSurface">@color/modernSurface</item>
+        <item name="android:colorBackground">@color/modernSurface</item>
+        <item name="colorSurfaceContainerLowest">@color/modernSurfaceContainerLowest</item>
+        <item name="colorSurfaceContainerLow">@color/modernSurfaceContainerLow</item>
+        <item name="colorSurfaceContainer">@color/modernSurfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/modernSurfaceContainerHigh</item>
+        <item name="colorSurfaceContainerHighest">@color/modernSurfaceContainerHighest</item>
+        <item name="colorOnSurface">@color/modernOnSurface</item>
+        <item name="colorOnSurfaceVariant">@color/modernOnSurfaceVariant</item>
+        <item name="colorOutline">@color/modernOutline</item>
+        <item name="colorOutlineVariant">#393B44</item>
+        <item name="chatStatus">@color/chatStatusDark</item>
+        <item name="chatMessageFirstColor">@color/chatMessageFirstDark</item>
+        <item name="chatMessageFirstChatterColor">@color/chatMessageFirstChatterDark</item>
+        <item name="chatMessageSubscriptionAccentColor">@color/chatMessageSubscriptionAccent</item>
+        <item name="chatMessageRewardColor">@color/chatMessageRewardDark</item>
+        <item name="chatMessageNoticeColor">@color/chatMessageNoticeDark</item>
+        <item name="chatMessageHighlightColor">@color/chatMessageHighlightDark</item>
+        <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
+        <item name="chatMessageMentionColor">@color/chatMessageMentionDark</item>
+        <item name="chatMessageSelectedColor">@color/chatMessageSelectedDark</item>
+        <item name="sortBarTextColor">?android:textColorSecondary</item>
+        <item name="dialogPadding">8dp</item>
+        <item name="dialogLayoutPadding">8dp</item>
+        <item name="tabLayoutHeight">48dp</item>
+        <item name="bottomNavigationHeight">80dp</item>
+        <item name="cardStyle">@style/ExpressiveCard</item>
+        <item name="featuredCardStyle">@style/ExpressiveFeaturedStreamCard</item>
+        <item name="sectionTitleStyle">@style/ExpressiveSectionTitle</item>
+        <item name="sectionDividerColor">@android:color/transparent</item>
+        <item name="bottomNavigationStyle">@style/ExpressiveBottomNavigation</item>
+        <item name="bottomSheetButtonStyle">@style/Widget.Material3Expressive.Button.ElevatedButton</item>
+        <item name="elevatedButtonStyle">@style/Widget.Material3Expressive.Button.ElevatedButton</item>
+        <item name="dialogButtonStyle">@style/Widget.Material3Expressive.Button.TextButton.Dialog</item>
+        <item name="preferenceTheme">@style/ModernPreferenceTheme</item>
+        <item name="android:navigationBarColor">@color/modernSurface</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+
+    <style name="ExpressiveLightTheme" parent="Theme.Material3Expressive.Light.NoActionBar">
+        <item name="colorPrimary">@color/modernLightPrimary</item>
+        <item name="colorOnPrimary">@color/modernLightOnPrimary</item>
+        <item name="colorPrimaryContainer">@color/modernLightPrimaryContainer</item>
+        <item name="colorOnPrimaryContainer">@color/modernLightOnPrimaryContainer</item>
+        <item name="colorSecondary">@color/modernLightSecondary</item>
+        <item name="colorSecondaryContainer">@color/modernLightSecondaryContainer</item>
+        <item name="colorOnSecondaryContainer">@color/modernLightOnSecondaryContainer</item>
+        <item name="colorSurface">@color/modernLightSurface</item>
+        <item name="android:colorBackground">@color/modernLightSurface</item>
+        <item name="colorSurfaceContainerLowest">@color/modernLightSurfaceContainerLowest</item>
+        <item name="colorSurfaceContainerLow">@color/modernLightSurfaceContainerLow</item>
+        <item name="colorSurfaceContainer">@color/modernLightSurfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/modernLightSurfaceContainerHigh</item>
+        <item name="colorSurfaceContainerHighest">@color/modernLightSurfaceContainerHighest</item>
+        <item name="colorOnSurface">@color/modernLightOnSurface</item>
+        <item name="colorOnSurfaceVariant">@color/modernLightOnSurfaceVariant</item>
+        <item name="colorOutline">@color/modernLightOutline</item>
+        <item name="colorOutlineVariant">@color/modernLightOutlineVariant</item>
+        <item name="chatStatus">@color/chatStatusLight</item>
+        <item name="chatMessageFirstColor">@color/chatMessageFirst</item>
+        <item name="chatMessageFirstChatterColor">@color/chatMessageFirstChatter</item>
+        <item name="chatMessageSubscriptionAccentColor">@color/chatMessageSubscriptionAccent</item>
+        <item name="chatMessageRewardColor">@color/chatMessageReward</item>
+        <item name="chatMessageNoticeColor">@color/chatMessageNotice</item>
+        <item name="chatMessageHighlightColor">@color/chatMessageHighlight</item>
+        <item name="chatMessageSpecialAccentColor">@color/chatMessageSpecialAccent</item>
+        <item name="chatEventStreakAccentColor">@color/watchStreakOrange</item>
+        <item name="chatMessageMentionColor">@color/chatMessageMention</item>
+        <item name="chatMessageSelectedColor">@color/chatMessageSelected</item>
+        <item name="sortBarTextColor">?android:textColorSecondary</item>
+        <item name="dialogPadding">8dp</item>
+        <item name="dialogLayoutPadding">8dp</item>
+        <item name="tabLayoutHeight">48dp</item>
+        <item name="bottomNavigationHeight">80dp</item>
+        <item name="cardStyle">@style/ExpressiveCard</item>
+        <item name="featuredCardStyle">@style/ExpressiveFeaturedStreamCard</item>
+        <item name="sectionTitleStyle">@style/ExpressiveSectionTitle</item>
+        <item name="sectionDividerColor">@android:color/transparent</item>
+        <item name="bottomNavigationStyle">@style/ExpressiveBottomNavigation</item>
+        <item name="bottomSheetButtonStyle">@style/Widget.Material3Expressive.Button.ElevatedButton</item>
+        <item name="elevatedButtonStyle">@style/Widget.Material3Expressive.Button.ElevatedButton</item>
+        <item name="dialogButtonStyle">@style/Widget.Material3Expressive.Button.TextButton.Dialog</item>
+        <item name="preferenceTheme">@style/ModernPreferenceTheme</item>
+        <item name="android:navigationBarColor">@color/modernLightSurface</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+
+    <style name="ExpressiveAmoledTheme" parent="ExpressiveDarkTheme">
+        <item name="colorSurface">@color/modernAmoledSurface</item>
+        <item name="android:colorBackground">@color/modernAmoledSurface</item>
+        <item name="colorSurfaceContainerLowest">@color/modernAmoledSurfaceContainerLowest</item>
+        <item name="colorSurfaceContainerLow">@color/modernAmoledSurfaceContainerLow</item>
+        <item name="colorSurfaceContainer">@color/modernAmoledSurfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/modernAmoledSurfaceContainerHigh</item>
+        <item name="colorSurfaceContainerHighest">@color/modernAmoledSurfaceContainerHighest</item>
+        <item name="colorOutlineVariant">#292A30</item>
+        <item name="android:navigationBarColor">@color/modernAmoledSurface</item>
+    </style>
+
+    <style name="ExpressiveBlueTheme" parent="ExpressiveDarkTheme">
+        <item name="colorPrimary">@color/primaryBlue</item>
+        <item name="colorSurface">@color/surfaceBlue</item>
+        <item name="android:colorBackground">@color/surfaceBlue</item>
+        <item name="colorSurfaceContainerLowest">@color/surfaceContainerLowestBlue</item>
+        <item name="colorSurfaceContainerLow">@color/surfaceContainerLowBlue</item>
+        <item name="colorSurfaceContainer">@color/surfaceContainerBlue</item>
+        <item name="colorSurfaceContainerHigh">@color/surfaceContainerHighBlue</item>
+        <item name="colorSurfaceContainerHighest">@color/surfaceContainerHighestBlue</item>
+        <item name="android:navigationBarColor">@color/surfaceBlue</item>
+    </style>
+
+    <style name="ExpressiveBottomNavigation" parent="Widget.Material3Expressive.BottomNavigationView">
+        <item name="android:background">?attr/colorSurface</item>
+        <item name="itemPaddingTop">4dp</item>
+        <item name="itemPaddingBottom">4dp</item>
+        <item name="activeIndicatorLabelPadding">2dp</item>
+        <item name="itemActiveIndicatorStyle">@style/ExpressiveActiveIndicator</item>
+        <item name="elevation">0dp</item>
+    </style>
+
+    <style name="ExpressiveActiveIndicator" parent="Widget.Material3Expressive.BottomNavigationView.ActiveIndicator">
+        <item name="android:height">34dp</item>
+    </style>
+
+    <style name="ExpressiveCard" parent="Widget.Material3.CardView.Elevated">
+        <item name="android:layout_margin">4dp</item>
+        <item name="android:elevation">0dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainerLow</item>
+        <item name="strokeWidth">0dp</item>
+    </style>
+
+    <style name="ClassicSectionTitle">
+        <item name="android:textAppearance">?attr/textAppearanceTitleLarge</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="ExpressiveSectionTitle">
+        <item name="android:textAppearance">?attr/textAppearanceTitleLarge</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+
+    <style name="ClassicFeaturedStreamCard" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainer</item>
+        <item name="cardCornerRadius">18dp</item>
+        <item name="cardElevation">5dp</item>
+        <item name="strokeColor">?attr/colorOutlineVariant</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="ExpressiveFeaturedStreamCard" parent="Widget.Material3.CardView.Elevated">
+        <item name="cardBackgroundColor">?attr/colorSurfaceContainerLow</item>
+        <item name="shapeAppearance">?attr/shapeAppearanceLargeComponent</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">0dp</item>
+    </style>
+
+    <style name="ExpressiveTvCompatibilityOverlay">
+        <item name="navigationRailStyle">@style/Widget.Material3.NavigationRailView</item>
+        <item name="borderlessButtonStyle">@style/Widget.Material3.Button.TextButton</item>
+    </style>
+
+    <style name="ExpressiveSmallCornersOverlay">
+        <item name="shapeCornerSizeExtraSmall">4dp</item>
+        <item name="shapeCornerSizeSmall">6dp</item>
+        <item name="shapeCornerSizeMedium">9dp</item>
+        <item name="shapeCornerSizeLarge">12dp</item>
+        <item name="shapeCornerSizeExtraLarge">14dp</item>
+        <item name="shapeCornerSizeLargeIncreased">12dp</item>
+        <item name="shapeCornerSizeExtraLargeIncreased">14dp</item>
+        <item name="shapeCornerSizeExtraExtraLarge">16dp</item>
+        <item name="shapeAppearanceCornerLargeIncreased">@style/ShapeAppearance.Material3.Corner.Large</item>
+        <item name="shapeAppearanceCornerExtraLargeIncreased">@style/ShapeAppearance.Material3.Corner.ExtraLarge</item>
+        <item name="shapeAppearanceCornerExtraExtraLarge">@style/ShapeAppearance.Material3.Corner.ExtraExtraLarge</item>
+        <item name="shapeAppearanceSmallComponent">@style/CompactSmallComponent</item>
+        <item name="shapeAppearanceMediumComponent">@style/CompactMediumComponent</item>
+        <item name="shapeAppearanceLargeComponent">@style/CompactLargeComponent</item>
+    </style>
+
+    <style name="ExpressiveNoCornersOverlay">
+        <item name="shapeCornerSizeLargeIncreased">0dp</item>
+        <item name="shapeCornerSizeExtraLargeIncreased">0dp</item>
+        <item name="shapeCornerSizeExtraExtraLarge">0dp</item>
+        <item name="shapeAppearanceCornerExtraSmall">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceCornerSmall">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceCornerMedium">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceCornerLarge">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceCornerLargeIncreased">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceCornerExtraLarge">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceCornerExtraLargeIncreased">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceCornerExtraExtraLarge">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceSmallComponent">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceMediumComponent">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceLargeComponent">@style/ShapeAppearance.Material3.Corner.None</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.Material3.Corner.None</item>
+    </style>
+
+    <style name="ExpressiveCompactOverlay">
+        <item name="actionBarSize">48dp</item>
+        <item name="tabLayoutHeight">44dp</item>
+        <item name="bottomNavigationHeight">64dp</item>
+        <item name="toolbarStyle">@style/ExpressiveCompactToolbar</item>
+        <item name="bottomNavigationStyle">@style/ExpressiveCompactBottomNavigation</item>
+        <item name="cardStyle">@style/ExpressiveCompactCard</item>
+        <item name="radioButtonStyle">@style/CompactRadioButton</item>
+        <item name="checkboxStyle">@style/CompactCheckBox</item>
+        <item name="textAppearanceDisplayLarge">@style/CompactTextDisplayLarge</item>
+        <item name="textAppearanceDisplayMedium">@style/CompactTextDisplayMedium</item>
+        <item name="textAppearanceDisplaySmall">@style/CompactTextDisplaySmall</item>
+        <item name="textAppearanceHeadlineLarge">@style/CompactTextHeadlineLarge</item>
+        <item name="textAppearanceHeadlineMedium">@style/CompactTextHeadlineMedium</item>
+        <item name="textAppearanceHeadlineSmall">@style/CompactTextHeadlineSmall</item>
+        <item name="textAppearanceTitleLarge">@style/CompactTextTitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/CompactTextTitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/CompactTextTitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/CompactTextBodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/CompactTextBodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/CompactTextBodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/CompactTextLabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/CompactTextLabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/CompactTextLabelSmall</item>
+    </style>
+
+    <style name="ExpressiveCompactToolbar" parent="Widget.Material3.Toolbar">
+        <item name="maxButtonHeight">44dp</item>
+    </style>
+
+    <style name="ExpressiveCompactBottomNavigation" parent="Widget.Material3Expressive.BottomNavigationView">
+        <item name="android:background">?attr/colorSurface</item>
+        <item name="itemPaddingTop">2dp</item>
+        <item name="itemPaddingBottom">2dp</item>
+        <item name="activeIndicatorLabelPadding">0dp</item>
+        <item name="itemActiveIndicatorStyle">@style/ExpressiveCompactActiveIndicator</item>
+        <item name="elevation">0dp</item>
+    </style>
+
+    <style name="ExpressiveCompactActiveIndicator" parent="Widget.Material3Expressive.BottomNavigationView.ActiveIndicator">
+        <item name="android:height">28dp</item>
+    </style>
+
+    <style name="ExpressiveCompactCard" parent="ExpressiveCard">
+        <item name="android:layout_margin">4dp</item>
     </style>
 
     <style name="BaseDarkThemeReducedPadding" parent="BaseDarkTheme">
@@ -1237,6 +1503,24 @@
         <item name="bottomNavigationStyle">@style/BottomNavigationAmoled</item>
         <item name="bottomSheetDialogTheme">@style/BottomSheet</item>
         <item name="materialAlertDialogTheme">@style/Dialog</item>
+    </style>
+
+    <style name="ExpressiveDarkDynamicOverlay" parent="ThemeOverlay.Material3Expressive.DynamicColors.Dark">
+        <item name="materialSwitchStyle">@style/Widget.Material3.CompoundButton.MaterialSwitch</item>
+    </style>
+
+    <style name="ExpressiveLightDynamicOverlay" parent="ThemeOverlay.Material3Expressive.DynamicColors.Light">
+        <item name="materialSwitchStyle">@style/Widget.Material3.CompoundButton.MaterialSwitch</item>
+    </style>
+
+    <style name="ExpressiveAmoledDynamicOverlay" parent="ExpressiveDarkDynamicOverlay">
+        <item name="colorSurface">@color/modernAmoledSurface</item>
+        <item name="android:colorBackground">@color/modernAmoledSurface</item>
+        <item name="colorSurfaceContainerLowest">@color/modernAmoledSurfaceContainerLowest</item>
+        <item name="colorSurfaceContainerLow">@color/modernAmoledSurfaceContainerLow</item>
+        <item name="colorSurfaceContainer">@color/modernAmoledSurfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/modernAmoledSurfaceContainerHigh</item>
+        <item name="colorSurfaceContainerHighest">@color/modernAmoledSurfaceContainerHighest</item>
     </style>
 
     <style name="Thumbnail">
