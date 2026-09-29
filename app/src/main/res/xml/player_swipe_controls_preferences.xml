@@ -10,6 +10,15 @@
         app:iconSpaceReserved="false" />
 
     <ListPreference
+        android:defaultValue="both"
+        android:entries="@array/playerSwipeOrientationEntries"
+        android:entryValues="@array/playerSwipeOrientationValues"
+        android:key="player_swipe_controls_orientation"
+        android:title="@string/settings_player_swipe_orientation"
+        app:iconSpaceReserved="false"
+        app:useSimpleSummaryProvider="true" />
+
+    <ListPreference
         android:defaultValue="brightness"
         android:entries="@array/playerSwipeGestureEntries"
         android:entryValues="@array/playerSwipeGestureValues"
