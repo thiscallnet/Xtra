@@ -1126,6 +1126,7 @@ class PlaybackService : MediaSessionService() {
                                 }))
                             }
                             GET_QUALITIES -> {
+                                val sourceUri = session.player.currentMediaItem?.localConfiguration?.uri?.toString()
                                 val playlist = (session.player.currentManifest as? HlsManifest)?.multivariantPlaylist
                                 val list = playlist?.variants?.mapNotNull { variant ->
                                     val name = variant.format.label?.takeIf { it.isNotBlank() }
@@ -1141,6 +1142,7 @@ class PlaybackService : MediaSessionService() {
                                     } else null
                                 }
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                                    putString(QUALITIES_SOURCE_URI, sourceUri)
                                     putStringArray(NAMES, list?.map { it.name.toString() }?.toTypedArray())
                                     putStringArray(CODECS, list?.map { it.codecs.toString() }?.toTypedArray())
                                     putStringArray(BITRATES, list?.map { it.bitrate.toString() }?.toTypedArray())
@@ -2821,6 +2823,7 @@ class PlaybackService : MediaSessionService() {
         const val BACKGROUND_PLAYBACK = "backgroundPlayback"
         const val DURATION = "duration"
         const val NAMES = "names"
+        const val QUALITIES_SOURCE_URI = "qualitiesSourceUri"
         const val CODECS = "codecs"
         const val BITRATES = "bitrates"
         const val FRAME_RATES = "frameRates"

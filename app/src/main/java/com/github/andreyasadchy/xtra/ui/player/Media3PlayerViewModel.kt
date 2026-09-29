@@ -94,6 +94,7 @@ class Media3PlayerViewModel(
     var usingProxy = false
     var stopProxy = false
     var usingAlternateStream = false
+    internal val adAvoidanceQualityState = AdAvoidanceQualityState()
     private val adController = TwitchAdController()
 
     val videoResult = MutableStateFlow<String?>(null)

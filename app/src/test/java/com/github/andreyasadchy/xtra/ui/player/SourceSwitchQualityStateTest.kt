@@ -93,4 +93,87 @@ class SourceSwitchQualityStateTest {
         assertEquals(refreshedMain.bitrate, restored?.bitrate)
         assertEquals(refreshedMain.url, restored?.url)
     }
+
+    @Test
+    fun adAvoidanceKeepsOriginalRungWhenAlternateMustUseLowerQuality() {
+        val state = AdAvoidanceQualityState()
+        val primary720 = VideoQuality("720p60", bitrate = 3_000_000, url = "primary-720")
+        val alternate360 = VideoQuality("360p", bitrate = 800_000, url = "alternate-360")
+        val alternate160 = VideoQuality("160p", bitrate = 300_000, url = "alternate-160")
+
+        state.begin(primary720)
+        val alternateSelection = SourceSwitchQualityIdentity("720p60", null, 3_000_000)
+            .resolve(listOf(alternate360, alternate160)) { name ->
+                when (name) {
+                    "720p60" -> alternate360
+                    else -> listOf(alternate360, alternate160).firstOrNull { it.name == name }
+                }
+            }
+        assertEquals("360p", alternateSelection?.name)
+
+        val returnedPrimary = state.identityForPrimaryReturn?.resolve(listOf(primary720)) { null }
+
+        assertEquals("720p60", returnedPrimary?.name)
+        assertEquals("primary-720", returnedPrimary?.url)
+        assertEquals("720p60", state.identityForPrimaryReturn?.name)
+    }
+
+    @Test
+    fun explicitSameAlternateRungReplacesOriginalReturnIntent() {
+        val state = AdAvoidanceQualityState()
+        val alternate360 = VideoQuality("360p", bitrate = 800_000, url = "alternate-360")
+        val primary360 = VideoQuality("360p", bitrate = 1_000_000, url = "primary-360")
+
+        state.begin(VideoQuality("720p60"))
+        state.rememberExplicitSelection(alternate360)
+
+        val returnedPrimary = state.identityForPrimaryReturn?.resolve(listOf(primary360)) { name ->
+            listOf(primary360).firstOrNull { it.name == name }
+        }
+
+        assertEquals("360p", returnedPrimary?.name)
+        assertEquals("primary-360", returnedPrimary?.url)
+    }
+
+    @Test
+    fun autoAndNoInitialSelectionKeepTheirExistingReturnSemantics() {
+        val state = AdAvoidanceQualityState()
+        state.begin(VideoQuality("auto"))
+
+        assertEquals("auto", state.identityForPrimaryReturn?.name)
+
+        state.clear()
+        state.begin(null)
+
+        assertEquals(true, state.isActive)
+        assertNull(state.identityForPrimaryReturn)
+    }
+
+    @Test
+    fun sourceSelectionFollowsSourceAcrossDifferentBitrateAndCodec() {
+        val source = VideoQuality("Source", "h264", 3_000_000, "source")
+        val refreshedSource = VideoQuality("Source", "h265", 6_000_000, "refreshed-source")
+
+        val restored = SourceSwitchQualityIdentity("Source", source.codecs, source.bitrate)
+            .resolve(listOf(refreshedSource)) { null }
+
+        assertEquals("refreshed-source", restored?.url)
+    }
+
+    @Test
+    fun adAvoidanceWaitsForTheExpectedPrimarySourceBeforeRestoringQuality() {
+        val state = AdAvoidanceQualityState()
+        state.begin(VideoQuality("720p60", bitrate = 3_000_000))
+        state.expectPrimaryReturn("https://primary.example/master.m3u8")
+
+        assertEquals(true, state.isAwaitingPrimaryReturn)
+        assertEquals(false, state.matchesPrimaryReturn("https://alternate.example/master.m3u8"))
+        assertEquals(SourceSwitchQualityIdentity("720p60", null, 3_000_000), state.identityForPrimaryReturn)
+        assertEquals(true, state.matchesPrimaryReturn("https://primary.example/master.m3u8"))
+
+        state.clear()
+
+        assertEquals(false, state.isAwaitingPrimaryReturn)
+        assertEquals(false, state.matchesPrimaryReturn("https://primary.example/master.m3u8"))
+    }
 }

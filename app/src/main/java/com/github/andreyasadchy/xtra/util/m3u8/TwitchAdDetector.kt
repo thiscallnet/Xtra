@@ -25,11 +25,15 @@ object TwitchAdDetector {
                 ?: interstitial.durationUs.takeIf { it != C.TIME_UNSET }?.let { startTime + it }
                 ?: interstitial.plannedDurationUs.takeIf { it != C.TIME_UNSET }?.let { startTime + it }
             endTime != null
-                    && (interstitial.id.startsWith("stitched-ad-")
-                    || interstitial.clientDefinedAttributes.any { attribute ->
-                        (attribute.name == "CLASS" && attribute.textValue == "twitch-stitched-ad")
-                                || attribute.name.startsWith("X-TV-TWITCH-AD-")
-                    })
+                    && isTwitchAdDateRange(
+                        id = interstitial.id,
+                        rangeClass = interstitial.clientDefinedAttributes
+                            .firstOrNull { it.name == "CLASS" }
+                            ?.textValue,
+                        hasAdAttribute = interstitial.clientDefinedAttributes.any {
+                            it.name.startsWith("X-TV-TWITCH-AD-")
+                        },
+                    )
                     && segmentStartTime in startTime..endTime
         }
     }
@@ -43,7 +47,7 @@ object TwitchAdDetector {
             ?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() }
             ?: return false
         return playlist.dateRanges.any { dateRange ->
-            if (!isTwitchAd(dateRange.id, dateRange.rangeClass, dateRange.ad)) {
+            if (!isTwitchAdDateRange(dateRange.id, dateRange.rangeClass, dateRange.ad)) {
                 return@any false
             }
             val startTime = Instant.parseOrNull(dateRange.startDate)?.toEpochMilliseconds()
@@ -59,8 +63,14 @@ object TwitchAdDetector {
     internal fun isAdTitle(title: String): Boolean =
         adTitleMarkers.any { title.contains(it, ignoreCase = true) }
 
-    private fun isTwitchAd(id: String, rangeClass: String?, ad: Boolean = false): Boolean {
-        return ad || id.startsWith("stitched-ad-") || rangeClass == "twitch-stitched-ad"
-    }
+    internal fun isTwitchAdDateRange(
+        id: String,
+        rangeClass: String?,
+        hasAdAttribute: Boolean = false,
+    ): Boolean = hasAdAttribute ||
+        id.startsWith("stitched-ad", ignoreCase = true) ||
+        rangeClass?.startsWith("twitch-stitched", ignoreCase = true) == true ||
+        rangeClass.equals("twitch-maf-ad", ignoreCase = true) ||
+        rangeClass.equals("twitch-trigger", ignoreCase = true)
 
 }

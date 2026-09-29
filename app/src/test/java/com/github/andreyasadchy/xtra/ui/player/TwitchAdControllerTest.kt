@@ -10,7 +10,7 @@ class TwitchAdControllerTest {
         val controller = TwitchAdController()
 
         assertEquals(
-            listOf("embed", "popout", "autoplay"),
+            listOf("popout", "mobile_web", "embed", "autoplay"),
             controller.playerTypesForAd("site"),
         )
         assertEquals(emptyList<String>(), controller.playerTypesForAd("site"))
@@ -24,7 +24,7 @@ class TwitchAdControllerTest {
         controller.onCleanPlaylist()
 
         assertEquals(
-            listOf("embed", "popout", "autoplay"),
+            listOf("popout", "mobile_web", "embed", "autoplay"),
             controller.playerTypesForAd("site"),
         )
     }
@@ -37,7 +37,7 @@ class TwitchAdControllerTest {
         controller.reset()
 
         assertEquals(
-            listOf("embed", "popout", "autoplay"),
+            listOf("popout", "mobile_web", "embed", "autoplay"),
             controller.playerTypesForAd("site"),
         )
     }
