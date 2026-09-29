@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.player
 
 import android.os.SystemClock
+import androidx.media3.common.Player
 import com.github.andreyasadchy.xtra.graphql.type.BroadcastType
 import com.github.andreyasadchy.xtra.graphql.type.VideoSort
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
@@ -78,10 +79,47 @@ class LiveTapSeekDoubleTapState {
     }
 }
 
-enum class LiveTapSeekDirection(val offsetMs: Long) {
-    BACKWARD(-LIVE_TAP_SEEK_STEP_MS),
-    FORWARD(LIVE_TAP_SEEK_STEP_MS),
+enum class LiveTapSeekDirection {
+    BACKWARD,
+    FORWARD,
 }
+
+data class MediaSessionSeekCommandAdditions(
+    val seekInCurrentMediaItem: Boolean,
+    val seekToPrevious: Boolean,
+    val seekToNext: Boolean,
+)
+
+data class LiveRewindServiceState(
+    val active: Boolean,
+    val transitioning: Boolean,
+    val vodId: String?,
+) {
+    val isResolved: Boolean
+        get() = !transitioning && (!active || !vodId.isNullOrBlank())
+}
+
+fun mediaSessionSeekCommandAdditions(
+    systemMediaControlsEnabled: Boolean,
+    systemSeekButtonsEnabled: Boolean,
+    liveRewindActive: Boolean,
+    liveRewindTransitioning: Boolean,
+    seekable: Boolean,
+): MediaSessionSeekCommandAdditions {
+    val systemSeekEnabled = systemMediaControlsEnabled && systemSeekButtonsEnabled && seekable
+    return MediaSessionSeekCommandAdditions(
+        seekInCurrentMediaItem = liveRewindActive && !liveRewindTransitioning && seekable,
+        seekToPrevious = systemSeekEnabled,
+        seekToNext = systemSeekEnabled,
+    )
+}
+
+fun mediaNotificationControllerSeekCommandAdditions(isMediaNotificationController: Boolean): Set<Int> =
+    if (isMediaNotificationController) {
+        setOf(Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_NEXT)
+    } else {
+        emptySet()
+    }
 
 data class LiveTapSeekTarget(
     val positionMs: Long,
@@ -89,15 +127,70 @@ data class LiveTapSeekTarget(
     val effectiveDeltaMs: Long,
 )
 
+sealed interface TransportSeekDecision {
+    data object UseNativeCommand : TransportSeekDecision
+    data class SeekTo(val positionMs: Long) : TransportSeekDecision
+    data class Rejected(val reason: String) : TransportSeekDecision
+}
+
+fun transportSeekDecision(
+    nativeSeekAvailable: Boolean,
+    currentItemAvailable: Boolean,
+    seekInCurrentMediaItemAvailable: Boolean,
+    seekable: Boolean,
+    blockedReason: String?,
+    currentPositionMs: Long?,
+    durationMs: Long?,
+    direction: LiveTapSeekDirection,
+    stepMs: Long,
+): TransportSeekDecision {
+    if (blockedReason != null) return TransportSeekDecision.Rejected(blockedReason)
+    if (nativeSeekAvailable) return TransportSeekDecision.UseNativeCommand
+    if (!currentItemAvailable) return TransportSeekDecision.Rejected("no_item")
+    if (!seekInCurrentMediaItemAvailable) return TransportSeekDecision.Rejected("seek_command_unavailable")
+    if (!seekable) return TransportSeekDecision.Rejected("unseekable")
+    val currentPosition = currentPositionMs?.takeIf { it >= 0L }
+        ?: return TransportSeekDecision.Rejected("unknown_position")
+    val targetPosition = transportSeekTargetMs(currentPosition, durationMs, direction, stepMs)
+        ?: return TransportSeekDecision.Rejected("invalid_seek_target")
+    return TransportSeekDecision.SeekTo(targetPosition)
+}
+
+fun transportSeekTargetMs(
+    currentPositionMs: Long,
+    durationMs: Long?,
+    direction: LiveTapSeekDirection,
+    stepMs: Long,
+): Long? {
+    if (currentPositionMs < 0L || stepMs < 0L) return null
+    val safeDurationMs = durationMs?.takeIf { it >= 0L }
+    val positionMs = safeDurationMs?.let { currentPositionMs.coerceAtMost(it) } ?: currentPositionMs
+    return when (direction) {
+        LiveTapSeekDirection.BACKWARD -> (positionMs - stepMs).coerceAtLeast(0L)
+        LiveTapSeekDirection.FORWARD -> {
+            val duration = safeDurationMs
+            if (duration == null) {
+                if (stepMs > Long.MAX_VALUE - positionMs) Long.MAX_VALUE else positionMs + stepMs
+            } else {
+                val remainingMs = duration - positionMs
+                if (stepMs >= remainingMs) duration else positionMs + stepMs
+            }
+        }
+    }
+}
+
 fun liveTapSeekTargetMs(
     currentPositionMs: Long,
     edgeMs: Long,
     pendingTargetMs: Long?,
     direction: LiveTapSeekDirection,
+    stepMs: Long = LIVE_TAP_SEEK_STEP_MS,
 ): LiveTapSeekTarget {
     val safeEdgeMs = edgeMs.coerceAtLeast(0L)
     val baseMs = (pendingTargetMs ?: currentPositionMs).coerceIn(0L, safeEdgeMs)
-    val targetMs = (baseMs + direction.offsetMs).coerceIn(0L, safeEdgeMs)
+    val safeStepMs = stepMs.coerceAtLeast(0L)
+    val deltaMs = if (direction == LiveTapSeekDirection.BACKWARD) -safeStepMs else safeStepMs
+    val targetMs = (baseMs + deltaMs).coerceIn(0L, safeEdgeMs)
     return LiveTapSeekTarget(
         positionMs = targetMs,
         atLiveEdge = direction == LiveTapSeekDirection.FORWARD && targetMs == safeEdgeMs,
@@ -113,6 +206,7 @@ class LiveTapSeekAccumulator {
         currentPositionMs: Long,
         edgeMs: Long,
         direction: LiveTapSeekDirection,
+        stepMs: Long = LIVE_TAP_SEEK_STEP_MS,
     ): LiveTapSeekTarget {
         val safeEdgeMs = edgeMs.coerceAtLeast(0L)
         val target = liveTapSeekTargetMs(
@@ -122,6 +216,7 @@ class LiveTapSeekAccumulator {
                 if (target.atLiveEdge) safeEdgeMs else target.positionMs
             },
             direction = direction,
+            stepMs = stepMs,
         ).let { target ->
             val originMs = burstOriginMs ?: currentPositionMs.coerceIn(0L, safeEdgeMs).also {
                 burstOriginMs = it

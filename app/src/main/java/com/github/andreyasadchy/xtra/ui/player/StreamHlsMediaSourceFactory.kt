@@ -6,6 +6,7 @@ import android.net.http.HttpEngine
 import android.net.http.ProxyOptions
 import android.os.Build
 import android.util.Base64
+import android.util.Log
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -18,7 +19,9 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
@@ -121,6 +124,22 @@ class StreamHlsMediaSourceFactory(
                     diagnostics = TwitchHlsDiagnosticsSink { diagnostics, parsed ->
                         if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
                             state.twitchHlsDiagnostics = diagnostics
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "TwitchLLSource",
+                                    "itemToken=${diagnosticToken(mediaItem.mediaId)} " +
+                                        "parseIndex=${diagnostics.parseIndex} " +
+                                        "rawEndTag=${diagnostics.rawHasEndTag} " +
+                                        "adaptedEndTag=${diagnostics.adaptedHasEndTag} " +
+                                        "preRestoreEndTag=${diagnostics.parsedBeforeInterstitialRestoreHasEndTag} " +
+                                        "restoredInterstitials=${diagnostics.restoredInterstitialCount} " +
+                                        "parsedEndTag=${diagnostics.parsedHasEndTag} " +
+                                        "hasIndependentSegments=${diagnostics.parsedHasIndependentSegments} " +
+                                        "hasProgramDateTime=${diagnostics.parsedHasProgramDateTime} " +
+                                        "preciseStart=${diagnostics.parsedPreciseStart} " +
+                                        "mediaSequence=${diagnostics.mediaSequence}",
+                                )
+                            }
                         }
                     },
                 ),

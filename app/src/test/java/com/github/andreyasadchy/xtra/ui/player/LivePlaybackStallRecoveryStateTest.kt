@@ -82,6 +82,42 @@ class LivePlaybackStallRecoveryStateTest {
     }
 
     @Test
+    fun endedRecoveryBudgetSurvivesPlaybackAndResetsAfterStablePlayback() {
+        val state = LivePlaybackStallRecoveryState(maxAttempts = 3)
+        var generation = state.currentGeneration()
+
+        state.onPlaybackStarted(generation, nowMs = 0L)
+        assertEquals(1, state.claimEndedRecovery(generation, nowMs = 28_000L))
+
+        generation = state.beginRecoveryGeneration()
+        state.onPlaybackStarted(generation, nowMs = 30_000L)
+        assertEquals(2, state.claimEndedRecovery(generation, nowMs = 58_000L))
+
+        generation = state.beginRecoveryGeneration()
+        state.onPlaybackStarted(generation, nowMs = 60_000L)
+        assertEquals(3, state.claimEndedRecovery(generation, nowMs = 88_000L))
+        assertTrue(state.isEndedRecoveryExhausted())
+
+        generation = state.beginRecoveryGeneration()
+        state.onPlaybackStarted(generation, nowMs = 90_000L)
+        assertEquals(1, state.claimEndedRecovery(generation, nowMs = 210_000L))
+        assertEquals(1, state.endedRecoveryAttempts())
+    }
+
+    @Test
+    fun endedRecoveryBudgetResetsForNewUserPlaybackGeneration() {
+        val state = LivePlaybackStallRecoveryState(maxAttempts = 1)
+        val oldGeneration = state.currentGeneration()
+
+        state.onPlaybackStarted(oldGeneration, nowMs = 0L)
+        assertEquals(1, state.claimEndedRecovery(oldGeneration, nowMs = 1L))
+        val newGeneration = state.beginUserGeneration()
+
+        assertNull(state.claimEndedRecovery(oldGeneration, nowMs = 2L))
+        assertEquals(1, state.claimEndedRecovery(newGeneration, nowMs = 2L))
+    }
+
+    @Test
     fun strictQualityRestoreDoesNotChooseNearbyRendition() {
         val identity = SourceSwitchQualityIdentity("1080p60", "avc1", 6_000_000)
         val qualities = listOf(

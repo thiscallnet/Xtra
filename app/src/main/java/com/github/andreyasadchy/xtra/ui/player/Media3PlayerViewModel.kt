@@ -60,9 +60,16 @@ import org.chromium.net.CronetEngine
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
+
+internal sealed interface FreshLiveStatus {
+    data class Live(val stream: Stream) : FreshLiveStatus
+    data object Offline : FreshLiveStatus
+    data object Unknown : FreshLiveStatus
+}
 
 @OptIn(UnstableApi::class)
 class Media3PlayerViewModel(
@@ -88,6 +95,7 @@ class Media3PlayerViewModel(
     var streamUrlAvailableElapsedMs: Long? = null
     val stream = MutableStateFlow<Stream?>(null)
     val streamStatusKnown = MutableStateFlow(false)
+    private val streamStatusRequestGeneration = AtomicLong()
     private var streamJob: Job? = null
     var useCustomProxy = false
     var playingAds = false
@@ -111,8 +119,15 @@ class Media3PlayerViewModel(
 
     var qualities: List<VideoQuality>? = null
     var quality: VideoQuality? = null
+    /** Restored quality arguments are a one-time startup fallback, never ongoing authority. */
+    var restoredQualityBootstrapConsumed = false
     /** Last rendition reported by the active video decoder input. */
     var confirmedVideoQuality: VideoQuality? = null
+    var confirmedVideoQualityMediaId: String? = null
+    var resumeAppliedVideoQuality: VideoQuality? = null
+    var resumeAppliedVideoQualityMediaId: String? = null
+    var pendingResumeAppliedVideoQuality: VideoQuality? = null
+    var pendingResumeAppliedSourceMediaId: String? = null
     var pendingVideoQuality: VideoQuality? = null
     var previousQuality: VideoQuality? = null
     var playlistUrl: Uri? = null
@@ -270,67 +285,144 @@ class Media3PlayerViewModel(
         gqlHeaders: Map<String, String>,
     ) {
         updateStreamInfo(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
-        streamStatusKnown.value = true
     }
 
-    private suspend fun updateStreamInfo(channelId: String?, channelLogin: String?, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>) {
-        stream.value = try {
+    internal suspend fun refreshLiveStatusNow(
+        channelId: String?,
+        channelLogin: String?,
+        networkLibrary: String?,
+        helixHeaders: Map<String, String>,
+        gqlHeaders: Map<String, String>,
+    ): FreshLiveStatus = updateStreamInfo(
+        channelId,
+        channelLogin,
+        networkLibrary,
+        helixHeaders,
+        gqlHeaders,
+    )
+
+    private suspend fun updateStreamInfo(
+        channelId: String?,
+        channelLogin: String?,
+        networkLibrary: String?,
+        helixHeaders: Map<String, String>,
+        gqlHeaders: Map<String, String>,
+    ): FreshLiveStatus {
+        val requestGeneration = streamStatusRequestGeneration.incrementAndGet()
+        val status = queryFreshLiveStatus(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
+        if (requestGeneration == streamStatusRequestGeneration.get()) {
+            when (status) {
+                is FreshLiveStatus.Live -> {
+                    stream.value = status.stream
+                    streamStatusKnown.value = true
+                }
+                FreshLiveStatus.Offline -> {
+                    stream.value = null
+                    streamStatusKnown.value = true
+                }
+                FreshLiveStatus.Unknown -> Unit
+            }
+        }
+        return status
+    }
+
+    private suspend fun queryFreshLiveStatus(
+        channelId: String?,
+        channelLogin: String?,
+        networkLibrary: String?,
+        helixHeaders: Map<String, String>,
+        gqlHeaders: Map<String, String>,
+    ): FreshLiveStatus {
+        if (channelId.isNullOrBlank() && channelLogin.isNullOrBlank()) {
+            return FreshLiveStatus.Unknown
+        }
+        try {
             val response = graphQLRepository.loadQueryUsersStream(
                 networkLibrary = networkLibrary,
                 headers = gqlHeaders,
                 ids = channelId?.let { listOf(it) },
                 logins = if (channelId.isNullOrBlank()) channelLogin?.let { listOf(it) } else null,
             )
-            response.data!!.users?.firstOrNull()?.takeIf { it.stream != null }?.let {
-                Stream(
-                    id = it.stream?.id,
-                    channelId = it.id,
-                    channelLogin = it.login,
-                    channelName = it.displayName,
-                    channelImageURL = it.profileImageURL,
-                    gameId = it.stream?.game?.id,
-                    gameSlug = it.stream?.game?.slug,
-                    gameName = it.stream?.game?.displayName,
-                    title = it.stream?.broadcaster?.broadcastSettings?.title,
-                    thumbnailURL = it.stream?.previewImageURL,
-                    createdAt = it.stream?.createdAt?.toString(),
-                    viewerCount = it.stream?.viewersCount,
-                    tags = it.stream?.freeformTags?.mapNotNull { tag -> tag.name },
-                )
+            if (response.errors.isNullOrEmpty()) {
+                val user = response.data?.users?.firstOrNull()
+                val liveStream = user?.stream
+                if (user != null) {
+                    if (liveStream == null) return FreshLiveStatus.Offline
+                    return FreshLiveStatus.Live(
+                        Stream(
+                            id = liveStream.id,
+                            channelId = user.id,
+                            channelLogin = user.login,
+                            channelName = user.displayName,
+                            channelImageURL = user.profileImageURL,
+                            gameId = liveStream.game?.id,
+                            gameSlug = liveStream.game?.slug,
+                            gameName = liveStream.game?.displayName,
+                            title = liveStream.broadcaster?.broadcastSettings?.title,
+                            thumbnailURL = liveStream.previewImageURL,
+                            createdAt = liveStream.createdAt?.toString(),
+                            viewerCount = liveStream.viewersCount,
+                            tags = liveStream.freeformTags?.mapNotNull { tag -> tag.name },
+                        ),
+                    )
+                }
             }
-        } catch (e: Exception) {
-            if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // Try the existing Helix and lightweight GraphQL fallbacks.
+        }
+
+        if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             try {
-                helixRepository.getStreams(
+                val response = helixRepository.getStreams(
                     networkLibrary = networkLibrary,
                     headers = helixHeaders,
                     ids = channelId?.let { listOf(it) },
                     logins = if (channelId.isNullOrBlank()) channelLogin?.let { listOf(it) } else null
-                ).data.firstOrNull()?.let {
+                )
+                val liveStream = response.data.firstOrNull()
+                if (liveStream == null) return FreshLiveStatus.Offline
+                return FreshLiveStatus.Live(
                     Stream(
-                        id = it.id,
-                        channelId = it.channelId,
-                        channelLogin = it.channelLogin,
-                        channelName = it.channelName,
-                        gameId = it.gameId,
-                        gameName = it.gameName,
-                        title = it.title,
-                        thumbnailURL = it.thumbnailURL,
-                        createdAt = it.startedAt,
-                        viewerCount = it.viewerCount,
-                        tags = it.tags,
+                        id = liveStream.id,
+                        channelId = liveStream.channelId,
+                        channelLogin = liveStream.channelLogin,
+                        channelName = liveStream.channelName,
+                        gameId = liveStream.gameId,
+                        gameName = liveStream.gameName,
+                        title = liveStream.title,
+                        thumbnailURL = liveStream.thumbnailURL,
+                        createdAt = liveStream.startedAt,
+                        viewerCount = liveStream.viewerCount,
+                        tags = liveStream.tags,
                     )
-                }
-            } catch (e: Exception) {
-                val response = graphQLRepository.loadViewerCount(networkLibrary, gqlHeaders, channelLogin)
-                response.data!!.user.stream?.let {
-                    Stream(
-                        id = it.id,
-                        viewerCount = it.viewersCount,
-                    )
-                }
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Try the lightweight GraphQL fallback below.
             }
         }
+
+        try {
+            val response = graphQLRepository.loadViewerCount(networkLibrary, gqlHeaders, channelLogin)
+            if (response.errors.isNullOrEmpty()) {
+                val user = response.data?.user ?: return FreshLiveStatus.Unknown
+                val liveStream = user.stream ?: return FreshLiveStatus.Offline
+                return FreshLiveStatus.Live(
+                    Stream(
+                        id = liveStream.id,
+                        viewerCount = liveStream.viewersCount,
+                    ),
+                )
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // No authoritative live status was available.
+        }
+        return FreshLiveStatus.Unknown
     }
 
     suspend fun findCurrentRecordingVod(

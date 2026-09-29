@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.player
 
+import androidx.media3.common.Player
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -484,6 +485,251 @@ class LiveRewindTest {
         assertEquals(LiveTapSeekTarget(580_000L, false, -20_000L), accumulator.addTap(600_500L, 600_500L, LiveTapSeekDirection.BACKWARD))
         assertEquals(LiveTapSeekTarget(580_000L, false, -20_000L), accumulator.takePendingTarget())
         assertFalse(accumulator.hasPendingTarget())
+    }
+
+    @Test
+    fun transportSeekClampsWhenDurationIsKnownAndAllowsForwardSeekWithoutDuration() {
+        assertEquals(
+            0L,
+            transportSeekTargetMs(
+                currentPositionMs = 5_000L,
+                durationMs = 100_000L,
+                direction = LiveTapSeekDirection.BACKWARD,
+                stepMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            100_000L,
+            transportSeekTargetMs(
+                currentPositionMs = 95_000L,
+                durationMs = 100_000L,
+                direction = LiveTapSeekDirection.FORWARD,
+                stepMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            15_000L,
+            transportSeekTargetMs(
+                currentPositionMs = 25_000L,
+                durationMs = null,
+                direction = LiveTapSeekDirection.BACKWARD,
+                stepMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            35_000L,
+            transportSeekTargetMs(
+                currentPositionMs = 25_000L,
+                durationMs = null,
+                direction = LiveTapSeekDirection.FORWARD,
+                stepMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            Long.MAX_VALUE,
+            transportSeekTargetMs(
+                currentPositionMs = Long.MAX_VALUE - 5L,
+                durationMs = null,
+                direction = LiveTapSeekDirection.FORWARD,
+                stepMs = 10L,
+            ),
+        )
+    }
+
+    @Test
+    fun transportSeekDecisionUsesNativeCommandsOrEligibleAbsoluteFallback() {
+        for (direction in LiveTapSeekDirection.entries) {
+            assertEquals(
+                TransportSeekDecision.UseNativeCommand,
+                transportSeekDecision(
+                    nativeSeekAvailable = true,
+                    currentItemAvailable = true,
+                    seekInCurrentMediaItemAvailable = false,
+                    seekable = true,
+                    blockedReason = null,
+                    currentPositionMs = 25_000L,
+                    durationMs = 100_000L,
+                    direction = direction,
+                    stepMs = 10_000L,
+                ),
+            )
+        }
+        assertEquals(
+            TransportSeekDecision.SeekTo(35_000L),
+            transportSeekDecision(
+                nativeSeekAvailable = false,
+                currentItemAvailable = true,
+                seekInCurrentMediaItemAvailable = true,
+                seekable = true,
+                blockedReason = null,
+                currentPositionMs = 25_000L,
+                durationMs = null,
+                direction = LiveTapSeekDirection.FORWARD,
+                stepMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            TransportSeekDecision.Rejected("seek_command_unavailable"),
+            transportSeekDecision(
+                nativeSeekAvailable = false,
+                currentItemAvailable = true,
+                seekInCurrentMediaItemAvailable = false,
+                seekable = true,
+                blockedReason = null,
+                currentPositionMs = 25_000L,
+                durationMs = 100_000L,
+                direction = LiveTapSeekDirection.FORWARD,
+                stepMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            TransportSeekDecision.Rejected("unseekable"),
+            transportSeekDecision(
+                nativeSeekAvailable = false,
+                currentItemAvailable = true,
+                seekInCurrentMediaItemAvailable = true,
+                seekable = false,
+                blockedReason = null,
+                currentPositionMs = 25_000L,
+                durationMs = 100_000L,
+                direction = LiveTapSeekDirection.FORWARD,
+                stepMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            TransportSeekDecision.Rejected("transition"),
+            transportSeekDecision(
+                nativeSeekAvailable = true,
+                currentItemAvailable = true,
+                seekInCurrentMediaItemAvailable = true,
+                seekable = true,
+                blockedReason = "transition",
+                currentPositionMs = 25_000L,
+                durationMs = 100_000L,
+                direction = LiveTapSeekDirection.BACKWARD,
+                stepMs = 10_000L,
+            ),
+        )
+        assertEquals(
+            TransportSeekDecision.Rejected("offline"),
+            transportSeekDecision(
+                nativeSeekAvailable = false,
+                currentItemAvailable = true,
+                seekInCurrentMediaItemAvailable = true,
+                seekable = true,
+                blockedReason = "offline",
+                currentPositionMs = 25_000L,
+                durationMs = 100_000L,
+                direction = LiveTapSeekDirection.FORWARD,
+                stepMs = 10_000L,
+            ),
+        )
+    }
+
+    @Test
+    fun mediaSessionSeekCommandAdditionsFollowRewindAndSystemButtonState() {
+        assertEquals(
+            MediaSessionSeekCommandAdditions(
+                seekInCurrentMediaItem = false,
+                seekToPrevious = false,
+                seekToNext = false,
+            ),
+            mediaSessionSeekCommandAdditions(
+                systemMediaControlsEnabled = true,
+                systemSeekButtonsEnabled = false,
+                liveRewindActive = false,
+                liveRewindTransitioning = false,
+                seekable = true,
+            ),
+        )
+        assertEquals(
+            MediaSessionSeekCommandAdditions(
+                seekInCurrentMediaItem = false,
+                seekToPrevious = false,
+                seekToNext = false,
+            ),
+            mediaSessionSeekCommandAdditions(
+                systemMediaControlsEnabled = false,
+                systemSeekButtonsEnabled = false,
+                liveRewindActive = false,
+                liveRewindTransitioning = false,
+                seekable = true,
+            ),
+        )
+        assertEquals(
+            MediaSessionSeekCommandAdditions(
+                seekInCurrentMediaItem = true,
+                seekToPrevious = false,
+                seekToNext = false,
+            ),
+            mediaSessionSeekCommandAdditions(
+                systemMediaControlsEnabled = false,
+                systemSeekButtonsEnabled = false,
+                liveRewindActive = true,
+                liveRewindTransitioning = false,
+                seekable = true,
+            ),
+        )
+        assertEquals(
+            MediaSessionSeekCommandAdditions(
+                seekInCurrentMediaItem = false,
+                seekToPrevious = false,
+                seekToNext = false,
+            ),
+            mediaSessionSeekCommandAdditions(
+                systemMediaControlsEnabled = false,
+                systemSeekButtonsEnabled = false,
+                liveRewindActive = true,
+                liveRewindTransitioning = true,
+                seekable = true,
+            ),
+        )
+        assertEquals(
+            MediaSessionSeekCommandAdditions(
+                seekInCurrentMediaItem = false,
+                seekToPrevious = false,
+                seekToNext = false,
+            ),
+            mediaSessionSeekCommandAdditions(
+                systemMediaControlsEnabled = true,
+                systemSeekButtonsEnabled = true,
+                liveRewindActive = true,
+                liveRewindTransitioning = false,
+                seekable = false,
+            ),
+        )
+        assertEquals(
+            MediaSessionSeekCommandAdditions(
+                seekInCurrentMediaItem = false,
+                seekToPrevious = true,
+                seekToNext = true,
+            ),
+            mediaSessionSeekCommandAdditions(
+                systemMediaControlsEnabled = true,
+                systemSeekButtonsEnabled = true,
+                liveRewindActive = false,
+                liveRewindTransitioning = false,
+                seekable = true,
+            ),
+        )
+    }
+
+    @Test
+    fun onlyMediaNotificationControllerGetsSeekCommandConnectionAllowance() {
+        assertEquals(
+            setOf(Player.COMMAND_SEEK_TO_PREVIOUS, Player.COMMAND_SEEK_TO_NEXT),
+            mediaNotificationControllerSeekCommandAdditions(isMediaNotificationController = true),
+        )
+        assertTrue(mediaNotificationControllerSeekCommandAdditions(isMediaNotificationController = false).isEmpty())
+    }
+
+    @Test
+    fun serviceRewindStateStaysUnresolvedUntilTransitionAndOwnershipAreKnown() {
+        assertTrue(LiveRewindServiceState(active = true, transitioning = false, vodId = "vod-1").isResolved)
+        assertTrue(LiveRewindServiceState(active = false, transitioning = false, vodId = null).isResolved)
+        assertFalse(LiveRewindServiceState(active = true, transitioning = false, vodId = null).isResolved)
+        assertFalse(LiveRewindServiceState(active = true, transitioning = true, vodId = "vod-1").isResolved)
+        assertFalse(LiveRewindServiceState(active = false, transitioning = true, vodId = null).isResolved)
     }
 
     @Test
