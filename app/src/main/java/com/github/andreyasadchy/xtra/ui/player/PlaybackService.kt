@@ -28,6 +28,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.Format
 import androidx.media3.common.Tracks
 import androidx.media3.common.Timeline
@@ -680,8 +681,11 @@ class PlaybackService : MediaSessionService() {
                                     restoreVideo = true,
                                     reason = "start_live_rewind",
                                 )
+                                val previousPlayback = snapshotLiveRewindPlayback(player) ?: run {
+                                    if (BuildConfig.DEBUG) Log.d("LiveRewind", "Cannot rewind without an active live source to restore")
+                                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                                }
                                 liveRewindTransitioning = true
-                                clearLiveClipState()
                                 try {
                                     player.setMediaSource(createVodMediaSource(uri))
                                     player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
@@ -689,14 +693,18 @@ class PlaybackService : MediaSessionService() {
                                     player.prepare()
                                     player.playWhenReady = customCommand.customExtras.getBoolean(PLAY_WHEN_READY, true)
                                     player.seekTo(customCommand.customExtras.getLong(PLAYBACK_POSITION))
+                                    clearLiveClipState()
                                     liveRewindVodId = vodId
                                     liveRewindActive = true
                                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                                 } catch (_: Exception) {
+                                    liveRewindActive = previousPlayback.liveRewindActive
+                                    liveRewindVodId = previousPlayback.liveRewindVodId
+                                    restoreLiveRewindPlayback(player, previousPlayback)
                                     Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
                                 } finally {
                                     liveRewindTransitioning = false
-                                    if (!liveRewindActive) {
+                                    if (!liveRewindActive && player.isCurrentMediaItemLive) {
                                         player.currentMediaItem?.let(::updateLiveClipSource)
                                     }
                                     updatePrimaryPlaybackWatchState(player)
@@ -2185,6 +2193,78 @@ class PlaybackService : MediaSessionService() {
 
     private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean =
         controller.uid == Process.myUid() && controller.packageName == packageName
+
+    private fun snapshotLiveRewindPlayback(player: ExoPlayer): LiveRewindPlaybackSnapshot? {
+        if (viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
+            liveRewindActive ||
+            !player.isCurrentMediaItemLive
+        ) return null
+        val mediaItem = player.currentMediaItem ?: return null
+        val extras = liveStreamExtras?.let(::Bundle) ?: return null
+        val uri = mediaItem.localConfiguration?.uri?.toString()
+            ?.takeIf { it.isNotBlank() }
+            ?: liveStreamUri?.takeIf { it.isNotBlank() }
+            ?: return null
+        extras.putString(URI, uri)
+        extras.putBoolean(PLAY_WHEN_READY, player.playWhenReady)
+        return LiveRewindPlaybackSnapshot(
+            mediaItem = mediaItem,
+            liveStreamExtras = extras,
+            positionMs = player.currentPosition,
+            playWhenReady = player.playWhenReady,
+            volume = player.volume,
+            playbackSpeed = player.playbackParameters.speed,
+            trackSelectionParameters = player.trackSelectionParameters,
+            proxyMediaPlaylist = proxyMediaPlaylist,
+            liveRewindActive = liveRewindActive,
+            liveRewindVodId = liveRewindVodId,
+        )
+    }
+
+    private fun restoreLiveRewindPlayback(
+        player: ExoPlayer,
+        snapshot: LiveRewindPlaybackSnapshot,
+    ): Boolean {
+        return try {
+            val uri = snapshot.liveStreamExtras.getString(URI)?.takeIf { it.isNotBlank() }
+                ?: return false
+            val runtime = xtraModule.streamMedia3Runtime
+            val mediaItem = runtime.newSourceInstanceMediaItem(snapshot.mediaItem, uri)
+            val mediaSource = runtime.createLiveMediaSource(mediaItem)
+            runtime.setProxyMediaPlaylist(mediaItem.mediaId, snapshot.proxyMediaPlaylist)
+            player.setMediaSource(mediaSource)
+            runtime.setPrimaryPlaybackMediaItem(mediaItem)
+            player.trackSelectionParameters = snapshot.trackSelectionParameters
+            player.volume = snapshot.volume
+            player.setPlaybackSpeed(snapshot.playbackSpeed)
+            player.prepare()
+            player.seekTo(snapshot.positionMs)
+            player.playWhenReady = snapshot.playWhenReady
+            liveStreamUri = uri
+            liveStreamExtras = Bundle(snapshot.liveStreamExtras)
+            proxyMediaPlaylist = snapshot.proxyMediaPlaylist
+            liveRewindActive = snapshot.liveRewindActive
+            liveRewindVodId = snapshot.liveRewindVodId
+            updateLiveClipSource(mediaItem)
+            true
+        } catch (error: Exception) {
+            if (BuildConfig.DEBUG) Log.w("LiveRewind", "Failed to reconstruct live source after rewind setup failure (${error.javaClass.simpleName})")
+            false
+        }
+    }
+
+    private data class LiveRewindPlaybackSnapshot(
+        val mediaItem: MediaItem,
+        val liveStreamExtras: Bundle,
+        val positionMs: Long,
+        val playWhenReady: Boolean,
+        val volume: Float,
+        val playbackSpeed: Float,
+        val trackSelectionParameters: TrackSelectionParameters,
+        val proxyMediaPlaylist: Boolean,
+        val liveRewindActive: Boolean,
+        val liveRewindVodId: String?,
+    )
 
     private fun createVodMediaSource(uri: android.net.Uri): MediaSource =
         HlsMediaSource.Factory(
