@@ -113,6 +113,10 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # technical support output and Android falls back to the default wording.
     "settings_diagnostics_live",
     "settings_diagnostics_live_summary",
+    # Metered Wi-Fi quality settings ship with the default English wording
+    # until their translations are reviewed by native speakers.
+    "settings_metered_wifi_quality",
+    "settings_metered_wifi_quality_use_mobile",
     # Backup and restore result messages are shipped in English until localized.
     "settings_backup_complete",
     "settings_restore_complete",

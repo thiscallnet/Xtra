@@ -2723,8 +2723,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
         val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-        val cellular = networkCapabilities?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
-        viewModel.quality = resolveDefaultQualityForNetwork(cellular)
+        val profile = PlayerQualityNetworkProfile.from(networkCapabilities)
+        viewModel.quality = resolveDefaultQualityForNetwork(profile)
     }
 
     protected fun restorePlaybackQuality(qualities: List<VideoQuality>): VideoQuality? {
@@ -2752,12 +2752,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         return resolvePlaybackQuality(qualities, savedSelection)
     }
 
-    private fun resolveDefaultQualityForNetwork(cellular: Boolean): VideoQuality? {
-        val defaultQuality = if (cellular) {
-            requireContext().prefs().getString(C.PLAYER_DEFAULT_CELLULAR_QUALITY, "saved")
-        } else {
-            requireContext().prefs().getString(C.PLAYER_DEFAULT_QUALITY, "saved")
-        }?.substringBefore(" ")
+    private fun resolveDefaultQualityForNetwork(profile: PlayerQualityNetworkProfile): VideoQuality? {
+        val defaultQuality = profile.qualityPreference(requireContext().prefs())?.substringBefore(" ")
         return when (defaultQuality) {
             "saved" -> {
                 val savedQuality = requireContext().prefs().getString(C.PLAYER_QUALITY, "720p60")?.substringBefore(" ")
@@ -2776,7 +2772,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         } ?: viewModel.qualities?.firstOrNull()
     }
 
-    fun reapplyNetworkDefaultQuality(cellular: Boolean) {
+    internal fun reapplyNetworkDefaultQuality(profile: PlayerQualityNetworkProfile) {
         if (videoType != STREAM) {
             return
         }
@@ -2787,7 +2783,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             return
         }
 
-        val target = resolveDefaultQualityForNetwork(cellular) ?: return
+        val target = resolveDefaultQualityForNetwork(profile) ?: return
 
         if (viewModel.quality?.name == target.name &&
             viewModel.quality?.url == target.url
