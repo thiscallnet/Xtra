@@ -235,9 +235,11 @@ object TwitchLowLatencyPlaylistAdapter {
         if (!line.startsWith("#EXT-X-DATERANGE:")) return false
         val id = idPattern.find(line)?.groupValues?.get(1).orEmpty()
         val className = classPattern.find(line)?.groupValues?.get(1).orEmpty()
-        return id.startsWith("stitched-ad-", ignoreCase = true) ||
-            className.equals("twitch-stitched-ad", ignoreCase = true) ||
-            twitchAdAttributePattern.containsMatchIn(line)
+        return TwitchAdDetector.isTwitchAdDateRange(
+            id = id,
+            rangeClass = className,
+            hasAdAttribute = twitchAdAttributePattern.containsMatchIn(line),
+        )
     }
 
     private fun lastCommittedSegmentTitle(lines: List<String>): String? =

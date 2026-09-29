@@ -148,6 +148,25 @@ class TwitchLowLatencyPlaylistAdapterTest {
     }
 
     @Test
+    fun maintainedVaftAdClassesSuppressPrefetchTranslation() {
+        val result = TwitchLowLatencyPlaylistAdapter.adapt(
+            playlist(
+                "#EXT-X-TARGETDURATION:6",
+                "#EXT-X-DATERANGE:ID=\"ad-1\",CLASS=\"twitch-stitched-mid\",START-DATE=\"2024-01-01T00:00:00Z\"",
+                "#EXTINF:2.0,",
+                "ad.ts",
+                "#EXT-X-TWITCH-PREFETCH:next-ad.ts",
+            ),
+            enabled = true,
+        )
+
+        assertTrue(result.diagnostics.twitchPrefetchSuppressed)
+        assertFalse(result.diagnostics.twitchPrefetchTranslated)
+        assertTrue(result.playlistText.contains("CLASS=\"com.apple.hls.interstitial\""))
+        assertTrue(result.playlistText.contains("X-TV-TWITCH-AD-CLASS=\"twitch-stitched-mid\""))
+    }
+
+    @Test
     fun recentSegmentDurationsDriveSyntheticSegmentDuration() {
         val result = TwitchLowLatencyPlaylistAdapter.adapt(
             playlist(

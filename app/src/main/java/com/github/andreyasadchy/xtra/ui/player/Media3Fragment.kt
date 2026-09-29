@@ -1011,6 +1011,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 primaryStreamRestoreJob?.cancel()
                 primaryStreamRestoreJob = null
                 supersedeAutomaticRecoveryForSourceTransition()
+                viewModel.adAvoidanceQualityState.begin(viewModel.quality)
                 pendingSourceSwitchQuality.capture(viewModel.quality)
                 viewModel.usingAlternateStream = true
                 setQualityText()
@@ -1023,6 +1024,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     throw e
                 } catch (_: Exception) {
                     viewModel.usingAlternateStream = false
+                    viewModel.adAvoidanceQualityState.clear()
                     setQualityText()
                     fallbackFromAd(useProxy, suppressAds = true)
                 }
@@ -1054,10 +1056,15 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 if (candidate?.verifiedClean == true && isAdded && view != null) {
                     try {
                         supersedeAutomaticRecoveryForSourceTransition()
-                        pendingSourceSwitchQuality.capture(viewModel.quality)
+                        if (viewModel.adAvoidanceQualityState.isActive) {
+                            pendingSourceSwitchQuality.clear()
+                        } else {
+                            pendingSourceSwitchQuality.capture(viewModel.quality)
+                        }
                         viewModel.qualities = null
                         viewModel.updateQualities = true
                         viewModel.usingProxy = false
+                        viewModel.adAvoidanceQualityState.expectPrimaryReturn(candidate.url)
                         sendStreamToService(candidate.url, player?.playWhenReady)
                         viewModel.usingAlternateStream = false
                         setQualityText()
@@ -1082,6 +1089,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     override fun onStreamQualityReset() {
         pendingSourceSwitchQuality.clear()
+        viewModel.adAvoidanceQualityState.clear()
     }
 
     private fun startStreamInternal(
@@ -1090,6 +1098,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         preserveQuality: Boolean = false,
         automaticRecovery: Boolean = false,
     ): ListenableFuture<SessionResult>? {
+        viewModel.adAvoidanceQualityState.clear()
         if (videoType == STREAM) {
             if (automaticRecovery) {
                 liveRecoveryState.beginRecoveryGeneration()
@@ -1435,6 +1444,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val oldQuality = viewModel.quality
         val oldUpdateQualities = viewModel.updateQualities
         pendingSourceSwitchQuality.capture(viewModel.quality)
+        viewModel.adAvoidanceQualityState.clear()
         viewModel.playlistUrl = null
         adAvoidanceJob?.cancel()
         adAvoidanceJob = null
@@ -1532,6 +1542,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         viewModel.quality = quality
         viewModel.updateQualities = updateQualities
         pendingSourceSwitchQuality.clear()
+        viewModel.adAvoidanceQualityState.clear()
         setQualityText()
     }
 
@@ -1957,6 +1968,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val qualityChanged = previousQuality?.let {
             it.name != selectedQuality?.name || it.url != selectedQuality?.url
         } ?: (selectedQuality != null)
+        if (videoType == STREAM && persistSavedQuality && viewModel.usingAlternateStream) {
+            viewModel.adAvoidanceQualityState.rememberExplicitSelection(selectedQuality)
+        }
         val currentPlayer = player
         if (BuildConfig.DEBUG) {
             Log.d(
@@ -2527,8 +2541,22 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 return@addListener
             }
             val response = runCatching { result.get() }.getOrNull()
+            val returningFromAdAvoidance =
+                videoType == STREAM &&
+                    !viewModel.usingAlternateStream &&
+                    viewModel.adAvoidanceQualityState.isAwaitingPrimaryReturn
             if (response?.resultCode == SessionResult.RESULT_SUCCESS) {
                 val extras = response.extras
+                if (
+                    returningFromAdAvoidance &&
+                    !viewModel.adAvoidanceQualityState.matchesPrimaryReturn(
+                        extras.getString(PlaybackService.QUALITIES_SOURCE_URI),
+                    )
+                ) {
+                    qualityRequestInFlight = false
+                    scheduleStaleQualitySourceRetry()
+                    return@addListener
+                }
                 val names = extras.getStringArray(PlaybackService.NAMES)
                 val codecs = extras.getStringArray(PlaybackService.CODECS)
                 val bitrates = extras.getStringArray(PlaybackService.BITRATES)
@@ -2572,7 +2600,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     // playlist is loading. On later refreshes, keep the
                     // current selection too, otherwise setDefaultQuality()
                     // can silently put the player back on Auto.
-                    val qualityToRestore = pendingSourceSwitchQuality.consume()
+                    val pendingQualityToRestore = pendingSourceSwitchQuality.consume()
+                    val qualityToRestore = if (returningFromAdAvoidance) {
+                        viewModel.adAvoidanceQualityState.identityForPrimaryReturn
+                    } else {
+                        pendingQualityToRestore
+                    }
                     setDefaultQuality()
                     if (
                         BuildConfig.DEBUG &&
@@ -2595,6 +2628,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     } else {
                         qualityToRestore?.resolve(viewModel.qualities, ::findQuality)
                     }
+                    if (returningFromAdAvoidance) {
+                        viewModel.adAvoidanceQualityState.clear()
+                    }
                     changePlayerMode()
                     if (strictRestore && qualityToRestore != null && restoredQuality == null) {
                         viewModel.quality = VideoQuality(
@@ -2611,6 +2647,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
                     setQualityText()
                     qualityRetryAttempts = 0
+                    qualityRetryJob?.cancel()
+                    qualityRetryJob = null
                 }
             }
             qualityRequestInFlight = false
@@ -2631,8 +2669,23 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         requestQualities()
                     }
                 }
+            } else if (returningFromAdAvoidance) {
+                scheduleStaleQualitySourceRetry()
             }
         }, ContextCompat.getMainExecutor(requireContext()))
+    }
+
+    private fun scheduleStaleQualitySourceRetry() {
+        if (qualityRetryAttempts >= MAX_QUALITY_RETRY_ATTEMPTS || !isAdded || view == null) return
+        qualityRetryAttempts++
+        qualityRetryJob?.cancel()
+        qualityRetryJob = viewLifecycleOwner.lifecycleScope.launch {
+            delay(QUALITY_RETRY_DELAY_MS)
+            qualityRetryJob = null
+            if (view != null && player != null && viewModel.adAvoidanceQualityState.isAwaitingPrimaryReturn) {
+                requestQualities()
+            }
+        }
     }
 
     private fun invalidateQualityRequest() {

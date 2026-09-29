@@ -34,8 +34,8 @@ class TwitchAdController {
     }
 
     companion object {
-        // Keep the same backup order used by VAFT. Embed is the most reliable
-        // alternate when the current site player is in a commercial break.
-        val PLAYER_TYPES = listOf("site", "embed", "popout", "autoplay")
+        // Match VAFT's maintained Source-tier order. Keep Xtra's existing
+        // autoplay path as a last-resort fallback after those candidates.
+        val PLAYER_TYPES = listOf("site", "popout", "mobile_web", "embed", "autoplay")
     }
 }
