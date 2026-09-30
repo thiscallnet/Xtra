@@ -9,7 +9,7 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParser
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import com.apollographql.apollo.api.CustomScalarAdapters
 import com.apollographql.apollo.api.json.buildJsonString
@@ -525,7 +525,8 @@ class PlayerRepository(
     private suspend fun inspectCleanRendition(masterUrl: String, preferred: VideoQuality?): Pair<Boolean?, VideoQuality?> = withContext(Dispatchers.IO) {
         try {
             val master = fetchPlaylistText(masterUrl, "playlist_probe_master") ?: return@withContext (null to null)
-            val parsed = HlsPlaylistParser().parse(masterUrl.toUri(), master.byteInputStream())
+            val parsed = TwitchHlsPlaylistParserFactory(lowLatencyEnabled = false)
+                .createPlaylistParser().parse(masterUrl.toUri(), master.byteInputStream())
             if (parsed !is HlsMultivariantPlaylist) {
                 return@withContext (TwitchAdDetector.isAd(PlaylistUtils.parseMediaPlaylist(master.byteInputStream())) to null)
             }
@@ -535,7 +536,8 @@ class PlayerRepository(
                 val name = if (audioOnly) PlaybackContract.AUDIO_ONLY_QUALITY else {
                     format.label?.takeIf { it.isNotBlank() }
                         ?: parsed.videos.find { it.groupId == variant.videoGroupId }?.name
-                        ?: "${format.height}p"
+                        ?: ("${format.height}p" + format.frameRate.takeIf { it > 30f }
+                            ?.let { kotlin.math.round(it).toInt().toString() }.orEmpty())
                 }
                 VideoQuality(name, format.codecs, format.bitrate.takeIf { it > 0 }, variant.url.toString(), format.frameRate.takeIf { it > 0 })
             }.distinctBy { it.url }.sortedWith(

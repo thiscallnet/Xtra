@@ -69,10 +69,11 @@ object TwitchAdDetector {
         id: String,
         rangeClass: String?,
         hasAdAttribute: Boolean = false,
+    // Bare twitch-trigger ranges also occur on normal live segments. Only their
+    // explicit ad attributes (or another ad marker) identify an ad window.
     ): Boolean = hasAdAttribute ||
         id.startsWith("stitched-ad", ignoreCase = true) ||
         rangeClass?.startsWith("twitch-stitched", ignoreCase = true) == true ||
-        rangeClass.equals("twitch-maf-ad", ignoreCase = true) ||
-        rangeClass.equals("twitch-trigger", ignoreCase = true)
+        rangeClass.equals("twitch-maf-ad", ignoreCase = true)
 
 }

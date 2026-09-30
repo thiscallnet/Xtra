@@ -409,6 +409,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     protected fun isLiveRewindActiveOrSwitching(): Boolean =
         liveRewindStateSyncPending || isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
 
+    protected fun isLiveRewindSourceOwned(): Boolean =
+        isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
+
     protected fun isLiveRewindRecording(): Boolean =
         livePlaybackMode is LivePlaybackMode.Rewound && !liveRewindSwitching
 
