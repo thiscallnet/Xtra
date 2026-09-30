@@ -24,8 +24,7 @@ object TwitchAdDetector {
             val endTime = interstitial.endDateUnixUs.takeIf { it != C.TIME_UNSET }
                 ?: interstitial.durationUs.takeIf { it != C.TIME_UNSET }?.let { startTime + it }
                 ?: interstitial.plannedDurationUs.takeIf { it != C.TIME_UNSET }?.let { startTime + it }
-            endTime != null
-                    && isTwitchAdDateRange(
+            isTwitchAdDateRange(
                         id = interstitial.id,
                         rangeClass = interstitial.clientDefinedAttributes
                             .firstOrNull { it.name == "CLASS" }
@@ -34,7 +33,7 @@ object TwitchAdDetector {
                             it.name.startsWith("X-TV-TWITCH-AD-")
                         },
                     )
-                    && segmentStartTime in startTime..endTime
+                    && isActiveRange(segmentStartTime, startTime.takeIf { it != C.TIME_UNSET }, endTime)
         }
     }
 
@@ -56,9 +55,12 @@ object TwitchAdDetector {
                 ?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() }
                 ?: dateRange.duration?.let { startTime + (it * 1000f).toLong() }
                 ?: dateRange.plannedDuration?.let { startTime + (it * 1000f).toLong() }
-            segmentStartTime >= startTime && (endTime == null || segmentStartTime < endTime)
+            isActiveRange(segmentStartTime, startTime, endTime)
         }
     }
+
+    internal fun isActiveRange(segmentStart: Long, start: Long?, end: Long?): Boolean =
+        start != null && segmentStart >= start && (end == null || segmentStart < end)
 
     internal fun isAdTitle(title: String): Boolean =
         adTitleMarkers.any { title.contains(it, ignoreCase = true) }

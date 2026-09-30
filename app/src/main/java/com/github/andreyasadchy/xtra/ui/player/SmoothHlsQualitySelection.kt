@@ -130,7 +130,8 @@ internal fun videoQualityTrackOverride(
         }
         .filter { (_, _, format) -> desired.matches(format) }
         .maxWithOrNull(
-            compareBy<Triple<Tracks.Group, Int, Format>> { it.third.height }
+            compareBy<Triple<Tracks.Group, Int, Format>> { quality.bitrate != null && it.third.bitrate == quality.bitrate }
+                .thenBy { it.third.height }
                 .thenBy { it.third.frameRate }
                 .thenBy { it.third.bitrate },
         ) ?: return null

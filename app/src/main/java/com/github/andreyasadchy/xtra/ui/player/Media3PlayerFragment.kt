@@ -409,6 +409,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     protected fun isLiveRewindActiveOrSwitching(): Boolean =
         liveRewindStateSyncPending || isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
 
+    protected fun isLiveRewindRecording(): Boolean =
+        livePlaybackMode is LivePlaybackMode.Rewound && !liveRewindSwitching
+
+    protected fun isLiveRewindSourceTransitioning(): Boolean = liveRewindSwitching || liveRewindStateSyncPending
+
+    protected open fun onLiveRewindSourceSettled() {}
+
     protected fun isLiveRewindStateSyncPending(): Boolean = liveRewindStateSyncPending
 
     protected fun beginLiveRewindStateSync() {
@@ -3685,7 +3692,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         direction: LiveTapSeekDirection,
         stepMs: Long,
     ): Boolean {
-        if (livePlaybackMode !is LivePlaybackMode.Live) return false
         return handleLiveRewindSeek(direction, stepMs)
     }
 
@@ -3931,6 +3937,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             liveRewindPendingVodId = null
             liveRewindPendingTargetMs = null
             livePlaybackMode = LivePlaybackMode.Rewound(vod.id)
+            onLiveRewindSourceSettled()
             pausedLivePositionMs = null
             startLiveRewindChat(targetMs)
             pendingTarget?.let {
@@ -3970,6 +3977,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             liveRewindReturningLive = false
             if (success) {
                 livePlaybackMode = LivePlaybackMode.Live
+                onLiveRewindSourceSettled()
                 pausedLivePositionMs = null
                 chatFragment?.returnToLiveChat()
                 val newSession = commitPendingLiveSession()

@@ -104,6 +104,9 @@ class Media3PlayerViewModel(
     var usingAlternateStream = false
     internal val adAvoidanceQualityState = AdAvoidanceQualityState()
     private val adController = TwitchAdController()
+    var adLogicalQuality: VideoQuality? = null
+    var adVerifiedRendition: VideoQuality? = null
+    var adWindowActive = false
 
     val videoResult = MutableStateFlow<String?>(null)
     var backupQualities: List<String>? = null
