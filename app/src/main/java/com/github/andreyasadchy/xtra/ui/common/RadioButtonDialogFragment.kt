@@ -7,7 +7,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.Gravity
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import androidx.appcompat.widget.AppCompatRadioButton
@@ -32,6 +34,7 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         private const val TAGS = "tags"
         private const val TAGS2 = "tags2"
         private const val CHECKED = "checked"
+        private const val LOADING = "loading"
 
         fun newInstance(requestCode: Int, labels: Collection<CharSequence>, tags: Array<String>? = null, tags2: Array<String>? = null, checkedIndex: Int): RadioButtonDialogFragment {
             return RadioButtonDialogFragment().apply {
@@ -47,6 +50,26 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
     }
 
     private lateinit var listenerSort: OnSortOptionChanged
+    private var optionsGroup: RadioGroup? = null
+    private var optionsGeneration = 0
+
+    fun updateOptions(requestCode: Int, labels: Collection<CharSequence>, tags: Array<String>?, tags2: Array<String>?, checkedIndex: Int): Boolean {
+        val arguments = requireArguments()
+        if (arguments.getInt(REQUEST_CODE) != requestCode) return false
+        arguments.putCharSequenceArrayList(LABELS, ArrayList(labels))
+        arguments.putStringArray(TAGS, tags)
+        arguments.putStringArray(TAGS2, tags2)
+        arguments.putInt(CHECKED, checkedIndex)
+        arguments.putBoolean(LOADING, false)
+        renderOptions()
+        return true
+    }
+
+    fun showOptionsLoading(requestCode: Int) {
+        if (requireArguments().getInt(REQUEST_CODE) != requestCode) return
+        requireArguments().putBoolean(LOADING, true)
+        renderOptions()
+    }
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -55,7 +78,6 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val context = requireContext()
-        val arguments = requireArguments()
         val params = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
         val radioGroup = RadioGroup(context).apply {
             layoutParams = params
@@ -63,9 +85,28 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
                 setPadding(it.getDimensionPixelSize(0, 0))
             }
         }
+        optionsGroup = radioGroup
+        renderOptions()
+        return NestedScrollView(context).apply { addView(radioGroup) }
+    }
+
+    private fun renderOptions() {
+        val radioGroup = optionsGroup ?: return
+        val context = radioGroup.context
+        val arguments = requireArguments()
+        val generation = ++optionsGeneration
+        radioGroup.removeAllViews()
+        if (arguments.getBoolean(LOADING)) {
+            radioGroup.addView(ProgressBar(context), LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            })
+            return
+        }
+        val params = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
         val checkedId = arguments.getInt(CHECKED)
         val tags2 = arguments.getStringArray(TAGS2)
         val clickListener = View.OnClickListener { v ->
+            if (generation != optionsGeneration || arguments.getBoolean(LOADING)) return@OnClickListener
             val clickedId = v.id
             if (clickedId != checkedId) {
                 listenerSort.onChange(arguments.getInt(REQUEST_CODE), clickedId, (v as RadioButton).text, v.tag as String?, tags2?.getOrNull(clickedId)?.takeIf { it != "null" })
@@ -83,7 +124,12 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
             radioGroup.addView(button, params)
         }
         radioGroup.check(checkedId)
-        return NestedScrollView(context).apply { addView(radioGroup) }
+    }
+
+    override fun onDestroyView() {
+        optionsGroup = null
+        optionsGeneration++
+        super.onDestroyView()
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {

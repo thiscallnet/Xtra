@@ -5,31 +5,31 @@ import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import kotlin.time.Instant
 
 /**
- * Detects the ad markers Twitch currently exposes in live HLS playlists.
+ * Detects the VAFT markers Twitch currently exposes in live HLS playlists.
  *
  * Keep this separate from the player so all playback implementations make the
- * same decision when a playlist rolls over to an ad window.
+ * same decision when a playlist rolls over to a VAFT window.
  */
 @androidx.media3.common.util.UnstableApi
-object TwitchAdDetector {
+object TwitchVaftDetector {
 
-    private val adTitleMarkers = listOf("Amazon", "Adform", "DCM")
+    private val vaftTitleMarkers = listOf("Amazon", "Adform", "DCM")
 
-    fun isAd(playlist: HlsMediaPlaylist): Boolean {
+    fun requiresVaft(playlist: HlsMediaPlaylist): Boolean {
         val segment = playlist.segments.lastOrNull() ?: return false
         val segmentStartTime = playlist.startTimeUs + segment.relativeStartTimeUs
-        return isAdTitle(segment.title)
+        return isVaftTitle(segment.title)
                 || playlist.interstitials.any { interstitial ->
             val startTime = interstitial.startDateUnixUs
             val endTime = interstitial.endDateUnixUs.takeIf { it != C.TIME_UNSET }
                 ?: interstitial.durationUs.takeIf { it != C.TIME_UNSET }?.let { startTime + it }
                 ?: interstitial.plannedDurationUs.takeIf { it != C.TIME_UNSET }?.let { startTime + it }
-            isTwitchAdDateRange(
+            isTwitchVaftDateRange(
                         id = interstitial.id,
                         rangeClass = interstitial.clientDefinedAttributes
                             .firstOrNull { it.name == "CLASS" }
                             ?.textValue,
-                        hasAdAttribute = interstitial.clientDefinedAttributes.any {
+                        hasVaftAttribute = interstitial.clientDefinedAttributes.any {
                             it.name.startsWith("X-TV-TWITCH-AD-")
                         },
                     )
@@ -37,16 +37,16 @@ object TwitchAdDetector {
         }
     }
 
-    fun isAd(playlist: MediaPlaylist): Boolean {
+    fun requiresVaft(playlist: MediaPlaylist): Boolean {
         val segment = playlist.segments.lastOrNull() ?: return false
-        if (segment.title?.let(::isAdTitle) == true) {
+        if (segment.title?.let(::isVaftTitle) == true) {
             return true
         }
         val segmentStartTime = segment.programDateTime
             ?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() }
             ?: return false
         return playlist.dateRanges.any { dateRange ->
-            if (!isTwitchAdDateRange(dateRange.id, dateRange.rangeClass, dateRange.ad)) {
+            if (!isTwitchVaftDateRange(dateRange.id, dateRange.rangeClass, dateRange.vaftMarker)) {
                 return@any false
             }
             val startTime = Instant.parseOrNull(dateRange.startDate)?.toEpochMilliseconds()
@@ -62,16 +62,16 @@ object TwitchAdDetector {
     internal fun isActiveRange(segmentStart: Long, start: Long?, end: Long?): Boolean =
         start != null && segmentStart >= start && (end == null || segmentStart < end)
 
-    internal fun isAdTitle(title: String): Boolean =
-        adTitleMarkers.any { title.contains(it, ignoreCase = true) }
+    internal fun isVaftTitle(title: String): Boolean =
+        vaftTitleMarkers.any { title.contains(it, ignoreCase = true) }
 
-    internal fun isTwitchAdDateRange(
+    internal fun isTwitchVaftDateRange(
         id: String,
         rangeClass: String?,
-        hasAdAttribute: Boolean = false,
+        hasVaftAttribute: Boolean = false,
     // Bare twitch-trigger ranges also occur on normal live segments. Only their
-    // explicit ad attributes (or another ad marker) identify an ad window.
-    ): Boolean = hasAdAttribute ||
+    // explicit VAFT attributes (or another VAFT marker) identify a VAFT window.
+    ): Boolean = hasVaftAttribute ||
         id.startsWith("stitched-ad", ignoreCase = true) ||
         rangeClass?.startsWith("twitch-stitched", ignoreCase = true) == true ||
         rangeClass.equals("twitch-maf-ad", ignoreCase = true)

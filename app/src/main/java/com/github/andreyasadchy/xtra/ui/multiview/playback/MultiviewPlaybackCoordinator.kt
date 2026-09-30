@@ -36,13 +36,13 @@ import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
-import com.github.andreyasadchy.xtra.ui.player.TwitchAdController
+import com.github.andreyasadchy.xtra.ui.player.TwitchVaftController
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
-import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
+import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
+import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -352,7 +352,7 @@ class MultiviewPlaybackCoordinator(
                 }
 
                 override fun onTimelineChanged(timeline: Timeline, reason: Int) {
-                    inspectAdState(slot)
+                    inspectVaftState(slot)
                 }
             })
             player.addAnalyticsListener(object : AnalyticsListener {
@@ -500,7 +500,7 @@ class MultiviewPlaybackCoordinator(
         }
 
         val primaryPlayerType = preferences.getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
-        if (preferences.shouldAvoidTwitchAds()) {
+        if (preferences.isVaftEnabled()) {
             val cleanCandidate = loadCleanPlaylist(
                 login,
                 listOf(primaryPlayerType),
@@ -768,31 +768,31 @@ class MultiviewPlaybackCoordinator(
     }
 
     @androidx.media3.common.util.UnstableApi
-    private fun inspectAdState(slot: MultiviewPlayerSlot) {
+    private fun inspectVaftState(slot: MultiviewPlayerSlot) {
         if (slots[slot.identity] !== slot) return
         val preferences = applicationContext.prefs()
-        val avoidAds = preferences.shouldAvoidTwitchAds()
+        val vaftEnabled = preferences.isVaftEnabled()
         val useProxy = slot.httpProxyActive
-        if (!avoidAds && !useProxy) return
+        if (!vaftEnabled && !useProxy) return
         val playlist = (slot.player.currentManifest as? HlsManifest)?.mediaPlaylist ?: return
-        val ads = TwitchAdDetector.isAd(playlist)
-        val changed = ads != slot.playingAds
-        slot.playingAds = ads
+        val ads = TwitchVaftDetector.requiresVaft(playlist)
+        val changed = ads != slot.vaftRequired
+        slot.vaftRequired = ads
         if (changed) {
-            debugLog("channel=${slot.identity} adState=$ads avoid=$avoidAds proxy=$useProxy playerType=${slot.currentPlayerType}")
+            debugLog("channel=${slot.identity} vaftState=$ads avoid=$vaftEnabled proxy=$useProxy playerType=${slot.currentPlayerType}")
         }
 
         if (ads) {
-            if (avoidAds) {
-                suppressAdPlayback(slot)
-                if (slot.adAvoidanceJob?.isActive != true) {
+            if (vaftEnabled) {
+                suppressVaftPlayback(slot)
+                if (slot.vaftAvoidanceJob?.isActive != true) {
                     val currentPlayerType = slot.currentPlayerType
                         ?: preferences.getString(C.TOKEN_PLAYER_TYPE, "site")
                         ?: "site"
-                    val playerTypes = slot.adController.playerTypesForAd(currentPlayerType)
+                    val playerTypes = slot.vaftController.playerTypesForVaft(currentPlayerType)
                     if (playerTypes.isNotEmpty()) {
                         val login = slot.stream.channelLogin?.trim()?.lowercase() ?: return
-                        slot.adAvoidanceJob = scope.launch {
+                        slot.vaftAvoidanceJob = scope.launch {
                             val candidate = try {
                                 loadCleanPlaylist(
                                     login,
@@ -803,7 +803,7 @@ class MultiviewPlaybackCoordinator(
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Exception) {
-                                Log.w(TAG, "channel=${slot.identity} alternate ad probe failed", error)
+                                Log.w(TAG, "channel=${slot.identity} alternate VAFT probe failed", error)
                                 null
                             }
                             if (isActive && slots[slot.identity] === slot && candidate != null) {
@@ -818,33 +818,33 @@ class MultiviewPlaybackCoordinator(
                                 )
                             } else if (isActive && slots[slot.identity] === slot) {
                                 // Keep the tile quiet until either Twitch exposes
-                                // another clean candidate or the ad window ends.
-                                suppressAdPlayback(slot)
+                                // another clean candidate or the VAFT window ends.
+                                suppressVaftPlayback(slot)
                             }
                         }.also { job ->
                             job.invokeOnCompletion {
-                                if (slot.adAvoidanceJob === job) slot.adAvoidanceJob = null
+                                if (slot.vaftAvoidanceJob === job) slot.vaftAvoidanceJob = null
                             }
                         }
                     }
                 }
             } else if (useProxy) {
-                // With ad avoidance disabled, preserve the normal player's proxy
-                // fallback: a proxy that returns an ad is bypassed for this slot.
+                // With VAFT avoidance disabled, preserve the normal player's proxy
+                // fallback: a proxy that returns a VAFT is bypassed for this slot.
                 slot.httpProxyDisabled = true
                 start(slot, force = true)
             }
         } else {
-            slot.adController.onCleanPlaylist()
-            restoreAdPlayback(slot)
+            slot.vaftController.onCleanPlaylist()
+            restoreVaftPlayback(slot)
             schedulePrimaryStreamRestore(slot)
         }
     }
 
     @androidx.media3.common.util.UnstableApi
-    private fun suppressAdPlayback(slot: MultiviewPlayerSlot) {
-        if (!slot.hiddenForAd) {
-            slot.hiddenForAd = true
+    private fun suppressVaftPlayback(slot: MultiviewPlayerSlot) {
+        if (!slot.hiddenForVaft) {
+            slot.hiddenForVaft = true
             slot.player.trackSelectionParameters = slot.player.trackSelectionParameters
                 .buildUpon()
                 .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, true)
@@ -854,9 +854,9 @@ class MultiviewPlaybackCoordinator(
     }
 
     @androidx.media3.common.util.UnstableApi
-    private fun restoreAdPlayback(slot: MultiviewPlayerSlot) {
-        if (slot.hiddenForAd) {
-            slot.hiddenForAd = false
+    private fun restoreVaftPlayback(slot: MultiviewPlayerSlot) {
+        if (slot.hiddenForVaft) {
+            slot.hiddenForVaft = false
             slot.player.trackSelectionParameters = slot.player.trackSelectionParameters
                 .buildUpon()
                 .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
@@ -898,8 +898,8 @@ class MultiviewPlaybackCoordinator(
                             alternate = false,
                         ),
                     )
-                    slot.adController.reset()
-                    restoreAdPlayback(slot)
+                    slot.vaftController.reset()
+                    restoreVaftPlayback(slot)
                     debugLog("channel=${slot.identity} restored primary playerType=${candidate.playerType}")
                     return@launch
                 }
@@ -917,7 +917,7 @@ class MultiviewPlaybackCoordinator(
             slot.player.volume = MultiviewAudioPolicy.volumeFor(
                 identity = slot.identity,
                 audioVolumes = audioVolumes,
-                hiddenForAd = slot.hiddenForAd,
+                hiddenForVaft = slot.hiddenForVaft,
                 fallbackVolume = if (slot.identity == activeIdentity) fallbackVolume else 0f,
             )
         }
@@ -941,7 +941,7 @@ class MultiviewPlaybackCoordinator(
         return MultiviewAudioPolicy.volumeFor(
             identity = slot.identity,
             audioVolumes = audioVolumes,
-            hiddenForAd = false,
+            hiddenForVaft = false,
             fallbackVolume = if (slot.identity == activeIdentity) activeVolume() else 0f,
         )
     }
@@ -1174,9 +1174,9 @@ class MultiviewPlaybackCoordinator(
         var loadJob: Job? = null
         var retryJob: Job? = null
         var stableRecoveryJob: Job? = null
-        var adAvoidanceJob: Job? = null
+        var vaftAvoidanceJob: Job? = null
         var primaryRestoreJob: Job? = null
-        val adController = TwitchAdController()
+        val vaftController = TwitchVaftController()
         var retryCount: Int = 0
         private var recoveryState = MultiviewQualityRecoveryState()
         val downgradeLevel: Int get() = recoveryState.downgradeLevel
@@ -1188,8 +1188,8 @@ class MultiviewPlaybackCoordinator(
         var currentPlayerType: String? = null
         var currentPlaylistUrl: String? = null
         var usingAlternateStream: Boolean = false
-        var playingAds: Boolean = false
-        var hiddenForAd: Boolean = false
+        var vaftRequired: Boolean = false
+        var hiddenForVaft: Boolean = false
         var videoDisabledForBackground: Boolean = false
         var lastResponseCode: Int? = null
         var lastMasterResponseCode: Int? = null
@@ -1241,7 +1241,7 @@ class MultiviewPlaybackCoordinator(
             loadJob?.cancel()
             retryJob?.cancel()
             stableRecoveryJob?.cancel()
-            adAvoidanceJob?.cancel()
+            vaftAvoidanceJob?.cancel()
             primaryRestoreJob?.cancel()
             attachedView?.let { view ->
                 if (view.player === player) {

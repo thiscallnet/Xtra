@@ -6,7 +6,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class TwitchAdDetectorTest {
+class TwitchVaftDetectorTest {
 
     @Test
     fun plannedDurationKeepsAllDigitsAndDoesNotBecomeDuration() {
@@ -20,7 +20,7 @@ class TwitchAdDetectorTest {
         """.trimIndent())
         org.junit.Assert.assertEquals(10.5f, playlist.dateRanges.single().plannedDuration)
         org.junit.Assert.assertNull(playlist.dateRanges.single().duration)
-        assertTrue(TwitchAdDetector.isAd(playlist))
+        assertTrue(TwitchVaftDetector.requiresVaft(playlist))
     }
 
     @Test
@@ -39,31 +39,31 @@ class TwitchAdDetectorTest {
         org.junit.Assert.assertEquals(1, playlist.dateRanges.size)
         org.junit.Assert.assertEquals("twitch-stitched-mid", playlist.dateRanges.single().rangeClass)
         org.junit.Assert.assertEquals(10.5f, playlist.dateRanges.single().plannedDuration)
-        assertTrue(playlist.dateRanges.single().ad)
+        assertTrue(playlist.dateRanges.single().vaftMarker)
         org.junit.Assert.assertEquals("2024-01-01T00:00:06Z", playlist.segments.last().programDateTime)
-        assertFalse(TwitchAdDetector.isAd(playlist))
+        assertFalse(TwitchVaftDetector.requiresVaft(playlist))
     }
 
     @Test
     fun recognizesMaintainedVaftDaterangeClassFamilies() {
-        listOf("twitch-stitched-mid", "twitch-maf-ad").forEach { adClass ->
+        listOf("twitch-stitched-mid", "twitch-maf-ad").forEach { vaftClass ->
             val playlist = parsePlaylist(
                 """
                     #EXTM3U
                     #EXT-X-TARGETDURATION:6
                     #EXT-X-PROGRAM-DATE-TIME:2024-01-01T00:00:05Z
-                    #EXT-X-DATERANGE:ID="ad-1",CLASS="$adClass",START-DATE="2024-01-01T00:00:00Z",END-DATE="2024-01-01T00:01:00Z"
+                    #EXT-X-DATERANGE:ID="VAFT-1",CLASS="$vaftClass",START-DATE="2024-01-01T00:00:00Z",END-DATE="2024-01-01T00:01:00Z"
                     #EXTINF:6.0,
-                    ad-segment.ts
+                    VAFT-segment.ts
                 """.trimIndent(),
             )
 
-            assertTrue("Expected $adClass to identify an active ad", TwitchAdDetector.isAd(playlist))
+            assertTrue("Expected $vaftClass to identify an active VAFT", TwitchVaftDetector.requiresVaft(playlist))
         }
     }
 
     @Test
-    fun doesNotTreatKnownSessionMetadataAsAnAd() {
+    fun doesNotTreatKnownSessionMetadataAsAnVaft() {
         val playlist = parsePlaylist(
             """
                 #EXTM3U
@@ -76,7 +76,7 @@ class TwitchAdDetectorTest {
             """.trimIndent(),
         )
 
-        assertFalse(TwitchAdDetector.isAd(playlist))
+        assertFalse(TwitchVaftDetector.requiresVaft(playlist))
     }
 
     private fun parsePlaylist(text: String): MediaPlaylist = PlaylistUtils.parseMediaPlaylist(

@@ -95,8 +95,8 @@ class SourceSwitchQualityStateTest {
     }
 
     @Test
-    fun adAvoidanceKeepsOriginalRungWhenAlternateMustUseLowerQuality() {
-        val state = AdAvoidanceQualityState()
+    fun vaftAvoidanceKeepsOriginalRungWhenAlternateMustUseLowerQuality() {
+        val state = VaftQualityState()
         val primary720 = VideoQuality("720p60", bitrate = 3_000_000, url = "primary-720")
         val alternate360 = VideoQuality("360p", bitrate = 800_000, url = "alternate-360")
         val alternate160 = VideoQuality("160p", bitrate = 300_000, url = "alternate-160")
@@ -120,7 +120,7 @@ class SourceSwitchQualityStateTest {
 
     @Test
     fun explicitSameAlternateRungReplacesOriginalReturnIntent() {
-        val state = AdAvoidanceQualityState()
+        val state = VaftQualityState()
         val alternate360 = VideoQuality("360p", bitrate = 800_000, url = "alternate-360")
         val primary360 = VideoQuality("360p", bitrate = 1_000_000, url = "primary-360")
 
@@ -137,7 +137,7 @@ class SourceSwitchQualityStateTest {
 
     @Test
     fun autoAndNoInitialSelectionKeepTheirExistingReturnSemantics() {
-        val state = AdAvoidanceQualityState()
+        val state = VaftQualityState()
         state.begin(VideoQuality("auto"))
 
         assertEquals("auto", state.identityForPrimaryReturn?.name)
@@ -161,8 +161,8 @@ class SourceSwitchQualityStateTest {
     }
 
     @Test
-    fun adAvoidanceWaitsForTheExpectedPrimarySourceBeforeRestoringQuality() {
-        val state = AdAvoidanceQualityState()
+    fun vaftAvoidanceWaitsForTheExpectedPrimarySourceBeforeRestoringQuality() {
+        val state = VaftQualityState()
         state.begin(VideoQuality("720p60", bitrate = 3_000_000))
         state.expectPrimaryReturn("https://primary.example/master.m3u8")
 

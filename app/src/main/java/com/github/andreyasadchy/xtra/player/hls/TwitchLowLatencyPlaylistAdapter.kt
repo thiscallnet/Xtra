@@ -1,6 +1,6 @@
 package com.github.andreyasadchy.xtra.player.hls
 
-import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
+import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import java.util.Locale
 import kotlin.math.round
 
@@ -56,7 +56,7 @@ object TwitchLowLatencyPlaylistAdapter {
     private val idPattern = Regex("(?:^|[:,])ID=\"([^\"]*)\"")
     private val classPattern = Regex("(?:^|[:,])CLASS=\"([^\"]*)\"")
     private val classAttributePattern = Regex("(?:^|,)CLASS=\"[^\"]*\"")
-    private val twitchAdAttributePattern = Regex("(?:^|,)X-TV-TWITCH-AD-[A-Z0-9-]+=")
+    private val twitchVaftAttributePattern = Regex("(?:^|,)X-TV-TWITCH-AD-[A-Z0-9-]+=")
     private val startDatePattern = Regex("(?:^|,)START-DATE=\"[^\"]+\"")
     private val assetUriPattern = Regex("(?:^|,)X-ASSET-URI=")
     private val assetListPattern = Regex("(?:^|,)X-ASSET-LIST=")
@@ -88,11 +88,11 @@ object TwitchLowLatencyPlaylistAdapter {
         val isVod = lines.any { it.equals(VOD_PLAYLIST_TYPE, ignoreCase = true) } ||
             lines.any { it.equals(ENDLIST_TAG, ignoreCase = true) }
         val discontinuityBeforePrefetch = hasDiscontinuityBeforePrefetch(lines)
-        val rawAdBoundary = lines.any(::isTwitchAdDateRange) ||
-            lastCommittedSegmentTitle(lines)?.let { TwitchAdDetector.isAdTitle(it) } == true
+        val rawVaftBoundary = lines.any(::isTwitchVaftDateRange) ||
+            lastCommittedSegmentTitle(lines)?.let { TwitchVaftDetector.isVaftTitle(it) } == true
         val prefetchDetected = prefetchLines.isNotEmpty()
         val suppressed = prefetchDetected &&
-            (suppressTranslation || rawAdBoundary || discontinuityBeforePrefetch)
+            (suppressTranslation || rawVaftBoundary || discontinuityBeforePrefetch)
         val estimatedDuration = estimateUpcomingDuration(recentDurations)
         val canTranslate = enabled &&
             !isVod &&
@@ -199,7 +199,7 @@ object TwitchLowLatencyPlaylistAdapter {
             if (!prefetchAdded) {
                 // Prefetch URLs are unfinished segments, not committed EXTINF entries.
                 // Publishing two as completed segments advances Media3 beyond the next
-                // snapshot when Twitch temporarily removes prefetch (e.g. at an ad).
+                // snapshot when Twitch temporarily removes prefetch (e.g. at a VAFT).
                 // Only the immediate next sequence can be represented as a trailing part;
                 // the following prefetch belongs to a different, unpublished sequence.
                 val uri = normalizeSegmentUri(prefetchUris.first())
@@ -214,7 +214,7 @@ object TwitchLowLatencyPlaylistAdapter {
     private fun normalizeLine(line: String): String {
         val trimmed = line.trim()
         if (trimmed.startsWith("#EXT-X-DATERANGE:")) {
-            return normalizeTwitchAdDateRange(trimmed)
+            return normalizeTwitchVaftDateRange(trimmed)
         }
         if (!trimmed.startsWith("#")) {
             return normalizeSegmentUri(trimmed)
@@ -224,8 +224,8 @@ object TwitchLowLatencyPlaylistAdapter {
 
     private fun normalizeSegmentUri(uri: String): String = uri.replace("-unmuted", "-muted")
 
-    private fun normalizeTwitchAdDateRange(line: String): String {
-        if (!isTwitchAdDateRange(line)) return line
+    private fun normalizeTwitchVaftDateRange(line: String): String {
+        if (!isTwitchVaftDateRange(line)) return line
 
         val attributes = line.substringAfter(':')
         val currentClass = classPattern.find(attributes)?.groupValues?.get(1)
@@ -239,7 +239,7 @@ object TwitchLowLatencyPlaylistAdapter {
             }.removePrefix(",")
         }
         if (currentClass != null && currentClass != STANDARD_INTERSTITIAL_CLASS &&
-            !twitchAdAttributePattern.containsMatchIn(normalizedAttributes)
+            !twitchVaftAttributePattern.containsMatchIn(normalizedAttributes)
         ) {
             normalizedAttributes += ",X-TV-TWITCH-AD-CLASS=\"$currentClass\""
         }
@@ -252,14 +252,14 @@ object TwitchLowLatencyPlaylistAdapter {
         return "#EXT-X-DATERANGE:$normalizedAttributes"
     }
 
-    private fun isTwitchAdDateRange(line: String): Boolean {
+    private fun isTwitchVaftDateRange(line: String): Boolean {
         if (!line.startsWith("#EXT-X-DATERANGE:")) return false
         val id = idPattern.find(line)?.groupValues?.get(1).orEmpty()
         val className = classPattern.find(line)?.groupValues?.get(1).orEmpty()
-        return TwitchAdDetector.isTwitchAdDateRange(
+        return TwitchVaftDetector.isTwitchVaftDateRange(
             id = id,
             rangeClass = className,
-            hasAdAttribute = twitchAdAttributePattern.containsMatchIn(line),
+            hasVaftAttribute = twitchVaftAttributePattern.containsMatchIn(line),
         )
     }
 

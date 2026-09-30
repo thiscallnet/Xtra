@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
         <receiver
+            android:name="com.github.andreyasadchy.xtra.debug.VaftPlaylistCaptureReceiver"
+            android:exported="true" />
+        <receiver
             android:name="com.github.andreyasadchy.xtra.debug.VaftFixtureReceiver"
             android:exported="true" />
         <activity

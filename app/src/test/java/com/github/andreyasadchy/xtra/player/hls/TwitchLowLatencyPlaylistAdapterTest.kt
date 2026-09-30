@@ -116,7 +116,7 @@ class TwitchLowLatencyPlaylistAdapterTest {
                 "#EXTINF:2.0,",
                 "segment-current.ts",
                 "#EXT-X-DISCONTINUITY",
-                "#EXT-X-TWITCH-PREFETCH:possible-ad.ts",
+                "#EXT-X-TWITCH-PREFETCH:possible-VAFT.ts",
             ),
             enabled = true,
         )
@@ -128,14 +128,14 @@ class TwitchLowLatencyPlaylistAdapterTest {
     }
 
     @Test
-    fun adDateRangeSuppressesTranslation() {
+    fun vaftDateRangeSuppressesTranslation() {
         val result = TwitchLowLatencyPlaylistAdapter.adapt(
             playlist(
                 "#EXT-X-TARGETDURATION:6",
                 "#EXT-X-DATERANGE:ID=\"stitched-ad-1\",CLASS=\"twitch-stitched-ad\",START-DATE=\"2024-01-01T00:00:00Z\"",
                 "#EXTINF:2.0,",
-                "ad.ts",
-                "#EXT-X-TWITCH-PREFETCH:next-ad.ts",
+                "VAFT.ts",
+                "#EXT-X-TWITCH-PREFETCH:next-VAFT.ts",
             ),
             enabled = true,
         )
@@ -149,14 +149,14 @@ class TwitchLowLatencyPlaylistAdapterTest {
     }
 
     @Test
-    fun maintainedVaftAdClassesSuppressPrefetchTranslation() {
+    fun maintainedVaftVaftClassesSuppressPrefetchTranslation() {
         val result = TwitchLowLatencyPlaylistAdapter.adapt(
             playlist(
                 "#EXT-X-TARGETDURATION:6",
-                "#EXT-X-DATERANGE:ID=\"ad-1\",CLASS=\"twitch-stitched-mid\",START-DATE=\"2024-01-01T00:00:00Z\"",
+                "#EXT-X-DATERANGE:ID=\"VAFT-1\",CLASS=\"twitch-stitched-mid\",START-DATE=\"2024-01-01T00:00:00Z\"",
                 "#EXTINF:2.0,",
-                "ad.ts",
-                "#EXT-X-TWITCH-PREFETCH:next-ad.ts",
+                "VAFT.ts",
+                "#EXT-X-TWITCH-PREFETCH:next-VAFT.ts",
             ),
             enabled = true,
         )
@@ -209,14 +209,14 @@ class TwitchLowLatencyPlaylistAdapterTest {
     }
 
     @Test
-    fun titleOnlyAdBoundarySuppressesPrefetchTranslation() {
+    fun titleOnlyVaftBoundarySuppressesPrefetchTranslation() {
         val result = TwitchLowLatencyPlaylistAdapter.adapt(
             playlist(
                 "#EXT-X-TARGETDURATION:6",
                 "#EXTINF:2.0,Amazon",
-                "ad.ts",
-                "#EXT-X-TWITCH-PREFETCH:next-ad.ts",
-                "#EXT-X-TWITCH-PREFETCH:after-next-ad.ts",
+                "VAFT.ts",
+                "#EXT-X-TWITCH-PREFETCH:next-VAFT.ts",
+                "#EXT-X-TWITCH-PREFETCH:after-next-VAFT.ts",
             ),
             enabled = true,
         )
@@ -224,7 +224,7 @@ class TwitchLowLatencyPlaylistAdapterTest {
         assertTrue(result.diagnostics.twitchPrefetchSuppressed)
         assertFalse(result.diagnostics.twitchPrefetchTranslated)
         assertEquals(1, result.playlistText.lines().count { it.startsWith("#EXTINF:") })
-        assertTrue(result.playlistText.contains("#EXT-X-TWITCH-PREFETCH:next-ad.ts"))
+        assertTrue(result.playlistText.contains("#EXT-X-TWITCH-PREFETCH:next-VAFT.ts"))
     }
 
     @Test

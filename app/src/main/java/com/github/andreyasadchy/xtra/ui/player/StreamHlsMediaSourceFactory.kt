@@ -25,6 +25,7 @@ import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
+import com.github.andreyasadchy.xtra.player.hls.ProbedPlaylistDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
@@ -111,9 +112,13 @@ class StreamHlsMediaSourceFactory(
             StreamProxyState { observation -> onProxyPlaylistObservation(mediaItem.mediaId, observation) }
         }
         val streamSource = mediaItem.liveConfiguration.targetOffsetMs != androidx.media3.common.C.TIME_UNSET
+        val networkFactory = dataSourceFactory(state, streamSource)
+        val handoffFactory = if (mediaItem.mediaId.startsWith("vaft-source:")) {
+            DataSource.Factory { ProbedPlaylistDataSource(networkFactory.createDataSource()) }
+        } else networkFactory
         val sourceDataSourceFactory = DefaultDataSource.Factory(
             context,
-            dataSourceFactory(state, streamSource),
+            handoffFactory,
         ).also { sourceDataSourceFactories[mediaItem.mediaId] = it }
         val lowLatencyEnabled = configuration.lowLatency &&
             streamSource

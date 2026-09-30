@@ -74,7 +74,7 @@ class VaftFixtureReceiver : BroadcastReceiver() {
         }.build()
         setLazyClient(lazyClient, fixtureClient)
         preferences.edit().putString(C.NETWORK_LIBRARY, C.OKHTTP)
-            .putString(C.TOKEN_PLAYER_TYPE, "site").putBoolean(C.PLAYER_AVOID_ADS, true)
+            .putString(C.TOKEN_PLAYER_TYPE, "site").putBoolean(C.PLAYER_VAFT_ENABLED, true)
             .putBoolean(C.PLAYER_LIVE_REWIND, true).putBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false)
             .putBoolean(C.PLAYER_STREAM_PROXY, false).putBoolean(C.SETTINGS_CHAT_ENABLED, false).commit()
         Log.i("VaftFixture", "enabled; only vaft_fixture traffic redirected")
@@ -82,7 +82,7 @@ class VaftFixtureReceiver : BroadcastReceiver() {
 
     companion object {
         private var originalClient: OkHttpClient? = null
-        private val KEYS = listOf(C.NETWORK_LIBRARY, C.TOKEN_PLAYER_TYPE, C.PLAYER_AVOID_ADS,
+        private val KEYS = listOf(C.NETWORK_LIBRARY, C.TOKEN_PLAYER_TYPE, C.PLAYER_VAFT_ENABLED,
             C.PLAYER_LIVE_REWIND, C.PROXY_PLAYBACK_ACCESS_TOKEN, C.PLAYER_STREAM_PROXY, C.SETTINGS_CHAT_ENABLED)
 
         // Debug-only test injection into the shared lazy client also reaches existing repositories.

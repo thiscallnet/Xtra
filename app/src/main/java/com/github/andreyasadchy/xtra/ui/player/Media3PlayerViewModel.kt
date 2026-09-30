@@ -40,7 +40,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
-import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
+import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
@@ -98,15 +98,15 @@ class Media3PlayerViewModel(
     private val streamStatusRequestGeneration = AtomicLong()
     private var streamJob: Job? = null
     var useCustomProxy = false
-    var playingAds = false
+    var vaftRequired = false
     var usingProxy = false
     var stopProxy = false
     var usingAlternateStream = false
-    internal val adAvoidanceQualityState = AdAvoidanceQualityState()
-    private val adController = TwitchAdController()
-    var adLogicalQuality: VideoQuality? = null
-    var adVerifiedRendition: VideoQuality? = null
-    var adWindowActive = false
+    internal val vaftQualityState = VaftQualityState()
+    private val vaftController = TwitchVaftController()
+    var vaftLogicalQuality: VideoQuality? = null
+    var vaftVerifiedRendition: VideoQuality? = null
+    var vaftWindowActive = false
 
     val videoResult = MutableStateFlow<String?>(null)
     var backupQualities: List<String>? = null
@@ -195,22 +195,22 @@ class Media3PlayerViewModel(
                     }
                 }
             }
-            TwitchAdDetector.isAd(playlist)
+            TwitchVaftDetector.requiresVaft(playlist)
         } catch (e: Exception) {
             false
         }
     }
 
-    fun playerTypesForAd(currentPlayerType: String?): List<String> {
-        return adController.playerTypesForAd(currentPlayerType)
+    fun playerTypesForVaft(currentPlayerType: String?): List<String> {
+        return vaftController.playerTypesForVaft(currentPlayerType)
     }
 
-    fun onCleanAdPlaylist() {
-        adController.onCleanPlaylist()
+    fun onCleanVaftPlaylist() {
+        vaftController.onCleanPlaylist()
     }
 
-    fun resetAdController() {
-        adController.reset()
+    fun resetVaftController() {
+        vaftController.reset()
     }
 
     suspend fun loadCleanStreamPlaylistUrl(

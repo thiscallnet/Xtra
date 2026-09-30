@@ -14,7 +14,7 @@ import kotlin.math.min
  * Media3's time bar keeps the painted track inside the scrubber's radius.
  * That is useful for a conventional inset controller, but it leaves a
  * visible gap at both edges of the compact player. Keep DefaultTimeBar's
- * input, keyboard, accessibility, and ad-marker behavior while painting the
+ * input, keyboard, accessibility, and VAFT-marker behavior while painting the
  * player chrome as one edge-to-edge boundary line.
  */
 class HudTimeBar @JvmOverloads constructor(
@@ -162,7 +162,7 @@ class HudTimeBar @JvmOverloads constructor(
 
         }
 
-        // Preserve ad markers and any other semantics implemented by Media3.
+        // Preserve VAFT markers and any other semantics implemented by Media3.
         // Main bar/scrubber colors are transparent, so this cannot reintroduce
         // the inset line.
         super.onDraw(canvas)

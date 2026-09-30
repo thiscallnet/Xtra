@@ -10,6 +10,8 @@ import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
+import com.github.andreyasadchy.xtra.player.hls.VaftPlaylistCapture
+import com.github.andreyasadchy.xtra.player.hls.ProbedPlaylists
 import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import com.apollographql.apollo.api.CustomScalarAdapters
 import com.apollographql.apollo.api.json.buildJsonString
@@ -58,7 +60,7 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
-import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
+import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditSession
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
 import kotlinx.coroutines.CancellationException
@@ -104,7 +106,7 @@ import kotlin.random.Random
 import kotlin.uuid.Uuid
 
 private const val MAX_VIDEO_HISTORY_ITEMS = 100
-private const val AD_TAG = "XtraAd"
+private const val VAFT_TAG = "XtraVaft"
 
 internal fun parseSTVEntitledEmoteSetIds(response: String): List<String> {
     val root = JSONObject(response)
@@ -458,7 +460,7 @@ class PlayerRepository(
 
     /**
      * Gets a stream using each alternate Twitch player type and rejects a
-     * candidate when any playable rendition contains ad markers.
+     * candidate when any playable rendition contains VAFT markers.
      * A failed inspection is treated as unknown rather than blocking playback;
      * the player will run the normal HLS detector once the source is attached.
      */
@@ -483,7 +485,7 @@ class PlayerRepository(
         // VAFT keeps one device ID while it probes alternate player types. Reusing
         // one valid ID prevents Twitch from treating each probe as a new client.
         val deviceId = resolvePlaybackDeviceId(gqlHeaders, randomDeviceId, xDeviceId)
-        logAd("clean probe channel=$channelLogin types=${playerTypes.joinToString()} deviceIdLength=${deviceId.length}")
+        logVaft("clean probe channel=$channelLogin types=${playerTypes.joinToString()} deviceIdLength=${deviceId.length}")
         playerTypes.forEach { playerType ->
             onPlayerTypeAttempt(playerType)
             val url = try {
@@ -505,19 +507,19 @@ class PlayerRepository(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                logAd("token probe failed channel=$channelLogin playerType=$playerType error=${e.javaClass.simpleName}")
+                logVaft("token probe failed channel=$channelLogin playerType=$playerType error=${e.javaClass.simpleName}")
                 null
             } ?: return@forEach
 
             val inspection = withTimeoutOrNull(5_000L) { inspectCleanRendition(url, preferredQuality) } ?: (null to null)
-            val adMarkers = inspection.first
-            logAd("playlist probe channel=$channelLogin playerType=$playerType adMarkers=$adMarkers")
-            if (adMarkers != true && (!requireVerifiedClean || adMarkers == false)) {
-                logAd("clean candidate selected channel=$channelLogin playerType=$playerType verified=${adMarkers == false}")
-                return@withContext StreamPlaylistCandidate(playerType, url, adMarkers == false, inspection.second)
+            val vaftMarkers = inspection.first
+            logVaft("playlist probe channel=$channelLogin playerType=$playerType vaftMarkers=$vaftMarkers")
+            if (vaftMarkers != true && (!requireVerifiedClean || vaftMarkers == false)) {
+                logVaft("clean candidate selected channel=$channelLogin playerType=$playerType verified=${vaftMarkers == false}")
+                return@withContext StreamPlaylistCandidate(playerType, url, vaftMarkers == false, inspection.second)
             }
         }
-        logAd("no clean candidate channel=$channelLogin")
+        logVaft("no clean candidate channel=$channelLogin")
         null
     }
 
@@ -528,7 +530,7 @@ class PlayerRepository(
             val parsed = TwitchHlsPlaylistParserFactory(lowLatencyEnabled = false)
                 .createPlaylistParser().parse(masterUrl.toUri(), master.byteInputStream())
             if (parsed !is HlsMultivariantPlaylist) {
-                return@withContext (TwitchAdDetector.isAd(PlaylistUtils.parseMediaPlaylist(master.byteInputStream())) to null)
+                return@withContext (TwitchVaftDetector.requiresVaft(PlaylistUtils.parseMediaPlaylist(master.byteInputStream())) to null)
             }
             val audioOnly = preferred?.name == PlaybackContract.AUDIO_ONLY_QUALITY
             val renditions = parsed.variants.filter { (it.format.height > 0) != audioOnly }.map { variant ->
@@ -556,16 +558,26 @@ class PlayerRepository(
                     .thenByDescending { it.bitrate ?: 0 },
             )
             var unknown = false
-            // Try the intended quality first, then nearby/lower clean rungs.
-            // Pair probes cap network concurrency without serializing the ladder.
-            for (batch in renditions.chunked(2)) {
+            // A clean intended rung can be used immediately. Waiting for a second
+            // rung makes handoff latency depend on an unrelated CDN response.
+            val intended = renditions.firstOrNull()
+            if (intended != null) {
+                val result = inspectPlaylistMarkers(intended.url!!, "playlist_probe_media")
+                if (result == false) {
+                    logVaft("clean rendition name=${intended.name} bitrate=${intended.bitrate}")
+                    return@withContext (false to intended)
+                }
+                unknown = result == null
+            }
+            // Pair probes cap fallback concurrency without serializing the ladder.
+            for (batch in renditions.drop(1).chunked(2)) {
                 val results = coroutineScope {
                     batch.map { rendition -> async {
                         rendition to inspectPlaylistMarkers(rendition.url!!, "playlist_probe_media")
                     } }.awaitAll()
                 }
                 results.firstOrNull { it.second == false }?.let {
-                    logAd("clean rendition name=${it.first.name} bitrate=${it.first.bitrate}")
+                    logVaft("clean rendition name=${it.first.name} bitrate=${it.first.bitrate}")
                     return@withContext (false to it.first)
                 }
                 unknown = unknown || results.any { it.second == null }
@@ -574,7 +586,7 @@ class PlayerRepository(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            logAd("playlist inspection failed error=${e.javaClass.simpleName}")
+            logVaft("playlist inspection failed error=${e.javaClass.simpleName}")
             null to null
         }
     }
@@ -595,7 +607,7 @@ class PlayerRepository(
         try {
             var responseCode = 0
             var responseBytes: Long? = null
-            val adMarkers = okHttpClient.value.newCall(Request.Builder().url(url).build())
+            val vaftMarkers = okHttpClient.value.newCall(Request.Builder().url(url).build())
                 .executeAsync().use { response ->
                     responseCode = response.code
                     val body = response.body
@@ -604,21 +616,19 @@ class PlayerRepository(
                         responseBytes = contentLength.takeIf { it >= 0L }
                     }
                     if (!response.isSuccessful) {
+                        if (VaftPlaylistCapture.isEnabled) {
+                            VaftPlaylistCapture.record(url, response.peekBody(512L * 1024).string(), operation, response.code)
+                        }
                         null
-                    } else if (diagnosticsToken == null) {
-                        body.byteStream().use { input ->
-                            TwitchAdDetector.isAd(PlaylistUtils.parseMediaPlaylist(input))
-                        }
                     } else {
-                        val countingInput = CountingInputStream(body.byteStream())
-                        val result = countingInput.use { input ->
-                            TwitchAdDetector.isAd(PlaylistUtils.parseMediaPlaylist(input))
-                        }
-                        if (responseBytes == null) responseBytes = countingInput.bytesRead
-                        result
+                        val text = body.string()
+                        VaftPlaylistCapture.record(url, text, operation, response.code)
+                        responseBytes = text.toByteArray().size.toLong()
+                        ProbedPlaylists.remember(url, response.request.url.toString(), text)
+                        TwitchVaftDetector.requiresVaft(PlaylistUtils.parseMediaPlaylist(text.byteInputStream()))
                     }
                 }
-            val successful = responseCode in 200..299 && adMarkers != null
+            val successful = responseCode in 200..299 && vaftMarkers != null
             logger?.finishRequest(
                 diagnosticsToken,
                 successful = successful,
@@ -626,7 +636,7 @@ class PlayerRepository(
                 code = if (successful) null else "http_error",
                 fields = playbackDiagnosticsFields(responseBytes = responseBytes),
             )
-            adMarkers
+            vaftMarkers
         } catch (e: CancellationException) {
             logger?.finishRequest(diagnosticsToken, successful = false, code = "cancelled")
             throw e
@@ -654,6 +664,10 @@ class PlayerRepository(
                 .executeAsync().use { response ->
                     val contentLength = response.body.contentLength()
                     val body = response.body.string()
+                    VaftPlaylistCapture.record(url, body, operation, response.code)
+                    if (response.isSuccessful && operation == "playlist_probe_master") {
+                        ProbedPlaylists.remember(url, response.request.url.toString(), body)
+                    }
                     val responseBytes = if (diagnosticsToken != null) {
                         contentLength.takeIf { it >= 0L } ?: body.toByteArray().size.toLong()
                     } else null
@@ -680,7 +694,7 @@ class PlayerRepository(
     private suspend fun loadStreamPlaybackAccessToken(context: Context, networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?): Pair<String?, String?> = withContext(Dispatchers.IO) {
         val accessTokenHeaders = getPlaybackAccessTokenHeaders(gqlHeaders, randomDeviceId, xDeviceId)
         val platform = if (playerType.equals("autoplay", ignoreCase = true)) "android" else "web"
-        logAd("token request channel=$channelLogin playerType=${playerType ?: "null"} platform=$platform deviceIdLength=${accessTokenHeaders["X-Device-Id"]?.length ?: 0} proxy=$proxyPlaybackAccessToken")
+        logVaft("token request channel=$channelLogin playerType=${playerType ?: "null"} platform=$platform deviceIdLength=${accessTokenHeaders["X-Device-Id"]?.length ?: 0} proxy=$proxyPlaybackAccessToken")
         val url = "https://gql.twitch.tv/gql"
         val headers = accessTokenHeaders.filterKeys { it == C.HEADER_CLIENT_ID || it == "X-Device-Id" }
         try {
@@ -1009,7 +1023,7 @@ class PlayerRepository(
         val deviceId = resolvePlaybackDeviceId(gqlHeaders, randomDeviceId, xDeviceId)
         // Keep one stable device ID alongside the playback request headers.
         headers["X-Device-Id"] = deviceId
-        logAd("headers prepared randomDeviceId=${randomDeviceId != false} deviceIdLength=${deviceId.length}")
+        logVaft("headers prepared randomDeviceId=${randomDeviceId != false} deviceIdLength=${deviceId.length}")
         return headers
     }
 
@@ -1055,9 +1069,9 @@ class PlayerRepository(
         }
     }
 
-    private fun logAd(message: String) {
+    private fun logVaft(message: String) {
         if (BuildConfig.DEBUG) {
-            Log.d(AD_TAG, message)
+            Log.d(VAFT_TAG, message)
         }
     }
 

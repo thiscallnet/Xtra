@@ -1,20 +1,20 @@
 package com.github.andreyasadchy.xtra.ui.player
 
 /**
- * Coordinates alternate Twitch player types for one live ad window.
+ * Coordinates alternate Twitch player types for one live VAFT window.
  *
  * Failed candidates become eligible again after a cooldown within the same break.
  */
-class TwitchAdController(private val clockMs: () -> Long = { System.nanoTime() / 1_000_000 }) {
+class TwitchVaftController(private val clockMs: () -> Long = { System.nanoTime() / 1_000_000 }) {
 
-    private var adWindowActive = false
+    private var vaftWindowActive = false
     private val attemptedPlayerTypes = linkedMapOf<String, Long>()
     private val failedHandoffs = mutableMapOf<String, Long>()
 
     @Synchronized
-    fun playerTypesForAd(currentPlayerType: String?, limit: Int = PLAYER_TYPES.size): List<String> {
-        if (!adWindowActive) {
-            adWindowActive = true
+    fun playerTypesForVaft(currentPlayerType: String?, limit: Int = PLAYER_TYPES.size): List<String> {
+        if (!vaftWindowActive) {
+            vaftWindowActive = true
             attemptedPlayerTypes.clear()
             failedHandoffs.clear()
         }
@@ -41,8 +41,8 @@ class TwitchAdController(private val clockMs: () -> Long = { System.nanoTime() /
 
     @Synchronized
     fun onCleanPlaylist() {
-        if (adWindowActive) {
-            adWindowActive = false
+        if (vaftWindowActive) {
+            vaftWindowActive = false
             attemptedPlayerTypes.clear()
             failedHandoffs.clear()
         }
@@ -50,7 +50,7 @@ class TwitchAdController(private val clockMs: () -> Long = { System.nanoTime() /
 
     @Synchronized
     fun reset() {
-        adWindowActive = false
+        vaftWindowActive = false
         attemptedPlayerTypes.clear()
         failedHandoffs.clear()
     }
