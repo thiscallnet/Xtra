@@ -4224,23 +4224,25 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 prepareLiveRewind()
             }
             VIDEO -> {
-                if (requireContext().prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
-                    val id = requireArguments().getString(KEY_VIDEO_ID)?.toLongOrNull()
+                val args = requireArguments()
+                if (args.getBoolean(KEY_IGNORE_SAVED_POSITION)) {
+                    val offset = args.getLong(KEY_OFFSET, -1L)
+                        .takeIf { it >= 0L }
+                        ?: 0L
+                    args.putBoolean(KEY_IGNORE_SAVED_POSITION, false)
+                    args.putLong(KEY_OFFSET, -1L)
+                    playVideo(false, offset)
+                } else if (requireContext().prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
+                    val id = args.getString(KEY_VIDEO_ID)?.toLongOrNull()
                     if (id != null) {
-                        val fallbackPosition = requireArguments().getLong(KEY_RESTORED_POSITION, -1L)
+                        val fallbackPosition = args.getLong(KEY_RESTORED_POSITION, -1L)
                             .takeIf { it >= 0L }
                         viewModel.getVideoPosition(id, fallbackPosition)
                     } else {
                         playVideo(false, 0)
                     }
                 } else {
-                    if (requireArguments().getBoolean(KEY_IGNORE_SAVED_POSITION)) {
-                        playVideo(false, requireArguments().getLong(KEY_OFFSET).takeIf { it != -1L } ?: 0)
-                        requireArguments().putBoolean(KEY_IGNORE_SAVED_POSITION, false)
-                        requireArguments().putLong(KEY_OFFSET, -1)
-                    } else {
-                        playVideo(false, 0)
-                    }
+                    playVideo(false, 0)
                 }
             }
             CLIP -> {
