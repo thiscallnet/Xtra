@@ -86,6 +86,8 @@ import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
+import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.ListenableFuture
@@ -96,6 +98,8 @@ import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -160,6 +164,50 @@ class PlaybackService : MediaSessionService() {
     private var liveRewindTransitioning = false
     private var lastMediaButtonSeekable: Boolean? = null
     private var liveStreamUri: String? = null
+    private var adHandoffJob: Job? = null
+    private var adAlternateActive = false
+    private var adOutputSuppressed = false
+    private var adCoordinatorJob: Job? = null
+    private var adGeneration = 0L
+    private var adLogicalQuality: com.github.andreyasadchy.xtra.model.VideoQuality? = null
+    private var adVerifiedRendition: com.github.andreyasadchy.xtra.model.VideoQuality? = null
+    private var adSourceSwitching = false
+    private var adHandoffPreviousTracks: TrackSelectionParameters? = null
+    private var adHandoffPreviousMediaItem: MediaItem? = null
+    private var adHandoffPreviousPositionMs: Long? = null
+    private var adAuthoritativeUri: String? = null
+    private var adCurrentPlayerType: String? = null
+
+    private fun invalidateAdOwnership() {
+        adGeneration++
+        adCoordinatorJob?.cancel()
+        adHandoffJob?.cancel()
+        adCoordinatorJob = null
+        adHandoffJob = null
+        adSourceSwitching = false
+        adHandoffPreviousTracks = null
+        adHandoffPreviousMediaItem = null
+        adHandoffPreviousPositionMs = null
+        adAlternateActive = false
+        adOutputSuppressed = false
+        adLogicalQuality = null
+        adVerifiedRendition = null
+        adCurrentPlayerType = null
+        adAuthoritativeUri = null
+        publishAdPlaybackState()
+    }
+
+    private fun publishAdPlaybackState() {
+        mediaSession?.broadcastCustomCommand(SessionCommand(AD_PLAYBACK_STATE_CHANGED, Bundle.EMPTY), Bundle().apply {
+            putBoolean(AD_HANDOFF, adSourceSwitching)
+            putBoolean(AD_WINDOW_ACTIVE, adCoordinatorJob?.isActive == true)
+            putBoolean(AD_ALTERNATE_ACTIVE, adAlternateActive)
+            putBoolean(SUPPRESS_AD_OUTPUT, adOutputSuppressed)
+            adVerifiedRendition?.let { putString(AD_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
+            adLogicalQuality?.let { putString(AD_LOGICAL_QUALITY, xtraModule.json.encodeToString(it)) }
+            adCurrentPlayerType?.let { putString(AD_PLAYER_TYPE, it) }
+        })
+    }
     private var liveStreamExtras: Bundle? = null
     private var resumptionState: PlaybackState? = null
     private var pendingPlaybackQualityState: PlaybackState? = null
@@ -272,7 +320,7 @@ class PlaybackService : MediaSessionService() {
                         )
                     }
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFailed() }
-                    if (backgroundPlayback
+                    if (backgroundPlayback && adCoordinatorJob?.isActive != true
                         && prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
                         && player.playWhenReady
                     ) {
@@ -413,6 +461,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onTimelineChanged(timeline: Timeline, reason: Int) {
+                    updateAdAvoidance(player)
                     syncVodClipSource()
                     captureLiveClipManifest()
                     refreshMediaButtonPreferencesIfSeekabilityChanged(player)
@@ -620,6 +669,7 @@ class PlaybackService : MediaSessionService() {
                             add(SessionCommand(START_STREAM, Bundle.EMPTY))
                             add(SessionCommand(START_LIVE_REWIND, Bundle.EMPTY))
                             add(SessionCommand(GET_LIVE_REWIND_STATE, Bundle.EMPTY))
+                            add(SessionCommand(GET_AD_PLAYBACK_STATE, Bundle.EMPTY))
                             add(SessionCommand(UPDATE_VIEWING_METADATA, Bundle.EMPTY))
                             if (liveRewindActive) add(SessionCommand(GO_LIVE, Bundle.EMPTY))
                             add(SessionCommand(START_VIDEO, Bundle.EMPTY))
@@ -675,6 +725,9 @@ class PlaybackService : MediaSessionService() {
                         if (!isTrustedController(controller)) {
                             return Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
                         }
+                        if (customCommand.customAction in listOf(START_VIDEO, START_CLIP, START_OFFLINE_VIDEO, CLEAR_PLAYBACK_RESUMPTION)) {
+                            invalidateAdOwnership()
+                        }
                         return when (customCommand.customAction) {
                             UPDATE_VIEWING_METADATA -> {
                                 handleViewingMetadataCommand(customCommand.customExtras, session.player)
@@ -706,6 +759,11 @@ class PlaybackService : MediaSessionService() {
                                 result
                             }
                             START_STREAM -> {
+                                if (customCommand.customExtras.getBoolean(AD_HANDOFF)) {
+                                    return startAdHandoff(player, customCommand.customExtras)
+                                }
+                                invalidateAdOwnership()
+                                adOutputSuppressed = customCommand.customExtras.getBoolean(SUPPRESS_AD_OUTPUT)
                                 clearBackgroundVideoSuppression(
                                     session.player,
                                     restoreVideo = true,
@@ -737,15 +795,32 @@ class PlaybackService : MediaSessionService() {
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                                 val vodId = customCommand.customExtras.getString(REWIND_VIDEO_ID)
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                                val handoffInFlight = adSourceSwitching || adHandoffJob?.isActive == true
+                                val vaftPlaybackOwned = handoffInFlight || adCoordinatorJob?.isActive == true
+                                val previousPlayback = snapshotLiveRewindPlayback(
+                                    player,
+                                    sourceUriOverride = adAuthoritativeUri.takeIf { handoffInFlight },
+                                    trackSelectionParametersOverride = adHandoffPreviousTracks.takeIf { handoffInFlight },
+                                    mediaItemOverride = adHandoffPreviousMediaItem.takeIf { handoffInFlight },
+                                    positionMsOverride = adHandoffPreviousPositionMs.takeIf { handoffInFlight },
+                                    volumeOverride = if (vaftPlaybackOwned) {
+                                        prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                                    } else {
+                                        null
+                                    },
+                                ) ?: run {
+                                    if (BuildConfig.DEBUG) Log.d("LiveRewind", "Cannot rewind without an active live source to restore")
+                                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                                }
+                                if (handoffInFlight && BuildConfig.DEBUG) {
+                                    Log.d("LiveRewind", "Rewind supersedes an uncommitted VAFT source candidate")
+                                }
+                                invalidateAdOwnership()
                                 clearBackgroundVideoSuppression(
                                     session.player,
                                     restoreVideo = true,
                                     reason = "start_live_rewind",
                                 )
-                                val previousPlayback = snapshotLiveRewindPlayback(player) ?: run {
-                                    if (BuildConfig.DEBUG) Log.d("LiveRewind", "Cannot rewind without an active live source to restore")
-                                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
-                                }
                                 setLiveRewindSessionState(transitioning = true)
                                 try {
                                     player.setMediaSource(createVodMediaSource(uri))
@@ -778,6 +853,17 @@ class PlaybackService : MediaSessionService() {
                                     putBoolean(LIVE_REWIND_ACTIVE, liveRewindActive)
                                     putBoolean(LIVE_REWIND_TRANSITIONING, liveRewindTransitioning)
                                     putString(REWIND_VIDEO_ID, liveRewindVodId)
+                                }))
+                            }
+                            GET_AD_PLAYBACK_STATE -> {
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                                    putBoolean(AD_HANDOFF, adSourceSwitching)
+                                    putBoolean(AD_ALTERNATE_ACTIVE, adAlternateActive)
+                                    putBoolean(SUPPRESS_AD_OUTPUT, adOutputSuppressed)
+                                    putBoolean(AD_WINDOW_ACTIVE, adCoordinatorJob?.isActive == true)
+                                    adVerifiedRendition?.let { putString(AD_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
+                                    adLogicalQuality?.let { putString(AD_LOGICAL_QUALITY, xtraModule.json.encodeToString(it)) }
+                                    adCurrentPlayerType?.let { putString(AD_PLAYER_TYPE, it) }
                                 }))
                             }
                             GET_CLIP_STATUS -> {
@@ -1181,13 +1267,22 @@ class PlaybackService : MediaSessionService() {
                                 }))
                             }
                             CHECK_ADS -> {
+                                if (adHandoffJob?.isActive == true) return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
                                 val playlist = (session.player.currentManifest as? HlsManifest)?.mediaPlaylist
-                                val adSegment = playlist?.let { TwitchAdDetector.isAd(it) } == true
+                                    ?: return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
+                                val adSegment = TwitchAdDetector.isAd(playlist)
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
                                     putBoolean(RESULT, adSegment)
+                                    putBoolean(AD_WINDOW_ACTIVE, adCoordinatorJob?.isActive == true)
+                                    putBoolean(AD_ALTERNATE_ACTIVE, adAlternateActive)
+                                    putBoolean(SUPPRESS_AD_OUTPUT, adOutputSuppressed)
+                                    adVerifiedRendition?.let { putString(AD_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
+                                    adLogicalQuality?.let { putString(AD_LOGICAL_QUALITY, xtraModule.json.encodeToString(it)) }
+                                    adCurrentPlayerType?.let { putString(AD_PLAYER_TYPE, it) }
                                 }))
                             }
                             GET_QUALITIES -> {
+                                if (adHandoffJob?.isActive == true) return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
                                 val sourceUri = session.player.currentMediaItem?.localConfiguration?.uri?.toString()
                                 val playlist = (session.player.currentManifest as? HlsManifest)?.multivariantPlaylist
                                 val list = playlist?.variants?.mapNotNull { variant ->
@@ -1261,6 +1356,18 @@ class PlaybackService : MediaSessionService() {
                             }
                             SAVE_PLAYBACK_QUALITY -> {
                                 val extras = customCommand.customExtras
+                                if (decodePlaybackQuality(xtraModule.json, extras.getString(PLAYBACK_QUALITY))?.name == PlaybackContract.CHAT_ONLY_QUALITY &&
+                                    adCoordinatorJob?.isActive == true) {
+                                    invalidateAdOwnership()
+                                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                                }
+                                if (adCoordinatorJob?.isActive == true && extras.getString(PLAYBACK_TYPE) == PlaybackContract.STREAM) {
+                                    extras.getString(AD_LOGICAL_QUALITY)?.let { logicalJson ->
+                                        adLogicalQuality = decodePlaybackQuality(xtraModule.json, logicalJson)
+                                        resumptionState?.let { saveResumptionState(it.copy(quality = logicalJson)) }
+                                    }
+                                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                                }
                                 val selectedQualityJson = extras.getString(PLAYBACK_QUALITY)
                                 val selectedQuality = decodePlaybackQuality(xtraModule.json, selectedQualityJson)
                                 if (selectedQuality?.name == PlaybackContract.AUDIO_ONLY_QUALITY ||
@@ -1301,7 +1408,9 @@ class PlaybackService : MediaSessionService() {
                                             videoUrl = qualityState.videoUrl
                                                 ?.let(::canonicalizeTwitchDirectVideoUrl)
                                                 ?: state.videoUrl,
-                                            playlistUrl = qualityState.playlistUrl
+                                            playlistUrl = if (matchingState.type == PlaybackContract.STREAM && (liveRewindActive || liveRewindTransitioning)) {
+                                                state.playlistUrl
+                                            } else qualityState.playlistUrl
                                                 ?: session.player.currentMediaItem?.localConfiguration?.uri?.toString()
                                                 ?: state.playlistUrl,
                                         ),
@@ -1715,7 +1824,9 @@ class PlaybackService : MediaSessionService() {
                     videoUrl = pendingQuality.videoUrl
                         ?.let(::canonicalizeTwitchDirectVideoUrl)
                         ?: state.videoUrl,
-                    playlistUrl = pendingQuality.playlistUrl ?: state.playlistUrl,
+                    playlistUrl = if (state.type == PlaybackContract.STREAM && (liveRewindActive || liveRewindTransitioning)) {
+                        state.playlistUrl
+                    } else pendingQuality.playlistUrl ?: state.playlistUrl,
                 )
             }
         } else {
@@ -2057,6 +2168,259 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
+    private fun videoCodecsCompatible(actual: String?, expected: String?): Boolean {
+        if (expected.isNullOrBlank() || actual.isNullOrBlank()) return true
+        val expectedVideo = expected.split(',').filter { it.startsWith("avc", true) || it.startsWith("hvc", true) || it.startsWith("hev", true) || it.startsWith("av01", true) || it.startsWith("vp", true) }
+        val actualVideo = actual.split(',').filter { it.startsWith("avc", true) || it.startsWith("hvc", true) || it.startsWith("hev", true) || it.startsWith("av01", true) || it.startsWith("vp", true) }
+        return expectedVideo.isEmpty() || actualVideo.isEmpty() || expectedVideo.any { wanted -> actualVideo.any { it.startsWith(wanted.take(4), true) } }
+    }
+
+    private fun replaceAdSource(player: ExoPlayer, extras: Bundle) {
+        val uri = extras.getString(URI) ?: return
+        val current = player.currentMediaItem ?: return
+        val playWhenReady = player.playWhenReady
+        val item = current.buildUpon().setUri(uri).setMediaId("ad-source:${java.util.UUID.randomUUID()}").build()
+        diagnostics.resetRenderedVideoSize()
+        player.volume = 0f
+        player.setMediaSource(xtraModule.streamMedia3Runtime.createLiveMediaSource(item))
+        // Keep the normal live resumption source authoritative until commit.
+        player.prepare()
+        player.playWhenReady = playWhenReady
+    }
+
+    private fun updateAdAvoidance(player: ExoPlayer) {
+        val activePlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+        if (adCoordinatorJob?.isActive == true && !adSourceSwitching && !adAlternateActive &&
+            player.currentMediaItem?.localConfiguration?.uri?.toString() == adAuthoritativeUri &&
+            player.playbackState == Player.STATE_READY && activePlaylist != null && !TwitchAdDetector.isAd(activePlaylist)) {
+            adGeneration++
+            adCoordinatorJob?.cancel()
+            adCoordinatorJob = null
+            adOutputSuppressed = false
+            player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+            publishAdPlaybackState()
+            return
+        }
+        if (adCoordinatorJob?.isActive == true || liveRewindActive || liveRewindTransitioning ||
+            resumptionState?.type != PlaybackContract.STREAM || !prefs().shouldAvoidTwitchAds()) return
+        val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist ?: return
+        if (!TwitchAdDetector.isAd(playlist)) return
+        val primaryExtras = liveStreamExtras?.let(::Bundle) ?: return
+        val login = primaryExtras.getString(CHANNEL_LOGIN) ?: return
+        val generation = ++adGeneration
+        val types = TwitchAdController { SystemClock.elapsedRealtime() }
+        val primaryType = prefs().getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
+        val deviceId = if (prefs().getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true)) {
+            java.util.UUID.randomUUID().toString().replace("-", "")
+        } else prefs().getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason")
+        adLogicalQuality = decodePlaybackQuality(xtraModule.json, resumptionState?.quality)
+        adAuthoritativeUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+        adVerifiedRendition = diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, adAuthoritativeUri)
+        backgroundRecoveryTimer?.cancel()
+        backgroundRecoveryTimer = null
+        adOutputSuppressed = true
+        player.volume = 0f
+        publishAdPlaybackState()
+        adCoordinatorJob = lifecycleScope.launch(start = CoroutineStart.LAZY) {
+            publishAdPlaybackState()
+            while (generation == adGeneration && !liveRewindActive && !liveRewindTransitioning && prefs().shouldAvoidTwitchAds()) {
+                val currentPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+                val clean = player.playbackState == Player.STATE_READY && player.playerError == null &&
+                    player.currentMediaItem?.localConfiguration?.uri?.toString() == adAuthoritativeUri &&
+                    currentPlaylist != null && !TwitchAdDetector.isAd(currentPlaylist)
+                if (!adAlternateActive && clean) {
+                    adOutputSuppressed = false
+                    player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                    break
+                }
+                adOutputSuppressed = !clean
+                if (!clean) player.volume = 0f
+                val eligible = if (adAlternateActive && clean) listOf(primaryType) else if (adAlternateActive) {
+                    listOf(primaryType) + types.playerTypesForAd(adCurrentPlayerType, limit = 2)
+                } else types.playerTypesForAd(primaryType, limit = 2)
+                val candidate = try {
+                    withTimeoutOrNull(55_000L) {
+                        xtraModule.playerRepository.loadCleanStreamPlaylistUrl(
+                            context = this@PlaybackService,
+                            networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                            gqlHeaders = TwitchApiHelper.getGQLHeaders(this@PlaybackService, prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true)),
+                            channelLogin = login, randomDeviceId = false, xDeviceId = deviceId,
+                            playerTypes = eligible, supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
+                            proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
+                            proxyHost = prefs().httpProxyHost(), proxyPort = prefs().httpProxyPort(),
+                            proxyUser = prefs().getString(C.PROXY_USER, null), proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
+                            requireVerifiedClean = true,
+                            preferredQuality = adLogicalQuality?.takeUnless { it.name.equals("Auto", true) }
+                                ?: diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, adAuthoritativeUri),
+                            onPlayerTypeAttempt = types::onPlayerTypeAttemptStarted,
+                        )
+                    }
+                } catch (error: CancellationException) { throw error } catch (_: Exception) { null }
+                if (generation != adGeneration) break
+                val latest = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+                if (!adAlternateActive && player.currentMediaItem?.localConfiguration?.uri?.toString() == adAuthoritativeUri &&
+                    player.playbackState == Player.STATE_READY && latest != null && !TwitchAdDetector.isAd(latest)) {
+                    adOutputSuppressed = false
+                    player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                    break
+                }
+                if (candidate != null) {
+                    val returningPrimary = candidate.playerType == primaryType
+                    if (returningPrimary && !adAlternateActive) continue
+                    if (!returningPrimary && adAlternateActive && candidate.playerType == adCurrentPlayerType) continue
+                    val extras = Bundle(primaryExtras).apply {
+                        putString(URI, candidate.url)
+                        putBoolean(AD_ALTERNATE_ACTIVE, !returningPrimary)
+                        putString(AD_PLAYER_TYPE, candidate.playerType)
+                        candidate.verifiedRendition?.let { putString(AD_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
+                    }
+                    val future = startAdHandoff(player, extras)
+                    val committed = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { continuation ->
+                        future.addListener({
+                            if (continuation.isActive) continuation.resumeWith(runCatching { future.get().resultCode == SessionResult.RESULT_SUCCESS })
+                        }, MoreExecutors.directExecutor())
+                    }
+                    if (generation != adGeneration) break
+                    if (committed && returningPrimary) break
+                }
+                delay(if (adAlternateActive && !adOutputSuppressed) 10_000L else TwitchAdController.RETRY_COOLDOWN_MS)
+            }
+            if (generation == adGeneration) adCoordinatorJob = null
+            publishAdPlaybackState()
+        }
+        adCoordinatorJob?.start()
+    }
+
+    /** The service owns verification and rollback even when the UI controller disconnects. */
+    private fun startAdHandoff(player: ExoPlayer, extras: Bundle): ListenableFuture<SessionResult> {
+        if (adHandoffJob?.isActive == true) {
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
+        }
+        val targetUri = extras.getString(URI) ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+        val verified = decodePlaybackQuality(xtraModule.json, extras.getString(AD_VERIFIED_RENDITION))
+        val previousExtras = liveStreamExtras?.let(::Bundle)?.apply {
+            putString(URI, player.currentMediaItem?.localConfiguration?.uri?.toString())
+            putBoolean(SUPPRESS_AD_OUTPUT, true)
+        }
+        val previousAlternate = adAlternateActive
+        val previousTracks = player.trackSelectionParameters
+        val generation = adGeneration
+        val result = SettableFuture.create<SessionResult>()
+        adOutputSuppressed = true
+        adSourceSwitching = true
+        adHandoffPreviousTracks = previousTracks
+        adHandoffPreviousMediaItem = player.currentMediaItem
+        adHandoffPreviousPositionMs = player.currentPosition
+        publishAdPlaybackState()
+        adHandoffJob = lifecycleScope.launch {
+            try {
+                val success = try {
+                    withTimeoutOrNull(15_000L) {
+                        replaceAdSource(player, extras)
+                        val audioOnly = verified?.name == PlaybackContract.AUDIO_ONLY_QUALITY
+                        if (audioOnly) {
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, true)
+                                .clearOverridesOfType(Media3C.TRACK_TYPE_VIDEO)
+                                .build()
+                        }
+                        var selected = verified == null || audioOnly
+                        while (generation == adGeneration && player.currentMediaItem?.localConfiguration?.uri?.toString() == targetUri) {
+                            if (player.playerError != null) return@withTimeoutOrNull false
+                            if (!selected && verified != null) {
+                                val override = videoQualityTrackOverride(player.currentTracks, verified)
+                                if (override != null) {
+                                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
+                                        if (!backgroundVideoSuppressed) setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, false)
+                                        clearOverridesOfType(Media3C.TRACK_TYPE_VIDEO)
+                                        setOverrideForType(override)
+                                    }.build()
+                                    selected = true
+                                }
+                            }
+                            val actual = diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, targetUri)
+                            val renditionConfirmed = verified == null || audioOnly || (selected && actual != null &&
+                                actual.name.equals(verified.name, ignoreCase = true) &&
+                                videoCodecsCompatible(actual.codecs, verified.codecs))
+                            val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+                            if (player.playbackState == Player.STATE_READY && renditionConfirmed && playlist != null &&
+                                (verified == null || playlist.baseUri == verified.url)) {
+                                return@withTimeoutOrNull !TwitchAdDetector.isAd(playlist)
+                            }
+                            delay(100L)
+                        }
+                        false
+                    } == true
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    if (BuildConfig.DEBUG) Log.w("XtraAd", "handoff candidate failed; rolling back", error)
+                    false
+                }
+                if (success && generation == adGeneration) {
+                    adVerifiedRendition = verified
+                    adAuthoritativeUri = targetUri
+                    adCurrentPlayerType = extras.getString(AD_PLAYER_TYPE)
+                    adAlternateActive = extras.getBoolean(AD_ALTERNATE_ACTIVE)
+                    if (!adAlternateActive) {
+                        liveStreamUri = targetUri
+                        liveStreamExtras = Bundle(extras).apply { remove(AD_ALTERNATE_ACTIVE); remove(AD_VERIFIED_RENDITION); remove(AD_PLAYER_TYPE) }
+                        player.currentMediaItem?.let(xtraModule.streamMedia3Runtime::setPrimaryPlaybackMediaItem)
+                    }
+                    adOutputSuppressed = false
+                    player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                    setLiveRewindSessionState(active = false, vodId = null, transitioning = false)
+                    updatePrimaryPlaybackWatchState(player)
+                    if (BuildConfig.DEBUG) Log.d("XtraAd", "handoff commit source=${diagnosticToken(targetUri)} alternate=$adAlternateActive playWhenReady=${player.playWhenReady}")
+                    result.set(SessionResult(SessionResult.RESULT_SUCCESS))
+                } else {
+                    if (generation == adGeneration && previousExtras != null && player.currentMediaItem?.localConfiguration?.uri?.toString() == targetUri) {
+                        previousExtras.putBoolean(PLAY_WHEN_READY, player.playWhenReady)
+                        val cleanRollback = try {
+                            replaceAdSource(player, previousExtras)
+                            player.trackSelectionParameters = previousTracks
+                            withTimeoutOrNull(15_000L) {
+                                val rollbackUri = previousExtras.getString(URI)
+                                while (generation == adGeneration && player.currentMediaItem?.localConfiguration?.uri?.toString() == rollbackUri) {
+                                    if (player.playerError != null) return@withTimeoutOrNull false
+                                    val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+                                    if (player.playbackState == Player.STATE_READY && playlist != null) {
+                                        return@withTimeoutOrNull !TwitchAdDetector.isAd(playlist)
+                                    }
+                                    delay(100L)
+                                }
+                                false
+                            } == true
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            if (BuildConfig.DEBUG) Log.w("XtraAd", "handoff rollback failed", error)
+                            false
+                        }
+                        adAlternateActive = previousAlternate
+                        adOutputSuppressed = !cleanRollback
+                        if (cleanRollback) player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                        if (BuildConfig.DEBUG) Log.d("XtraAd", "handoff rollback clean=$cleanRollback alternate=$previousAlternate playWhenReady=${player.playWhenReady}")
+                    }
+                    result.set(SessionResult(SessionError.ERROR_UNKNOWN))
+                }
+            } catch (error: CancellationException) {
+                result.set(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
+                throw error
+            } finally {
+                if (generation == adGeneration) {
+                    adSourceSwitching = false
+                    adHandoffPreviousTracks = null
+                    adHandoffPreviousMediaItem = null
+                    adHandoffPreviousPositionMs = null
+                    publishAdPlaybackState()
+                }
+            }
+        }
+        // Cancelling a UI future deliberately does not cancel service source ownership.
+        return result
+    }
+
     private fun startLiveStream(
         player: ExoPlayer,
         extras: Bundle,
@@ -2142,7 +2506,7 @@ class PlaybackService : MediaSessionService() {
         updateLiveClipSource(playbackMediaItem)
         player.setMediaSource(playbackSource)
         runtime.setPrimaryPlaybackMediaItem(playbackMediaItem)
-        player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+        player.volume = if (extras.getBoolean(SUPPRESS_AD_OUTPUT)) 0f else prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
         player.setPlaybackSpeed(1f)
         player.prepare()
         streamStartupTrace?.prepareCalledAtMs = SystemClock.elapsedRealtime()
@@ -2339,14 +2703,22 @@ class PlaybackService : MediaSessionService() {
     private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean =
         controller.uid == Process.myUid() && controller.packageName == packageName
 
-    private fun snapshotLiveRewindPlayback(player: ExoPlayer): LiveRewindPlaybackSnapshot? {
+    private fun snapshotLiveRewindPlayback(
+        player: ExoPlayer,
+        sourceUriOverride: String? = null,
+        trackSelectionParametersOverride: TrackSelectionParameters? = null,
+        mediaItemOverride: MediaItem? = null,
+        positionMsOverride: Long? = null,
+        volumeOverride: Float? = null,
+    ): LiveRewindPlaybackSnapshot? {
         if (viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
             liveRewindActive ||
-            !player.isCurrentMediaItemLive
+            (!player.isCurrentMediaItemLive && mediaItemOverride == null)
         ) return null
-        val mediaItem = player.currentMediaItem ?: return null
+        val mediaItem = mediaItemOverride ?: player.currentMediaItem ?: return null
         val extras = liveStreamExtras?.let(::Bundle) ?: return null
-        val uri = mediaItem.localConfiguration?.uri?.toString()
+        val uri = sourceUriOverride?.takeIf { it.isNotBlank() }
+            ?: mediaItem.localConfiguration?.uri?.toString()
             ?.takeIf { it.isNotBlank() }
             ?: liveStreamUri?.takeIf { it.isNotBlank() }
             ?: return null
@@ -2355,11 +2727,11 @@ class PlaybackService : MediaSessionService() {
         return LiveRewindPlaybackSnapshot(
             mediaItem = mediaItem,
             liveStreamExtras = extras,
-            positionMs = player.currentPosition,
+            positionMs = positionMsOverride ?: player.currentPosition,
             playWhenReady = player.playWhenReady,
-            volume = player.volume,
+            volume = volumeOverride ?: player.volume,
             playbackSpeed = player.playbackParameters.speed,
-            trackSelectionParameters = player.trackSelectionParameters,
+            trackSelectionParameters = trackSelectionParametersOverride ?: player.trackSelectionParameters,
             proxyMediaPlaylist = proxyMediaPlaylist,
             liveRewindActive = liveRewindActive,
             liveRewindVodId = liveRewindVodId,
@@ -2506,6 +2878,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun scheduleBackgroundRecovery() {
+        if (adCoordinatorJob?.isActive == true || adSourceSwitching) return
         if (!prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)) {
             return
         }
@@ -2517,7 +2890,7 @@ class PlaybackService : MediaSessionService() {
                 Handler(Looper.getMainLooper()).post {
                     backgroundRecoveryTimer = null
                     val player = mediaSession?.player
-                    if (backgroundPlayback
+                    if (backgroundPlayback && adCoordinatorJob?.isActive != true && !adSourceSwitching
                         && prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
                         && player?.playWhenReady == true
                         && player.playerError != null
@@ -2998,6 +3371,15 @@ class PlaybackService : MediaSessionService() {
         const val VIDEO_ANIMATED_PREVIEW = "videoAnimatedPreview"
         const val USING_PROXY = "usingProxy"
         const val PLAY_WHEN_READY = "playWhenReady"
+        const val SUPPRESS_AD_OUTPUT = "suppressAdOutput"
+        const val AD_HANDOFF = "adHandoff"
+        const val AD_ALTERNATE_ACTIVE = "adAlternateActive"
+        const val AD_VERIFIED_RENDITION = "adVerifiedRendition"
+        const val AD_LOGICAL_QUALITY = "adLogicalQuality"
+        const val AD_PLAYER_TYPE = "adPlayerType"
+        const val GET_AD_PLAYBACK_STATE = "getAdPlaybackState"
+        const val AD_WINDOW_ACTIVE = "adWindowActive"
+        const val AD_PLAYBACK_STATE_CHANGED = "adPlaybackStateChanged"
         const val REWIND_VIDEO_ID = "rewindVideoId"
         const val LIVE_REWIND_ACTIVE = "liveRewindActive"
         const val LIVE_REWIND_TRANSITIONING = "liveRewindTransitioning"

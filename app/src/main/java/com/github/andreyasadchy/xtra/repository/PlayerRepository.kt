@@ -9,6 +9,8 @@ import android.util.Log
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParser
+import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import com.apollographql.apollo.api.CustomScalarAdapters
 import com.apollographql.apollo.api.json.buildJsonString
 import com.apollographql.apollo.api.json.jsonReader
@@ -33,6 +35,7 @@ import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import com.github.andreyasadchy.xtra.model.VideoQuality
+import com.github.andreyasadchy.xtra.ui.player.PlaybackContract
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
@@ -59,11 +62,15 @@ import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditSession
 import com.github.andreyasadchy.xtra.util.watch.WatchCreditTelemetry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -205,6 +212,7 @@ class PlayerRepository(
         val playerType: String,
         val url: String,
         val verifiedClean: Boolean = false,
+        val verifiedRendition: VideoQuality? = null,
     )
 
     private data class CachedSpadeEndpoint(
@@ -450,7 +458,7 @@ class PlayerRepository(
 
     /**
      * Gets a stream using each alternate Twitch player type and rejects a
-     * candidate when its first media playlist already contains ad markers.
+     * candidate when any playable rendition contains ad markers.
      * A failed inspection is treated as unknown rather than blocking playback;
      * the player will run the normal HLS detector once the source is attached.
      */
@@ -469,14 +477,17 @@ class PlayerRepository(
         proxyUser: String?,
         proxyPassword: String?,
         requireVerifiedClean: Boolean = false,
+        preferredQuality: VideoQuality? = null,
+        onPlayerTypeAttempt: (String) -> Unit = {},
     ): StreamPlaylistCandidate? = withContext(Dispatchers.IO) {
         // VAFT keeps one device ID while it probes alternate player types. Reusing
         // one valid ID prevents Twitch from treating each probe as a new client.
         val deviceId = resolvePlaybackDeviceId(gqlHeaders, randomDeviceId, xDeviceId)
         logAd("clean probe channel=$channelLogin types=${playerTypes.joinToString()} deviceIdLength=${deviceId.length}")
         playerTypes.forEach { playerType ->
+            onPlayerTypeAttempt(playerType)
             val url = try {
-                loadStreamPlaylistUrl(
+                withTimeoutOrNull(5_000L) { loadStreamPlaylistUrl(
                     context = context,
                     networkLibrary = networkLibrary,
                     gqlHeaders = gqlHeaders,
@@ -490,7 +501,7 @@ class PlayerRepository(
                     proxyPort = proxyPort,
                     proxyUser = proxyUser,
                     proxyPassword = proxyPassword,
-                )
+                ) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -498,66 +509,71 @@ class PlayerRepository(
                 null
             } ?: return@forEach
 
-            val adMarkers = containsAdMarkers(url)
+            val inspection = withTimeoutOrNull(5_000L) { inspectCleanRendition(url, preferredQuality) } ?: (null to null)
+            val adMarkers = inspection.first
             logAd("playlist probe channel=$channelLogin playerType=$playerType adMarkers=$adMarkers")
             if (adMarkers != true && (!requireVerifiedClean || adMarkers == false)) {
                 logAd("clean candidate selected channel=$channelLogin playerType=$playerType verified=${adMarkers == false}")
-                return@withContext StreamPlaylistCandidate(playerType, url, adMarkers == false)
+                return@withContext StreamPlaylistCandidate(playerType, url, adMarkers == false, inspection.second)
             }
         }
         logAd("no clean candidate channel=$channelLogin")
         null
     }
 
-    private suspend fun containsAdMarkers(masterUrl: String): Boolean? = withContext(Dispatchers.IO) {
+    @OptIn(UnstableApi::class)
+    private suspend fun inspectCleanRendition(masterUrl: String, preferred: VideoQuality?): Pair<Boolean?, VideoQuality?> = withContext(Dispatchers.IO) {
         try {
-            val master = fetchPlaylistText(masterUrl, "playlist_probe_master") ?: return@withContext null
-            var mediaPath: String? = null
-            var expectMediaPlaylist = false
-            for (line in master.lineSequence()) {
-                val value = line.trim()
-                when {
-                    value.startsWith("#EXT-X-STREAM-INF") -> expectMediaPlaylist = true
-                    expectMediaPlaylist && value.isNotEmpty() && !value.startsWith("#") -> {
-                        mediaPath = value
-                        break
-                    }
+            val master = fetchPlaylistText(masterUrl, "playlist_probe_master") ?: return@withContext (null to null)
+            val parsed = HlsPlaylistParser().parse(masterUrl.toUri(), master.byteInputStream())
+            if (parsed !is HlsMultivariantPlaylist) {
+                return@withContext (TwitchAdDetector.isAd(PlaylistUtils.parseMediaPlaylist(master.byteInputStream())) to null)
+            }
+            val audioOnly = preferred?.name == PlaybackContract.AUDIO_ONLY_QUALITY
+            val renditions = parsed.variants.filter { (it.format.height > 0) != audioOnly }.map { variant ->
+                val format = variant.format
+                val name = if (audioOnly) PlaybackContract.AUDIO_ONLY_QUALITY else {
+                    format.label?.takeIf { it.isNotBlank() }
+                        ?: parsed.videos.find { it.groupId == variant.videoGroupId }?.name
+                        ?: "${format.height}p"
                 }
-            }
-            val mediaUrl = mediaPath?.let {
-                runCatching { URI(masterUrl).resolve(it).toString() }.getOrNull() ?: it
-            }
-            if (mediaUrl == null) {
-                val adMarkers = TwitchAdDetector.isAd(PlaylistUtils.parseMediaPlaylist(master.byteInputStream()))
-                diagnosticsLogger?.event(
-                    category = DiagnosticsCategory.PLAYBACK,
-                    transport = DiagnosticsTransport.PLAYER,
-                    operation = "playlist_probe",
-                    event = "probe_completed",
-                    fields = playbackDiagnosticsFields(
-                        state = if (adMarkers) "ad_markers" else "clean",
-                        resultCount = 1,
-                    ),
-                )
-                return@withContext adMarkers
-            }
-            val adMarkers = inspectPlaylistMarkers(mediaUrl, "playlist_probe_media") ?: return@withContext null
-            diagnosticsLogger?.event(
-                category = DiagnosticsCategory.PLAYBACK,
-                transport = DiagnosticsTransport.PLAYER,
-                operation = "playlist_probe",
-                event = "probe_completed",
-                fields = playbackDiagnosticsFields(
-                    state = if (adMarkers) "ad_markers" else "clean",
-                    resultCount = 1,
-                ),
+                VideoQuality(name, format.codecs, format.bitrate.takeIf { it > 0 }, variant.url.toString(), format.frameRate.takeIf { it > 0 })
+            }.distinctBy { it.url }.sortedWith(
+                compareBy<VideoQuality> { rendition ->
+                    val target = preferred?.name?.let { Regex("(\\d+)p", RegexOption.IGNORE_CASE).find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                    val height = rendition.name?.let { Regex("(\\d+)p", RegexOption.IGNORE_CASE).find(it)?.groupValues?.get(1)?.toIntOrNull() }
+                    when {
+                        preferred?.name.equals("Source", true) || target == null -> -(height ?: 0)
+                        height == null -> Int.MAX_VALUE
+                        height <= target -> target - height
+                        else -> 10_000 + height - target
+                    }
+                }.thenByDescending { it.name.equals(preferred?.name, ignoreCase = true) }
+                    .thenByDescending { preferred?.bitrate != null && it.bitrate == preferred.bitrate }
+                    .thenByDescending { preferred?.codecs != null && it.codecs?.contains(preferred.codecs, ignoreCase = true) == true }
+                    .thenByDescending { it.bitrate ?: 0 },
             )
-            adMarkers
+            var unknown = false
+            // Try the intended quality first, then nearby/lower clean rungs.
+            // Pair probes cap network concurrency without serializing the ladder.
+            for (batch in renditions.chunked(2)) {
+                val results = coroutineScope {
+                    batch.map { rendition -> async {
+                        rendition to inspectPlaylistMarkers(rendition.url!!, "playlist_probe_media")
+                    } }.awaitAll()
+                }
+                results.firstOrNull { it.second == false }?.let {
+                    logAd("clean rendition name=${it.first.name} bitrate=${it.first.bitrate}")
+                    return@withContext (false to it.first)
+                }
+                unknown = unknown || results.any { it.second == null }
+            }
+            (if (unknown || renditions.isEmpty()) null else true) to null
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             logAd("playlist inspection failed error=${e.javaClass.simpleName}")
-            null
+            null to null
         }
     }
 
