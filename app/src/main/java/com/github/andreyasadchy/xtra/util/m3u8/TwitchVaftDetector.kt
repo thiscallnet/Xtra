@@ -37,6 +37,35 @@ object TwitchVaftDetector {
         }
     }
 
+    /** Returns the remaining duration of the active marked window when declared. */
+    fun activeVaftRangeRemainingMs(playlist: HlsMediaPlaylist): Long? {
+        val segment = playlist.segments.lastOrNull() ?: return null
+        val segmentStartTime = playlist.startTimeUs + segment.relativeStartTimeUs
+        return playlist.interstitials.asSequence()
+            .filter { interstitial ->
+                isTwitchVaftDateRange(
+                    id = interstitial.id,
+                    rangeClass = interstitial.clientDefinedAttributes
+                        .firstOrNull { it.name == "CLASS" }
+                        ?.textValue,
+                    hasVaftAttribute = interstitial.clientDefinedAttributes.any {
+                        it.name.startsWith("X-TV-TWITCH-AD-")
+                    },
+                )
+            }
+            .mapNotNull { interstitial ->
+                val startTime = interstitial.startDateUnixUs.takeIf { it != C.TIME_UNSET }
+                    ?: return@mapNotNull null
+                val endTime = interstitial.endDateUnixUs.takeIf { it != C.TIME_UNSET }
+                    ?: interstitial.durationUs.takeIf { it != C.TIME_UNSET }?.let { startTime + it }
+                    ?: interstitial.plannedDurationUs.takeIf { it != C.TIME_UNSET }?.let { startTime + it }
+                    ?: return@mapNotNull null
+                (endTime - segmentStartTime).takeIf { isActiveRange(segmentStartTime, startTime, endTime) }
+            }
+            .maxOrNull()
+            ?.div(1_000L)
+    }
+
     fun requiresVaft(playlist: MediaPlaylist): Boolean {
         val segment = playlist.segments.lastOrNull() ?: return false
         if (segment.title?.let(::isVaftTitle) == true) {
@@ -57,6 +86,27 @@ object TwitchVaftDetector {
                 ?: dateRange.plannedDuration?.let { startTime + (it * 1000f).toLong() }
             isActiveRange(segmentStartTime, startTime, endTime)
         }
+    }
+
+    /** Returns the remaining duration of the active marked window when declared. */
+    fun activeVaftRangeRemainingMs(playlist: MediaPlaylist): Long? {
+        val segment = playlist.segments.lastOrNull() ?: return null
+        val segmentStartTime = segment.programDateTime
+            ?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() }
+            ?: return null
+        return playlist.dateRanges.asSequence()
+            .filter { isTwitchVaftDateRange(it.id, it.rangeClass, it.vaftMarker) }
+            .mapNotNull { dateRange ->
+                val startTime = Instant.parseOrNull(dateRange.startDate)?.toEpochMilliseconds()
+                    ?: return@mapNotNull null
+                val endTime = dateRange.endDate
+                    ?.let { Instant.parseOrNull(it)?.toEpochMilliseconds() }
+                    ?: dateRange.duration?.let { startTime + (it * 1000f).toLong() }
+                    ?: dateRange.plannedDuration?.let { startTime + (it * 1000f).toLong() }
+                    ?: return@mapNotNull null
+                (endTime - segmentStartTime).takeIf { isActiveRange(segmentStartTime, startTime, endTime) }
+            }
+            .maxOrNull()
     }
 
     internal fun isActiveRange(segmentStart: Long, start: Long?, end: Long?): Boolean =

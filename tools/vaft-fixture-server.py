@@ -25,19 +25,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CHANNEL = "vaft_fixture"
 HOST = "https://vaft-fixture.invalid"
 START = time.time() - 60
-STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "ladder": False, "primary_max": 720, "unavailable": False, "real_backup": False}
+STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "range_age_seconds": None, "ladder": False, "primary_max": 720, "unavailable": False, "real_backup": False}
 LOCK = threading.Lock()
 ROOT = pathlib.Path(tempfile.mkdtemp(prefix="xtra-vaft-fixture-"))
 DEVICE_ID = uuid.uuid4().hex
 VAFT_RANGE_TEMPLATE = None
 
 
-def captured_vaft_range(first):
+def captured_vaft_range(first, last, state):
     if VAFT_RANGE_TEMPLATE is None:
         return None
     original = re.search(r'START-DATE="([^"]+)"', VAFT_RANGE_TEMPLATE)
     original_time = datetime.datetime.fromisoformat(original[1].replace("Z", "+00:00"))
-    shifted_time = datetime.datetime.fromtimestamp(START + first * 2, datetime.timezone.utc)
+    range_start = START + first * 2
+    if state["range_age_seconds"] is not None:
+        range_start = START + last * 2 - state["range_age_seconds"]
+    shifted_time = datetime.datetime.fromtimestamp(range_start, datetime.timezone.utc)
     shift = shifted_time - original_time
 
     def shift_date(match):
@@ -189,6 +192,8 @@ class Handler(BaseHTTPRequestHandler):
                         STATE[key] = values[0].lower() == "true"
                     elif key in ("delay", "segment_delay"):
                         STATE[key] = float(values[0])
+                    elif key == "range_age_seconds":
+                        STATE[key] = max(0.0, float(values[0]))
                     elif key == "prefetch":
                         STATE[key] = max(0, min(2, int(values[0])))
                     elif key == "primary_max":
@@ -266,7 +271,10 @@ class Handler(BaseHTTPRequestHandler):
                 attributes = ',X-TV-TWITCH-AD-ID="fixture-vaft"' if vaft_required and state["vaft_attributes_only"] else ""
                 lines.append(f'#EXT-X-DATERANGE:ID="trigger-{first}",CLASS="twitch-trigger",START-DATE="{timestamp(START + first * 2)}",END-ON-NEXT=YES,X-TV-TWITCH-TRIGGER-URL="https://vaft-fixture.invalid/trigger"{attributes}')
                 if vaft_required and VAFT_RANGE_TEMPLATE is not None:
-                    lines.append(captured_vaft_range(first))
+                    lines.append(captured_vaft_range(first, last, state))
+                elif vaft_required and state["range_age_seconds"] is not None:
+                    range_start = timestamp(START + last * 2 - state["range_age_seconds"])
+                    lines.append(f'#EXT-X-DATERANGE:ID="vaft-fixture-range-{first}",CLASS="twitch-stitched-vaft",START-DATE="{range_start}",PLANNED-DURATION=60')
             for i in range(first, last + 1):
                 if i > 0 and i % segment_count == 0:
                     lines.append("#EXT-X-DISCONTINUITY")

@@ -44,6 +44,7 @@ import androidx.media3.exoplayer.DefaultLivePlaybackSpeedControl
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.source.LoadEventInfo
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.MediaSource
@@ -177,6 +178,7 @@ class PlaybackService : MediaSessionService() {
     private var vaftHandoffPreviousPositionMs: Long? = null
     private var vaftAuthoritativeUri: String? = null
     private var vaftCurrentPlayerType: String? = null
+    private var vaftPrimaryReturnAfterElapsedMs: Long? = null
 
     private fun invalidateVaftOwnership() {
         vaftGeneration++
@@ -194,6 +196,7 @@ class PlaybackService : MediaSessionService() {
         vaftVerifiedRendition = null
         vaftCurrentPlayerType = null
         vaftAuthoritativeUri = null
+        vaftPrimaryReturnAfterElapsedMs = null
         publishVaftPlaybackState()
     }
 
@@ -776,6 +779,9 @@ class PlaybackService : MediaSessionService() {
                             START_STREAM -> {
                                 if (customCommand.customExtras.getBoolean(VAFT_HANDOFF)) {
                                     return startVaftHandoff(player, customCommand.customExtras)
+                                }
+                                if (BuildConfig.DEBUG && (vaftAlternateActive || vaftCoordinatorJob?.isActive == true)) {
+                                    Log.d("XtraVaft", "ownership invalidated by stream start command")
                                 }
                                 invalidateVaftOwnership()
                                 vaftOutputSuppressed = customCommand.customExtras.getBoolean(SUPPRESS_VAFT_OUTPUT)
@@ -2200,7 +2206,9 @@ class PlaybackService : MediaSessionService() {
         val uri = extras.getString(URI) ?: return
         val current = player.currentMediaItem ?: return
         val playWhenReady = player.playWhenReady
-        val item = current.buildUpon().setUri(uri).setMediaId("vaft-source:${java.util.UUID.randomUUID()}").build()
+        val item = current.buildUpon().setUri(uri)
+            .setMediaId("$VAFT_SOURCE_MEDIA_ID_PREFIX${java.util.UUID.randomUUID()}")
+            .build()
         val candidateQuality = decodePlaybackQuality(xtraModule.json, extras.getString(VAFT_VERIFIED_RENDITION))
         val desired = resumptionHlsQuality(candidateQuality)
         xtraModule.streamMedia3Runtime.qualitySelectionPolicy.set(desired.name, desired.bitrate, desired.codecs)
@@ -2217,6 +2225,12 @@ class PlaybackService : MediaSessionService() {
 
     private fun updateVaft(player: ExoPlayer) {
         val activePlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+        if (vaftCoordinatorJob?.isActive == true && !vaftAlternateActive && !vaftSourceSwitching &&
+            player.currentMediaItem?.localConfiguration?.uri?.toString() == vaftAuthoritativeUri &&
+            activePlaylist != null && TwitchVaftDetector.requiresVaft(activePlaylist)
+        ) {
+            extendVaftPrimaryReturnHold(activePlaylist)
+        }
         if (vaftCoordinatorJob?.isActive == true && !vaftSourceSwitching && activePlaylist != null &&
             player.currentMediaItem?.localConfiguration?.uri?.toString() == vaftAuthoritativeUri) {
             val suppress = TwitchVaftDetector.requiresVaft(activePlaylist)
@@ -2252,6 +2266,7 @@ class PlaybackService : MediaSessionService() {
         vaftLogicalQuality = decodePlaybackQuality(xtraModule.json, resumptionState?.quality)
             ?: decodePlaybackQuality(xtraModule.json, primaryExtras.getString(PLAYBACK_QUALITY))
         vaftAuthoritativeUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+        extendVaftPrimaryReturnHold(playlist)
         vaftVerifiedRendition = diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, vaftAuthoritativeUri)
         backgroundRecoveryTimer?.cancel()
         backgroundRecoveryTimer = null
@@ -2260,6 +2275,7 @@ class PlaybackService : MediaSessionService() {
         publishVaftPlaybackState()
         vaftCoordinatorJob = lifecycleScope.launch(start = CoroutineStart.LAZY) {
             publishVaftPlaybackState()
+            var lastVaftLoopDiagnostic: String? = null
             while (generation == vaftGeneration && !liveRewindActive && !liveRewindTransitioning && prefs().isVaftEnabled()) {
                 val currentPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
                 // Buffering does not turn a known clean backup into a VAFT source.
@@ -2277,10 +2293,29 @@ class PlaybackService : MediaSessionService() {
                     player.volume = if (clean) prefs().getInt(C.PLAYER_VOLUME, 100) / 100f else 0f
                     publishVaftPlaybackState()
                 }
-                val primaryEligible = listOf(primaryType).filter { types.canAttemptPlayerType(it) }
+                val waitForPrimaryMs = (vaftPrimaryReturnAfterElapsedMs ?: 0L) - SystemClock.elapsedRealtime()
+                if (vaftAlternateActive && clean) {
+                    if (waitForPrimaryMs > 0L) {
+                        delay(minOf(waitForPrimaryMs, TwitchVaftController.RETRY_COOLDOWN_MS))
+                        continue
+                    }
+                }
+                val primaryEligible = if (!vaftAlternateActive || waitForPrimaryMs <= 0L) {
+                    listOf(primaryType).filter { types.canAttemptPlayerType(it) }
+                } else {
+                    emptyList()
+                }
                 val eligible = if (vaftAlternateActive && clean) primaryEligible else if (vaftAlternateActive) {
                     primaryEligible + types.playerTypesForVaft(vaftCurrentPlayerType).filter { it != primaryType }
                 } else types.playerTypesForVaft(primaryType)
+                if (BuildConfig.DEBUG) {
+                    val diagnostic = "alternate=$vaftAlternateActive clean=$clean holdRemainingMs=${waitForPrimaryMs.coerceAtLeast(0L)} " +
+                        "eligible=${eligible.joinToString() }"
+                    if (diagnostic != lastVaftLoopDiagnostic) {
+                        Log.d("XtraVaft", "recovery $diagnostic")
+                        lastVaftLoopDiagnostic = diagnostic
+                    }
+                }
                 val candidate = try {
                     withTimeoutOrNull(55_000L) {
                         xtraModule.playerRepository.loadCleanStreamPlaylistUrl(
@@ -2333,6 +2368,20 @@ class PlaybackService : MediaSessionService() {
             publishVaftPlaybackState()
         }
         vaftCoordinatorJob?.start()
+    }
+
+    private fun extendVaftPrimaryReturnHold(playlist: HlsMediaPlaylist) {
+        val rangeRemainingMs = TwitchVaftDetector.activeVaftRangeRemainingMs(playlist) ?: 0L
+        // A marker can arrive late in its declared window, so a short remaining duration still gets a useful hold.
+        val holdMs = maxOf(VAFT_PRIMARY_RETURN_MIN_HOLD_MS, rangeRemainingMs)
+        val deadlineMs = SystemClock.elapsedRealtime() + holdMs
+        val previousDeadlineMs = vaftPrimaryReturnAfterElapsedMs
+        if (previousDeadlineMs == null || deadlineMs > previousDeadlineMs) {
+            vaftPrimaryReturnAfterElapsedMs = deadlineMs
+            if (BuildConfig.DEBUG) {
+                Log.d("XtraVaft", "primary return held remainingMs=$holdMs rangeRemainingMs=$rangeRemainingMs")
+            }
+        }
     }
 
     /** The service owns verification and rollback even when the UI controller disconnects. */
@@ -2448,6 +2497,7 @@ class PlaybackService : MediaSessionService() {
                     vaftCurrentPlayerType = extras.getString(VAFT_PLAYER_TYPE)
                     vaftAlternateActive = extras.getBoolean(VAFT_ALTERNATE_ACTIVE)
                     if (!vaftAlternateActive) {
+                        vaftPrimaryReturnAfterElapsedMs = null
                         liveStreamUri = targetUri
                         liveStreamExtras = Bundle(extras).apply { remove(VAFT_ALTERNATE_ACTIVE); remove(VAFT_VERIFIED_RENDITION); remove(VAFT_PLAYER_TYPE) }
                         player.currentMediaItem?.let(xtraModule.streamMedia3Runtime::setPrimaryPlaybackMediaItem)
@@ -3381,6 +3431,8 @@ class PlaybackService : MediaSessionService() {
     companion object {
         private const val PERF_TAG = "PlaybackPerf"
         private const val RESUMPTION_TAG = "PlaybackResumption"
+        private const val VAFT_PRIMARY_RETURN_MIN_HOLD_MS = 30_000L
+        const val VAFT_SOURCE_MEDIA_ID_PREFIX = "vaft-source:"
         private const val PLAYBACK_NOTIFICATION_CHANNEL_ID = "xtra_media_playback"
         private const val PLAYBACK_NOTIFICATION_ID = 5201
         private const val PLAYBACK_BOOTSTRAP_NOTIFICATION_ID = 5202
