@@ -35,6 +35,8 @@ internal data class SourceSwitchQualityIdentity(
 internal class SourceSwitchQualityState {
     private var pendingQuality: SourceSwitchQualityIdentity? = null
 
+    fun peek(): SourceSwitchQualityIdentity? = pendingQuality
+
     fun capture(quality: VideoQuality?) {
         quality?.name?.let { name ->
             pendingQuality = SourceSwitchQualityIdentity(name, quality.codecs, quality.bitrate)

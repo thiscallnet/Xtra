@@ -778,12 +778,13 @@ class LiveRewindTest {
     }
 
     private fun candidate(id: String, createdAtMs: Long, durationMs: Long) =
-        LiveRewindVodCandidate(id, createdAtMs, durationMs, createdAtMs.toString())
+        LiveRewindVodCandidate(id, createdAtMs, durationMs, createdAtMs.toString(), null)
 
     private fun vod(id: String) = LiveRewindVod(
         id = id,
         reportedDurationMs = 60_000L,
         sampledAtElapsedRealtimeMs = 1_000L,
         createdAt = "created",
+        animatedPreviewUrl = null,
     )
 }
