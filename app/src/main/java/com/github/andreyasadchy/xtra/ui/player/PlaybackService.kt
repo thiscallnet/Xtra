@@ -461,6 +461,15 @@ class PlaybackService : MediaSessionService() {
 
                 override fun onTracksChanged(tracks: Tracks) {
                     diagnostics.confirmPendingRenderedVideoSizeAfterTracksChanged(tracks)
+                    if (BuildConfig.DEBUG) {
+                        val formats = tracks.groups.filter { it.type == Media3C.TRACK_TYPE_VIDEO }.flatMap { group ->
+                            (0 until group.length).map { index ->
+                                val format = group.getTrackFormat(index)
+                                "${format.label}:${format.width}x${format.height}@${format.frameRate}:support=${group.getTrackSupport(index)}:selected=${group.isTrackSelected(index)}"
+                            }
+                        }
+                        Log.d("SmoothHlsQuality", "tracks=$formats")
+                    }
                 }
 
                 override fun onTimelineChanged(timeline: Timeline, reason: Int) {
@@ -1369,11 +1378,15 @@ class PlaybackService : MediaSessionService() {
                                 if (adCoordinatorJob?.isActive == true && extras.getString(PLAYBACK_TYPE) == PlaybackContract.STREAM) {
                                     extras.getString(AD_LOGICAL_QUALITY)?.let { logicalJson ->
                                         adLogicalQuality = decodePlaybackQuality(xtraModule.json, logicalJson)
+                                        liveStreamExtras?.putString(PLAYBACK_QUALITY, logicalJson)
                                         resumptionState?.let { saveResumptionState(it.copy(quality = logicalJson)) }
                                     }
                                     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                                 }
                                 val selectedQualityJson = extras.getString(PLAYBACK_QUALITY)
+                                if (extras.getString(PLAYBACK_TYPE) == PlaybackContract.STREAM && !liveRewindActive) {
+                                    liveStreamExtras?.putString(PLAYBACK_QUALITY, selectedQualityJson)
+                                }
                                 val selectedQuality = decodePlaybackQuality(xtraModule.json, selectedQualityJson)
                                 if (selectedQuality?.name == PlaybackContract.AUDIO_ONLY_QUALITY ||
                                     selectedQuality?.name == PlaybackContract.CHAT_ONLY_QUALITY
@@ -2185,6 +2198,12 @@ class PlaybackService : MediaSessionService() {
         val current = player.currentMediaItem ?: return
         val playWhenReady = player.playWhenReady
         val item = current.buildUpon().setUri(uri).setMediaId("ad-source:${java.util.UUID.randomUUID()}").build()
+        val candidateQuality = decodePlaybackQuality(xtraModule.json, extras.getString(AD_VERIFIED_RENDITION))
+        val desired = resumptionHlsQuality(candidateQuality)
+        xtraModule.streamMedia3Runtime.qualitySelectionPolicy.set(desired.name, desired.bitrate, desired.codecs)
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(Media3C.TRACK_TYPE_VIDEO)
+            .build()
         diagnostics.resetRenderedVideoSize()
         player.volume = 0f
         player.setMediaSource(xtraModule.streamMedia3Runtime.createLiveMediaSource(item))
@@ -2195,6 +2214,15 @@ class PlaybackService : MediaSessionService() {
 
     private fun updateAdAvoidance(player: ExoPlayer) {
         val activePlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+        if (adCoordinatorJob?.isActive == true && !adSourceSwitching && activePlaylist != null &&
+            player.currentMediaItem?.localConfiguration?.uri?.toString() == adAuthoritativeUri) {
+            val suppress = TwitchAdDetector.isAd(activePlaylist)
+            if (suppress != adOutputSuppressed) {
+                adOutputSuppressed = suppress
+                player.volume = if (suppress) 0f else prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                publishAdPlaybackState()
+            }
+        }
         if (adCoordinatorJob?.isActive == true && !adSourceSwitching && !adAlternateActive &&
             player.currentMediaItem?.localConfiguration?.uri?.toString() == adAuthoritativeUri &&
             player.playbackState == Player.STATE_READY && activePlaylist != null && !TwitchAdDetector.isAd(activePlaylist)) {
@@ -2219,6 +2247,7 @@ class PlaybackService : MediaSessionService() {
             java.util.UUID.randomUUID().toString().replace("-", "")
         } else prefs().getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason")
         adLogicalQuality = decodePlaybackQuality(xtraModule.json, resumptionState?.quality)
+            ?: decodePlaybackQuality(xtraModule.json, primaryExtras.getString(PLAYBACK_QUALITY))
         adAuthoritativeUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
         adVerifiedRendition = diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, adAuthoritativeUri)
         backgroundRecoveryTimer?.cancel()
@@ -2316,6 +2345,7 @@ class PlaybackService : MediaSessionService() {
         }
         val previousAlternate = adAlternateActive
         val previousTracks = player.trackSelectionParameters
+        val previousQualityPolicy = xtraModule.streamMedia3Runtime.qualitySelectionPolicy.snapshot()
         val generation = adGeneration
         val result = SettableFuture.create<SessionResult>()
         adOutputSuppressed = true
@@ -2325,6 +2355,7 @@ class PlaybackService : MediaSessionService() {
         adHandoffPreviousPositionMs = player.currentPosition
         publishAdPlaybackState()
         adHandoffJob = lifecycleScope.launch {
+            var committedRendition = verified
             try {
                 val success = try {
                     withTimeoutOrNull(15_000L) {
@@ -2352,16 +2383,11 @@ class PlaybackService : MediaSessionService() {
                                         .firstNotNullOfOrNull { group ->
                                             (0 until group.length).firstOrNull { index ->
                                                 val format = group.getTrackFormat(index)
-                                                val sameVariant = if (format.id != null) {
-                                                    format.id == rendition.format.id
-                                                } else {
-                                                    // Extractor-derived single-variant groups may lose
-                                                    // the playlist id; the active URI confirms identity.
-                                                    format.height == rendition.format.height &&
-                                                        format.width == rendition.format.width &&
-                                                        (format.frameRate <= 0 || rendition.format.frameRate <= 0 ||
-                                                            kotlin.math.abs(format.frameRate - rendition.format.frameRate) < 1f)
-                                                }
+                                                val sameVariant = format.height == rendition.format.height &&
+                                                    format.width == rendition.format.width &&
+                                                    (format.frameRate <= 0 || rendition.format.frameRate <= 0 ||
+                                                        kotlin.math.abs(format.frameRate - rendition.format.frameRate) < 1f) &&
+                                                    (format.id == rendition.format.id || format.label == rendition.format.label)
                                                 group.isTrackSupported(index) && sameVariant &&
                                                     videoCodecsCompatible(format.codecs, rendition.format.codecs)
                                             }?.let { androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, it) }
@@ -2379,15 +2405,29 @@ class PlaybackService : MediaSessionService() {
                             val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
                             // Background audio can load the audio playlist without creating a
                             // video decoder. The video variant was inspected before this handoff.
-                            val renditionConfirmed = selected && (verified == null ||
-                                playlist?.baseUri == verified.url || backgroundVideoSuppressed)
+                            val manifest = player.currentManifest as? HlsManifest
+                            val activeVideo = manifest?.multivariantPlaylist?.variants?.firstOrNull {
+                                it.url.toString() == playlist?.baseUri && it.format.height > 0
+                            }
+                            // The loaded playlist is the final authority. A clean playable
+                            // rendition must not stay black because track labels changed.
+                            val renditionConfirmed = verified == null || audioOnly || activeVideo != null || backgroundVideoSuppressed
                             if (BuildConfig.DEBUG) {
                                 val diagnostic = "state=${player.playbackState} selected=$selected confirmed=$renditionConfirmed videoSuppressed=$backgroundVideoSuppressed"
                                 if (diagnostic != lastHandoffDiagnostic) Log.d("XtraAd", "handoff $diagnostic")
                                 lastHandoffDiagnostic = diagnostic
                             }
                             if (player.playbackState == Player.STATE_READY && renditionConfirmed && playlist != null) {
-                                return@withTimeoutOrNull !TwitchAdDetector.isAd(playlist)
+                                if (!TwitchAdDetector.isAd(playlist)) {
+                                    activeVideo?.let { variant ->
+                                        val format = variant.format
+                                        committedRendition = com.github.andreyasadchy.xtra.model.VideoQuality(
+                                            format.label ?: verified?.name, format.codecs,
+                                            format.bitrate.takeIf { it > 0 }, variant.url.toString(),
+                                            format.frameRate.takeIf { it > 0 })
+                                    }
+                                    return@withTimeoutOrNull true
+                                }
                             }
                             delay(100L)
                         }
@@ -2400,7 +2440,7 @@ class PlaybackService : MediaSessionService() {
                     false
                 }
                 if (success && generation == adGeneration) {
-                    adVerifiedRendition = verified
+                    adVerifiedRendition = committedRendition
                     adAuthoritativeUri = targetUri
                     adCurrentPlayerType = extras.getString(AD_PLAYER_TYPE)
                     adAlternateActive = extras.getBoolean(AD_ALTERNATE_ACTIVE)
@@ -2420,6 +2460,8 @@ class PlaybackService : MediaSessionService() {
                         previousExtras.putBoolean(PLAY_WHEN_READY, player.playWhenReady)
                         val cleanRollback = try {
                             replaceAdSource(player, previousExtras)
+                            xtraModule.streamMedia3Runtime.qualitySelectionPolicy.set(
+                                previousQualityPolicy.name, previousQualityPolicy.bitrate, previousQualityPolicy.codecs)
                             player.trackSelectionParameters = previousTracks
                             withTimeoutOrNull(15_000L) {
                                 val rollbackUri = previousExtras.getString(URI)
@@ -2502,6 +2544,15 @@ class PlaybackService : MediaSessionService() {
         val streamStartElapsedMs = SystemClock.elapsedRealtime()
         val runtime = xtraModule.streamMedia3Runtime
         val login = channelLogin ?: "unknown"
+        val startupQuality = decodePlaybackQuality(xtraModule.json, extras.getString(PLAYBACK_QUALITY))
+        val desired = resumptionHlsQuality(startupQuality)
+        runtime.qualitySelectionPolicy.set(desired.name, desired.bitrate, desired.codecs)
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .clearOverridesOfType(Media3C.TRACK_TYPE_VIDEO)
+            .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO,
+                startupQuality?.name == PlaybackContract.AUDIO_ONLY_QUALITY || startupQuality?.name == PlaybackContract.CHAT_ONLY_QUALITY)
+            .build()
+        if (BuildConfig.DEBUG) Log.d("SmoothHlsQuality", "stream_start_quality name=${desired.name}")
         val previewAlreadyPlaying = channelLogin?.let { xtraModule.streamPreviewCoordinator.isPreviewing(it) } == true
         val mediaItem = runtime.createLiveMediaItem(login, uri, title, channelName, channelLogo)
             .buildUpon()
@@ -2571,6 +2622,7 @@ class PlaybackService : MediaSessionService() {
                 createdAt = extras.getString(CREATED_AT),
                 viewerCount = extras.getInt(VIEWER_COUNT).takeIf { extras.containsKey(VIEWER_COUNT) },
                 playlistUrl = uri,
+                quality = extras.getString(PLAYBACK_QUALITY),
                 paused = !player.playWhenReady,
             ),
         )

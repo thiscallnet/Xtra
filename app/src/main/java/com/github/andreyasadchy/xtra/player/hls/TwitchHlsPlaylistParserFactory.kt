@@ -341,13 +341,15 @@ private object TwitchMultivariantPlaylistCompatibility {
         multivariant.variants.forEach { variant ->
             val rawVariant = rawByUri[variant.url]?.removeFirstOrNull()
             if (rawVariant == null) {
-                variants += variant
+                variants += variant.copyWithFormat(variant.format.buildUpon().setId(variants.size).build())
                 return@forEach
             }
             val format = variant.format
-            val labeledFormat = rawVariant.label?.takeIf { it.isNotBlank() }?.let {
-                format.buildUpon().setLabel(it).build()
-            } ?: format
+            // Unavailable IVS renditions are inserted before the original ones.
+            // Reassign every id so the inserted and original tracks cannot collide.
+            val labeledFormat = format.buildUpon().setId(variants.size).apply {
+                rawVariant.label?.takeIf { it.isNotBlank() }?.let(::setLabel)
+            }.build()
             variants += variant.copyWithFormat(labeledFormat)
         }
 
