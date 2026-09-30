@@ -3030,12 +3030,16 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
         val requestedQuality = selectedQuality
-        val vaftOwnsPrimarySource = videoType == STREAM && vaftOwnsPlayback() &&
-            !viewModel.usingAlternateStream && requestedQuality?.name != CHAT_ONLY_QUALITY
+        val serviceOwnsVaftSource = videoType == STREAM &&
+            player?.currentMediaItem?.mediaId?.startsWith(PlaybackService.VAFT_SOURCE_MEDIA_ID_PREFIX) == true
+        val vaftOwnsPrimarySource = videoType == STREAM && requestedQuality?.name != CHAT_ONLY_QUALITY && (
+            (vaftOwnsPlayback() && !viewModel.usingAlternateStream) ||
+                (!persistSavedQuality && serviceOwnsVaftSource)
+            )
         if (vaftOwnsPrimarySource) {
             if (persistSavedQuality && requestedQuality != null) {
                 viewModel.restoredQualityBootstrapConsumed = true
-                invalidateResumeQualityConfirmation("quality_deferred_for_ad_handoff")
+                invalidateResumeQualityConfirmation("quality_deferred_for_vaft_handoff")
                 clearResumeAppliedQualityTarget()
                 viewModel.vaftLogicalQuality = requestedQuality
                 viewModel.vaftQualityState.rememberExplicitSelection(requestedQuality)
@@ -3298,8 +3302,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                         viewModel.resumeAppliedVideoQuality?.let {
                                             sameLogicalVideoQuality(quality, it)
                                         } == true
+                                    val serviceOwnsVaftSource = mediaItem.mediaId.startsWith(
+                                        PlaybackService.VAFT_SOURCE_MEDIA_ID_PREFIX,
+                                    )
                                     val sourceReplacement = !qualityUri.isNullOrBlank() &&
-                                        !uriMatches && !confirmedMatches && !appliedTargetMatches
+                                        !uriMatches && !confirmedMatches && !appliedTargetMatches &&
+                                        (persistSavedQuality || !serviceOwnsVaftSource)
                                     if (BuildConfig.DEBUG && videoType == STREAM && !persistSavedQuality) {
                                         Log.d(
                                             "PlaybackResumption",
@@ -3313,6 +3321,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                                 "sourceReplacement=$sourceReplacement " +
                                                 "reason=${when {
                                                     !sourceReplacement && confirmedMatches -> "confirmed_current_item_quality"
+                                                    !persistSavedQuality && serviceOwnsVaftSource -> "vaft_source_owned_by_service"
                                                     !sourceReplacement -> "uri_match"
                                                     else -> "quality_diff_or_unconfirmed"
                                                 }}",
@@ -3360,8 +3369,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                         viewModel.resumeAppliedVideoQuality?.let {
                                             sameLogicalVideoQuality(quality, it)
                                         } == true
+                                    val serviceOwnsVaftSource = mediaItem.mediaId.startsWith(
+                                        PlaybackService.VAFT_SOURCE_MEDIA_ID_PREFIX,
+                                    )
                                     val sourceReplacement = !quality.url.isNullOrBlank() &&
-                                        !uriMatches && !confirmedMatches && !appliedTargetMatches
+                                        !uriMatches && !confirmedMatches && !appliedTargetMatches &&
+                                        (persistSavedQuality || !serviceOwnsVaftSource)
                                     if (BuildConfig.DEBUG && videoType == STREAM && !persistSavedQuality) {
                                         Log.d(
                                             "PlaybackResumption",
