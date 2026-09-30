@@ -86,9 +86,12 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
+import com.github.andreyasadchy.xtra.util.m3u8.VaftBoundaryObservation
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
+import com.github.andreyasadchy.xtra.repository.preload.VaftPreloadedMediaSource
+import com.github.andreyasadchy.xtra.repository.preload.VaftWarmupHandle
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.ListenableFuture
@@ -104,6 +107,7 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.schedule
@@ -179,11 +183,87 @@ class PlaybackService : MediaSessionService() {
     private var vaftAuthoritativeUri: String? = null
     private var vaftCurrentPlayerType: String? = null
     private var vaftPrimaryReturnAfterElapsedMs: Long? = null
+    private var vaftWarmupToken: String? = null
+    private var vaftSourceGeneration = 0L
+    private data class TrackedVaftBoundary(
+        var observation: VaftBoundaryObservation,
+        val sourceGeneration: Long,
+        var primaryMediaId: String,
+        val primaryUri: String,
+        var playlistStartTimeUs: Long,
+        var playlistMediaSequence: Long,
+        var sourceRelativeClockValid: Boolean = true,
+        var lastKnownPhase: VaftPlaybackBoundaryPhase = VaftPlaybackBoundaryPhase.UNKNOWN,
+    )
+    private enum class VaftPlaybackBoundaryPhase { NONE, BEFORE, ACTIVE, AFTER, UNKNOWN }
+    private var trackedVaftBoundary: TrackedVaftBoundary? = null
+    private var vaftBoundaryWatchJob: Job? = null
+    private var vaftBoundaryWatchMarkerKey: String? = null
+    private data class PreparedVaftCandidate(
+        val requestId: String,
+        val markerKey: String,
+        val vaftGeneration: Long,
+        val sourceGeneration: Long,
+        val playbackMediaId: String,
+        val configurationFingerprint: String,
+        val qualityIntent: DesiredHlsQuality,
+        val qualityIntentRevision: Long,
+        val candidate: PlayerRepository.StreamPlaylistCandidate,
+        val preparedAtMs: Long,
+        var warmup: VaftWarmupHandle? = null,
+        var nearTriggerWarmStarted: Boolean = false,
+        var refreshAttempted: Boolean = false,
+    )
+    private var vaftPreparationJob: Job? = null
+    private var vaftPreparationMarkerKey: String? = null
+    private var vaftPreparationGeneration = -1L
+    private var vaftPreparationMediaId: String? = null
+    private var vaftPreparationRequestId: String? = null
+    private var vaftPreparationStartedAtMs: Long? = null
+    private var vaftPreparationGraceDeadlineMs = 0L
+    private var vaftPreparedCandidate: PreparedVaftCandidate? = null
+    private var vaftCandidateRefreshRequestId: String? = null
+    private var vaftHandoffFrameCaptureId: String? = null
+    private var vaftHandoffFrameCaptureFuture: SettableFuture<Boolean>? = null
+    private var vaftHandoffFrameCaptureResolvedId: String? = null
+    private var vaftHandoffFrameCaptureAccepted = false
+    private var vaftHandoffTargetMediaId: String? = null
+    private var vaftHandoffTargetGeneration = -1L
+    private var vaftHandoffTargetFrameRendered = false
+    private var lastVaftBoundaryObservationKey: String? = null
 
     private fun invalidateVaftOwnership() {
         vaftGeneration++
+        vaftSourceGeneration++
+        vaftBoundaryWatchJob?.cancel()
+        vaftBoundaryWatchJob = null
+        vaftBoundaryWatchMarkerKey = null
+        trackedVaftBoundary = null
+        vaftPreparationRequestId = null
+        vaftCandidateRefreshRequestId = null
         vaftCoordinatorJob?.cancel()
         vaftHandoffJob?.cancel()
+        vaftPreparationJob?.cancel()
+        vaftPreparationJob = null
+        vaftPreparationMarkerKey = null
+        vaftPreparationGeneration = -1L
+        vaftPreparationMediaId = null
+        vaftPreparationStartedAtMs = null
+        vaftPreparationGraceDeadlineMs = 0L
+        vaftPreparedCandidate = null
+        lastVaftBoundaryObservationKey = null
+        if (::xtraModule.isInitialized) {
+            xtraModule.streamMedia3Runtime.discardVaftCandidateWarmup(vaftWarmupToken)
+        }
+        vaftWarmupToken = null
+        vaftHandoffFrameCaptureFuture?.set(false)
+        vaftHandoffFrameCaptureFuture = null
+        vaftHandoffFrameCaptureId = null
+        vaftHandoffFrameCaptureResolvedId = null
+        vaftHandoffFrameCaptureAccepted = false
+        vaftHandoffTargetMediaId = null
+        vaftHandoffTargetGeneration = -1L
+        vaftHandoffTargetFrameRendered = false
         vaftCoordinatorJob = null
         vaftHandoffJob = null
         vaftSourceSwitching = false
@@ -208,6 +288,12 @@ class PlaybackService : MediaSessionService() {
             putBoolean(VAFT_ALTERNATE_ACTIVE, vaftAlternateActive)
             putBoolean(SUPPRESS_VAFT_OUTPUT, vaftOutputSuppressed)
             putString(VAFT_SOURCE_URI, vaftAuthoritativeUri)
+            putString(VAFT_HANDOFF_FRAME_CAPTURE_ID, vaftHandoffFrameCaptureId)
+            putString(VAFT_HANDOFF_FRAME_CAPTURE_RESOLVED_ID, vaftHandoffFrameCaptureResolvedId)
+            putBoolean(VAFT_HANDOFF_FRAME_CAPTURE_ACCEPTED, vaftHandoffFrameCaptureAccepted)
+            putString(VAFT_HANDOFF_TARGET_MEDIA_ID, vaftHandoffTargetMediaId)
+            putLong(VAFT_HANDOFF_GENERATION, vaftHandoffTargetGeneration)
+            putBoolean(VAFT_HANDOFF_TARGET_FRAME_RENDERED, vaftHandoffTargetFrameRendered)
             vaftVerifiedRendition?.let { putString(VAFT_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
             vaftLogicalQuality?.let { putString(VAFT_LOGICAL_QUALITY, xtraModule.json.encodeToString(it)) }
             vaftCurrentPlayerType?.let { putString(VAFT_PLAYER_TYPE, it) }
@@ -288,6 +374,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(
             object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    updateVaft(player)
                     updateViewingStats(player)
                     if (isPlaying) {
                         backgroundRecoveryTimer?.cancel()
@@ -334,7 +421,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_READY) updateVaft(player)
+                    updateVaft(player)
                     updateViewingStats(player)
                     if (BuildConfig.DEBUG) {
                         val positionMs = player.currentPosition
@@ -375,6 +462,19 @@ class PlaybackService : MediaSessionService() {
                             state.copy(position = player.currentPosition, paused = !playWhenReady),
                         )
                     }
+                    updateVaft(player)
+                }
+
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int,
+                ) {
+                    updateVaft(player)
+                }
+
+                override fun onPlaybackParametersChanged(playbackParameters: androidx.media3.common.PlaybackParameters) {
+                    updateVaft(player)
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
@@ -447,6 +547,12 @@ class PlaybackService : MediaSessionService() {
                     streamStartupTrace?.markFirstFrame()
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFirstFrame(it.channelLogin) }
                     diagnostics.recordRenderedFirstFrame(player.currentTracks)
+                    if (!vaftHandoffTargetFrameRendered && vaftHandoffTargetGeneration == vaftGeneration &&
+                        player.currentMediaItem?.mediaId == vaftHandoffTargetMediaId
+                    ) {
+                        vaftHandoffTargetFrameRendered = true
+                        publishVaftPlaybackState()
+                    }
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "PlaybackLifecycle",
@@ -688,6 +794,7 @@ class PlaybackService : MediaSessionService() {
                             add(SessionCommand(START_LIVE_REWIND, Bundle.EMPTY))
                             add(SessionCommand(GET_LIVE_REWIND_STATE, Bundle.EMPTY))
                             add(SessionCommand(GET_VAFT_PLAYBACK_STATE, Bundle.EMPTY))
+                            add(SessionCommand(ACK_VAFT_HANDOFF_FRAME, Bundle.EMPTY))
                             add(SessionCommand(UPDATE_VIEWING_METADATA, Bundle.EMPTY))
                             if (liveRewindActive) add(SessionCommand(GO_LIVE, Bundle.EMPTY))
                             add(SessionCommand(START_VIDEO, Bundle.EMPTY))
@@ -902,11 +1009,43 @@ class PlaybackService : MediaSessionService() {
                                     putBoolean(VAFT_ALTERNATE_ACTIVE, vaftAlternateActive)
                                     putBoolean(SUPPRESS_VAFT_OUTPUT, vaftOutputSuppressed)
                                     putString(VAFT_SOURCE_URI, vaftAuthoritativeUri)
+                                    putString(VAFT_HANDOFF_FRAME_CAPTURE_ID, vaftHandoffFrameCaptureId)
+                                    putString(VAFT_HANDOFF_FRAME_CAPTURE_RESOLVED_ID, vaftHandoffFrameCaptureResolvedId)
+                                    putBoolean(VAFT_HANDOFF_FRAME_CAPTURE_ACCEPTED, vaftHandoffFrameCaptureAccepted)
+                                    putString(VAFT_HANDOFF_TARGET_MEDIA_ID, vaftHandoffTargetMediaId)
+                                    putLong(VAFT_HANDOFF_GENERATION, vaftHandoffTargetGeneration)
+                                    putBoolean(VAFT_HANDOFF_TARGET_FRAME_RENDERED, vaftHandoffTargetFrameRendered)
                                     putBoolean(VAFT_WINDOW_ACTIVE, vaftCoordinatorJob?.isActive == true)
                                     vaftVerifiedRendition?.let { putString(VAFT_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
                                     vaftLogicalQuality?.let { putString(VAFT_LOGICAL_QUALITY, xtraModule.json.encodeToString(it)) }
                                     vaftCurrentPlayerType?.let { putString(VAFT_PLAYER_TYPE, it) }
                                 }))
+                            }
+                            ACK_VAFT_HANDOFF_FRAME -> {
+                                val requestId = args.getString(VAFT_HANDOFF_FRAME_CAPTURE_ID)
+                                val expectedId = vaftHandoffFrameCaptureId
+                                val captureFuture = vaftHandoffFrameCaptureFuture
+                                val ready = args.getBoolean(VAFT_HANDOFF_FRAME_READY)
+                                val ackResult = when {
+                                    !vaftSourceSwitching -> "not_switching"
+                                    requestId.isNullOrBlank() -> "missing_request"
+                                    requestId != expectedId -> "wrong_request"
+                                    captureFuture == null -> "no_future"
+                                    else -> "accepted"
+                                }
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                        "XtraVaft",
+                                        "return_frame_ack request=${requestId?.takeLast(8) ?: "none"} " +
+                                            "expected=${expectedId?.takeLast(8) ?: "none"} switching=$vaftSourceSwitching " +
+                                            "futurePresent=${captureFuture != null} ready=$ready result=$ackResult",
+                                    )
+                                }
+                                if (ackResult != "accepted") {
+                                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+                                }
+                                captureFuture?.set(ready)
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
                             GET_CLIP_STATUS -> {
                                 val status = liveClipStatus()
@@ -1310,9 +1449,26 @@ class PlaybackService : MediaSessionService() {
                             }
                             CHECK_VAFT -> {
                                 if (vaftSourceSwitching) return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
-                                val playlist = (session.player.currentManifest as? HlsManifest)?.mediaPlaylist
+                                val currentPlayer = playbackPlayer
                                     ?: return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
-                                val vaftSegment = TwitchVaftDetector.requiresVaft(playlist)
+                                val playlist = (currentPlayer.currentManifest as? HlsManifest)?.mediaPlaylist
+                                    ?: return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
+                                val publisherEdgeRequiresVaft = TwitchVaftDetector.requiresVaft(playlist)
+                                val currentUri = currentPlayer.currentMediaItem?.localConfiguration?.uri?.toString()
+                                val tracked = reconcileTrackedVaftBoundary(
+                                    currentPlayer,
+                                    playlist,
+                                    currentUri,
+                                    publisherEdgeRequiresVaft,
+                                )
+                                val phase = tracked?.let {
+                                    vaftPlaybackBoundaryPhase(currentPlayer, playlist, it)
+                                } ?: vaftUntrackedBoundaryPhase(currentPlayer, playlist, publisherEdgeRequiresVaft)
+                                val vaftSegment = if (vaftAlternateActive) {
+                                    publisherEdgeRequiresVaft
+                                } else {
+                                    isPlaybackBoundaryUnsafe(phase, publisherEdgeRequiresVaft, tracked != null)
+                                }
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
                                     putBoolean(RESULT, vaftSegment)
                                     putBoolean(VAFT_WINDOW_ACTIVE, vaftCoordinatorJob?.isActive == true)
@@ -2222,13 +2378,28 @@ class PlaybackService : MediaSessionService() {
         return expectedVideo.isEmpty() || actualVideo.isEmpty() || expectedVideo.any { wanted -> actualVideo.any { it.startsWith(wanted.take(4), true) } }
     }
 
-    private fun replaceVaftSource(player: ExoPlayer, extras: Bundle) {
-        val uri = extras.getString(URI) ?: return
-        val current = player.currentMediaItem ?: return
+    private fun replaceVaftSource(
+        player: ExoPlayer,
+        extras: Bundle,
+        preloadedSource: VaftPreloadedMediaSource? = null,
+    ): String? {
+        val uri = extras.getString(URI) ?: return null
+        val current = player.currentMediaItem ?: return null
         val playWhenReady = player.playWhenReady
-        val item = current.buildUpon().setUri(uri)
-            .setMediaId("$VAFT_SOURCE_MEDIA_ID_PREFIX${java.util.UUID.randomUUID()}")
+        val item = preloadedSource?.mediaItem ?: current.buildUpon().setUri(uri)
+            .setMediaId(
+                extras.getString(VAFT_HANDOFF_TARGET_MEDIA_ID)
+                    ?: "$VAFT_SOURCE_MEDIA_ID_PREFIX${java.util.UUID.randomUUID()}",
+            )
             .build()
+        trackedVaftBoundary?.takeIf { uri == it.primaryUri && uri == liveStreamUri }?.let { tracked ->
+            tracked.primaryMediaId = item.mediaId
+            tracked.sourceRelativeClockValid = false
+        }
+        vaftHandoffTargetMediaId = item.mediaId
+        vaftHandoffTargetGeneration = vaftGeneration
+        vaftHandoffTargetFrameRendered = false
+        publishVaftPlaybackState()
         val candidateQuality = decodePlaybackQuality(xtraModule.json, extras.getString(VAFT_VERIFIED_RENDITION))
         val desired = resumptionHlsQuality(candidateQuality)
         xtraModule.streamMedia3Runtime.qualitySelectionPolicy.set(desired.name, desired.bitrate, desired.codecs)
@@ -2237,23 +2408,536 @@ class PlaybackService : MediaSessionService() {
             .build()
         diagnostics.resetRenderedVideoSize()
         player.volume = 0f
-        player.setMediaSource(xtraModule.streamMedia3Runtime.createLiveMediaSource(item))
+        player.setMediaSource(
+            preloadedSource?.mediaSource ?: xtraModule.streamMedia3Runtime.createLiveMediaSource(item),
+        )
         // Keep the normal live resumption source authoritative until commit.
         player.prepare()
         player.playWhenReady = playWhenReady
+        return item.mediaId
+    }
+
+    private data class VaftPositionSnapshot(
+        val windowStartTimeMs: Long?,
+        val positionMs: Long,
+        val liveOffsetMs: Long?,
+    )
+
+    private fun snapshotVaftPosition(player: ExoPlayer): VaftPositionSnapshot {
+        val window = Timeline.Window()
+        val windowStartTimeMs = if (!player.currentTimeline.isEmpty) {
+            player.currentTimeline.getWindow(player.currentMediaItemIndex, window).windowStartTimeMs
+                .takeIf { it != Media3C.TIME_UNSET }
+        } else {
+            null
+        }
+        return VaftPositionSnapshot(
+            windowStartTimeMs = windowStartTimeMs,
+            positionMs = player.currentPosition.coerceAtLeast(0L),
+            liveOffsetMs = player.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET },
+        )
+    }
+
+    private fun alignVaftPosition(player: ExoPlayer, source: VaftPositionSnapshot): String {
+        if (player.currentTimeline.isEmpty || player.currentMediaItemIndex !in 0 until player.currentTimeline.windowCount) {
+            return "unavailable"
+        }
+        val window = player.currentTimeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
+        if (!window.isSeekable) return "not_seekable"
+        val targetPositionMs = (if (source.windowStartTimeMs != null && window.windowStartTimeMs != Media3C.TIME_UNSET) {
+            val sourceEpochMs = source.windowStartTimeMs + source.positionMs
+            val position = sourceEpochMs - window.windowStartTimeMs
+            if (position < 0L || (window.durationMs != Media3C.TIME_UNSET && position > window.durationMs)) {
+                null
+            } else {
+                position
+            }
+        } else if (source.liveOffsetMs != null && player.currentLiveOffset != Media3C.TIME_UNSET) {
+            val position = player.currentPosition + player.currentLiveOffset - source.liveOffsetMs
+            if (position < 0L || (window.durationMs != Media3C.TIME_UNSET && position > window.durationMs)) {
+                null
+            } else {
+                position
+            }
+        } else {
+            null
+        }) ?: return "unavailable"
+
+        val mode = if (source.windowStartTimeMs != null && window.windowStartTimeMs != Media3C.TIME_UNSET) {
+            "program_date_time"
+        } else {
+            "live_offset_best_effort"
+        }
+        val deltaMs = targetPositionMs - player.currentPosition
+        player.seekTo(player.currentMediaItemIndex, targetPositionMs)
+        if (BuildConfig.DEBUG) {
+            Log.d("XtraVaft", "position_alignment mode=$mode targetPositionMs=$targetPositionMs deltaMs=$deltaMs")
+        }
+        return mode
+    }
+
+    private suspend fun awaitReturnFrameCapture(
+        player: ExoPlayer,
+        generation: Long,
+        outgoingUri: String?,
+    ): Boolean {
+        val outgoingItem = player.currentMediaItem
+        val outgoingPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !vaftAlternateActive ||
+            outgoingUri.isNullOrBlank() || outgoingItem?.localConfiguration?.uri?.toString() != outgoingUri ||
+            outgoingUri != vaftAuthoritativeUri || outgoingPlaylist == null ||
+            TwitchVaftDetector.requiresVaft(outgoingPlaylist) || player.videoSize.width <= 0 || player.videoSize.height <= 0
+        ) {
+            if (BuildConfig.DEBUG) Log.d("XtraVaft", "return_frame_capture unavailable sourceClean=${outgoingPlaylist?.let { !TwitchVaftDetector.requiresVaft(it) }}")
+            return false
+        }
+
+        val requestId = "$generation:${java.util.UUID.randomUUID()}"
+        val captureResult = SettableFuture.create<Boolean>()
+        vaftHandoffFrameCaptureId = requestId
+        vaftHandoffFrameCaptureFuture = captureResult
+        vaftHandoffFrameCaptureResolvedId = null
+        vaftHandoffFrameCaptureAccepted = false
+        vaftOutputSuppressed = false
+        publishVaftPlaybackState()
+        val captured = withTimeoutOrNull(VAFT_CAPTURE_ACK_TIMEOUT_MS) {
+            runCatching { captureResult.awaitVaftFuture() }.getOrDefault(false)
+        } == true
+        val currentPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+        val stillCleanOutgoing = generation == vaftGeneration &&
+            player.currentMediaItem?.mediaId == outgoingItem.mediaId &&
+            player.currentMediaItem?.localConfiguration?.uri?.toString() == outgoingUri &&
+            player.currentMediaItem?.localConfiguration?.uri?.toString() == vaftAuthoritativeUri &&
+            currentPlaylist != null && !TwitchVaftDetector.requiresVaft(currentPlaylist)
+        vaftOutputSuppressed = true
+        player.volume = 0f
+        vaftHandoffFrameCaptureResolvedId = requestId
+        vaftHandoffFrameCaptureAccepted = captured && stillCleanOutgoing
+        vaftHandoffFrameCaptureId = null
+        vaftHandoffFrameCaptureFuture = null
+        publishVaftPlaybackState()
+        val ready = vaftHandoffFrameCaptureAccepted
+        if (BuildConfig.DEBUG) Log.d("XtraVaft", "return_frame_capture ready=$ready sourceClean=$stillCleanOutgoing")
+        return ready
+    }
+
+    private fun currentVaftSourceTimeUs(player: ExoPlayer, playlist: HlsMediaPlaylist): Long? {
+        val sourceStartTimeUs = playlist.startTimeUs.takeIf { it != Media3C.TIME_UNSET } ?: return null
+        return sourceStartTimeUs + player.currentPosition.coerceAtLeast(0L) * 1_000L
+    }
+
+    private fun currentVaftEpochTimeUs(player: ExoPlayer, playlist: HlsMediaPlaylist): Long? {
+        if (!playlist.hasProgramDateTime) return null
+        val window = Timeline.Window()
+        val windowStartTimeMs = if (!player.currentTimeline.isEmpty &&
+            player.currentMediaItemIndex in 0 until player.currentTimeline.windowCount
+        ) {
+            player.currentTimeline.getWindow(player.currentMediaItemIndex, window).windowStartTimeMs
+                .takeIf { it != Media3C.TIME_UNSET }
+        } else {
+            null
+        }
+        val epochStartTimeUs = windowStartTimeMs?.times(1_000L)
+            ?: playlist.startTimeUs.takeIf { playlist.hasProgramDateTime && it != Media3C.TIME_UNSET }
+            ?: return null
+        return epochStartTimeUs + player.currentPosition.coerceAtLeast(0L) * 1_000L
+    }
+
+    private fun currentVaftMediaSequence(player: ExoPlayer, playlist: HlsMediaPlaylist): Long? {
+        val positionUs = player.currentPosition.coerceAtLeast(0L) * 1_000L
+        val segments = playlist.segments
+        if (segments.isEmpty()) return null
+        if (positionUs < segments.first().relativeStartTimeUs) return playlist.mediaSequence
+        val index = segments.indexOfLast { it.relativeStartTimeUs <= positionUs }
+        if (index < 0) return null
+        val segment = segments[index]
+        val segmentEndUs = segment.relativeStartTimeUs + segment.durationUs
+        if (positionUs >= segmentEndUs) {
+            if (index == segments.lastIndex && positionUs <= playlist.durationUs) {
+                return playlist.mediaSequence + segments.size
+            }
+            return null
+        }
+        return playlist.mediaSequence + index
+    }
+
+    private fun classifyVaftBoundary(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        boundary: VaftBoundaryObservation,
+        allowSourceRelativeClock: Boolean,
+        allowMediaSequence: Boolean,
+        snapshotStartTimeUs: Long? = null,
+        snapshotMediaSequence: Long? = null,
+    ): VaftPlaybackBoundaryPhase {
+        val epochTimeUs = currentVaftEpochTimeUs(player, playlist)
+        if (epochTimeUs != null && boundary.epochStartTimeUs != null) {
+            return when {
+                epochTimeUs < boundary.epochStartTimeUs -> VaftPlaybackBoundaryPhase.BEFORE
+                boundary.epochEndTimeUs != null && epochTimeUs >= boundary.epochEndTimeUs -> VaftPlaybackBoundaryPhase.AFTER
+                else -> VaftPlaybackBoundaryPhase.ACTIVE
+            }
+        }
+        val sourceTimeUs = currentVaftSourceTimeUs(player, playlist)
+        if (allowSourceRelativeClock && sourceTimeUs != null && boundary.sourceStartTimeUs != null) {
+            return when {
+                sourceTimeUs < boundary.sourceStartTimeUs -> VaftPlaybackBoundaryPhase.BEFORE
+                boundary.sourceEndTimeUs != null && sourceTimeUs >= boundary.sourceEndTimeUs -> VaftPlaybackBoundaryPhase.AFTER
+                else -> VaftPlaybackBoundaryPhase.ACTIVE
+            }
+        }
+        val mediaSequence = currentVaftMediaSequence(player, playlist)
+        if (allowMediaSequence && mediaSequence != null && boundary.sourceMediaSequenceStart != null) {
+            return when {
+                mediaSequence < boundary.sourceMediaSequenceStart -> VaftPlaybackBoundaryPhase.BEFORE
+                boundary.sourceMediaSequenceEnd != null && mediaSequence >= boundary.sourceMediaSequenceEnd -> VaftPlaybackBoundaryPhase.AFTER
+                else -> VaftPlaybackBoundaryPhase.ACTIVE
+            }
+        }
+        if (snapshotStartTimeUs == playlist.startTimeUs &&
+            snapshotMediaSequence == playlist.mediaSequence && boundary.relativeStartTimeUs != null
+        ) {
+            val positionUs = player.currentPosition.coerceAtLeast(0L) * 1_000L
+            return when {
+                positionUs < boundary.relativeStartTimeUs -> VaftPlaybackBoundaryPhase.BEFORE
+                boundary.relativeEndTimeUs != null && positionUs >= boundary.relativeEndTimeUs -> VaftPlaybackBoundaryPhase.AFTER
+                else -> VaftPlaybackBoundaryPhase.ACTIVE
+            }
+        }
+        return VaftPlaybackBoundaryPhase.UNKNOWN
+    }
+
+    private fun vaftPlaybackBoundaryPhase(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        tracked: TrackedVaftBoundary,
+    ): VaftPlaybackBoundaryPhase {
+        val boundary = tracked.observation
+        val onPrimarySource = player.currentMediaItem?.localConfiguration?.uri?.toString() == tracked.primaryUri
+        val phase = classifyVaftBoundary(
+            player = player,
+            playlist = playlist,
+            boundary = boundary,
+            allowSourceRelativeClock = onPrimarySource && tracked.sourceRelativeClockValid,
+            allowMediaSequence = onPrimarySource,
+            snapshotStartTimeUs = tracked.playlistStartTimeUs,
+            snapshotMediaSequence = tracked.playlistMediaSequence,
+        )
+        if (phase != VaftPlaybackBoundaryPhase.UNKNOWN) tracked.lastKnownPhase = phase
+        if (phase == VaftPlaybackBoundaryPhase.UNKNOWN && tracked.lastKnownPhase == VaftPlaybackBoundaryPhase.ACTIVE) {
+            return VaftPlaybackBoundaryPhase.ACTIVE
+        }
+        return phase
+    }
+
+    private fun reconcileTrackedVaftBoundary(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        currentUri: String?,
+        publisherEdgeRequiresVaft: Boolean,
+    ): TrackedVaftBoundary? {
+        val primaryUri = liveStreamUri ?: return null
+        val currentItem = player.currentMediaItem
+        val currentMediaId = currentItem?.mediaId
+        val sourceCanDiscover = currentUri == primaryUri
+        val existing = trackedVaftBoundary?.takeIf {
+            it.sourceGeneration == vaftSourceGeneration && it.primaryUri == primaryUri
+        }
+        if (existing != null && sourceCanDiscover && !vaftAlternateActive && !vaftSourceSwitching &&
+            currentMediaId != null && currentMediaId != existing.primaryMediaId
+        ) {
+            if (currentMediaId == vaftHandoffTargetMediaId) {
+                existing.primaryMediaId = currentMediaId
+                existing.sourceRelativeClockValid = false
+            } else {
+                trackedVaftBoundary = null
+                vaftSourceGeneration++
+                discardVaftPreparation()
+            }
+        } else if (existing != null) {
+            val latestObservation = if (sourceCanDiscover) {
+                TwitchVaftDetector.visibleBoundaries(playlist)
+                    .firstOrNull { it.markerKey == existing.observation.markerKey }
+            } else {
+                null
+            }
+            if (latestObservation != null) {
+                existing.observation = latestObservation
+                existing.playlistStartTimeUs = playlist.startTimeUs
+                existing.playlistMediaSequence = playlist.mediaSequence
+                existing.sourceRelativeClockValid = latestObservation.sourceStartTimeUs != null
+            }
+            if (vaftPlaybackBoundaryPhase(player, playlist, existing) != VaftPlaybackBoundaryPhase.AFTER) {
+                trackedVaftBoundary = existing
+                return existing
+            }
+            trackedVaftBoundary = null
+        }
+
+        if (!sourceCanDiscover || currentMediaId == null) return null
+        val visible = TwitchVaftDetector.visibleBoundaries(playlist)
+        val visiblePhases = visible.map { boundary ->
+            boundary to classifyVaftBoundary(
+                player,
+                playlist,
+                boundary,
+                allowSourceRelativeClock = true,
+                allowMediaSequence = true,
+                snapshotStartTimeUs = playlist.startTimeUs,
+                snapshotMediaSequence = playlist.mediaSequence,
+            )
+        }
+        val next = visiblePhases.firstOrNull { it.second == VaftPlaybackBoundaryPhase.ACTIVE }?.first
+            ?: visiblePhases.firstOrNull { it.second == VaftPlaybackBoundaryPhase.BEFORE }?.first
+            ?: visiblePhases.firstOrNull {
+                publisherEdgeRequiresVaft && it.second == VaftPlaybackBoundaryPhase.UNKNOWN
+            }?.first
+            ?: if (publisherEdgeRequiresVaft) {
+            TwitchVaftDetector.activeBoundary(playlist)
+        } else {
+            null
+        }
+        if (next == null) return null
+        val phase = classifyVaftBoundary(
+            player,
+            playlist,
+            next,
+            allowSourceRelativeClock = true,
+            allowMediaSequence = true,
+            snapshotStartTimeUs = playlist.startTimeUs,
+            snapshotMediaSequence = playlist.mediaSequence,
+        )
+        val tracked = TrackedVaftBoundary(
+            observation = next,
+            sourceGeneration = vaftSourceGeneration,
+            primaryMediaId = currentMediaId,
+            primaryUri = primaryUri,
+            playlistStartTimeUs = playlist.startTimeUs,
+            playlistMediaSequence = playlist.mediaSequence,
+            lastKnownPhase = phase,
+        )
+        trackedVaftBoundary = tracked
+        return tracked
+    }
+
+    private fun vaftBoundaryLeadMs(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        tracked: TrackedVaftBoundary,
+    ): Long? {
+        val boundary = tracked.observation
+        val epochTimeUs = currentVaftEpochTimeUs(player, playlist)
+        if (epochTimeUs != null && boundary.epochStartTimeUs != null) {
+            return (boundary.epochStartTimeUs - epochTimeUs) / 1_000L
+        }
+        val onPrimarySource = player.currentMediaItem?.localConfiguration?.uri?.toString() == tracked.primaryUri
+        val sourceTimeUs = currentVaftSourceTimeUs(player, playlist)
+        if (onPrimarySource && tracked.sourceRelativeClockValid && sourceTimeUs != null && boundary.sourceStartTimeUs != null) {
+            return (boundary.sourceStartTimeUs - sourceTimeUs) / 1_000L
+        }
+        val currentSequence = currentVaftMediaSequence(player, playlist)
+        val targetSequence = boundary.sourceMediaSequenceStart
+        if (onPrimarySource && currentSequence != null && targetSequence != null && currentSequence < targetSequence &&
+            targetSequence in playlist.mediaSequence..(playlist.mediaSequence + playlist.segments.size)
+        ) {
+            val positionUs = player.currentPosition.coerceAtLeast(0L) * 1_000L
+            val targetIndex = (targetSequence - playlist.mediaSequence).toInt()
+            val targetPositionUs = playlist.segments.getOrNull(targetIndex)?.relativeStartTimeUs ?: playlist.durationUs
+            return (targetPositionUs - positionUs) / 1_000L
+        }
+        if (playlist.startTimeUs == tracked.playlistStartTimeUs && playlist.mediaSequence == tracked.playlistMediaSequence &&
+            boundary.relativeStartTimeUs != null
+        ) {
+            val positionUs = player.currentPosition.coerceAtLeast(0L) * 1_000L
+            return (boundary.relativeStartTimeUs - positionUs) / 1_000L
+        }
+        return null
+    }
+
+    private fun vaftBoundaryRemainingMs(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        tracked: TrackedVaftBoundary,
+    ): Long? {
+        val boundary = tracked.observation
+        val epochTimeUs = currentVaftEpochTimeUs(player, playlist)
+        if (epochTimeUs != null && boundary.epochEndTimeUs != null) {
+            return ((boundary.epochEndTimeUs - epochTimeUs) / 1_000L).coerceAtLeast(0L)
+        }
+        val onPrimarySource = player.currentMediaItem?.localConfiguration?.uri?.toString() == tracked.primaryUri
+        val sourceTimeUs = currentVaftSourceTimeUs(player, playlist)
+        if (onPrimarySource && tracked.sourceRelativeClockValid && sourceTimeUs != null && boundary.sourceEndTimeUs != null) {
+            return ((boundary.sourceEndTimeUs - sourceTimeUs) / 1_000L).coerceAtLeast(0L)
+        }
+        val currentSequence = currentVaftMediaSequence(player, playlist)
+        val endSequence = boundary.sourceMediaSequenceEnd
+        if (onPrimarySource && currentSequence != null && endSequence != null &&
+            endSequence in (playlist.mediaSequence + 1)..(playlist.mediaSequence + playlist.segments.size)
+        ) {
+            val positionUs = player.currentPosition.coerceAtLeast(0L) * 1_000L
+            val endIndex = (endSequence - playlist.mediaSequence).toInt()
+            val endPositionUs = playlist.segments.getOrNull(endIndex)?.relativeStartTimeUs ?: playlist.durationUs
+            return ((endPositionUs - positionUs) / 1_000L).coerceAtLeast(0L)
+        }
+        if (playlist.startTimeUs == tracked.playlistStartTimeUs && playlist.mediaSequence == tracked.playlistMediaSequence &&
+            boundary.relativeEndTimeUs != null
+        ) {
+            val positionUs = player.currentPosition.coerceAtLeast(0L) * 1_000L
+            return ((boundary.relativeEndTimeUs - positionUs) / 1_000L).coerceAtLeast(0L)
+        }
+        return null
+    }
+
+    private fun isPlaybackBoundaryUnsafe(
+        phase: VaftPlaybackBoundaryPhase,
+        publisherEdgeRequiresVaft: Boolean,
+        trackedBoundary: Boolean = false,
+    ): Boolean = phase == VaftPlaybackBoundaryPhase.ACTIVE ||
+        (phase == VaftPlaybackBoundaryPhase.UNKNOWN && (publisherEdgeRequiresVaft || trackedBoundary))
+
+    private fun vaftUntrackedBoundaryPhase(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        publisherEdgeRequiresVaft: Boolean,
+    ): VaftPlaybackBoundaryPhase {
+        if (!publisherEdgeRequiresVaft) return VaftPlaybackBoundaryPhase.NONE
+        val boundaries = TwitchVaftDetector.visibleBoundaries(playlist)
+        if (boundaries.isEmpty()) return VaftPlaybackBoundaryPhase.UNKNOWN
+        val phases = boundaries.map { boundary ->
+            classifyVaftBoundary(
+                player,
+                playlist,
+                boundary,
+                allowSourceRelativeClock = true,
+                allowMediaSequence = true,
+                snapshotStartTimeUs = playlist.startTimeUs,
+                snapshotMediaSequence = playlist.mediaSequence,
+            )
+        }
+        return when {
+            VaftPlaybackBoundaryPhase.ACTIVE in phases -> VaftPlaybackBoundaryPhase.ACTIVE
+            VaftPlaybackBoundaryPhase.UNKNOWN in phases -> VaftPlaybackBoundaryPhase.UNKNOWN
+            VaftPlaybackBoundaryPhase.BEFORE in phases -> VaftPlaybackBoundaryPhase.BEFORE
+            else -> VaftPlaybackBoundaryPhase.AFTER
+        }
+    }
+
+    private fun ensureVaftBoundaryWatcher(player: ExoPlayer, markerKey: String) {
+        if (vaftBoundaryWatchJob?.isActive == true && vaftBoundaryWatchMarkerKey == markerKey) return
+        vaftBoundaryWatchJob?.cancel()
+        vaftBoundaryWatchJob = null
+        vaftBoundaryWatchMarkerKey = markerKey
+        val sourceGeneration = vaftSourceGeneration
+        vaftBoundaryWatchJob = lifecycleScope.launch {
+            val thisJob = currentCoroutineContext()[Job] ?: return@launch
+            try {
+                while (sourceGeneration == vaftSourceGeneration && player.playWhenReady) {
+                    val tracked = trackedVaftBoundary ?: break
+                    if (tracked.observation.markerKey != markerKey) break
+                    val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist ?: break
+                    val publisherEdgeRequiresVaft = TwitchVaftDetector.requiresVaft(playlist)
+                    val phase = vaftPlaybackBoundaryPhase(player, playlist, tracked)
+                    if (phase == VaftPlaybackBoundaryPhase.AFTER) {
+                        updateVaft(player)
+                        break
+                    }
+                    if (phase !in setOf(VaftPlaybackBoundaryPhase.BEFORE, VaftPlaybackBoundaryPhase.ACTIVE)) break
+                    val leadMs = vaftBoundaryLeadMs(player, playlist, tracked)
+                    val baseDelayMs = when {
+                        !player.isPlaying -> 500L
+                        leadMs != null && leadMs <= 2_000L -> 100L
+                        leadMs != null && leadMs <= 15_000L -> 250L
+                        else -> 1_000L
+                    }
+                    val playbackSpeed = player.playbackParameters.speed
+                        .takeIf { it.isFinite() && it > 0f }
+                        ?.coerceIn(0.25f, 4f) ?: 1f
+                    delay((baseDelayMs / playbackSpeed).toLong().coerceIn(25L, 1_000L))
+                    if (!player.playWhenReady) break
+                    updateVaft(player)
+                }
+            } finally {
+                if (vaftBoundaryWatchJob === thisJob) {
+                    vaftBoundaryWatchJob = null
+                    vaftBoundaryWatchMarkerKey = null
+                }
+            }
+        }
     }
 
     private fun updateVaft(player: ExoPlayer) {
         val activePlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
-        if (vaftCoordinatorJob?.isActive == true && !vaftAlternateActive && !vaftSourceSwitching &&
-            player.currentMediaItem?.localConfiguration?.uri?.toString() == vaftAuthoritativeUri &&
-            activePlaylist != null && TwitchVaftDetector.requiresVaft(activePlaylist)
-        ) {
-            extendVaftPrimaryReturnHold(activePlaylist)
+        val currentUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
+        val enabled = resumptionState?.type == PlaybackContract.STREAM && prefs().isVaftEnabled() &&
+            !liveRewindActive && !liveRewindTransitioning && !liveStreamUri.isNullOrBlank()
+        if (!enabled || activePlaylist == null) {
+            vaftBoundaryWatchJob?.cancel()
+            vaftBoundaryWatchJob = null
+            vaftBoundaryWatchMarkerKey = null
+            if (!enabled) {
+                trackedVaftBoundary = null
+                discardVaftPreparation()
+            }
+            return
         }
-        if (vaftCoordinatorJob?.isActive == true && !vaftSourceSwitching && activePlaylist != null &&
-            player.currentMediaItem?.localConfiguration?.uri?.toString() == vaftAuthoritativeUri) {
-            val suppress = TwitchVaftDetector.requiresVaft(activePlaylist)
+        if (currentUri != liveStreamUri && currentUri != vaftAuthoritativeUri && !vaftSourceSwitching) {
+            vaftBoundaryWatchJob?.cancel()
+            vaftBoundaryWatchJob = null
+            vaftBoundaryWatchMarkerKey = null
+            trackedVaftBoundary = null
+            discardVaftPreparation()
+            return
+        }
+        val publisherEdgeRequiresVaft = TwitchVaftDetector.requiresVaft(activePlaylist)
+        var trackedBoundary = reconcileTrackedVaftBoundary(
+            player,
+            activePlaylist,
+            currentUri,
+            publisherEdgeRequiresVaft,
+        )
+        var boundaryPhase = trackedBoundary?.let {
+            vaftPlaybackBoundaryPhase(player, activePlaylist, it)
+        } ?: vaftUntrackedBoundaryPhase(player, activePlaylist, publisherEdgeRequiresVaft)
+        if (boundaryPhase == VaftPlaybackBoundaryPhase.AFTER) {
+            trackedBoundary = null
+            trackedVaftBoundary = null
+            discardVaftPreparation()
+            boundaryPhase = VaftPlaybackBoundaryPhase.AFTER
+        }
+        logVaftBoundaryObservation(player, activePlaylist, publisherEdgeRequiresVaft, trackedBoundary, boundaryPhase)
+        if (!player.playWhenReady) {
+            vaftBoundaryWatchJob?.cancel()
+            vaftBoundaryWatchJob = null
+            vaftBoundaryWatchMarkerKey = null
+        } else if (trackedBoundary != null && boundaryPhase in setOf(
+                VaftPlaybackBoundaryPhase.BEFORE,
+                VaftPlaybackBoundaryPhase.ACTIVE,
+            )
+        ) {
+            ensureVaftBoundaryWatcher(player, trackedBoundary.observation.markerKey)
+        }
+        if (currentUri == liveStreamUri && player.playWhenReady &&
+            boundaryPhase == VaftPlaybackBoundaryPhase.BEFORE && !vaftSourceSwitching &&
+            vaftHandoffJob?.isActive != true && vaftCoordinatorJob?.isActive != true
+        ) {
+            prepareVaftCandidateAhead(player, activePlaylist)
+            vaftPreparedCandidate?.let { prepared ->
+                maybeRefreshVaftCandidate(player, activePlaylist, trackedBoundary, prepared)
+                maybeWarmVaftCandidate(player, activePlaylist, prepared)
+            }
+        }
+        if (vaftCoordinatorJob?.isActive == true && !vaftAlternateActive && !vaftSourceSwitching &&
+            currentUri == vaftAuthoritativeUri && boundaryPhase == VaftPlaybackBoundaryPhase.ACTIVE
+        ) {
+            trackedBoundary?.let { extendVaftPrimaryReturnHold(vaftBoundaryRemainingMs(player, activePlaylist, it)) }
+        }
+        if (vaftCoordinatorJob?.isActive == true && !vaftSourceSwitching &&
+            currentUri == vaftAuthoritativeUri) {
+            val suppress = if (vaftAlternateActive) {
+                TwitchVaftDetector.requiresVaft(activePlaylist)
+            } else {
+                isPlaybackBoundaryUnsafe(boundaryPhase, publisherEdgeRequiresVaft, trackedBoundary != null)
+            }
             if (suppress != vaftOutputSuppressed) {
                 vaftOutputSuppressed = suppress
                 player.volume = if (suppress) 0f else prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
@@ -2261,11 +2945,14 @@ class PlaybackService : MediaSessionService() {
             }
         }
         if (vaftCoordinatorJob?.isActive == true && !vaftSourceSwitching && !vaftAlternateActive &&
-            player.currentMediaItem?.localConfiguration?.uri?.toString() == vaftAuthoritativeUri &&
-            player.playbackState == Player.STATE_READY && activePlaylist != null && !TwitchVaftDetector.requiresVaft(activePlaylist)) {
+            currentUri == vaftAuthoritativeUri &&
+            player.playbackState == Player.STATE_READY &&
+            !isPlaybackBoundaryUnsafe(boundaryPhase, publisherEdgeRequiresVaft, trackedBoundary != null)
+        ) {
             vaftGeneration++
             vaftCoordinatorJob?.cancel()
             vaftCoordinatorJob = null
+            discardVaftPreparation()
             vaftOutputSuppressed = false
             player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
             publishVaftPlaybackState()
@@ -2273,11 +2960,30 @@ class PlaybackService : MediaSessionService() {
         }
         if (vaftCoordinatorJob?.isActive == true || vaftSourceSwitching || liveRewindActive || liveRewindTransitioning ||
             resumptionState?.type != PlaybackContract.STREAM || !prefs().isVaftEnabled()) return
-        val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist ?: return
-        if (!TwitchVaftDetector.requiresVaft(playlist)) return
+        if (currentUri != liveStreamUri) return
+        val boundaryRequiresVaft = boundaryPhase == VaftPlaybackBoundaryPhase.ACTIVE ||
+            (boundaryPhase == VaftPlaybackBoundaryPhase.UNKNOWN &&
+                (publisherEdgeRequiresVaft || trackedBoundary != null))
+        if (!boundaryRequiresVaft) return
+        val playlist = activePlaylist
+        if (currentUri == null || currentUri != liveStreamUri) {
+            discardVaftPreparation()
+            return
+        }
         val primaryExtras = liveStreamExtras?.let(::Bundle) ?: return
         val login = primaryExtras.getString(CHANNEL_LOGIN) ?: return
-        val generation = ++vaftGeneration
+        val triggerMarkerKey = trackedBoundary?.observation?.markerKey
+            ?: TwitchVaftDetector.activeBoundary(playlist)?.markerKey
+        val currentMediaId = player.currentMediaItem?.mediaId
+        val preparationMatches = triggerMarkerKey != null && vaftPreparationMarkerKey == triggerMarkerKey &&
+            vaftPreparationGeneration == vaftGeneration && vaftPreparationMediaId == currentMediaId &&
+            vaftPreparationRequestId != null
+        val generation = if (preparationMatches) vaftGeneration else ++vaftGeneration
+        if (!preparationMatches) {
+            discardVaftPreparation()
+        } else {
+            vaftPreparationGraceDeadlineMs = SystemClock.elapsedRealtime() + VAFT_PRELOAD_HANDOFF_GRACE_MS
+        }
         val types = TwitchVaftController { SystemClock.elapsedRealtime() }
         val primaryType = prefs().getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
         val deviceId = if (prefs().getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true)) {
@@ -2286,7 +2992,7 @@ class PlaybackService : MediaSessionService() {
         vaftLogicalQuality = decodePlaybackQuality(xtraModule.json, resumptionState?.quality)
             ?: decodePlaybackQuality(xtraModule.json, primaryExtras.getString(PLAYBACK_QUALITY))
         vaftAuthoritativeUri = player.currentMediaItem?.localConfiguration?.uri?.toString()
-        extendVaftPrimaryReturnHold(playlist)
+        trackedBoundary?.let { extendVaftPrimaryReturnHold(vaftBoundaryRemainingMs(player, playlist, it)) }
         vaftVerifiedRendition = diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, vaftAuthoritativeUri)
         backgroundRecoveryTimer?.cancel()
         backgroundRecoveryTimer = null
@@ -2298,11 +3004,23 @@ class PlaybackService : MediaSessionService() {
             var lastVaftLoopDiagnostic: String? = null
             while (generation == vaftGeneration && !liveRewindActive && !liveRewindTransitioning && prefs().isVaftEnabled()) {
                 val currentPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
-                // Buffering does not turn a known clean backup into a VAFT source.
-                // Keep it authoritative while probing the primary independently.
+                val publisherRequiresNow = currentPlaylist?.let(TwitchVaftDetector::requiresVaft) == true
+                val trackedNow = trackedVaftBoundary
+                val phaseNow = if (trackedNow != null && currentPlaylist != null) {
+                    vaftPlaybackBoundaryPhase(player, currentPlaylist, trackedNow)
+                } else if (currentPlaylist != null) {
+                    vaftUntrackedBoundaryPhase(player, currentPlaylist, publisherRequiresNow)
+                } else {
+                    VaftPlaybackBoundaryPhase.NONE
+                }
+                val primaryUnsafe = isPlaybackBoundaryUnsafe(phaseNow, publisherRequiresNow, trackedNow != null)
                 val clean = player.playerError == null &&
                     player.currentMediaItem?.localConfiguration?.uri?.toString() == vaftAuthoritativeUri &&
-                    currentPlaylist != null && !TwitchVaftDetector.requiresVaft(currentPlaylist)
+                    currentPlaylist != null && if (vaftAlternateActive) {
+                        !TwitchVaftDetector.requiresVaft(currentPlaylist)
+                    } else {
+                        !primaryUnsafe
+                    }
                 if (!vaftAlternateActive && clean) {
                     vaftOutputSuppressed = false
                     player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
@@ -2336,32 +3054,50 @@ class PlaybackService : MediaSessionService() {
                         lastVaftLoopDiagnostic = diagnostic
                     }
                 }
-                val candidate = try {
-                    withTimeoutOrNull(55_000L) {
-                        xtraModule.playerRepository.loadCleanStreamPlaylistUrl(
-                            context = this@PlaybackService,
-                            networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                            gqlHeaders = TwitchApiHelper.getGQLHeaders(this@PlaybackService, prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true)),
-                            channelLogin = login, randomDeviceId = false, xDeviceId = deviceId,
-                            playerTypes = eligible, supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                            proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                            proxyHost = prefs().httpProxyHost(), proxyPort = prefs().httpProxyPort(),
-                            proxyUser = prefs().getString(C.PROXY_USER, null), proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
-                            requireVerifiedClean = true,
-                            preferredQuality = vaftLogicalQuality?.takeUnless { it.name.equals("Auto", true) }
-                                ?: diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, vaftAuthoritativeUri),
-                            onPlayerTypeAttempt = types::onPlayerTypeAttemptStarted,
-                        )
+                val preparedCandidate = if (preparationMatches) {
+                    awaitPreparedVaftCandidate(
+                        player,
+                        triggerMarkerKey,
+                        generation,
+                        timeoutMs = (vaftPreparationGraceDeadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L),
+                    )
+                } else {
+                    null
+                }
+                preparedCandidate?.let { prepared ->
+                    (player.currentManifest as? HlsManifest)?.mediaPlaylist?.let { latestPlaylist ->
+                        maybeWarmVaftCandidate(player, latestPlaylist, prepared)
                     }
-                } catch (error: CancellationException) { throw error } catch (_: Exception) { null }
+                }
+                val candidate = preparedCandidate?.candidate ?: loadCleanVaftCandidate(
+                    login = login,
+                    playerTypes = eligible,
+                    deviceId = deviceId,
+                    preferredQuality = vaftLogicalQuality?.takeUnless { it.name.equals("Auto", true) }
+                        ?: diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, vaftAuthoritativeUri),
+                    timeoutMs = 55_000L,
+                    onPlayerTypeAttempt = types::onPlayerTypeAttemptStarted,
+                )
                 if (generation != vaftGeneration) break
                 val latest = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+                val latestPublisherRequires = latest?.let(TwitchVaftDetector::requiresVaft) == true
+                val latestTracked = trackedVaftBoundary
+                val latestPhase = if (latest != null && latestTracked != null) {
+                    vaftPlaybackBoundaryPhase(player, latest, latestTracked)
+                } else if (latest != null) {
+                    vaftUntrackedBoundaryPhase(player, latest, latestPublisherRequires)
+                } else {
+                    VaftPlaybackBoundaryPhase.NONE
+                }
                 if (!vaftAlternateActive && player.currentMediaItem?.localConfiguration?.uri?.toString() == vaftAuthoritativeUri &&
-                    player.playerError == null && latest != null && !TwitchVaftDetector.requiresVaft(latest)) {
+                    player.playerError == null && latest != null &&
+                    !isPlaybackBoundaryUnsafe(latestPhase, latestPublisherRequires, latestTracked != null)
+                ) {
                     vaftOutputSuppressed = false
                     player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
                     break
                 }
+                var tryNextPlayerTypeImmediately = false
                 if (candidate != null) {
                     val returningPrimary = candidate.playerType == primaryType
                     if (returningPrimary && !vaftAlternateActive) continue
@@ -2372,17 +3108,33 @@ class PlaybackService : MediaSessionService() {
                         putString(VAFT_PLAYER_TYPE, candidate.playerType)
                         candidate.verifiedRendition?.let { putString(VAFT_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
                     }
-                    val future = startVaftHandoff(player, extras)
+                    val preloadedSource = preparedCandidate?.let { prepared ->
+                        awaitPreparedVaftSource(
+                            player,
+                            prepared,
+                            candidate.url,
+                            generation,
+                            timeoutMs = (vaftPreparationGraceDeadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L),
+                        )
+                    }
+                    val future = startVaftHandoff(player, extras, preloadedSource)
+                    vaftPreparedCandidate = null
                     val committed = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { continuation ->
                         future.addListener({
                             if (continuation.isActive) continuation.resumeWith(runCatching { future.get().resultCode == SessionResult.RESULT_SUCCESS })
                         }, MoreExecutors.directExecutor())
                     }
                     if (generation != vaftGeneration) break
-                    if (!committed) types.onHandoffFailed(candidate.playerType)
+                    if (!committed) {
+                        types.onHandoffFailed(candidate.playerType)
+                        tryNextPlayerTypeImmediately = true
+                    }
                     if (committed && returningPrimary) break
                 }
-                delay(TwitchVaftController.RETRY_COOLDOWN_MS)
+                delay(
+                    if (tryNextPlayerTypeImmediately) VAFT_DIFFERENT_TYPE_RETRY_YIELD_MS
+                    else TwitchVaftController.RETRY_COOLDOWN_MS,
+                )
             }
             if (generation == vaftGeneration) vaftCoordinatorJob = null
             publishVaftPlaybackState()
@@ -2390,22 +3142,567 @@ class PlaybackService : MediaSessionService() {
         vaftCoordinatorJob?.start()
     }
 
-    private fun extendVaftPrimaryReturnHold(playlist: HlsMediaPlaylist) {
-        val rangeRemainingMs = TwitchVaftDetector.activeVaftRangeRemainingMs(playlist) ?: 0L
+    private fun logVaftBoundaryObservation(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        publisherEdgeRequiresVaft: Boolean,
+        tracked: TrackedVaftBoundary?,
+        phase: VaftPlaybackBoundaryPhase,
+    ) {
+        if (!BuildConfig.DEBUG) return
+        val currentPositionUs = player.currentPosition.coerceAtLeast(0L) * 1_000L
+        val boundary = tracked?.observation ?: if (publisherEdgeRequiresVaft) {
+            TwitchVaftDetector.activeBoundary(playlist)
+        } else {
+            TwitchVaftDetector.firstVisibleBoundary(playlist, afterPositionUs = currentPositionUs)
+        }
+        if (boundary == null) {
+            lastVaftBoundaryObservationKey = null
+            if (publisherEdgeRequiresVaft) Log.d("XtraVaft", "boundary phase=unknown publisherEdge=true marker=unmapped")
+            return
+        }
+        val leadMs = tracked?.let { vaftBoundaryLeadMs(player, playlist, it) }
+            ?: boundary.relativeStartTimeUs?.let { (it - currentPositionUs) / 1_000L }
+        val phaseName = phase.name.lowercase()
+        val observationKey = "${boundary.markerKey}:$phaseName:$publisherEdgeRequiresVaft"
+        if (observationKey == lastVaftBoundaryObservationKey) return
+        lastVaftBoundaryObservationKey = observationKey
+
+        val window = Timeline.Window()
+        val windowStartTimeMs = if (!player.currentTimeline.isEmpty) {
+            player.currentTimeline.getWindow(player.currentMediaItemIndex, window).windowStartTimeMs
+                .takeIf { it != Media3C.TIME_UNSET }
+        } else {
+            null
+        }
+        val tailStartUs = playlist.segments.lastOrNull()?.relativeStartTimeUs ?: Media3C.TIME_UNSET
+        val liveOffsetMs = player.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET }
+        Log.d(
+            "XtraVaft",
+            "boundary phase=$phaseName publisherEdge=$publisherEdgeRequiresVaft basis=${boundary.basis} marker=${diagnosticToken(boundary.markerKey)} " +
+                "boundaryWindowUs=${boundary.relativeStartTimeUs ?: -1L} boundaryEpochUs=${boundary.epochStartTimeUs ?: -1L} " +
+                "boundaryEndEpochUs=${boundary.epochEndTimeUs ?: -1L} sourceTimeUs=${currentVaftSourceTimeUs(player, playlist) ?: -1L} " +
+                "currentPositionUs=$currentPositionUs bufferedPositionUs=${player.bufferedPosition * 1_000L} " +
+                "liveOffsetMs=${liveOffsetMs ?: -1L} playlistTailStartUs=$tailStartUs " +
+                "playlistDurationUs=${playlist.durationUs} hasPdt=${playlist.hasProgramDateTime} " +
+                "windowStartTimeMs=${windowStartTimeMs ?: -1L} leadMs=${leadMs ?: -1L} playWhenReady=${player.playWhenReady}",
+        )
+    }
+
+    private fun prepareVaftCandidateAhead(player: ExoPlayer, playlist: HlsMediaPlaylist) {
+        val currentItem = player.currentMediaItem ?: run {
+            discardVaftPreparation()
+            return
+        }
+        val sourceUri = currentItem.localConfiguration?.uri?.toString()
+        if (sourceUri.isNullOrBlank() || sourceUri != liveStreamUri || vaftAlternateActive ||
+            vaftSourceSwitching || vaftHandoffJob?.isActive == true || liveRewindActive || liveRewindTransitioning ||
+            resumptionState?.type != PlaybackContract.STREAM
+        ) {
+            discardVaftPreparation()
+            return
+        }
+        val tracked = trackedVaftBoundary?.takeIf {
+            it.sourceGeneration == vaftSourceGeneration && it.primaryUri == sourceUri
+        }
+        if (tracked == null || vaftPlaybackBoundaryPhase(
+                player,
+                playlist,
+                tracked,
+            ) != VaftPlaybackBoundaryPhase.BEFORE
+        ) {
+            discardVaftPreparation()
+            return
+        }
+        val boundary = tracked.observation
+        val leadMs = vaftBoundaryLeadMs(player, playlist, tracked) ?: return
+        if (leadMs !in 1L..VAFT_PREPARE_LOOKAHEAD_MS) {
+            if (vaftPreparationMarkerKey != null && vaftPreparationMarkerKey != boundary.markerKey) {
+                discardVaftPreparation()
+            }
+            return
+        }
+        val extras = liveStreamExtras ?: run {
+            discardVaftPreparation()
+            return
+        }
+        val login = extras.getString(CHANNEL_LOGIN)?.takeIf { it.isNotBlank() } ?: run {
+            discardVaftPreparation()
+            return
+        }
+        val mediaId = currentItem.mediaId
+        val runtime = xtraModule.streamMedia3Runtime
+        val configurationFingerprint = runtime.configurationFingerprintFor(player) ?: run {
+            discardVaftPreparation()
+            return
+        }
+        val qualityIntent = runtime.qualitySelectionPolicy.snapshot()
+        val qualityRevision = runtime.qualitySelectionPolicy.revision()
+        val prepared = vaftPreparedCandidate
+        if (prepared != null && prepared.markerKey == boundary.markerKey &&
+            prepared.requestId == vaftPreparationRequestId &&
+            prepared.vaftGeneration == vaftGeneration && prepared.sourceGeneration == vaftSourceGeneration &&
+            prepared.playbackMediaId == mediaId &&
+            prepared.configurationFingerprint == configurationFingerprint &&
+            prepared.qualityIntent == qualityIntent && prepared.qualityIntentRevision == qualityRevision &&
+            SystemClock.elapsedRealtime() - prepared.preparedAtMs <= VAFT_PREPARED_CANDIDATE_MAX_AGE_MS
+        ) {
+            maybeWarmVaftCandidate(player, playlist, prepared)
+            return
+        }
+        if (vaftPreparationMarkerKey == boundary.markerKey && vaftPreparationGeneration == vaftGeneration &&
+            vaftPreparationMediaId == mediaId && vaftPreparationRequestId != null && vaftPreparationJob?.isActive == true
+        ) return
+        val lastAttemptAtMs = vaftPreparationStartedAtMs
+        if (vaftPreparationMarkerKey == boundary.markerKey && vaftPreparationGeneration == vaftGeneration &&
+            vaftPreparationMediaId == mediaId && vaftPreparationJob?.isActive != true && vaftPreparedCandidate == null &&
+            lastAttemptAtMs != null && SystemClock.elapsedRealtime() - lastAttemptAtMs < VAFT_PREPARE_RETRY_COOLDOWN_MS
+        ) return
+
+        discardVaftPreparation()
+        val generation = vaftGeneration
+        val primaryType = prefs().getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
+        val playerTypes = TwitchVaftController { SystemClock.elapsedRealtime() }.playerTypesForVaft(primaryType)
+        if (playerTypes.isEmpty()) return
+        val deviceId = if (prefs().getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true)) {
+            java.util.UUID.randomUUID().toString().replace("-", "")
+        } else {
+            prefs().getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason")
+        }
+        val preferredQuality = decodePlaybackQuality(xtraModule.json, resumptionState?.quality)
+            ?: decodePlaybackQuality(xtraModule.json, extras.getString(PLAYBACK_QUALITY))
+            ?: diagnostics.confirmedVideoQuality(mediaId, sourceUri)
+        vaftPreparationMarkerKey = boundary.markerKey
+        vaftPreparationGeneration = generation
+        vaftPreparationMediaId = mediaId
+        val requestId = java.util.UUID.randomUUID().toString()
+        vaftPreparationRequestId = requestId
+        vaftPreparationStartedAtMs = SystemClock.elapsedRealtime()
+        vaftPreparationJob = lifecycleScope.launch {
+            val thisJob = currentCoroutineContext()[Job]
+            try {
+                val candidate = loadCleanVaftCandidate(
+                    login = login,
+                    playerTypes = playerTypes,
+                    deviceId = deviceId,
+                    preferredQuality = preferredQuality,
+                    timeoutMs = 12_000L,
+                )
+                val latestPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+                val latestPublisherRequires = latestPlaylist?.let(TwitchVaftDetector::requiresVaft) == true
+                val latestTracked = trackedVaftBoundary
+                val latestPhase = if (latestPlaylist != null && latestTracked != null) {
+                    vaftPlaybackBoundaryPhase(player, latestPlaylist, latestTracked)
+                } else if (latestPublisherRequires) {
+                    VaftPlaybackBoundaryPhase.UNKNOWN
+                } else {
+                    VaftPlaybackBoundaryPhase.NONE
+                }
+                val stillOwned = generation == vaftGeneration && player.currentMediaItem?.mediaId == mediaId &&
+                    player.currentMediaItem?.localConfiguration?.uri?.toString() == sourceUri && sourceUri == liveStreamUri &&
+                    latestTracked != null && latestTracked.observation.markerKey == boundary.markerKey &&
+                    latestTracked.sourceGeneration == vaftSourceGeneration && latestPhase != VaftPlaybackBoundaryPhase.AFTER &&
+                    vaftPreparationMarkerKey == boundary.markerKey && vaftPreparationGeneration == generation &&
+                    vaftPreparationMediaId == mediaId && vaftPreparationRequestId == requestId &&
+                    configurationFingerprint == runtime.configurationFingerprintFor(player) &&
+                    qualityIntent == runtime.qualitySelectionPolicy.snapshot() &&
+                    qualityRevision == runtime.qualitySelectionPolicy.revision()
+                if (candidate != null && candidate.verifiedClean && stillOwned) {
+                    val result = PreparedVaftCandidate(
+                        requestId = requestId,
+                        markerKey = boundary.markerKey,
+                        vaftGeneration = generation,
+                        sourceGeneration = vaftSourceGeneration,
+                        playbackMediaId = mediaId,
+                        configurationFingerprint = configurationFingerprint,
+                        qualityIntent = qualityIntent,
+                        qualityIntentRevision = qualityRevision,
+                        candidate = candidate,
+                        preparedAtMs = SystemClock.elapsedRealtime(),
+                    )
+                    vaftPreparedCandidate = result
+                    if (BuildConfig.DEBUG) {
+                        Log.d("XtraVaft", "future_candidate_ready basis=${boundary.basis} leadMs=$leadMs playerType=${candidate.playerType}")
+                    }
+                    if (latestPlaylist != null) maybeWarmVaftCandidate(player, latestPlaylist, result)
+                } else if (BuildConfig.DEBUG) {
+                    Log.d("XtraVaft", "future_candidate_discarded basis=${boundary.basis} leadMs=$leadMs owned=$stillOwned clean=${candidate?.verifiedClean == true}")
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (BuildConfig.DEBUG) Log.d("XtraVaft", "future_candidate_failed type=${error::class.simpleName}")
+            } finally {
+                if (vaftPreparationJob === thisJob) vaftPreparationJob = null
+            }
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d("XtraVaft", "future_candidate_start basis=${boundary.basis} leadMs=$leadMs playerTypes=${playerTypes.size}")
+        }
+    }
+
+    private fun maybeRefreshVaftCandidate(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        tracked: TrackedVaftBoundary?,
+        prepared: PreparedVaftCandidate,
+    ) {
+        tracked ?: return
+        val leadMs = vaftBoundaryLeadMs(player, playlist, tracked) ?: return
+        if (prepared.refreshAttempted || leadMs !in 1L..VAFT_CANDIDATE_REFRESH_LEAD_MS ||
+            vaftPreparationJob?.isActive == true || !isVaftCandidateCurrent(player, prepared)
+        ) return
+        val extras = liveStreamExtras ?: return
+        val login = extras.getString(CHANNEL_LOGIN)?.takeIf { it.isNotBlank() } ?: return
+        val sourceUri = player.currentMediaItem?.localConfiguration?.uri?.toString() ?: return
+        val sourceMediaId = player.currentMediaItem?.mediaId ?: return
+        val runtime = xtraModule.streamMedia3Runtime
+        val configurationFingerprint = runtime.configurationFingerprintFor(player) ?: return
+        val qualityIntent = runtime.qualitySelectionPolicy.snapshot()
+        val qualityRevision = runtime.qualitySelectionPolicy.revision()
+        val primaryType = prefs().getString(C.TOKEN_PLAYER_TYPE, "site") ?: "site"
+        val playerTypes = TwitchVaftController { SystemClock.elapsedRealtime() }.playerTypesForVaft(primaryType)
+        if (playerTypes.isEmpty()) return
+        val deviceId = if (prefs().getBoolean(C.TOKEN_RANDOM_DEVICE_ID, true)) {
+            java.util.UUID.randomUUID().toString().replace("-", "")
+        } else {
+            prefs().getString(C.TOKEN_X_DEVICE_ID, "twitch-web-wall-mason")
+        }
+        val preferredQuality = decodePlaybackQuality(xtraModule.json, resumptionState?.quality)
+            ?: decodePlaybackQuality(xtraModule.json, extras.getString(PLAYBACK_QUALITY))
+            ?: diagnostics.confirmedVideoQuality(sourceMediaId, sourceUri)
+        val requestId = java.util.UUID.randomUUID().toString()
+        prepared.refreshAttempted = true
+        vaftCandidateRefreshRequestId = requestId
+        vaftPreparationJob = lifecycleScope.launch {
+            val thisJob = currentCoroutineContext()[Job]
+            try {
+                val candidate = loadCleanVaftCandidate(
+                    login = login,
+                    playerTypes = playerTypes,
+                    deviceId = deviceId,
+                    preferredQuality = preferredQuality,
+                    timeoutMs = 9_000L,
+                )
+                val latestPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+                val latestTracked = trackedVaftBoundary
+                val publisherEdgeRequires = latestPlaylist?.let(TwitchVaftDetector::requiresVaft) == true
+                val latestPhase = if (latestPlaylist != null && latestTracked != null) {
+                    vaftPlaybackBoundaryPhase(player, latestPlaylist, latestTracked)
+                } else if (latestPlaylist != null) {
+                    vaftUntrackedBoundaryPhase(player, latestPlaylist, publisherEdgeRequires)
+                } else {
+                    VaftPlaybackBoundaryPhase.NONE
+                }
+                val stillOwned = candidate?.verifiedClean == true &&
+                    requestId == vaftCandidateRefreshRequestId &&
+                    latestTracked != null && latestTracked.observation.markerKey == tracked.observation.markerKey &&
+                    latestTracked.sourceGeneration == vaftSourceGeneration &&
+                    latestPhase != VaftPlaybackBoundaryPhase.AFTER &&
+                    vaftGeneration == prepared.vaftGeneration && prepared.sourceGeneration == vaftSourceGeneration &&
+                    sourceUri == liveStreamUri &&
+                    player.currentMediaItem?.mediaId == sourceMediaId &&
+                    player.currentMediaItem?.localConfiguration?.uri?.toString() == sourceUri &&
+                    configurationFingerprint == runtime.configurationFingerprintFor(player) &&
+                    qualityIntent == runtime.qualitySelectionPolicy.snapshot() &&
+                    qualityRevision == runtime.qualitySelectionPolicy.revision()
+                if (stillOwned) {
+                    prepared.warmup?.token?.let(runtime::discardVaftCandidateWarmup)
+                    val replacement = PreparedVaftCandidate(
+                        requestId = requestId,
+                        markerKey = tracked.observation.markerKey,
+                        vaftGeneration = prepared.vaftGeneration,
+                        sourceGeneration = vaftSourceGeneration,
+                        playbackMediaId = sourceMediaId,
+                        configurationFingerprint = configurationFingerprint,
+                        qualityIntent = qualityIntent,
+                        qualityIntentRevision = qualityRevision,
+                        candidate = candidate,
+                        preparedAtMs = SystemClock.elapsedRealtime(),
+                        refreshAttempted = true,
+                    )
+                    vaftPreparedCandidate = replacement
+                    vaftPreparationRequestId = requestId
+                    vaftCandidateRefreshRequestId = null
+                    if (BuildConfig.DEBUG) {
+                        Log.d("XtraVaft", "future_candidate_refresh_ready basis=${tracked.observation.basis} leadMs=$leadMs playerType=${candidate.playerType}")
+                    }
+                    if (latestPlaylist != null) maybeWarmVaftCandidate(player, latestPlaylist, replacement)
+                } else if (BuildConfig.DEBUG) {
+                    Log.d("XtraVaft", "future_candidate_refresh_discarded basis=${tracked.observation.basis} leadMs=$leadMs")
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                if (BuildConfig.DEBUG) Log.d("XtraVaft", "future_candidate_refresh_failed type=${error::class.simpleName}")
+            } finally {
+                if (vaftCandidateRefreshRequestId == requestId) vaftCandidateRefreshRequestId = null
+                if (vaftPreparationJob === thisJob) vaftPreparationJob = null
+            }
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d("XtraVaft", "future_candidate_refresh_start basis=${tracked.observation.basis} leadMs=$leadMs")
+        }
+    }
+
+    private fun maybeWarmVaftCandidate(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        prepared: PreparedVaftCandidate,
+    ) {
+        if (!player.playWhenReady) return
+        val tracked = trackedVaftBoundary?.takeIf {
+            it.observation.markerKey == prepared.markerKey &&
+                it.sourceGeneration == vaftSourceGeneration && it.primaryUri == liveStreamUri
+        } ?: return
+        if (!isVaftCandidateCurrent(player, prepared)) return
+        if (prepared.nearTriggerWarmStarted) return
+        val publisherEdgeRequiresVaft = TwitchVaftDetector.requiresVaft(playlist)
+        val phase = vaftPlaybackBoundaryPhase(player, playlist, tracked)
+        val playbackLeadMs = vaftBoundaryLeadMs(player, playlist, tracked)
+        val readyToWarm = phase == VaftPlaybackBoundaryPhase.BEFORE && playbackLeadMs != null &&
+            playbackLeadMs in 1L..VAFT_SAMPLE_WARMUP_LEAD_MS
+        val justTriggered = (phase == VaftPlaybackBoundaryPhase.ACTIVE ||
+            (phase == VaftPlaybackBoundaryPhase.UNKNOWN && publisherEdgeRequiresVaft)) &&
+            SystemClock.elapsedRealtime() <= vaftPreparationGraceDeadlineMs
+        if (readyToWarm || justTriggered) {
+            startVaftCandidateWarmup(player, tracked.observation, prepared, playbackLeadMs)
+        }
+    }
+
+    private fun isVaftCandidateCurrent(player: ExoPlayer, prepared: PreparedVaftCandidate): Boolean {
+        val runtime = xtraModule.streamMedia3Runtime
+        return prepared.requestId == vaftPreparationRequestId && prepared.markerKey == vaftPreparationMarkerKey &&
+            prepared.vaftGeneration == vaftGeneration && prepared.sourceGeneration == vaftSourceGeneration &&
+            prepared.playbackMediaId == player.currentMediaItem?.mediaId &&
+            player.currentMediaItem?.localConfiguration?.uri?.toString() == liveStreamUri && liveStreamUri != null &&
+            !vaftAlternateActive && !vaftSourceSwitching && vaftHandoffJob?.isActive != true &&
+            !liveRewindActive && !liveRewindTransitioning && resumptionState?.type == PlaybackContract.STREAM &&
+            prefs().isVaftEnabled() && prepared.configurationFingerprint == runtime.configurationFingerprintFor(player) &&
+            prepared.qualityIntent == runtime.qualitySelectionPolicy.snapshot() &&
+            prepared.qualityIntentRevision == runtime.qualitySelectionPolicy.revision() &&
+            SystemClock.elapsedRealtime() - prepared.preparedAtMs in 0L..VAFT_PREPARED_CANDIDATE_MAX_AGE_MS
+    }
+
+    private fun startVaftCandidateWarmup(
+        player: ExoPlayer,
+        boundary: VaftBoundaryObservation,
+        prepared: PreparedVaftCandidate,
+        playbackLeadMs: Long?,
+    ) {
+        if (prepared.nearTriggerWarmStarted || prepared.warmup != null || !isVaftCandidateCurrent(player, prepared)) return
+        val runtime = xtraModule.streamMedia3Runtime
+        val extras = liveStreamExtras ?: return
+        val handle = runtime.beginVaftCandidateWarmup(
+            playbackPlayer = player,
+            vaftGeneration = prepared.vaftGeneration,
+            channelLogin = extras.getString(CHANNEL_LOGIN) ?: return,
+            url = prepared.candidate.url,
+            playerType = prepared.candidate.playerType,
+            title = extras.getString(TITLE),
+            channelName = extras.getString(CHANNEL_NAME),
+            channelLogo = extras.getString(CHANNEL_LOGO),
+            qualityIntent = prepared.qualityIntent,
+            verifiedRenditionUrl = prepared.candidate.verifiedRendition?.url,
+        ) ?: return
+        prepared.warmup = handle
+        prepared.nearTriggerWarmStarted = true
+        vaftWarmupToken = handle.token
+        if (BuildConfig.DEBUG) {
+            Log.d("XtraVaft", "future_candidate_warm_start basis=${boundary.basis} playbackLeadMs=${playbackLeadMs ?: -1L}")
+        }
+    }
+
+    private suspend fun loadCleanVaftCandidate(
+        login: String,
+        playerTypes: List<String>,
+        deviceId: String?,
+        preferredQuality: VideoQuality?,
+        timeoutMs: Long,
+        onPlayerTypeAttempt: (String) -> Unit = {},
+    ): PlayerRepository.StreamPlaylistCandidate? = try {
+        withTimeoutOrNull(timeoutMs) {
+            xtraModule.playerRepository.loadCleanStreamPlaylistUrl(
+                context = this@PlaybackService,
+                networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                gqlHeaders = TwitchApiHelper.getGQLHeaders(
+                    this@PlaybackService,
+                    prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true),
+                ),
+                channelLogin = login,
+                randomDeviceId = false,
+                xDeviceId = deviceId,
+                playerTypes = playerTypes,
+                supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
+                proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
+                proxyHost = prefs().httpProxyHost(),
+                proxyPort = prefs().httpProxyPort(),
+                proxyUser = prefs().getString(C.PROXY_USER, null),
+                proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
+                requireVerifiedClean = true,
+                preferredQuality = preferredQuality,
+                onPlayerTypeAttempt = onPlayerTypeAttempt,
+            )
+        }
+    } catch (error: CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        if (BuildConfig.DEBUG) Log.d("XtraVaft", "candidate_lookup_failed type=${error::class.simpleName}")
+        null
+    }
+
+    private suspend fun awaitPreparedVaftCandidate(
+        player: ExoPlayer,
+        markerKey: String,
+        generation: Long,
+        timeoutMs: Long,
+    ): PreparedVaftCandidate? {
+        if (vaftPreparedCandidate == null && vaftPreparationMarkerKey == markerKey &&
+            vaftPreparationGeneration == generation && vaftPreparationMediaId == player.currentMediaItem?.mediaId &&
+            vaftPreparationRequestId != null && timeoutMs > 0L
+        ) {
+            vaftPreparationJob?.takeIf { it.isActive }?.let { job ->
+                withTimeoutOrNull(timeoutMs) { job.join() }
+            }
+        }
+        val prepared = vaftPreparedCandidate
+        val runtime = xtraModule.streamMedia3Runtime
+        val isCurrent = prepared != null && prepared.markerKey == markerKey &&
+            prepared.requestId == vaftPreparationRequestId &&
+            prepared.vaftGeneration == generation && prepared.sourceGeneration == vaftSourceGeneration &&
+            prepared.playbackMediaId == player.currentMediaItem?.mediaId &&
+            prepared.configurationFingerprint == runtime.configurationFingerprintFor(player) &&
+            prepared.qualityIntent == runtime.qualitySelectionPolicy.snapshot() &&
+            prepared.qualityIntentRevision == runtime.qualitySelectionPolicy.revision() &&
+            SystemClock.elapsedRealtime() - prepared.preparedAtMs in 0L..VAFT_PREPARED_CANDIDATE_MAX_AGE_MS
+        if (isCurrent) return prepared
+
+        discardVaftPreparation()
+        return null
+    }
+
+    private fun discardVaftPreparation() {
+        vaftPreparationRequestId = null
+        vaftCandidateRefreshRequestId = null
+        vaftPreparationJob?.cancel()
+        vaftPreparationJob = null
+        if (::xtraModule.isInitialized) {
+            xtraModule.streamMedia3Runtime.discardVaftCandidateWarmup(vaftWarmupToken)
+        }
+        vaftWarmupToken = null
+        vaftPreparedCandidate = null
+        vaftPreparationMarkerKey = null
+        vaftPreparationGeneration = -1L
+        vaftPreparationMediaId = null
+        vaftPreparationStartedAtMs = null
+        vaftPreparationGraceDeadlineMs = 0L
+    }
+
+    private suspend fun awaitPreparedVaftSource(
+        player: ExoPlayer,
+        prepared: PreparedVaftCandidate,
+        expectedUrl: String,
+        generation: Long,
+        timeoutMs: Long,
+    ): VaftPreloadedMediaSource? {
+        val handle = prepared.warmup ?: return null
+        if (prepared.requestId != vaftPreparationRequestId) {
+            xtraModule.streamMedia3Runtime.discardVaftCandidateWarmup(handle.token)
+            if (vaftWarmupToken == handle.token) vaftWarmupToken = null
+            return null
+        }
+        val warmCompleted = if (handle.completion.isDone) {
+            runCatching { handle.completion.get() }.getOrDefault(false)
+        } else if (timeoutMs > 0L) {
+            withTimeoutOrNull(timeoutMs) {
+                runCatching { handle.completion.awaitVaftFuture() }.getOrDefault(false)
+            } == true
+        } else {
+            false
+        }
+        val source = if (warmCompleted) {
+            xtraModule.streamMedia3Runtime.adoptVaftCandidateWarmup(
+                playbackPlayer = player,
+                token = handle.token,
+                vaftGeneration = generation,
+                expectedUrl = expectedUrl,
+            )
+        } else {
+            null
+        }
+        if (source == null) {
+            xtraModule.streamMedia3Runtime.discardVaftCandidateWarmup(handle.token)
+            if (vaftWarmupToken == handle.token) vaftWarmupToken = null
+        }
+        return source
+    }
+
+    private suspend fun <T> ListenableFuture<T>.awaitVaftFuture(): T =
+        kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
+            addListener({
+                if (continuation.isActive) {
+                    continuation.resumeWith(runCatching { get() })
+                }
+            }, MoreExecutors.directExecutor())
+        }
+
+    private fun extendVaftPrimaryReturnHold(rangeRemainingMs: Long?) {
+        val knownRangeRemainingMs = rangeRemainingMs ?: 0L
         // A marker can arrive late in its declared window, so a short remaining duration still gets a useful hold.
-        val holdMs = maxOf(VAFT_PRIMARY_RETURN_MIN_HOLD_MS, rangeRemainingMs)
+        val holdMs = maxOf(VAFT_PRIMARY_RETURN_MIN_HOLD_MS, knownRangeRemainingMs)
         val deadlineMs = SystemClock.elapsedRealtime() + holdMs
         val previousDeadlineMs = vaftPrimaryReturnAfterElapsedMs
         if (previousDeadlineMs == null || deadlineMs > previousDeadlineMs) {
             vaftPrimaryReturnAfterElapsedMs = deadlineMs
             if (BuildConfig.DEBUG) {
-                Log.d("XtraVaft", "primary return held remainingMs=$holdMs rangeRemainingMs=$rangeRemainingMs")
+                Log.d("XtraVaft", "primary return held remainingMs=$holdMs rangeRemainingMs=$knownRangeRemainingMs")
             }
         }
     }
 
+    private fun isVaftTargetPlaylistClean(
+        player: ExoPlayer,
+        playlist: HlsMediaPlaylist,
+        returningPrimary: Boolean,
+    ): Boolean {
+        val targetContainsUnsafeMarker = TwitchVaftDetector.visibleBoundaries(playlist).any { boundary ->
+            classifyVaftBoundary(
+                player,
+                playlist,
+                boundary,
+                allowSourceRelativeClock = true,
+                allowMediaSequence = true,
+                snapshotStartTimeUs = playlist.startTimeUs,
+                snapshotMediaSequence = playlist.mediaSequence,
+            ) in setOf(VaftPlaybackBoundaryPhase.ACTIVE, VaftPlaybackBoundaryPhase.UNKNOWN)
+        }
+        if (targetContainsUnsafeMarker) return false
+        if (!returningPrimary) return !TwitchVaftDetector.requiresVaft(playlist)
+        val tracked = trackedVaftBoundary
+        if (tracked != null) {
+            val phase = vaftPlaybackBoundaryPhase(
+                player,
+                playlist,
+                tracked,
+            )
+            if (phase == VaftPlaybackBoundaryPhase.ACTIVE || phase == VaftPlaybackBoundaryPhase.UNKNOWN) return false
+        } else {
+            val phase = vaftUntrackedBoundaryPhase(
+                player,
+                playlist,
+                TwitchVaftDetector.requiresVaft(playlist),
+            )
+            if (phase == VaftPlaybackBoundaryPhase.ACTIVE || phase == VaftPlaybackBoundaryPhase.UNKNOWN) return false
+        }
+        return true
+    }
+
     /** The service owns verification and rollback even when the UI controller disconnects. */
-    private fun startVaftHandoff(player: ExoPlayer, extras: Bundle): ListenableFuture<SessionResult> {
+    private fun startVaftHandoff(
+        player: ExoPlayer,
+        extras: Bundle,
+        preloadedSource: VaftPreloadedMediaSource? = null,
+    ): ListenableFuture<SessionResult> {
         if (vaftHandoffJob?.isActive == true) {
             return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
         }
@@ -2416,22 +3713,55 @@ class PlaybackService : MediaSessionService() {
             putBoolean(SUPPRESS_VAFT_OUTPUT, true)
         }
         val previousAlternate = vaftAlternateActive
+        val returningPrimary = previousAlternate && !extras.getBoolean(VAFT_ALTERNATE_ACTIVE)
         val previousTracks = player.trackSelectionParameters
         val previousQualityPolicy = xtraModule.streamMedia3Runtime.qualitySelectionPolicy.snapshot()
         val generation = vaftGeneration
+        val handoffExtras = Bundle(extras).apply {
+            putString(
+                VAFT_HANDOFF_TARGET_MEDIA_ID,
+                preloadedSource?.mediaItem?.mediaId ?: "$VAFT_SOURCE_MEDIA_ID_PREFIX${java.util.UUID.randomUUID()}",
+            )
+        }
         val result = SettableFuture.create<SessionResult>()
-        vaftOutputSuppressed = true
+        vaftOutputSuppressed = !returningPrimary
         vaftSourceSwitching = true
+        vaftHandoffTargetMediaId = handoffExtras.getString(VAFT_HANDOFF_TARGET_MEDIA_ID)
+        vaftHandoffTargetGeneration = generation
+        vaftHandoffTargetFrameRendered = false
+        vaftHandoffFrameCaptureResolvedId = null
+        vaftHandoffFrameCaptureAccepted = false
         vaftHandoffPreviousTracks = previousTracks
         vaftHandoffPreviousMediaItem = player.currentMediaItem
         vaftHandoffPreviousPositionMs = player.currentPosition
+        if (!returningPrimary) player.volume = 0f
         publishVaftPlaybackState()
         vaftHandoffJob = lifecycleScope.launch {
             var committedRendition = verified
+            var handoffPosition = snapshotVaftPosition(player)
             try {
+                if (returningPrimary) {
+                    awaitReturnFrameCapture(
+                        player = player,
+                        generation = generation,
+                        outgoingUri = player.currentMediaItem?.localConfiguration?.uri?.toString(),
+                    )
+                    if (generation != vaftGeneration) {
+                        result.set(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
+                        return@launch
+                    }
+                    vaftOutputSuppressed = true
+                    player.volume = 0f
+                    publishVaftPlaybackState()
+                }
+                vaftHandoffPreviousPositionMs = player.currentPosition
+                handoffPosition = snapshotVaftPosition(player)
                 val success = try {
-                    withTimeoutOrNull(15_000L) {
-                        replaceVaftSource(player, extras)
+                    withTimeoutOrNull(
+                        if (returningPrimary) VAFT_PRIMARY_HANDOFF_TIMEOUT_MS
+                        else VAFT_ALTERNATE_HANDOFF_TIMEOUT_MS,
+                    ) {
+                        replaceVaftSource(player, handoffExtras, preloadedSource)
                         val audioOnly = verified?.name == PlaybackContract.AUDIO_ONLY_QUALITY
                         if (audioOnly) {
                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -2439,11 +3769,15 @@ class PlaybackService : MediaSessionService() {
                                 .clearOverridesOfType(Media3C.TRACK_TYPE_VIDEO)
                                 .build()
                         }
-                        var selected = verified == null || audioOnly
+                        var overrideApplied = verified == null || audioOnly
+                        var positionAligned = false
                         var lastHandoffDiagnostic: String? = null
-                        while (generation == vaftGeneration && player.currentMediaItem?.localConfiguration?.uri?.toString() == targetUri) {
+                        val targetMediaId = handoffExtras.getString(VAFT_HANDOFF_TARGET_MEDIA_ID)
+                        while (generation == vaftGeneration && player.currentMediaItem?.mediaId == targetMediaId &&
+                            player.currentMediaItem?.localConfiguration?.uri?.toString() == targetUri
+                        ) {
                             if (player.playerError != null) return@withTimeoutOrNull false
-                            if (!selected && verified != null) {
+                            if (!overrideApplied && verified != null) {
                                 val manifest = player.currentManifest as? HlsManifest
                                 val variant = manifest?.multivariantPlaylist?.variants
                                     ?.firstOrNull { it.url.toString() == verified.url }
@@ -2471,7 +3805,7 @@ class PlaybackService : MediaSessionService() {
                                         clearOverridesOfType(Media3C.TRACK_TYPE_VIDEO)
                                         setOverrideForType(override)
                                     }.build()
-                                    selected = true
+                                    overrideApplied = true
                                 }
                             }
                             val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
@@ -2483,14 +3817,28 @@ class PlaybackService : MediaSessionService() {
                             }
                             // The loaded playlist is the final authority. A clean playable
                             // rendition must not stay black because track labels changed.
-                            val renditionConfirmed = verified == null || audioOnly || activeVideo != null || backgroundVideoSuppressed
+                            val renditionConfirmed = when {
+                                audioOnly || backgroundVideoSuppressed -> true
+                                verified == null -> activeVideo != null
+                                else -> activeVideo?.url?.toString() == verified.url
+                            }
                             if (BuildConfig.DEBUG) {
-                                val diagnostic = "state=${player.playbackState} selected=$selected confirmed=$renditionConfirmed videoSuppressed=$backgroundVideoSuppressed"
+                                val diagnostic = "state=${player.playbackState} overrideApplied=$overrideApplied confirmed=$renditionConfirmed " +
+                                    "activeRendition=${activeVideo?.url?.toString()?.let(::diagnosticToken)} " +
+                                    "videoSuppressed=$backgroundVideoSuppressed"
                                 if (diagnostic != lastHandoffDiagnostic) Log.d("XtraVaft", "handoff $diagnostic")
                                 lastHandoffDiagnostic = diagnostic
                             }
-                            if (player.playbackState == Player.STATE_READY && renditionConfirmed && playlist != null) {
-                                if (!TwitchVaftDetector.requiresVaft(playlist)) {
+                            if (player.playbackState == Player.STATE_READY && playlist != null) {
+                                if (!positionAligned) {
+                                    val alignment = alignVaftPosition(player, handoffPosition)
+                                    positionAligned = alignment == "program_date_time" ||
+                                        alignment == "live_offset_best_effort"
+                                    if (BuildConfig.DEBUG) Log.d("XtraVaft", "handoff_position_alignment result=$alignment")
+                                    delay(if (positionAligned) 50L else 100L)
+                                    continue
+                                }
+                                if (renditionConfirmed && isVaftTargetPlaylistClean(player, playlist, returningPrimary)) {
                                     activeVideo?.let { variant ->
                                         val format = variant.format
                                         committedRendition = com.github.andreyasadchy.xtra.model.VideoQuality(
@@ -2499,6 +3847,27 @@ class PlaybackService : MediaSessionService() {
                                             format.frameRate.takeIf { it > 0 })
                                     }
                                     return@withTimeoutOrNull true
+                                }
+                                if (renditionConfirmed && !returningPrimary) {
+                                    if (TwitchVaftDetector.requiresVaft(playlist)) {
+                                        if (BuildConfig.DEBUG) Log.d("XtraVaft", "handoff candidate_rejected reason=target_tail_guard")
+                                        return@withTimeoutOrNull false
+                                    }
+                                    val activeTargetBoundary = TwitchVaftDetector.visibleBoundaries(playlist).any { boundary ->
+                                        classifyVaftBoundary(
+                                            player = player,
+                                            playlist = playlist,
+                                            boundary = boundary,
+                                            allowSourceRelativeClock = true,
+                                            allowMediaSequence = true,
+                                            snapshotStartTimeUs = playlist.startTimeUs,
+                                            snapshotMediaSequence = playlist.mediaSequence,
+                                        ) == VaftPlaybackBoundaryPhase.ACTIVE
+                                    }
+                                    if (activeTargetBoundary) {
+                                        if (BuildConfig.DEBUG) Log.d("XtraVaft", "handoff candidate_rejected reason=target_active_boundary")
+                                        return@withTimeoutOrNull false
+                                    }
                                 }
                             }
                             delay(100L)
@@ -2520,8 +3889,8 @@ class PlaybackService : MediaSessionService() {
                         vaftPrimaryReturnAfterElapsedMs = null
                         liveStreamUri = targetUri
                         liveStreamExtras = Bundle(extras).apply { remove(VAFT_ALTERNATE_ACTIVE); remove(VAFT_VERIFIED_RENDITION); remove(VAFT_PLAYER_TYPE) }
-                        player.currentMediaItem?.let(xtraModule.streamMedia3Runtime::setPrimaryPlaybackMediaItem)
                     }
+                    player.currentMediaItem?.let(xtraModule.streamMedia3Runtime::setPrimaryPlaybackMediaItem)
                     vaftOutputSuppressed = false
                     player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
                     setLiveRewindSessionState(active = false, vodId = null, transitioning = false)
@@ -2531,33 +3900,67 @@ class PlaybackService : MediaSessionService() {
                 } else {
                     if (generation == vaftGeneration && previousExtras != null && player.currentMediaItem?.localConfiguration?.uri?.toString() == targetUri) {
                         previousExtras.putBoolean(PLAY_WHEN_READY, player.playWhenReady)
-                        val cleanRollback = try {
+                        data class RollbackState(val restored: Boolean, val clean: Boolean)
+                        val rollbackState = try {
                             replaceVaftSource(player, previousExtras)
                             xtraModule.streamMedia3Runtime.qualitySelectionPolicy.set(
                                 previousQualityPolicy.name, previousQualityPolicy.bitrate, previousQualityPolicy.codecs)
                             player.trackSelectionParameters = previousTracks
                             withTimeoutOrNull(15_000L) {
                                 val rollbackUri = previousExtras.getString(URI)
-                                while (generation == vaftGeneration && player.currentMediaItem?.localConfiguration?.uri?.toString() == rollbackUri) {
-                                    if (player.playerError != null) return@withTimeoutOrNull false
+                                val rollbackMediaId = vaftHandoffTargetMediaId
+                                var rollbackPositionAligned = false
+                                while (generation == vaftGeneration && player.currentMediaItem?.mediaId == rollbackMediaId &&
+                                    player.currentMediaItem?.localConfiguration?.uri?.toString() == rollbackUri
+                                ) {
+                                    if (player.playerError != null) return@withTimeoutOrNull RollbackState(restored = false, clean = false)
                                     val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
                                     if (player.playbackState == Player.STATE_READY && playlist != null) {
-                                        return@withTimeoutOrNull !TwitchVaftDetector.requiresVaft(playlist)
+                                        if (!rollbackPositionAligned) {
+                                            val alignment = alignVaftPosition(player, handoffPosition)
+                                            rollbackPositionAligned = alignment == "program_date_time" ||
+                                                alignment == "live_offset_best_effort"
+                                            if (BuildConfig.DEBUG) Log.d("XtraVaft", "rollback_position_alignment result=$alignment")
+                                            delay(if (rollbackPositionAligned) 50L else 100L)
+                                            continue
+                                        }
+                                        if (isVaftTargetPlaylistClean(player, playlist, !previousAlternate)) {
+                                            return@withTimeoutOrNull RollbackState(restored = true, clean = true)
+                                        }
+                                        if (!previousAlternate) {
+                                            val publisherRequiresVaft = TwitchVaftDetector.requiresVaft(playlist)
+                                            val tracked = trackedVaftBoundary
+                                            val phase = tracked?.let {
+                                                vaftPlaybackBoundaryPhase(player, playlist, it)
+                                            } ?: vaftUntrackedBoundaryPhase(player, playlist, publisherRequiresVaft)
+                                            if (isPlaybackBoundaryUnsafe(phase, publisherRequiresVaft, tracked != null)) {
+                                                return@withTimeoutOrNull RollbackState(restored = true, clean = false)
+                                            }
+                                        }
                                     }
                                     delay(100L)
                                 }
-                                false
-                            } == true
+                                RollbackState(restored = false, clean = false)
+                            }
                         } catch (error: CancellationException) {
                             throw error
                         } catch (error: Exception) {
                             if (BuildConfig.DEBUG) Log.w("XtraVaft", "handoff rollback failed", error)
-                            false
+                            null
                         }
                         vaftAlternateActive = previousAlternate
+                        val rollbackRestored = rollbackState?.restored == true
+                        val cleanRollback = rollbackState?.clean == true
                         vaftOutputSuppressed = !cleanRollback
-                        if (cleanRollback) player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
-                        if (BuildConfig.DEBUG) Log.d("XtraVaft", "handoff rollback clean=$cleanRollback alternate=$previousAlternate playWhenReady=${player.playWhenReady}")
+                        if (rollbackRestored) {
+                            player.currentMediaItem?.let(xtraModule.streamMedia3Runtime::setPrimaryPlaybackMediaItem)
+                        }
+                        if (cleanRollback) {
+                            player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                        } else {
+                            player.volume = 0f
+                        }
+                        if (BuildConfig.DEBUG) Log.d("XtraVaft", "handoff rollback restored=$rollbackRestored clean=$cleanRollback alternate=$previousAlternate playWhenReady=${player.playWhenReady}")
                     }
                     result.set(SessionResult(SessionError.ERROR_UNKNOWN))
                 }
@@ -2570,6 +3973,7 @@ class PlaybackService : MediaSessionService() {
                     vaftHandoffPreviousTracks = null
                     vaftHandoffPreviousMediaItem = null
                     vaftHandoffPreviousPositionMs = null
+                    discardVaftPreparation()
                     publishVaftPlaybackState()
                 }
             }
@@ -3453,6 +4857,16 @@ class PlaybackService : MediaSessionService() {
         private const val RESUMPTION_TAG = "PlaybackResumption"
         private const val VAFT_PRIMARY_RETURN_MIN_HOLD_MS = 30_000L
         const val VAFT_SOURCE_MEDIA_ID_PREFIX = "vaft-source:"
+        private const val VAFT_PREPARED_CANDIDATE_MAX_AGE_MS = 15_000L
+        private const val VAFT_PREPARE_LOOKAHEAD_MS = 30_000L
+        private const val VAFT_PREPARE_RETRY_COOLDOWN_MS = 5_000L
+        private const val VAFT_SAMPLE_WARMUP_LEAD_MS = 700L
+        private const val VAFT_CANDIDATE_REFRESH_LEAD_MS = 12_000L
+        private const val VAFT_PRELOAD_HANDOFF_GRACE_MS = 500L
+        private const val VAFT_ALTERNATE_HANDOFF_TIMEOUT_MS = 4_000L
+        private const val VAFT_PRIMARY_HANDOFF_TIMEOUT_MS = 15_000L
+        private const val VAFT_DIFFERENT_TYPE_RETRY_YIELD_MS = 150L
+        private const val VAFT_CAPTURE_ACK_TIMEOUT_MS = 400L
         private const val PLAYBACK_NOTIFICATION_CHANNEL_ID = "xtra_media_playback"
         private const val PLAYBACK_NOTIFICATION_ID = 5201
         private const val PLAYBACK_BOOTSTRAP_NOTIFICATION_ID = 5202
@@ -3542,6 +4956,14 @@ class PlaybackService : MediaSessionService() {
         const val PLAY_WHEN_READY = "playWhenReady"
         const val SUPPRESS_VAFT_OUTPUT = "suppressVaftOutput"
         const val VAFT_HANDOFF = "vaftHandoff"
+        const val ACK_VAFT_HANDOFF_FRAME = "ackVaftHandoffFrame"
+        const val VAFT_HANDOFF_FRAME_CAPTURE_ID = "vaftHandoffFrameCaptureId"
+        const val VAFT_HANDOFF_FRAME_CAPTURE_RESOLVED_ID = "vaftHandoffFrameCaptureResolvedId"
+        const val VAFT_HANDOFF_FRAME_CAPTURE_ACCEPTED = "vaftHandoffFrameCaptureAccepted"
+        const val VAFT_HANDOFF_FRAME_READY = "vaftHandoffFrameReady"
+        const val VAFT_HANDOFF_TARGET_MEDIA_ID = "vaftHandoffTargetMediaId"
+        const val VAFT_HANDOFF_GENERATION = "vaftHandoffGeneration"
+        const val VAFT_HANDOFF_TARGET_FRAME_RENDERED = "vaftHandoffTargetFrameRendered"
         const val VAFT_ALTERNATE_ACTIVE = "vaftAlternateActive"
         const val VAFT_VERIFIED_RENDITION = "vaftVerifiedRendition"
         const val VAFT_LOGICAL_QUALITY = "vaftLogicalQuality"
