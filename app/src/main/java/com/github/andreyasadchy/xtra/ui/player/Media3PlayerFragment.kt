@@ -3485,6 +3485,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             binding.playerControls.duration.isFocusable = false
             return
         }
+        // The controller is released while background playback continues.
+        // A missing position during reconnect is unknown playback state, not a
+        // user pause, so leave the paused-live state untouched until it returns.
+        val playerPositionMs = getCurrentPosition() ?: return
         val currentStream = viewModel.stream.value
         val currentStreamId = currentStream?.id
         val currentStreamCreatedAt = currentStream?.createdAt
@@ -3531,11 +3535,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             playbackRequested = playbackRequested,
             existingPositionMs = pausedLivePositionMs,
         )
-        val playerPositionMs = getCurrentPosition() ?: if (livePlaybackMode is LivePlaybackMode.Live) {
-            edgeMs
-        } else {
-            0L
-        }
         val progressPositionMs = if (liveRewindScrubPositionMs == null) {
             liveRewindTimelinePositionMs(
                 mode = livePlaybackMode,

@@ -108,6 +108,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var liveClipDirectoryPath: String? = null
     private var liveSurfaceRestoreListener: Player.Listener? = null
     private var liveSurfaceRestoreTimeout: Runnable? = null
+    private var foregroundVideoRestoreController: Player? = null
+    private var foregroundVideoRestoreListener: Player.Listener? = null
     private var clipEditorCoverTimeout: Runnable? = null
     private var clipStatusGeneration = 0L
     private var clipStatusRequestInFlight = false
@@ -549,7 +551,19 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             viewLifecycleOwner.lifecycleScope.launch {
                 if (controllerFuture !== future || view == null || !isAdded) return@launch
                 val reconnectingStreamSession = videoType == STREAM && controller.currentMediaItem != null
-                if (reconnectingStreamSession && !synchronizeVaftPlaybackState(controller)) return@launch
+                if (reconnectingStreamSession &&
+                    viewModel.quality?.name != AUDIO_ONLY_QUALITY &&
+                    viewModel.quality?.name != CHAT_ONLY_QUALITY
+                ) {
+                    // VAFT synchronization can show/attach the SurfaceView. Arm
+                    // before it so its first rendered frame cannot outrun the
+                    // listener that removes the reconnect cover.
+                    armForegroundVideoRestore(controller)
+                }
+                if (reconnectingStreamSession && !synchronizeVaftPlaybackState(controller)) {
+                    clearForegroundVideoRestore()
+                    return@launch
+                }
                 if (reconnectingStreamSession) beginLiveRewindStateSync()
                 // Install the new output while background playback still owns
                 // the disabled video track. The service can then restore video
@@ -571,6 +585,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 }
                 if (controllerFuture !== future || view == null || !isAdded) return@launch
                 if (foregroundTransition?.resultCode != SessionResult.RESULT_SUCCESS) {
+                    clearForegroundVideoRestore()
                     Log.e("PlaybackResumption", "Foreground playback restore command failed")
                     showPlayerError(R.string.player_error) { restartPlayer() }
                     return@launch
@@ -3709,6 +3724,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     private fun releaseController(controller: MediaController? = player) {
+        clearForegroundVideoRestore()
         invalidateResumeQualityConfirmation("controller_released")
         qualityRequestGeneration++
         qualityRequestInFlight = false
@@ -4430,17 +4446,23 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
                     var suppressVideoInBackground = false
                     if (requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
-                        suppressVideoInBackground = shouldDisableVideoForBackground(
-                            backgroundPlaybackEnabled = true,
-                            isInPictureInPicture = isInPIPMode,
-                            playWhenReady = player.playWhenReady,
-                            playbackState = player.playbackState,
-                            hasMediaItem = player.currentMediaItem != null,
-                            audioOnly = viewModel.quality?.name == AUDIO_ONLY_QUALITY,
-                            chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY,
-                            videoAlreadySuppressed = viewModel.hidden,
-                        )
-                        if (suppressVideoInBackground) {
+                        val keepLiveStreamTrack = videoType == STREAM &&
+                            player.currentMediaItem?.liveConfiguration?.targetOffsetMs
+                                ?.let { it != Media3C.TIME_UNSET } == true
+                        suppressVideoInBackground = !keepLiveStreamTrack &&
+                            shouldDisableVideoForBackground(
+                                backgroundPlaybackEnabled = true,
+                                isInPictureInPicture = isInPIPMode,
+                                playWhenReady = player.playWhenReady,
+                                playbackState = player.playbackState,
+                                hasMediaItem = player.currentMediaItem != null,
+                                audioOnly = viewModel.quality?.name == AUDIO_ONLY_QUALITY,
+                                chatOnly = viewModel.quality?.name == CHAT_ONLY_QUALITY,
+                                videoAlreadySuppressed = viewModel.hidden,
+                            )
+                        if (keepLiveStreamTrack || suppressVideoInBackground) {
+                            // Keep live HLS track selection stable across the background cycle.
+                            // Hiding the surface avoids forcing video track selection on return.
                             setVideoOutputVisible(false)
                         }
                     } else {
@@ -4575,6 +4597,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         liveSurfaceRestoreTimeout = null
         liveSurfaceRestoreListener?.let { listener -> player?.removeListener(listener) }
         liveSurfaceRestoreListener = null
+        clearForegroundVideoRestore()
         videoOutputCover = null
         resetProgressRenderState()
         renderedPlaybackChrome = null
@@ -4605,6 +4628,39 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val currentPlayer = videoOutputOwner.attachedPlayer() ?: return
         logVideoSurfaceBinding("detach_attempt", currentPlayer, videoOutputView)
         videoOutputOwner.clear()
+    }
+
+    private fun armForegroundVideoRestore(controller: Player) {
+        clearForegroundVideoRestore()
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                if (foregroundVideoRestoreListener !== this) return
+                if (viewModel.hidden ||
+                    viewModel.quality?.name == AUDIO_ONLY_QUALITY ||
+                    viewModel.quality?.name == CHAT_ONLY_QUALITY
+                ) {
+                    clearForegroundVideoRestore()
+                    return
+                }
+                if (videoOutputView.visibility != View.VISIBLE) return
+
+                clearForegroundVideoRestore()
+                hideVideoOutputCover()
+                refreshPlayerHudLayout()
+            }
+        }
+        foregroundVideoRestoreController = controller
+        foregroundVideoRestoreListener = listener
+        controller.addListener(listener)
+        videoOutputCover?.visibility = View.VISIBLE
+    }
+
+    private fun clearForegroundVideoRestore() {
+        val controller = foregroundVideoRestoreController
+        val listener = foregroundVideoRestoreListener
+        foregroundVideoRestoreController = null
+        foregroundVideoRestoreListener = null
+        if (controller != null && listener != null) controller.removeListener(listener)
     }
 
     private fun sampleRenderedSurfaceFrame(controller: Player, surfaceView: SurfaceView) {
