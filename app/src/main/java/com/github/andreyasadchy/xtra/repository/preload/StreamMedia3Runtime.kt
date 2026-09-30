@@ -17,13 +17,12 @@ import androidx.media3.exoplayer.source.preload.PreloadException
 import androidx.media3.exoplayer.source.preload.PreloadMediaSource
 import androidx.media3.exoplayer.source.preload.PreloadManagerListener
 import androidx.media3.exoplayer.source.preload.TargetPreloadStatusControl
-import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.ui.player.StreamHlsMediaSourceFactory
 import com.github.andreyasadchy.xtra.ui.player.SmoothHlsQualityPolicy
-import com.github.andreyasadchy.xtra.ui.player.SmoothHlsTrackSelectionFactory
+import com.github.andreyasadchy.xtra.ui.player.SmoothHlsTrackSelector
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
@@ -528,10 +527,7 @@ class StreamMedia3Runtime(
         val builder = DefaultPreloadManager.Builder(context, statusControl)
             .setMediaSourceFactory(hlsFactory)
             .setTrackSelectorFactory { selectorContext ->
-                DefaultTrackSelector(
-                    selectorContext,
-                    SmoothHlsTrackSelectionFactory(qualitySelectionPolicy),
-                )
+                SmoothHlsTrackSelector(selectorContext, qualitySelectionPolicy)
             }
             .setLoadControl(playbackLoadControl)
             .setRenderersFactory(

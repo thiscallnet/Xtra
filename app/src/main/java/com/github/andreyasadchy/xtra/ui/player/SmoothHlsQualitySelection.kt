@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.player
 
+import android.content.Context
 import android.util.Log
+import android.util.Pair as AndroidPair
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -10,9 +12,12 @@ import androidx.media3.common.Tracks
 import androidx.media3.common.Timeline
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.source.MediaSource
+import androidx.media3.exoplayer.RendererCapabilities
 import androidx.media3.exoplayer.source.chunk.MediaChunk
 import androidx.media3.exoplayer.source.chunk.MediaChunkIterator
 import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.trackselection.MappingTrackSelector.MappedTrackInfo
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection
 import androidx.media3.exoplayer.trackselection.ForwardingTrackSelection
 import androidx.media3.exoplayer.trackselection.TrackSelection
@@ -91,6 +96,54 @@ class SmoothHlsQualityPolicy {
     }
 
     fun snapshot(): DesiredHlsQuality = desired.get()
+}
+
+/** Applies manual intent before Media3 loads the first video chunks. */
+class SmoothHlsTrackSelector(
+    context: Context,
+    private val qualityPolicy: SmoothHlsQualityPolicy,
+) : DefaultTrackSelector(context, SmoothHlsTrackSelectionFactory(qualityPolicy)) {
+    override fun selectVideoTrack(
+        mappedTrackInfo: MappedTrackInfo,
+        rendererFormatSupports: Array<Array<IntArray>>,
+        mixedMimeTypeSupports: IntArray,
+        params: Parameters,
+        selectedAudioLanguage: String?,
+    ): AndroidPair<ExoTrackSelection.Definition, Int>? {
+        val desired = qualityPolicy.snapshot()
+        if (!desired.isAuto) {
+            var selected: Triple<Int, Int, Int>? = null
+            var selectedFormat: Format? = null
+            for (renderer in 0 until mappedTrackInfo.rendererCount) {
+                if (mappedTrackInfo.getRendererType(renderer) != C.TRACK_TYPE_VIDEO) continue
+                val groups = mappedTrackInfo.getTrackGroups(renderer)
+                for (group in 0 until groups.length) {
+                    for (track in 0 until groups[group].length) {
+                        val format = groups[group].getFormat(track)
+                        val support = RendererCapabilities.getFormatSupport(rendererFormatSupports[renderer][group][track])
+                        // Match the manual rendition behavior of opening its media URL.
+                        // Unsupported codecs remain excluded. Respect preview size limits.
+                        if (support != C.FORMAT_HANDLED &&
+                            !(params.exceedRendererCapabilitiesIfNecessary && support == C.FORMAT_EXCEEDS_CAPABILITIES)) continue
+                        if (!desired.matches(format) || format.width > params.maxVideoWidth ||
+                            format.height > params.maxVideoHeight || format.frameRate > params.maxVideoFrameRate ||
+                            format.bitrate > params.maxVideoBitrate) continue
+                        val previous = selectedFormat
+                        if (previous == null || compareValuesBy(format, previous,
+                                { it.height }, { it.frameRate }, { it.bitrate }) > 0) {
+                            selected = Triple(renderer, group, track)
+                            selectedFormat = format
+                        }
+                    }
+                }
+            }
+            selected?.let { (renderer, group, track) ->
+                if (BuildConfig.DEBUG) Log.d("SmoothHlsQuality", "startup_manual desired=${desired.name} selected=${selectedFormat?.height}p")
+                return AndroidPair(ExoTrackSelection.Definition(mappedTrackInfo.getTrackGroups(renderer)[group], track), renderer)
+            }
+        }
+        return super.selectVideoTrack(mappedTrackInfo, rendererFormatSupports, mixedMimeTypeSupports, params, selectedAudioLanguage)
+    }
 }
 
 internal fun resumptionHlsQuality(quality: VideoQuality?): DesiredHlsQuality {

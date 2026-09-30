@@ -2817,6 +2817,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
+    protected fun startupQualityName(): String {
+        val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val profile = PlayerQualityNetworkProfile.from(connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork))
+        val configured = profile.qualityPreference(requireContext().prefs())?.substringBefore(" ")
+        return if (configured == "saved") {
+            requireContext().prefs().getString(C.PLAYER_QUALITY, "720p60")?.substringBefore(" ") ?: AUTO_QUALITY
+        } else configured ?: AUTO_QUALITY
+    }
+
     private fun resolveDefaultQualityForNetwork(profile: PlayerQualityNetworkProfile): VideoQuality? {
         val defaultQuality = profile.qualityPreference(requireContext().prefs())?.substringBefore(" ")
         return when (defaultQuality) {
@@ -2824,6 +2833,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 val savedQuality = requireContext().prefs().getString(C.PLAYER_QUALITY, "720p60")?.substringBefore(" ")
                 when (savedQuality) {
                     AUTO_QUALITY -> viewModel.qualities?.find { it.name == AUTO_QUALITY }
+                    SOURCE_QUALITY -> viewModel.qualities?.firstOrNull { it.name != AUTO_QUALITY }
                     AUDIO_ONLY_QUALITY -> viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY }
                     CHAT_ONLY_QUALITY -> viewModel.qualities?.find { it.name == CHAT_ONLY_QUALITY }
                     else -> findQuality(savedQuality)
