@@ -252,7 +252,7 @@ fun SharedPreferences.httpProxyHost(): String? = getString(C.PROXY_HOST, null).t
 fun SharedPreferences.httpProxyPort(): Int? = getString(C.PROXY_PORT, null)?.toIntOrNull().takeIf { httpProxyEnabled() }
 
 /** The alternate-stream master switch is authoritative; hiding is only a presentation choice. */
-fun SharedPreferences.shouldAvoidTwitchAds(): Boolean = getBoolean(C.PLAYER_AVOID_ADS, true)
+fun SharedPreferences.isVaftEnabled(): Boolean = getBoolean(C.PLAYER_VAFT_ENABLED, true)
 
 fun Activity.applyTheme() {
     val themeMode = prefs().getString(C.SETTINGS_THEME_MODE, "system") ?: "system"

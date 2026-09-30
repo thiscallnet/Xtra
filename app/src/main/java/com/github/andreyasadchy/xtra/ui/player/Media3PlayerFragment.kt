@@ -114,7 +114,7 @@ import com.github.andreyasadchy.xtra.ui.player.hud.HudElementId
 import com.github.andreyasadchy.xtra.ui.player.hud.HudOrientation
 import com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudVisibilityController
 import com.github.andreyasadchy.xtra.util.prefs
-import com.github.andreyasadchy.xtra.util.shouldAvoidTwitchAds
+import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.color.MaterialColors
@@ -2208,6 +2208,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             if (!isAdded || childFragmentManager.isStateSaved) return@ensureQualities
             val qualities = getQualities()
             if (qualities.isNullOrEmpty()) return@ensureQualities
+            val existing = childFragmentManager.findFragmentByTag("closeOnPip") as? RadioButtonDialogFragment
+            if (existing?.updateOptions(REQUEST_CODE_QUALITY, qualities.map { it.first },
+                    qualities.map { it.second.name.toString() }.toTypedArray(),
+                    qualities.map { it.second.url.toString() }.toTypedArray(),
+                    qualities.indexOfFirst { it.second.name == viewModel.quality?.name && it.second.url == viewModel.quality?.url }) == true) return@ensureQualities
             RadioButtonDialogFragment.newInstance(
                 REQUEST_CODE_QUALITY,
                 qualities.map { it.first },
@@ -2450,8 +2455,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun isVaftActive(): Boolean {
-        return videoType == STREAM && requireContext().prefs().shouldAvoidTwitchAds() &&
-                (viewModel.playingAds || viewModel.usingAlternateStream || viewModel.hidden)
+        return videoType == STREAM && requireContext().prefs().isVaftEnabled() &&
+                (viewModel.vaftRequired || viewModel.usingAlternateStream || viewModel.hidden)
     }
 
     private fun qualityLabel(quality: VideoQuality?): String? {
@@ -2575,6 +2580,20 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             } else {
                 onStreamBecameOffline(eventSequence)
             }
+        }
+    }
+
+    protected fun refreshOpenQualityDialog(loading: Boolean = false) {
+        if (!isAdded) return
+        val dialog = childFragmentManager.findFragmentByTag("closeOnPip") as? RadioButtonDialogFragment ?: return
+        val qualities = if (loading) null else getQualities()
+        if (qualities.isNullOrEmpty()) {
+            dialog.showOptionsLoading(REQUEST_CODE_QUALITY)
+        } else {
+            dialog.updateOptions(REQUEST_CODE_QUALITY, qualities.map { it.first },
+                qualities.map { it.second.name.toString() }.toTypedArray(),
+                qualities.map { it.second.url.toString() }.toTypedArray(),
+                qualities.indexOfFirst { it.second.name == viewModel.quality?.name && it.second.url == viewModel.quality?.url })
         }
     }
 

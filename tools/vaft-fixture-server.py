@@ -1,8 +1,8 @@
 """Local Twitch/HLS fixture for the debug-only VaftFixtureReceiver.
 
 Run with Python and ffmpeg on PATH. Media is generated in a temporary directory.
-Control it with /control?primary_ad=true, /control?primary_ad=false,
-/control?backup_ad=true, /control?fail=embed, or /control?delay=3.
+Control it with /control?primary_vaft=true, /control?primary_vaft=false,
+/control?backup_vaft=true, /control?fail=embed, or /control?delay=3.
 Only requests for the reserved vaft_fixture channel are redirected by the app.
 """
 
@@ -25,10 +25,30 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CHANNEL = "vaft_fixture"
 HOST = "https://vaft-fixture.invalid"
 START = time.time() - 60
-STATE = {"primary_ad": False, "backup_ad": False, "ad_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "ladder": False, "primary_max": 720, "unavailable": False, "real_backup": False}
+STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "ladder": False, "primary_max": 720, "unavailable": False, "real_backup": False}
 LOCK = threading.Lock()
 ROOT = pathlib.Path(tempfile.mkdtemp(prefix="xtra-vaft-fixture-"))
 DEVICE_ID = uuid.uuid4().hex
+VAFT_RANGE_TEMPLATE = None
+
+
+def captured_vaft_range(first):
+    if VAFT_RANGE_TEMPLATE is None:
+        return None
+    original = re.search(r'START-DATE="([^"]+)"', VAFT_RANGE_TEMPLATE)
+    original_time = datetime.datetime.fromisoformat(original[1].replace("Z", "+00:00"))
+    shifted_time = datetime.datetime.fromtimestamp(START + first * 2, datetime.timezone.utc)
+    shift = shifted_time - original_time
+
+    def shift_date(match):
+        value = datetime.datetime.fromisoformat(match[2].replace("Z", "+00:00")) + shift
+        return f'{match[1]}="{value.isoformat().replace("+00:00", "Z")}"'
+
+    line = re.sub(r'(START-DATE|END-DATE)="([^"]+)"', shift_date, VAFT_RANGE_TEMPLATE)
+    # Each fixture window has a distinct identity, so a previous snapshot cannot
+    # retain a range with different dates under the same identity.
+    return re.sub(r'(^#EXT-X-DATERANGE:|,)ID="[^"]+"',
+                  lambda match: f'{match[1]}ID="fixture-vaft-{first}"', line)
 
 
 def real_backup_master(player_type):
@@ -165,7 +185,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/control":
             with LOCK:
                 for key, values in query.items():
-                    if key in ("primary_ad", "backup_ad", "ad_attributes_only", "ladder", "unavailable", "real_backup"):
+                    if key in ("primary_vaft", "backup_vaft", "vaft_attributes_only", "ladder", "unavailable", "real_backup"):
                         STATE[key] = values[0].lower() == "true"
                     elif key in ("delay", "segment_delay"):
                         STATE[key] = float(values[0])
@@ -233,9 +253,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             last = int((time.time() - START) / 2)
             first = 0 if replay else max(0, last - 9)
-            ad = not replay and state["primary_ad" if primary else "backup_ad"]
+            vaft_required = not replay and state["primary_vaft" if primary else "backup_vaft"]
             if state["unavailable"] and "chunked" in parts:
-                ad = True
+                vaft_required = True
             lines = ["#EXTM3U", "#EXT-X-VERSION:3", "#EXT-X-TARGETDURATION:2", f"#EXT-X-MEDIA-SEQUENCE:{first}"]
             lines.append(f"#EXT-X-DISCONTINUITY-SEQUENCE:{max(0, (first - 1) // segment_count)}")
             if replay:
@@ -243,13 +263,15 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 # Normal Twitch live playlists carry this open-ended trigger too.
                 # It must not suppress video or disqualify a clean backup.
-                attributes = ',X-TV-TWITCH-AD-ID="fixture-ad"' if ad and state["ad_attributes_only"] else ""
+                attributes = ',X-TV-TWITCH-AD-ID="fixture-vaft"' if vaft_required and state["vaft_attributes_only"] else ""
                 lines.append(f'#EXT-X-DATERANGE:ID="trigger-{first}",CLASS="twitch-trigger",START-DATE="{timestamp(START + first * 2)}",END-ON-NEXT=YES,X-TV-TWITCH-TRIGGER-URL="https://vaft-fixture.invalid/trigger"{attributes}')
+                if vaft_required and VAFT_RANGE_TEMPLATE is not None:
+                    lines.append(captured_vaft_range(first))
             for i in range(first, last + 1):
                 if i > 0 and i % segment_count == 0:
                     lines.append("#EXT-X-DISCONTINUITY")
                 lines += [f"#EXT-X-PROGRAM-DATE-TIME:{timestamp(START + i * 2)}",
-                    f"#EXTINF:2.0,{'Amazon' if ad and not state['ad_attributes_only'] else 'live'}", f"{HOST}/segments/{lane}/{i % segment_count:04d}.ts"]
+                    f"#EXTINF:2.0,{'Amazon' if vaft_required and not state['vaft_attributes_only'] and VAFT_RANGE_TEMPLATE is None else 'live'}", f"{HOST}/segments/{lane}/{i % segment_count:04d}.ts"]
             if not replay:
                 for i in range(last + 1, last + 1 + state["prefetch"]):
                     lines.append(f"#EXT-X-TWITCH-PREFETCH:{HOST}/segments/{lane}/{i % segment_count:04d}.ts")
@@ -286,7 +308,17 @@ if __name__ == "__main__":
     parser.add_argument("--media-dir", type=pathlib.Path)
     parser.add_argument("--start-time", type=float)
     parser.add_argument("--generate-ladder", action="store_true")
+    parser.add_argument("--vaft-range-template", type=pathlib.Path,
+                        help="Private captured playlist JSON whose VAFT range is replayed locally")
     args = parser.parse_args()
+    if args.vaft_range_template:
+        record = json.loads(args.vaft_range_template.read_text(encoding="utf-8"))
+        VAFT_RANGE_TEMPLATE = next(line for line in record["playlist"].splitlines()
+                                   if line.startswith("#EXT-X-DATERANGE:") and 'CLASS="twitch-maf-ad"' in line)
+        if not re.search(r'START-DATE="[^"]+"', VAFT_RANGE_TEMPLATE):
+            parser.error("Captured range has no start date")
+        # Fixture media stays local even if a captured range names a remote asset.
+        VAFT_RANGE_TEMPLATE = re.sub(r'X-ASSET-URI="[^"]*"', 'X-ASSET-URI=""', VAFT_RANGE_TEMPLATE)
     if args.media_dir:
         ROOT = args.media_dir.resolve()
     else:

@@ -48,8 +48,8 @@ internal class SourceSwitchQualityState {
     }
 }
 
-/** Keeps the user's pre-ad quality intent while an alternate stream is active. */
-internal class AdAvoidanceQualityState {
+/** Keeps the user's pre-VAFT quality intent while an alternate stream is active. */
+internal class VaftQualityState {
     private var active = false
     private var preferredQuality: SourceSwitchQualityIdentity? = null
     private var expectedPrimaryReturnUri: String? = null

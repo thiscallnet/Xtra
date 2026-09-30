@@ -4,7 +4,7 @@ import android.net.Uri
 import androidx.media3.common.MimeTypes
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import com.github.andreyasadchy.xtra.ui.player.PlaybackVideoDiagnosticsStore
-import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
+import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import org.junit.Assert.assertEquals
@@ -169,7 +169,7 @@ class TwitchHlsPlaylistParserFactoryTest {
     }
 
     @Test
-    fun stitchedAdDaterangeWithoutAssetUriRemainsDetectable() {
+    fun stitchedVaftDaterangeWithoutAssetUriRemainsDetectable() {
         val parser = TwitchHlsPlaylistParserFactory(lowLatencyEnabled = true)
             .createPlaylistParser()
         val playlist = parser.parse(
@@ -189,11 +189,11 @@ class TwitchHlsPlaylistParserFactoryTest {
         ) as HlsMediaPlaylist
 
         assertTrue(playlist.interstitials.isNotEmpty())
-        assertTrue(TwitchAdDetector.isAd(playlist))
+        assertTrue(TwitchVaftDetector.requiresVaft(playlist))
     }
 
     @Test
-    fun titleOnlyAdSuppressesPrefetchTranslationAndRemainsDetectable() {
+    fun titleOnlyVaftSuppressesPrefetchTranslationAndRemainsDetectable() {
         val parser = TwitchHlsPlaylistParserFactory(lowLatencyEnabled = true)
             .createPlaylistParser()
         val playlist = parser.parse(
@@ -204,16 +204,16 @@ class TwitchHlsPlaylistParserFactoryTest {
                 #EXT-X-TARGETDURATION:6
                 #EXT-X-MEDIA-SEQUENCE:100
                 #EXTINF:2.0,Amazon
-                ad-100.ts
-                #EXT-X-TWITCH-PREFETCH:ad-101.ts
-                #EXT-X-TWITCH-PREFETCH:ad-102.ts
+                VAFT-100.ts
+                #EXT-X-TWITCH-PREFETCH:VAFT-101.ts
+                #EXT-X-TWITCH-PREFETCH:VAFT-102.ts
                 """,
             ),
         ) as HlsMediaPlaylist
 
         assertEquals(6_000_000L, playlist.targetDurationUs)
-        assertEquals(listOf("ad-100.ts"), playlist.segments.map { it.url })
-        assertTrue(TwitchAdDetector.isAd(playlist))
+        assertEquals(listOf("VAFT-100.ts"), playlist.segments.map { it.url })
+        assertTrue(TwitchVaftDetector.requiresVaft(playlist))
     }
 
     @Test
@@ -230,7 +230,7 @@ class TwitchHlsPlaylistParserFactoryTest {
                 #EXTINF:2.0,
                 segment-100.ts
                 #EXT-X-DISCONTINUITY
-                #EXT-X-TWITCH-PREFETCH:possible-ad.ts
+                #EXT-X-TWITCH-PREFETCH:possible-VAFT.ts
                 """,
             ),
         ) as HlsMediaPlaylist

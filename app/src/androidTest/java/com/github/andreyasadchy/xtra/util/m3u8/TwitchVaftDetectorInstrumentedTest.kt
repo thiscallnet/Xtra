@@ -8,9 +8,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class TwitchAdDetectorInstrumentedTest {
+class TwitchVaftDetectorInstrumentedTest {
     @Test
-    fun rawAndMedia3RangesAgreeAtBoundariesAndForOngoingAds() {
+    fun rawAndMedia3RangesAgreeAtBoundariesAndForOngoingVaft() {
         data class Case(val second: Int, val end: String, val endUs: Long, val durationUs: Long, val plannedUs: Long, val expected: Boolean)
         val unset = C.TIME_UNSET
         listOf(
@@ -33,7 +33,7 @@ class TwitchAdDetectorInstrumentedTest {
                 segment.ts
             """.trimIndent())
             val marker = HlsMediaPlaylist.Interstitial(
-                "stitched-ad-1", android.net.Uri.parse("https://example.invalid/ad.m3u8"), null, startUs,
+                "stitched-ad-1", android.net.Uri.parse("https://example.invalid/VAFT.m3u8"), null, startUs,
                 if (case.endUs == unset) unset else startUs + case.endUs,
                 case.durationUs, case.plannedUs, emptyList(), false,
                 unset, unset, emptyList(), emptyList(), emptyList(), false,
@@ -48,8 +48,8 @@ class TwitchAdDetectorInstrumentedTest {
                 HlsMediaPlaylist.ServerControl(unset, false, unset, unset, false),
                 emptyMap(), listOf(marker), null,
             )
-            assertEquals("raw $case", case.expected, TwitchAdDetector.isAd(raw))
-            assertEquals("Media3 $case", case.expected, TwitchAdDetector.isAd(parsed))
+            assertEquals("raw $case", case.expected, TwitchVaftDetector.requiresVaft(raw))
+            assertEquals("Media3 $case", case.expected, TwitchVaftDetector.requiresVaft(parsed))
         }
     }
 

@@ -34,7 +34,7 @@ object PlaylistUtils {
                                 dateRanges.removeAll { it.id == id }
                                 val parsedDuration = Pattern.compile("(?:^|,)DURATION=([\\d.]+)").matcher(line).let { if (it.find()) it.group(1)?.toFloatOrNull() else null }
                                 val parsedPlannedDuration = Pattern.compile("(?:^|,)PLANNED-DURATION=([\\d.]+)").matcher(line).let { if (it.find()) it.group(1)?.toFloatOrNull() else null }
-                                val hasAdMarker = Pattern.compile("X-TV-TWITCH-AD-[^=]+=\"(.+?)\"").matcher(line).find()
+                                val hasVaftMarker = Pattern.compile("X-TV-TWITCH-AD-[^=]+=\"(.+?)\"").matcher(line).find()
                                 dateRanges.add(DateRange(
                                     id = id,
                                     rangeClass = Pattern.compile("CLASS=\"(.+?)\"").matcher(line).let { if (it.find()) it.group(1) else previousRange?.rangeClass },
@@ -42,7 +42,7 @@ object PlaylistUtils {
                                     endDate = Pattern.compile("END-DATE=\"(.+?)\"").matcher(line).let { if (it.find()) it.group(1) else previousRange?.endDate },
                                     duration = parsedDuration ?: previousRange?.duration,
                                     plannedDuration = parsedPlannedDuration ?: previousRange?.plannedDuration,
-                                    ad = hasAdMarker || previousRange?.ad == true
+                                    vaftMarker = hasVaftMarker || previousRange?.vaftMarker == true
                                 ))
                             }
                         }

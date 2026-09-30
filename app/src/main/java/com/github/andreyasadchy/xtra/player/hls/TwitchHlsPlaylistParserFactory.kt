@@ -13,7 +13,7 @@ import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylistParserFactory
 import androidx.media3.exoplayer.upstream.ParsingLoadable
 import com.github.andreyasadchy.xtra.BuildConfig
-import com.github.andreyasadchy.xtra.util.m3u8.TwitchAdDetector
+import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicInteger
@@ -74,6 +74,7 @@ class TwitchHlsPlaylistParserFactory(
     private fun wrap(parser: ParsingLoadable.Parser<HlsPlaylist>): ParsingLoadable.Parser<HlsPlaylist> =
         ParsingLoadable.Parser { uri, input ->
             val raw = input.readBytes().toString(StandardCharsets.UTF_8)
+            VaftPlaylistCapture.record(uri.toString(), raw, "player_parse")
             val adaptation = TwitchLowLatencyPlaylistAdapter.adapt(
                 raw = raw,
                 enabled = lowLatencyEnabled,
@@ -99,7 +100,7 @@ class TwitchHlsPlaylistParserFactory(
             }
             if (adaptation.diagnostics.twitchPrefetchTranslated &&
                 parsed is HlsMediaPlaylist &&
-                TwitchAdDetector.isAd(parsed)
+                TwitchVaftDetector.requiresVaft(parsed)
             ) {
                 finalAdaptation = TwitchLowLatencyPlaylistAdapter.adapt(
                     raw = raw,
@@ -113,7 +114,7 @@ class TwitchHlsPlaylistParserFactory(
             }
             val playlistBeforeInterstitialRestore = parsed as? HlsMediaPlaylist
             if (playlistBeforeInterstitialRestore != null) {
-                parsed = restoreTwitchAdInterstitials(
+                parsed = restoreTwitchVaftInterstitials(
                     parser = parser,
                     playlistUri = uri,
                     playlist = playlistBeforeInterstitialRestore,
@@ -168,7 +169,7 @@ class TwitchHlsPlaylistParserFactory(
             compatible
         }
 
-    private fun restoreTwitchAdInterstitials(
+    private fun restoreTwitchVaftInterstitials(
         parser: ParsingLoadable.Parser<HlsPlaylist>,
         playlistUri: Uri,
         playlist: HlsMediaPlaylist,

@@ -127,7 +127,7 @@ internal fun latencyMode(info: PlaybackVideoInfo): String {
 }
 
 internal fun twitchPrefetchState(info: PlaybackVideoInfo): String = when {
-    info.twitchPrefetchSuppressed == true -> "Suppressed at discontinuity/ad boundary"
+    info.twitchPrefetchSuppressed == true -> "Suppressed at discontinuity/VAFT boundary"
     info.twitchPrefetchActive == true -> "Active"
     info.twitchPrefetchPresent == true -> "Present"
     info.twitchPrefetchPresent == false -> "Not present"

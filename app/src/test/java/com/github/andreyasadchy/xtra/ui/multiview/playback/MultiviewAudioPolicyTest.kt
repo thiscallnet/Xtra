@@ -10,35 +10,35 @@ class MultiviewAudioPolicyTest {
 
         assertEquals(
             0.25f,
-            MultiviewAudioPolicy.volumeFor("a", volumes, hiddenForAd = false),
+            MultiviewAudioPolicy.volumeFor("a", volumes, hiddenForVaft = false),
             0f,
         )
         assertEquals(
             0.75f,
-            MultiviewAudioPolicy.volumeFor("b", volumes, hiddenForAd = false),
+            MultiviewAudioPolicy.volumeFor("b", volumes, hiddenForVaft = false),
             0f,
         )
         assertEquals(
             0f,
-            MultiviewAudioPolicy.volumeFor("b", volumes, hiddenForAd = true),
+            MultiviewAudioPolicy.volumeFor("b", volumes, hiddenForVaft = true),
             0f,
         )
     }
 
     @Test
-    fun hiddenAdSlotStaysMutedAcrossActiveStreamChangesAndRenders() {
+    fun hiddenVaftSlotStaysMutedAcrossActiveStreamChangesAndRenders() {
         fun render(activeIdentity: String): Map<String, Float> {
             return mapOf(
                 "a" to MultiviewAudioPolicy.volumeFor(
                     identity = "a",
                     activeIdentity = activeIdentity,
-                    hiddenForAd = true,
+                    hiddenForVaft = true,
                     activeVolume = 1f,
                 ),
                 "b" to MultiviewAudioPolicy.volumeFor(
                     identity = "b",
                     activeIdentity = activeIdentity,
-                    hiddenForAd = false,
+                    hiddenForVaft = false,
                     activeVolume = 1f,
                 ),
             )

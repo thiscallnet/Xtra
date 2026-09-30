@@ -8,7 +8,7 @@ import androidx.media3.exoplayer.hls.HlsManifest
  * Keeps a small rolling journal of complete HLS segment metadata.
  *
  * The manager never opens a URL and never writes a file. A generation is advanced whenever the
- * service starts a new live media source, which prevents concatenating stream replacements or ad
+ * service starts a new live media source, which prevents concatenating stream replacements or VAFT
  * avoidance sources with the old timeline.
  */
 @OptIn(UnstableApi::class)

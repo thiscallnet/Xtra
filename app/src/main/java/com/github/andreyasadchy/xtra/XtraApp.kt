@@ -66,6 +66,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+        com.github.andreyasadchy.xtra.player.hls.VaftPlaylistCapture.initialize(this)
         INSTANCE = this
         if (BuildConfig.PERF_DIAGNOSTICS) {
             StrictMode.setThreadPolicy(

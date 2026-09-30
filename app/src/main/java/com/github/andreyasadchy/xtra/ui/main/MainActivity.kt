@@ -2077,11 +2077,11 @@ class MainActivity : AppCompatActivity() {
         if (version < 14) {
             prefs.edit {
                 when {
-                    prefs.contains(C.PLAYER_AVOID_ADS) && !prefs.contains(C.PLAYER_HIDE_ADS) -> {
-                        putBoolean(C.PLAYER_HIDE_ADS, prefs.getBoolean(C.PLAYER_AVOID_ADS, false))
+                    prefs.contains(C.PLAYER_VAFT_ENABLED) && !prefs.contains(C.PLAYER_HIDE_VAFT_OUTPUT) -> {
+                        putBoolean(C.PLAYER_HIDE_VAFT_OUTPUT, prefs.getBoolean(C.PLAYER_VAFT_ENABLED, false))
                     }
-                    !prefs.contains(C.PLAYER_AVOID_ADS) && prefs.contains(C.PLAYER_HIDE_ADS) -> {
-                        putBoolean(C.PLAYER_AVOID_ADS, prefs.getBoolean(C.PLAYER_HIDE_ADS, false))
+                    !prefs.contains(C.PLAYER_VAFT_ENABLED) && prefs.contains(C.PLAYER_HIDE_VAFT_OUTPUT) -> {
+                        putBoolean(C.PLAYER_VAFT_ENABLED, prefs.getBoolean(C.PLAYER_HIDE_VAFT_OUTPUT, false))
                     }
                 }
                 putInt(C.SETTINGS_VERSION, 14)
