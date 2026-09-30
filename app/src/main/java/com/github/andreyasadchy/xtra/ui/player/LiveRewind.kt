@@ -258,6 +258,7 @@ data class LiveRewindVod(
     val reportedDurationMs: Long,
     val sampledAtElapsedRealtimeMs: Long,
     val createdAt: String,
+    val animatedPreviewUrl: String?,
 ) {
     fun predictedDurationMs(nowMs: Long = SystemClock.elapsedRealtime()): Long =
         (reportedDurationMs + (nowMs - sampledAtElapsedRealtimeMs).coerceAtLeast(0L))
@@ -269,6 +270,7 @@ data class LiveRewindVodCandidate(
     val createdAtMs: Long,
     val durationMs: Long,
     val createdAt: String,
+    val animatedPreviewUrl: String?,
 )
 
 fun predictedLiveEdgeMs(
@@ -586,6 +588,7 @@ suspend fun GraphQLRepository.findCurrentRecordingVod(
                 createdAtMs = createdAtMs,
                 durationMs = durationMs,
                 createdAt = createdAt,
+                animatedPreviewUrl = video.animatedPreviewURL,
             )
         }
         .toList()
@@ -599,5 +602,6 @@ suspend fun GraphQLRepository.findCurrentRecordingVod(
         reportedDurationMs = candidate.durationMs,
         sampledAtElapsedRealtimeMs = SystemClock.elapsedRealtime(),
         createdAt = candidate.createdAt,
+        animatedPreviewUrl = candidate.animatedPreviewUrl,
     )
 }

@@ -818,18 +818,32 @@ class PlaybackService : MediaSessionService() {
                                     ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                                 val handoffInFlight = vaftSourceSwitching || vaftHandoffJob?.isActive == true
                                 val vaftPlaybackOwned = handoffInFlight || vaftCoordinatorJob?.isActive == true
-                                val previousPlayback = snapshotLiveRewindPlayback(
-                                    player,
-                                    sourceUriOverride = vaftAuthoritativeUri.takeIf { handoffInFlight },
-                                    trackSelectionParametersOverride = vaftHandoffPreviousTracks.takeIf { handoffInFlight },
-                                    mediaItemOverride = vaftHandoffPreviousMediaItem.takeIf { handoffInFlight },
-                                    positionMsOverride = vaftHandoffPreviousPositionMs.takeIf { handoffInFlight },
-                                    volumeOverride = if (vaftPlaybackOwned) {
-                                        prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
-                                    } else {
-                                        null
-                                    },
-                                ) ?: run {
+                                val hasLiveReturnState =
+                                    !liveStreamExtras?.getString(URI).isNullOrBlank() &&
+                                        !liveStreamUri.isNullOrBlank()
+                                val replacingActiveRewind =
+                                    viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                                        liveRewindActive &&
+                                        liveRewindVodId == vodId &&
+                                        !liveRewindTransitioning &&
+                                        hasLiveReturnState
+                                val previousPlayback = if (replacingActiveRewind) {
+                                    null
+                                } else {
+                                    snapshotLiveRewindPlayback(
+                                        player,
+                                        sourceUriOverride = vaftAuthoritativeUri.takeIf { handoffInFlight },
+                                        trackSelectionParametersOverride = vaftHandoffPreviousTracks.takeIf { handoffInFlight },
+                                        mediaItemOverride = vaftHandoffPreviousMediaItem.takeIf { handoffInFlight },
+                                        positionMsOverride = vaftHandoffPreviousPositionMs.takeIf { handoffInFlight },
+                                        volumeOverride = if (vaftPlaybackOwned) {
+                                            prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
+                                        } else {
+                                            null
+                                        },
+                                    )
+                                }
+                                if (!replacingActiveRewind && previousPlayback == null) {
                                     if (BuildConfig.DEBUG) Log.d("LiveRewind", "Cannot rewind without an active live source to restore")
                                     return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
                                 }
@@ -854,11 +868,17 @@ class PlaybackService : MediaSessionService() {
                                     setLiveRewindSessionState(active = true, vodId = vodId)
                                     Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                                 } catch (_: Exception) {
-                                    setLiveRewindSessionState(
-                                        active = previousPlayback.liveRewindActive,
-                                        vodId = previousPlayback.liveRewindVodId,
-                                    )
-                                    restoreLiveRewindPlayback(player, previousPlayback)
+                                    if (replacingActiveRewind) {
+                                        // Keep the same logical rewind session; the fragment will force a fresh live source.
+                                        setLiveRewindSessionState(active = true, vodId = vodId)
+                                    } else {
+                                        val rollbackPlayback = requireNotNull(previousPlayback)
+                                        setLiveRewindSessionState(
+                                            active = rollbackPlayback.liveRewindActive,
+                                            vodId = rollbackPlayback.liveRewindVodId,
+                                        )
+                                        restoreLiveRewindPlayback(player, rollbackPlayback)
+                                    }
                                     Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
                                 } finally {
                                     setLiveRewindSessionState(transitioning = false)

@@ -201,6 +201,68 @@ class Media3PlayerViewModel(
         }
     }
 
+    suspend fun isPlayableMediaPlaylist(networkLibrary: String?, url: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val body = when {
+                networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
+                    val response = suspendCancellableCoroutine { continuation ->
+                        val timeout = NetworkUtils.HttpEngineTimeout()
+                        val request = httpEngine.value!!.newUrlRequestBuilder(
+                            url,
+                            cronetExecutor.value,
+                            NetworkUtils.ByteArrayUrlCallback(
+                                continuation,
+                                timeout,
+                                throwOnHttpError = true,
+                            ),
+                        ).build()
+                        timeout.start(request, continuation)
+                        request.start()
+                        continuation.invokeOnCancellation {
+                            request.cancel()
+                            timeout.stop()
+                        }
+                    }
+                    response.body.takeIf { response.info.httpStatusCode in 200..299 }
+                }
+                networkLibrary == C.CRONET && cronetEngine.value != null -> {
+                    val response = suspendCancellableCoroutine { continuation ->
+                        val timeout = NetworkUtils.CronetTimeout()
+                        val request = cronetEngine.value!!.newUrlRequestBuilder(
+                            url,
+                            NetworkUtils.ByteArrayCronetCallback(
+                                continuation,
+                                timeout,
+                                throwOnHttpError = true,
+                            ),
+                            cronetExecutor.value,
+                        ).build()
+                        timeout.start(request, continuation)
+                        request.start()
+                        continuation.invokeOnCancellation {
+                            request.cancel()
+                            timeout.stop()
+                        }
+                    }
+                    response.body.takeIf { response.info.httpStatusCode in 200..299 }
+                }
+                else -> okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
+                    if (!response.isSuccessful) null else response.body.byteStream().use { it.readBytes() }
+                }
+            } ?: return@withContext false
+
+            val text = String(body, Charsets.UTF_8)
+            if (text.lineSequence().firstOrNull()?.removePrefix("\uFEFF")?.trim() != "#EXTM3U") {
+                return@withContext false
+            }
+            PlaylistUtils.parseMediaPlaylist(body.inputStream()).segments.isNotEmpty()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     fun playerTypesForVaft(currentPlayerType: String?): List<String> {
         return vaftController.playerTypesForVaft(currentPlayerType)
     }

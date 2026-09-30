@@ -65,6 +65,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.session.MediaController
 import androidx.media3.common.C as Media3C
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -127,6 +128,7 @@ import coil3.request.crossfade
 import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.isActive
@@ -403,11 +405,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun startStream(url: String?) {}
     open fun startVideo(url: String?, playbackPosition: Long?, multivariantPlaylist: Boolean) {}
     open fun startClip(url: String?) {}
-    open suspend fun startLiveRewind(vodId: String, positionMs: Long): Boolean = false
+    open suspend fun startLiveRewind(vod: LiveRewindVod, positionMs: Long): Boolean = false
     open suspend fun returnToLivePlayback(): Boolean = false
     protected open suspend fun getLiveRewindVodId(): String? = null
     protected fun isLiveRewindActiveOrSwitching(): Boolean =
-        liveRewindStateSyncPending || isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
+        liveRewindStateSyncPending || liveRewindSwitchJob?.isActive == true ||
+            isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
 
     protected fun isLiveRewindSourceOwned(): Boolean =
         isLiveRewindSourceActiveOrSwitching(livePlaybackMode, liveRewindSwitching)
@@ -415,9 +418,29 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     protected fun isLiveRewindRecording(): Boolean =
         livePlaybackMode is LivePlaybackMode.Rewound && !liveRewindSwitching
 
-    protected fun isLiveRewindSourceTransitioning(): Boolean = liveRewindSwitching || liveRewindStateSyncPending
+    protected fun isLiveRewindSourceTransitioning(): Boolean =
+        liveRewindSwitchJob?.isActive == true || liveRewindSwitching || liveRewindStateSyncPending
 
     protected open fun onLiveRewindSourceSettled() {}
+
+    protected fun retryLiveRewindSource(
+        vod: LiveRewindVod,
+        positionMs: Long,
+        startSource: suspend () -> Boolean,
+        onFailure: () -> Unit,
+        refreshReplayChat: Boolean = true,
+    ) {
+        startLiveRewindSwitch(
+            vod = vod,
+            targetMs = positionMs,
+            previousPlaybackMode = livePlaybackMode,
+            startSource = startSource,
+            onFailure = onFailure,
+            refreshReplayChat = refreshReplayChat,
+        )
+    }
+
+    protected open fun onLiveRewindReturningToLive() {}
 
     protected fun isLiveRewindStateSyncPending(): Boolean = liveRewindStateSyncPending
 
@@ -427,6 +450,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     protected fun applyLiveRewindServiceState(state: LiveRewindServiceState): Boolean {
+        if (liveRewindSwitchJob?.isActive == true) {
+            liveRewindSwitching = true
+            liveRewindStateSyncPending = true
+            updateLiveRewindUi()
+            return false
+        }
         if (state.active && !state.vodId.isNullOrBlank()) {
             livePlaybackMode = LivePlaybackMode.Rewound(state.vodId)
         } else if (!state.active && !state.transitioning) {
@@ -3949,18 +3978,41 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         liveRewindPendingVodId = null
         liveRewindPendingTargetMs = null
         val previousPlaybackMode = livePlaybackMode
+        liveRewindDiscoveryJob?.cancel()
+        startLiveRewindSwitch(
+            vod = vod,
+            targetMs = targetMs,
+            previousPlaybackMode = previousPlaybackMode,
+            startSource = { startLiveRewind(vod, targetMs) },
+        )
+    }
+
+    private fun startLiveRewindSwitch(
+        vod: LiveRewindVod,
+        targetMs: Long,
+        previousPlaybackMode: LivePlaybackMode,
+        startSource: suspend () -> Boolean,
+        onFailure: (() -> Unit)? = null,
+        refreshReplayChat: Boolean = true,
+    ) {
         val generation = ++liveRewindSwitchGeneration
         liveRewindSwitchJob?.cancel()
         liveRewindReturningLive = false
         liveRewindSwitching = true
-        liveRewindDiscoveryJob?.cancel()
         liveRewindSwitchJob = viewLifecycleOwner.lifecycleScope.launch {
-            val success = startLiveRewind(vod.id, targetMs)
+            val success = try {
+                startSource()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
             if (generation != liveRewindSwitchGeneration) return@launch
             liveRewindSwitching = false
             if (!success) {
                 livePlaybackMode = previousPlaybackMode
                 updateLiveRewindUi()
+                onFailure?.invoke()
                 return@launch
             }
             val pendingTarget = liveRewindPendingTargetMs
@@ -3970,7 +4022,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             livePlaybackMode = LivePlaybackMode.Rewound(vod.id)
             onLiveRewindSourceSettled()
             pausedLivePositionMs = null
-            startLiveRewindChat(targetMs)
+            if (refreshReplayChat) {
+                startLiveRewindChat(targetMs)
+            } else {
+                chatFragment?.updatePosition(targetMs)
+            }
             pendingTarget?.let {
                 seek(it)
                 chatFragment?.updatePosition(it)
@@ -3995,6 +4051,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         onFailure: (() -> Unit)? = null,
     ) {
         if (liveRewindReturningLive || (!force && livePlaybackMode is LivePlaybackMode.Live && !liveRewindSwitching)) return
+        onLiveRewindReturningToLive()
         val generation = ++liveRewindSwitchGeneration
         liveRewindSwitchJob?.cancel()
         liveRewindPendingVodId = null
@@ -4109,12 +4166,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
-    protected fun onLiveRewindPlaybackError(): Boolean {
+    protected open fun onLiveRewindPlaybackError(error: PlaybackException? = null): Boolean {
         if (livePlaybackMode is LivePlaybackMode.Rewound) {
             goLive()
             return true
         }
         return false
+    }
+
+    protected fun returnToLiveAfterRewindFailure() {
+        if (isLiveRewindActiveOrSwitching()) goLive(force = true)
     }
 
     override fun initialize() {
@@ -4353,12 +4414,25 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         currentUri: String? = null,
         preserveCurrentQuality: Boolean = false,
         audioOnly: Boolean = false,
+        qualityMetadata: List<VideoQuality>? = null,
+        preferredQualityName: String? = null,
     ): String? {
         val directVideoQuality = parseTwitchDirectVideoUrl(videoUrl)
         val template = directVideoQuality?.template
             ?: videoUrl.removeSuffix("/chunked/index-dvr.m3u8")
         val querySuffix = directVideoQuality?.querySuffix.orEmpty()
-        val qualities = TwitchApiHelper.defaultQualityList.map { quality ->
+        val metadataQualities = qualityMetadata?.takeIf { it.isNotEmpty() }?.mapNotNull { metadata ->
+            val name = metadata.name ?: return@mapNotNull null
+            val rendition = resolveTwitchDirectRendition(name, metadata.frameRate) ?: return@mapNotNull null
+            VideoQuality(
+                name,
+                metadata.codecs,
+                metadata.bitrate,
+                "$template/$rendition/index-dvr.m3u8$querySuffix",
+                metadata.frameRate,
+            )
+        }?.takeIf { it.isNotEmpty() }
+        val qualities = metadataQualities ?: TwitchApiHelper.defaultQualityList.map { quality ->
             val name = if (quality == "chunked") "source" else quality
             VideoQuality(name, url = "$template/$quality/index-dvr.m3u8$querySuffix")
         }.sortedByDescending { it.bitrate }
@@ -4381,7 +4455,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         viewModel.qualities = qualities
         viewModel.updateQualities = false
         val restoredQuality = restorePlaybackQuality(qualities)
+        val preferredQuality = preferredQualityName?.let { name ->
+            qualities.find { it.name.equals(name, ignoreCase = true) }
+        }
         viewModel.quality = when {
+            preserveCurrentQuality && preferredQuality?.url == currentUri -> preferredQuality
             preserveCurrentQuality && audioOnly -> qualities.find { it.name == AUDIO_ONLY_QUALITY }
             preserveCurrentQuality -> currentUri?.let { uri -> qualities.find { it.url == uri } }
             else -> null
