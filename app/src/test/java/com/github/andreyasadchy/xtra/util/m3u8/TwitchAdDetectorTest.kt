@@ -46,7 +46,7 @@ class TwitchAdDetectorTest {
 
     @Test
     fun recognizesMaintainedVaftDaterangeClassFamilies() {
-        listOf("twitch-stitched-mid", "twitch-maf-ad", "twitch-trigger").forEach { adClass ->
+        listOf("twitch-stitched-mid", "twitch-maf-ad").forEach { adClass ->
             val playlist = parsePlaylist(
                 """
                     #EXTM3U
@@ -70,6 +70,7 @@ class TwitchAdDetectorTest {
                 #EXT-X-TARGETDURATION:6
                 #EXT-X-PROGRAM-DATE-TIME:2024-01-01T00:00:05Z
                 #EXT-X-DATERANGE:ID="session-1",CLASS="twitch-session",START-DATE="2024-01-01T00:00:00Z",END-DATE="2024-01-01T00:01:00Z"
+                #EXT-X-DATERANGE:ID="trigger-1",CLASS="twitch-trigger",START-DATE="2024-01-01T00:00:00Z",END-ON-NEXT=YES,X-TV-TWITCH-TRIGGER-URL="https://example.invalid/trigger"
                 #EXTINF:6.0,
                 content-segment.ts
             """.trimIndent(),

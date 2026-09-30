@@ -29,7 +29,7 @@ class TwitchLowLatencyPlaylistAdapterTest {
     }
 
     @Test
-    fun lowLatencyTranslatesPrefetchIntoDistinctSegmentsWithEffectiveReloadTarget() {
+    fun lowLatencyKeepsPrefetchOutsideCommittedSegmentSequence() {
         val result = TwitchLowLatencyPlaylistAdapter.adapt(
             playlist(
                 "#EXT-X-TARGETDURATION:6",
@@ -46,12 +46,13 @@ class TwitchLowLatencyPlaylistAdapterTest {
         assertTrue(result.diagnostics.twitchPrefetchTranslated)
         assertTrue(result.playlistText.contains("#EXT-X-TARGETDURATION:2"))
         assertEquals(2_001L, result.diagnostics.averageSegmentDurationMs)
-        assertEquals(3, result.playlistText.lines().count { it.startsWith("#EXTINF:") })
+        assertEquals(1, result.playlistText.lines().count { it.startsWith("#EXTINF:") })
         assertEquals(
-            listOf("segment-current.ts", "segment-next.ts", "segment-after-next.ts"),
+            listOf("segment-current.ts"),
             mediaUris(result.playlistText),
         )
-        assertFalse(result.playlistText.contains("#EXT-X-PART:"))
+        assertTrue(result.playlistText.contains("#EXT-X-PART:DURATION=2.001,URI=\"segment-next.ts\""))
+        assertFalse(result.playlistText.contains("segment-after-next.ts"))
     }
 
     @Test
@@ -103,8 +104,8 @@ class TwitchLowLatencyPlaylistAdapterTest {
         assertTrue(result.diagnostics.hasExtXMap)
         assertEquals("fMP4/CMAF", result.diagnostics.container)
         assertTrue(result.playlistText.indexOf("#EXT-X-MAP:") < result.playlistText.indexOf("#EXTINF:2"))
-        assertEquals(listOf("segment-1.m4s", "segment-2.m4s"), mediaUris(result.playlistText))
-        assertFalse(result.playlistText.contains("#EXT-X-PART:"))
+        assertEquals(listOf("segment-1.m4s"), mediaUris(result.playlistText))
+        assertTrue(result.playlistText.contains("#EXT-X-PART:DURATION=2,URI=\"segment-2.m4s\""))
     }
 
     @Test
@@ -171,7 +172,7 @@ class TwitchLowLatencyPlaylistAdapterTest {
         val result = TwitchLowLatencyPlaylistAdapter.adapt(
             playlist(
                 "#EXT-X-TARGETDURATION:8",
-                "#EXTINF:1.8,",
+                "#EXTINF:1.8,live",
                 "one.ts",
                 "#EXTINF:2.1,",
                 "two.ts",
@@ -187,8 +188,7 @@ class TwitchLowLatencyPlaylistAdapterTest {
         assertEquals(8_000L, result.diagnostics.declaredTargetDurationMs)
         assertEquals(2_000L, result.diagnostics.effectiveReloadTargetDurationMs)
         assertEquals(2_025L, result.diagnostics.averageSegmentDurationMs)
-        assertTrue(result.playlistText.contains("#EXTINF:2.025,"))
-        assertFalse(result.playlistText.contains("#EXT-X-PART:"))
+        assertTrue(result.playlistText.contains("#EXT-X-PART:DURATION=2.025,"))
     }
 
     @Test
@@ -260,7 +260,7 @@ class TwitchLowLatencyPlaylistAdapterTest {
     }
 
     @Test
-    fun prefetchSnapshotsKeepEachFutureSegmentDistinct() {
+    fun prefetchSnapshotsOnlyExposeTheImmediateUncommittedSequence() {
         val first = TwitchLowLatencyPlaylistAdapter.adapt(
             playlist(
                 "#EXT-X-TARGETDURATION:6",
@@ -285,15 +285,18 @@ class TwitchLowLatencyPlaylistAdapterTest {
         )
 
         assertEquals(
-            listOf("segment-100.ts", "segment-101.ts", "segment-102.ts"),
+            listOf("segment-100.ts"),
             mediaUris(first.playlistText),
         )
         assertEquals(
-            listOf("segment-100.ts", "segment-101.ts", "segment-102.ts", "segment-103.ts"),
+            listOf("segment-100.ts", "segment-101.ts"),
             mediaUris(second.playlistText),
         )
-        assertEquals(3, first.playlistText.lines().count { it.startsWith("#EXTINF:") })
-        assertEquals(4, second.playlistText.lines().count { it.startsWith("#EXTINF:") })
+        assertEquals(1, first.playlistText.lines().count { it.startsWith("#EXTINF:") })
+        assertEquals(2, second.playlistText.lines().count { it.startsWith("#EXTINF:") })
+        assertTrue(first.playlistText.contains("URI=\"segment-101.ts\""))
+        assertTrue(second.playlistText.contains("URI=\"segment-102.ts\""))
+        assertFalse(second.playlistText.contains("segment-103.ts"))
     }
 
     private fun playlist(vararg lines: String): String =

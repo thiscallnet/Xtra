@@ -52,7 +52,7 @@ object TwitchLowLatencyPlaylistAdapter {
     private const val STANDARD_INTERSTITIAL_CLASS = "com.apple.hls.interstitial"
 
     private val targetDurationPattern = Regex("^#EXT-X-TARGETDURATION:(\\d+)\\b")
-    private val extInfPattern = Regex("^#EXTINF:([0-9]+(?:\\.[0-9]+)?)(?:,|$)")
+    private val extInfPattern = Regex("^#EXTINF:([0-9]+(?:\\.[0-9]+)?)(?:,.*|$)")
     private val idPattern = Regex("(?:^|[:,])ID=\"([^\"]*)\"")
     private val classPattern = Regex("(?:^|[:,])CLASS=\"([^\"]*)\"")
     private val classAttributePattern = Regex("(?:^|,)CLASS=\"[^\"]*\"")
@@ -185,8 +185,8 @@ object TwitchLowLatencyPlaylistAdapter {
         effectiveTargetDurationSeconds: Int,
     ): String {
         val formattedDuration = formatSeconds(duration)
-        val output = ArrayList<String>(lines.size + prefetchUris.size * 2)
-        var uriIndex = 0
+        val output = ArrayList<String>(lines.size + 2)
+        var prefetchAdded = false
         lines.forEach { line ->
             if (targetDurationPattern.matches(line)) {
                 output += "#EXT-X-TARGETDURATION:$effectiveTargetDurationSeconds"
@@ -196,9 +196,17 @@ object TwitchLowLatencyPlaylistAdapter {
                 output += line
                 return@forEach
             }
-            val uri = normalizeSegmentUri(prefetchUris[uriIndex++])
-            output += "$EXTINF_PREFIX$formattedDuration,"
-            output += uri
+            if (!prefetchAdded) {
+                // Prefetch URLs are unfinished segments, not committed EXTINF entries.
+                // Publishing two as completed segments advances Media3 beyond the next
+                // snapshot when Twitch temporarily removes prefetch (e.g. at an ad).
+                // Only the immediate next sequence can be represented as a trailing part;
+                // the following prefetch belongs to a different, unpublished sequence.
+                val uri = normalizeSegmentUri(prefetchUris.first())
+                output += "#EXT-X-PART-INF:PART-TARGET=$formattedDuration"
+                output += "#EXT-X-PART:DURATION=$formattedDuration,URI=\"$uri\",INDEPENDENT=YES"
+                prefetchAdded = true
+            }
         }
         return output.joinToString("\n")
     }

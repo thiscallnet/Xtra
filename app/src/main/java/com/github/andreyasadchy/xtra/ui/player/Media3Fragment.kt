@@ -132,8 +132,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             command: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
-            if (command.customAction == PlaybackService.AD_PLAYBACK_STATE_CHANGED && videoType == STREAM && isAdded && view != null && !isLiveRewindActiveOrSwitching()) {
+            // A pending rewind-state query also happens during ordinary live
+            // source changes. It must not discard the handoff completion event.
+            if (command.customAction == PlaybackService.AD_PLAYBACK_STATE_CHANGED && videoType == STREAM && isAdded && view != null &&
+                !isLiveRewindSourceOwned()) {
+                if (BuildConfig.DEBUG) Log.d("XtraAd", "ui handoff=${args.getBoolean(PlaybackService.AD_HANDOFF)} alternate=${args.getBoolean(PlaybackService.AD_ALTERNATE_ACTIVE)} suppressed=${args.getBoolean(PlaybackService.SUPPRESS_AD_OUTPUT)}")
                 val wasAlternate = viewModel.usingAlternateStream
+                val wasWindowActive = viewModel.adWindowActive
+                val previousRendition = viewModel.adVerifiedRendition
                 adHandoffInProgress = args.getBoolean(PlaybackService.AD_HANDOFF)
                 viewModel.adWindowActive = args.getBoolean(PlaybackService.AD_WINDOW_ACTIVE)
                 viewModel.adLogicalQuality = decodePlaybackQuality(xtraModule.json, args.getString(PlaybackService.AD_LOGICAL_QUALITY))
@@ -145,13 +151,20 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 viewModel.adVerifiedRendition = decodePlaybackQuality(xtraModule.json, args.getString(PlaybackService.AD_VERIFIED_RENDITION))
                 viewModel.playingAds = args.getBoolean(PlaybackService.SUPPRESS_AD_OUTPUT)
                 if (viewModel.playingAds) suppressAdPlayback() else restoreAdPlayback()
-                if (!adHandoffInProgress) {
-                    if (wasAlternate && !viewModel.usingAlternateStream) {
-                        controller.currentMediaItem?.localConfiguration?.uri?.toString()?.let(viewModel.adAvoidanceQualityState::expectPrimaryReturn)
+                if (!viewModel.playingAds && !viewModel.usingAlternateStream &&
+                    (wasAlternate || (wasWindowActive && !viewModel.adWindowActive))) {
+                    args.getString(PlaybackService.AD_SOURCE_URI)?.let { uri ->
+                        viewModel.playlistUrl = uri.toUri()
+                        viewModel.adAvoidanceQualityState.expectPrimaryReturn(uri)
                     }
-                    invalidateQualityRequest()
-                    viewModel.updateQualities = true
-                    requestQualities()
+                }
+                if (!adHandoffInProgress) {
+                    if (wasAlternate != viewModel.usingAlternateStream || previousRendition != viewModel.adVerifiedRendition ||
+                        (wasWindowActive && !viewModel.adWindowActive) || viewModel.adAvoidanceQualityState.isAwaitingPrimaryReturn) {
+                        invalidateQualityRequest()
+                        viewModel.updateQualities = true
+                        requestQualities()
+                    }
                 }
                 setQualityText()
             }
@@ -1388,11 +1401,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         if (!wasHidden) Snackbar.make(binding.playerBackground, R.string.waiting_ads, Snackbar.LENGTH_LONG).show()
     }
 
-    private fun restoreAdPlayback() {
+    private fun restoreAdPlayback(quality: VideoQuality? = viewModel.quality) {
         if (viewModel.hidden) {
             viewModel.hidden = false
             player?.let { player ->
-                if (viewModel.quality?.name != AUDIO_ONLY_QUALITY && viewModel.quality?.name != CHAT_ONLY_QUALITY) {
+                if (quality?.name != AUDIO_ONLY_QUALITY && quality?.name != CHAT_ONLY_QUALITY) {
                     player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
                         setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_VIDEO, false)
                     }.build()
@@ -2029,7 +2042,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         } catch (_: Exception) {
             false
         }
-        if (!success) {
+        if (success) {
+            adHandoffInProgress = false
+            restoreAdPlayback(oldQuality)
+        } else {
             invalidateQualityRequest()
             restoreQualityAfterSourceSwitchFailure(
                 qualities = oldQualities,
@@ -2790,6 +2806,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     private fun reapplyQualityAutomatically(quality: VideoQuality, source: String) {
+        if (viewModel.adAvoidanceQualityState.isAwaitingPrimaryReturn) {
+            requestQualities()
+            return
+        }
         val controller = player
         val currentMediaId = controller?.currentMediaItem?.mediaId
         val appliesToCurrentResume = videoType == STREAM &&
@@ -3160,7 +3180,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         playWhenReady = playWhenReady,
                     )
                 } else player.currentMediaItem?.let { mediaItem ->
-                    if (videoType == STREAM && (isLiveRewindRecording() || viewModel.usingAlternateStream)) {
+                    if (videoType == STREAM && (isLiveRewindRecording() || viewModel.usingAlternateStream ||
+                        (quality.url != null && quality.url == viewModel.adVerifiedRendition?.url &&
+                            mediaItem.localConfiguration?.uri == viewModel.playlistUrl))) {
                         applyRecordingQuality(player, quality)
                     } else when (quality.name) {
                         AUTO_QUALITY -> {

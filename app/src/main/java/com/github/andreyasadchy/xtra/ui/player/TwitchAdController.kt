@@ -9,17 +9,18 @@ class TwitchAdController(private val clockMs: () -> Long = { System.nanoTime() /
 
     private var adWindowActive = false
     private val attemptedPlayerTypes = linkedMapOf<String, Long>()
+    private val failedHandoffs = mutableMapOf<String, Long>()
 
     @Synchronized
     fun playerTypesForAd(currentPlayerType: String?, limit: Int = PLAYER_TYPES.size): List<String> {
         if (!adWindowActive) {
             adWindowActive = true
             attemptedPlayerTypes.clear()
+            failedHandoffs.clear()
         }
         val now = clockMs()
         return PLAYER_TYPES.filter { playerType ->
-            playerType != currentPlayerType &&
-                attemptedPlayerTypes[playerType]?.let { now - it >= RETRY_COOLDOWN_MS } != false
+            playerType != currentPlayerType && canAttemptPlayerType(playerType, now)
         }.sortedBy { attemptedPlayerTypes[it] ?: Long.MIN_VALUE }.take(limit)
     }
 
@@ -29,10 +30,21 @@ class TwitchAdController(private val clockMs: () -> Long = { System.nanoTime() /
     }
 
     @Synchronized
+    fun canAttemptPlayerType(playerType: String, now: Long = clockMs()): Boolean =
+        attemptedPlayerTypes[playerType]?.let { now - it >= RETRY_COOLDOWN_MS } != false &&
+            failedHandoffs[playerType]?.let { now - it >= HANDOFF_FAILURE_COOLDOWN_MS } != false
+
+    @Synchronized
+    fun onHandoffFailed(playerType: String) {
+        failedHandoffs[playerType] = clockMs()
+    }
+
+    @Synchronized
     fun onCleanPlaylist() {
         if (adWindowActive) {
             adWindowActive = false
             attemptedPlayerTypes.clear()
+            failedHandoffs.clear()
         }
     }
 
@@ -40,12 +52,12 @@ class TwitchAdController(private val clockMs: () -> Long = { System.nanoTime() /
     fun reset() {
         adWindowActive = false
         attemptedPlayerTypes.clear()
+        failedHandoffs.clear()
     }
 
     companion object {
         const val RETRY_COOLDOWN_MS = 5_000L
-        // Match VAFT's maintained Source-tier order. Keep Xtra's existing
-        // autoplay path as a last-resort fallback after those candidates.
+        const val HANDOFF_FAILURE_COOLDOWN_MS = 30_000L
         val PLAYER_TYPES = listOf("site", "popout", "mobile_web", "embed", "autoplay")
     }
 }

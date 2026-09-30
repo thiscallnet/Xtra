@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
     <base-config>
         <trust-anchors>
             <certificates src="@raw/isrgrootx1" />
             <certificates src="system" />
         </trust-anchors>
     </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain>10.0.2.2</domain>
+        <domain>127.0.0.1</domain>
+        <domain>localhost</domain>
+    </domain-config>
 </network-security-config>
