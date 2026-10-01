@@ -1171,16 +1171,15 @@ class PlaybackService : MediaSessionService() {
                                         channelLogo = channelLogo,
                                     )
                                 }
-                                player.setMediaSource(runtime.createHlsMediaSource(mediaItem))
+                                player.setMediaSource(runtime.createHlsMediaSource(mediaItem), position)
                                 runtime.setPrimaryPlaybackMediaItem(mediaItem)
                                 vodClipMediaItemId = mediaItem.mediaId
                                 vodClipMediaItemUri = mediaItem.localConfiguration?.uri?.toString()
                                 vodClipDataSourceFactory = runtime.clipDataSourceFactory(mediaItem.mediaId)
                                 session.player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
                                 session.player.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
-                                session.player.prepare()
                                 session.player.playWhenReady = customCommand.customExtras.getBoolean(PLAY_WHEN_READY, true)
-                                session.player.seekTo(position)
+                                session.player.prepare()
                                 saveResumptionState(
                                     PlaybackState(
                                         type = PlaybackContract.VIDEO,
