@@ -3769,7 +3769,8 @@ class PlaybackService : MediaSessionService() {
                                 .build()
                         }
                         var overrideApplied = verified == null || audioOnly
-                        var positionAligned = false
+                        var positionAlignmentResolved = false
+                        var positionAlignmentDeadlineMs: Long? = null
                         var lastHandoffDiagnostic: String? = null
                         val targetMediaId = handoffExtras.getString(VAFT_HANDOFF_TARGET_MEDIA_ID)
                         while (generation == vaftGeneration && player.currentMediaItem?.mediaId == targetMediaId &&
@@ -3829,13 +3830,37 @@ class PlaybackService : MediaSessionService() {
                                 lastHandoffDiagnostic = diagnostic
                             }
                             if (player.playbackState == Player.STATE_READY && playlist != null) {
-                                if (!positionAligned) {
+                                if (!positionAlignmentResolved) {
                                     val alignment = alignVaftPosition(player, handoffPosition)
-                                    positionAligned = alignment == "program_date_time" ||
+                                    val aligned = alignment == "program_date_time" ||
                                         alignment == "live_offset_best_effort"
                                     if (BuildConfig.DEBUG) Log.d("XtraVaft", "handoff_position_alignment result=$alignment")
-                                    delay(if (positionAligned) 50L else 100L)
-                                    continue
+                                    if (aligned) {
+                                        positionAlignmentResolved = true
+                                        delay(50L)
+                                        continue
+                                    }
+                                    val nowMs = SystemClock.elapsedRealtime()
+                                    if (alignment == "not_seekable") {
+                                        positionAlignmentResolved = true
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d("XtraVaft", "handoff_position_alignment fallback=live_default reason=not_seekable")
+                                        }
+                                    } else {
+                                        val deadlineMs = positionAlignmentDeadlineMs
+                                            ?: (nowMs + VAFT_POSITION_ALIGNMENT_GRACE_MS).also {
+                                                positionAlignmentDeadlineMs = it
+                                            }
+                                        if (nowMs >= deadlineMs) {
+                                            positionAlignmentResolved = true
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d("XtraVaft", "handoff_position_alignment fallback=live_default reason=unavailable")
+                                            }
+                                        } else {
+                                            delay(minOf(100L, deadlineMs - nowMs))
+                                            continue
+                                        }
+                                    }
                                 }
                                 if (renditionConfirmed && isVaftTargetPlaylistClean(player, playlist, returningPrimary)) {
                                     activeVideo?.let { variant ->
@@ -3908,20 +3933,45 @@ class PlaybackService : MediaSessionService() {
                             withTimeoutOrNull(15_000L) {
                                 val rollbackUri = previousExtras.getString(URI)
                                 val rollbackMediaId = vaftHandoffTargetMediaId
-                                var rollbackPositionAligned = false
+                                var rollbackPositionAlignmentResolved = false
+                                var rollbackPositionAlignmentDeadlineMs: Long? = null
                                 while (generation == vaftGeneration && player.currentMediaItem?.mediaId == rollbackMediaId &&
                                     player.currentMediaItem?.localConfiguration?.uri?.toString() == rollbackUri
                                 ) {
                                     if (player.playerError != null) return@withTimeoutOrNull RollbackState(restored = false, clean = false)
                                     val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
                                     if (player.playbackState == Player.STATE_READY && playlist != null) {
-                                        if (!rollbackPositionAligned) {
+                                        if (!rollbackPositionAlignmentResolved) {
                                             val alignment = alignVaftPosition(player, handoffPosition)
-                                            rollbackPositionAligned = alignment == "program_date_time" ||
+                                            val aligned = alignment == "program_date_time" ||
                                                 alignment == "live_offset_best_effort"
                                             if (BuildConfig.DEBUG) Log.d("XtraVaft", "rollback_position_alignment result=$alignment")
-                                            delay(if (rollbackPositionAligned) 50L else 100L)
-                                            continue
+                                            if (aligned) {
+                                                rollbackPositionAlignmentResolved = true
+                                                delay(50L)
+                                                continue
+                                            }
+                                            val nowMs = SystemClock.elapsedRealtime()
+                                            if (alignment == "not_seekable") {
+                                                rollbackPositionAlignmentResolved = true
+                                                if (BuildConfig.DEBUG) {
+                                                    Log.d("XtraVaft", "rollback_position_alignment fallback=live_default reason=not_seekable")
+                                                }
+                                            } else {
+                                                val deadlineMs = rollbackPositionAlignmentDeadlineMs
+                                                    ?: (nowMs + VAFT_POSITION_ALIGNMENT_GRACE_MS).also {
+                                                        rollbackPositionAlignmentDeadlineMs = it
+                                                    }
+                                                if (nowMs >= deadlineMs) {
+                                                    rollbackPositionAlignmentResolved = true
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d("XtraVaft", "rollback_position_alignment fallback=live_default reason=unavailable")
+                                                    }
+                                                } else {
+                                                    delay(minOf(100L, deadlineMs - nowMs))
+                                                    continue
+                                                }
+                                            }
                                         }
                                         if (isVaftTargetPlaylistClean(player, playlist, !previousAlternate)) {
                                             return@withTimeoutOrNull RollbackState(restored = true, clean = true)
@@ -4864,6 +4914,7 @@ class PlaybackService : MediaSessionService() {
         private const val VAFT_PRELOAD_HANDOFF_GRACE_MS = 500L
         private const val VAFT_ALTERNATE_HANDOFF_TIMEOUT_MS = 4_000L
         private const val VAFT_PRIMARY_HANDOFF_TIMEOUT_MS = 15_000L
+        private const val VAFT_POSITION_ALIGNMENT_GRACE_MS = 500L
         private const val VAFT_DIFFERENT_TYPE_RETRY_YIELD_MS = 150L
         private const val VAFT_CAPTURE_ACK_TIMEOUT_MS = 400L
         private const val PLAYBACK_NOTIFICATION_CHANNEL_ID = "xtra_media_playback"
