@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Looper
 import android.os.SystemClock
+import android.os.Handler
 import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
@@ -17,12 +18,15 @@ import androidx.media3.exoplayer.source.preload.PreloadException
 import androidx.media3.exoplayer.source.preload.PreloadMediaSource
 import androidx.media3.exoplayer.source.preload.PreloadManagerListener
 import androidx.media3.exoplayer.source.preload.TargetPreloadStatusControl
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.ui.player.StreamHlsMediaSourceFactory
 import com.github.andreyasadchy.xtra.ui.player.SmoothHlsQualityPolicy
 import com.github.andreyasadchy.xtra.ui.player.SmoothHlsTrackSelector
+import com.github.andreyasadchy.xtra.ui.player.DesiredHlsQuality
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
@@ -51,6 +55,29 @@ data class PreloadedLiveMediaSource(
     val targetStage: Int,
 )
 
+data class VaftWarmupHandle(
+    val token: String,
+    val completion: ListenableFuture<Boolean>,
+)
+
+data class VaftPreloadedMediaSource(
+    val mediaSource: MediaSource,
+    val mediaItem: MediaItem,
+    val warmAgeMs: Long,
+    val exactRenditionWarm: Boolean,
+)
+
+private data class VaftWarmupKey(
+    val vaftGeneration: Long,
+    val configurationFingerprint: String,
+    val channelLogin: String,
+    val candidateUrl: String,
+    val playerType: String,
+    val qualityIntent: DesiredHlsQuality,
+    val qualityIntentRevision: Long,
+    val verifiedRenditionUrl: String?,
+)
+
 internal fun shouldResetPreloadManager(hasPrimaryPlaybackPlayer: Boolean): Boolean = !hasPrimaryPlaybackPlayer
 
 internal fun shouldReleasePreloadGeneration(
@@ -76,10 +103,15 @@ class StreamMedia3Runtime(
         private const val TAG = "StreamMedia3"
         const val PRELOAD_TARGET_BYTES = 32 * 1024 * 1024
         const val SAMPLE_PRELOAD_DURATION_MS = 1_800L
+        private const val VAFT_PRELOAD_SAMPLE_DURATION_MS = 1_000L
+        private const val VAFT_PRELOAD_RANK = -1
+        private const val VAFT_PRELOAD_WARM_TTL_MS = 3_000L
+        const val VAFT_SOURCE_MEDIA_ID_PREFIX = "vaft-source:"
         private const val STAGE_NOT_ACHIEVED = -1
     }
 
     private val context = context.applicationContext
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val states = mutableListOf<Generation>()
     private val sourceInstanceCounter = AtomicLong()
     private var currentGeneration: Generation? = null
@@ -124,6 +156,22 @@ class StreamMedia3Runtime(
     init {
         playbackPreferences.registerOnSharedPreferenceChangeListener(configurationPreferenceListener)
         tokenPreferences.registerOnSharedPreferenceChangeListener(configurationPreferenceListener)
+        qualitySelectionPolicy.addChangeListener { intent ->
+            val invalidate = Runnable {
+                synchronized(this) {
+                    states.forEach { generation ->
+                        val staleEntries = generation.vaftWarmEntries.values
+                            .filter { !it.adopted && it.key.qualityIntent != intent }
+                        if (staleEntries.isNotEmpty()) {
+                            staleEntries.forEach { removeVaftWarmEntry(generation, it) }
+                            generation.manager.setCurrentPlayingIndex(0)
+                            generation.manager.invalidate()
+                        }
+                    }
+                }
+            }
+            if (Looper.myLooper() == Looper.getMainLooper()) invalidate.run() else mainHandler.post(invalidate)
+        }
     }
 
     @Synchronized
@@ -246,6 +294,7 @@ class StreamMedia3Runtime(
         desiredCandidates = emptyList()
         currentGeneration?.let { generation ->
             if (shouldResetPreloadManager(generation.player != null)) {
+                clearVaftWarmEntries(generation)
                 generation.manager.reset()
                 generation.entries.clear()
                 generation.manager.release()
@@ -254,6 +303,7 @@ class StreamMedia3Runtime(
             } else {
                 // The primary player may still be reading a source owned by this
                 // generation. Retain it until PlaybackService releases the player.
+                discardPendingVaftWarmups(generation)
                 currentGeneration = null
             }
         }
@@ -324,6 +374,133 @@ class StreamMedia3Runtime(
     }
 
     @Synchronized
+    fun configurationFingerprintFor(playbackPlayer: ExoPlayer): String? {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 playback lookup must run on the main looper" }
+        val generation = states.firstOrNull { it.player === playbackPlayer } ?: return null
+        if (generation.configuration.fingerprint != configurationStore.current.fingerprint) return null
+        return generation.configuration.fingerprint
+    }
+
+    @Synchronized
+    fun beginVaftCandidateWarmup(
+        playbackPlayer: ExoPlayer,
+        vaftGeneration: Long,
+        channelLogin: String,
+        url: String,
+        playerType: String,
+        title: String?,
+        channelName: String?,
+        channelLogo: String?,
+        qualityIntent: DesiredHlsQuality,
+        verifiedRenditionUrl: String?,
+    ): VaftWarmupHandle? {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 VAFT warmup must run on the main looper" }
+        val generation = states.firstOrNull { it.player === playbackPlayer } ?: return null
+        if (generation.player !== playbackPlayer) return null
+        val currentConfiguration = configurationStore.current
+        if (generation.configuration.fingerprint != currentConfiguration.fingerprint) return null
+        val normalizedLogin = channelLogin.trim().lowercase()
+        val key = VaftWarmupKey(
+            vaftGeneration = vaftGeneration,
+            configurationFingerprint = generation.configuration.fingerprint,
+            channelLogin = normalizedLogin,
+            candidateUrl = url,
+            playerType = playerType,
+            qualityIntent = qualityIntent,
+            qualityIntentRevision = qualitySelectionPolicy.revision(),
+            verifiedRenditionUrl = verifiedRenditionUrl,
+        )
+        generation.vaftWarmEntries.values.firstOrNull { it.key == key }?.let { existing ->
+            val completedAgeMs = existing.completedAtMs?.let { elapsedRealtimeMs() - it }
+            if (!existing.completion.isDone || completedAgeMs?.let { it in 0L..VAFT_PRELOAD_WARM_TTL_MS } == true) {
+                return VaftWarmupHandle(existing.token, existing.completion)
+            }
+            removeVaftWarmEntry(generation, existing)
+        }
+
+        discardPendingVaftWarmups(generation)
+        val rank = VAFT_PRELOAD_RANK
+        val token = java.util.UUID.randomUUID().toString()
+        val mediaItem = generation.hlsFactory.createLiveMediaItem(
+            mediaId = "$VAFT_SOURCE_MEDIA_ID_PREFIX$token",
+            uri = url,
+            title = title,
+            channelName = channelName,
+            channelLogo = channelLogo,
+        )
+        val entry = VaftWarmEntry(
+            token = token,
+            key = key,
+            mediaItem = mediaItem,
+            rank = rank,
+            addedAtMs = elapsedRealtimeMs(),
+            completion = SettableFuture.create(),
+        )
+        generation.vaftWarmEntries[token] = entry
+        generation.targetPreloadState.completedVaftRanks.remove(rank)
+        generation.manager.add(mediaItem, rank)
+        // Negative rank separates this entry from feed indices. The manager's
+        // comparator uses distance from the current index, so this does not
+        // claim priority over the normal feed preload queue.
+        generation.manager.setCurrentPlayingIndex(0)
+        generation.manager.invalidate()
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "vaft_warm_start token=${token.take(8)} source=${mediaItem.mediaId.take(18)} playerType=$playerType")
+        }
+        return VaftWarmupHandle(token, entry.completion)
+    }
+
+    @Synchronized
+    fun adoptVaftCandidateWarmup(
+        playbackPlayer: ExoPlayer,
+        token: String,
+        vaftGeneration: Long,
+        expectedUrl: String,
+    ): VaftPreloadedMediaSource? {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 VAFT warmup adoption must run on the main looper" }
+        val generation = states.firstOrNull { it.player === playbackPlayer } ?: return null
+        if (generation.player !== playbackPlayer) return null
+        val entry = generation.vaftWarmEntries[token] ?: return null
+        val completedAtMs = entry.completedAtMs ?: return null
+        if (entry.adopted || runCatching { entry.completion.get() }.getOrNull() != true) return null
+        val warmAgeMs = elapsedRealtimeMs() - completedAtMs
+        if (entry.key.vaftGeneration != vaftGeneration ||
+            entry.key.configurationFingerprint != generation.configuration.fingerprint ||
+            entry.key.configurationFingerprint != configurationStore.current.fingerprint ||
+            entry.key.candidateUrl != expectedUrl ||
+            entry.key.qualityIntent != qualitySelectionPolicy.snapshot() ||
+            entry.key.qualityIntentRevision != qualitySelectionPolicy.revision() ||
+            warmAgeMs !in 0..VAFT_PRELOAD_WARM_TTL_MS
+        ) {
+            return null
+        }
+        val sourceState = generation.hlsFactory.findState(entry.mediaItem.mediaId) ?: return null
+        if (sourceState.lastMediaPlaylistClean != true) return null
+        val exactRenditionWarm = entry.key.verifiedRenditionUrl == null ||
+            sourceState.lastMediaPlaylistBaseUri == entry.key.verifiedRenditionUrl
+        val mediaSource = runCatching { generation.manager.getMediaSource(entry.mediaItem) }.getOrNull() ?: return null
+        entry.adopted = true
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "vaft_warm_adopt token=${token.take(8)} ageMs=$warmAgeMs exactRendition=$exactRenditionWarm")
+        }
+        return VaftPreloadedMediaSource(mediaSource, entry.mediaItem, warmAgeMs, exactRenditionWarm)
+    }
+
+    @Synchronized
+    fun discardVaftCandidateWarmup(token: String?) {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 VAFT warmup cleanup must run on the main looper" }
+        if (token.isNullOrBlank()) return
+        val pair = states.asSequence().mapNotNull { generation ->
+            generation.vaftWarmEntries[token]?.let { generation to it }
+        }.firstOrNull() ?: return
+        val (generation, entry) = pair
+        if (entry.adopted && generation.player?.currentMediaItem?.mediaId == entry.mediaItem.mediaId) return
+        removeVaftWarmEntry(generation, entry)
+        generation.manager.setCurrentPlayingIndex(0)
+        generation.manager.invalidate()
+    }
+
+    @Synchronized
     fun setPrimaryPlaybackMediaItem(mediaItem: MediaItem?) {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 playback handoff must run on the main looper" }
         val targetEntry = mediaItem?.let { target ->
@@ -334,6 +511,18 @@ class StreamMedia3Runtime(
         }
         val currentMediaId = primaryPlaybackMediaId
         if (currentMediaId == mediaItem?.mediaId) return
+        val previousVaftWarm = currentMediaId?.let { id ->
+            states.firstNotNullOfOrNull { generation ->
+                generation.vaftWarmEntries.values.firstOrNull { it.adopted && it.mediaItem.mediaId == id }
+                    ?.let { generation to it }
+            }
+        }
+        val targetVaftWarm = mediaItem?.let { target ->
+            states.asReversed().firstNotNullOfOrNull { generation ->
+                generation.vaftWarmEntries.values.firstOrNull { it.mediaItem.mediaId == target.mediaId }
+                    ?.let { generation to it }
+            }
+        }
         currentMediaId?.let(proxyPlaylistObservations::remove)
         mediaItem?.mediaId?.let(proxyPlaylistObservations::remove)
         currentMediaId?.let { currentId ->
@@ -349,7 +538,19 @@ class StreamMedia3Runtime(
             }
         }
         states.forEach { it.playbackOwnership.release() }
+        previousVaftWarm?.let { (generation, entry) ->
+            generation.manager.remove(entry.mediaItem)
+            generation.vaftWarmEntries.remove(entry.token)
+            generation.targetPreloadState.completedVaftRanks.remove(entry.rank)
+            generation.hlsFactory.releaseMediaItem(entry.mediaItem.mediaId)
+            generation.manager.setCurrentPlayingIndex(0)
+        }
+        targetVaftWarm?.let { (generation, entry) ->
+            generation.hlsFactory.findState(entry.mediaItem.mediaId)?.setPrimaryPlayback(true)
+            entry.adopted = true
+        }
         targetEntry?.let { (generation, entry) -> generation.playbackOwnership.setPrimaryMediaItem(entry.mediaItem) }
+        targetVaftWarm?.let { (generation, entry) -> generation.playbackOwnership.setPrimaryMediaItem(entry.mediaItem) }
         primaryPlaybackMediaId = mediaItem?.mediaId
         currentMediaId?.let(::releaseClipDataSourceFactoryIfUnretained)
         if (desiredCandidates.isNotEmpty()) reconcile(desiredCandidates)
@@ -459,6 +660,7 @@ class StreamMedia3Runtime(
         }
         states.forEach { generation ->
             if (generation.player === player) {
+                clearVaftWarmEntries(generation)
                 xtraModule.liveCaptionManager.deactivateAudioBufferSink(generation.captionAudioSink)
                 generation.playbackOwnership.release()
                 generation.player = null
@@ -483,9 +685,12 @@ class StreamMedia3Runtime(
         currentGeneration?.takeIf { it.configuration.fingerprint == configuration.fingerprint }?.let { return it }
         currentGeneration?.let { old ->
             if (shouldResetPreloadManager(old.player != null)) {
+                clearVaftWarmEntries(old)
                 xtraModule.liveCaptionManager.deactivateAudioBufferSink(old.captionAudioSink)
                 old.manager.release()
                 states.remove(old)
+            } else {
+                discardPendingVaftWarmups(old)
             }
         }
         currentGeneration = null
@@ -506,17 +711,22 @@ class StreamMedia3Runtime(
         )
         val targetPreloadState = TargetPreloadState()
         val statusControl = TargetPreloadStatusControl<Int, DefaultPreloadManager.PreloadStatus> { rank ->
-            when (rank) {
+            when {
+                isVaftPreloadRank(rank) -> if (targetPreloadState.completedVaftRanks.contains(rank)) {
+                    DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_TRACKS_SELECTED
+                } else {
+                    DefaultPreloadManager.PreloadStatus.specifiedRangeLoaded(VAFT_PRELOAD_SAMPLE_DURATION_MS)
+                }
                 // Live HLS never reaches a terminal range. Once the first
                 // sample warmup completes, only retain source/track setup so
                 // manager invalidations cannot turn it back into a stream.
-                0 -> if (targetPreloadState.rankZeroSampleComplete) {
+                rank == 0 -> if (targetPreloadState.rankZeroSampleComplete) {
                     DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_TRACKS_SELECTED
                 } else {
                     DefaultPreloadManager.PreloadStatus.specifiedRangeLoaded(SAMPLE_PRELOAD_DURATION_MS)
                 }
-                1 -> DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_TRACKS_SELECTED
-                2 -> DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_SOURCE_PREPARED
+                rank == 1 -> DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_TRACKS_SELECTED
+                rank == 2 -> DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_SOURCE_PREPARED
                 else -> DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_NOT_PRELOADED
             }
         }
@@ -549,6 +759,25 @@ class StreamMedia3Runtime(
         )
         generation.manager.addListener(object : PreloadManagerListener {
             override fun onCompleted(mediaItem: MediaItem) {
+                val vaftWarm = generation.vaftWarmEntries.values.firstOrNull { it.mediaItem == mediaItem }
+                if (vaftWarm != null) {
+                    if (vaftWarm.completion.isDone) return
+                    val sourceState = generation.hlsFactory.findState(mediaItem.mediaId)
+                    val isClean = sourceState?.lastMediaPlaylistClean == true
+                    vaftWarm.completedAtMs = elapsedRealtimeMs()
+                    if (isClean) generation.targetPreloadState.completedVaftRanks.add(vaftWarm.rank)
+                    vaftWarm.completion.set(isClean)
+                    if (BuildConfig.DEBUG) {
+                        val exactRendition = vaftWarm.key.verifiedRenditionUrl == null ||
+                            sourceState?.lastMediaPlaylistBaseUri == vaftWarm.key.verifiedRenditionUrl
+                        Log.d(
+                            TAG,
+                            "vaft_warm_complete token=${vaftWarm.token.take(8)} clean=$isClean " +
+                                "exactRendition=$exactRendition elapsedMs=${vaftWarm.completedAtMs!! - vaftWarm.addedAtMs}",
+                        )
+                    }
+                    return
+                }
                 val entry = generation.entries.values.firstOrNull { it.mediaItem == mediaItem } ?: return
                 if (entry.achievedStage == STAGE_NOT_ACHIEVED) {
                     entry.achievedStage = targetStage(entry.rank)
@@ -566,6 +795,8 @@ class StreamMedia3Runtime(
 
             override fun onError(preloadException: PreloadException) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "preload_failed type=${preloadException::class.simpleName}")
+                generation.vaftWarmEntries.values.firstOrNull { !it.adopted && !it.completion.isDone }
+                    ?.completion?.set(false)
             }
         })
         states += generation
@@ -604,9 +835,41 @@ class StreamMedia3Runtime(
 
     private fun releaseClipDataSourceFactoryIfUnretained(mediaId: String) {
         if (primaryPlaybackMediaId == mediaId ||
-            states.any { generation -> generation.entries.values.any { it.mediaItem.mediaId == mediaId } }
+            states.any { generation ->
+                generation.entries.values.any { it.mediaItem.mediaId == mediaId } ||
+                    generation.vaftWarmEntries.values.any { it.mediaItem.mediaId == mediaId }
+            }
         ) return
         states.forEach { it.hlsFactory.releaseMediaItem(mediaId) }
+    }
+
+    private fun isVaftPreloadRank(rank: Int): Boolean =
+        rank == VAFT_PRELOAD_RANK
+
+    private fun discardPendingVaftWarmups(generation: Generation) {
+        generation.vaftWarmEntries.values.filterNot { it.adopted }.toList().forEach {
+            removeVaftWarmEntry(generation, it)
+        }
+    }
+
+    private fun clearVaftWarmEntries(generation: Generation) {
+        generation.vaftWarmEntries.values.toList().forEach { entry ->
+            if (!entry.completion.isDone) entry.completion.set(false)
+            if (!entry.adopted) {
+                generation.manager.remove(entry.mediaItem)
+                generation.hlsFactory.releaseMediaItem(entry.mediaItem.mediaId)
+            }
+            generation.targetPreloadState.completedVaftRanks.remove(entry.rank)
+        }
+        generation.vaftWarmEntries.clear()
+    }
+
+    private fun removeVaftWarmEntry(generation: Generation, entry: VaftWarmEntry) {
+        generation.vaftWarmEntries.remove(entry.token)
+        if (!entry.completion.isDone) entry.completion.set(false)
+        generation.manager.remove(entry.mediaItem)
+        generation.targetPreloadState.completedVaftRanks.remove(entry.rank)
+        generation.hlsFactory.releaseMediaItem(entry.mediaItem.mediaId)
     }
 
     private fun mediaId(configuration: StreamPlaybackConfiguration, login: String, url: String): String {
@@ -657,9 +920,22 @@ class StreamMedia3Runtime(
         var samplesLoadedAtMs: Long? = null,
     )
 
+    private data class VaftWarmEntry(
+        val token: String,
+        val key: VaftWarmupKey,
+        val mediaItem: MediaItem,
+        val rank: Int,
+        val addedAtMs: Long,
+        val completion: SettableFuture<Boolean>,
+        var completedAtMs: Long? = null,
+        var adopted: Boolean = false,
+    )
+
     private class TargetPreloadState {
         @Volatile
         var rankZeroSampleComplete = false
+
+        val completedVaftRanks: MutableSet<Int> = ConcurrentHashMap.newKeySet()
     }
 
     private class Generation(
@@ -672,6 +948,7 @@ class StreamMedia3Runtime(
         val adaptiveLiveController: AdaptiveLivePlaybackController,
         val adaptiveLiveLoadControl: AdaptiveLiveLoadControl,
         val entries: StreamMedia3PreloadEntries<Entry> = StreamMedia3PreloadEntries(),
+        val vaftWarmEntries: MutableMap<String, VaftWarmEntry> = ConcurrentHashMap(),
         var player: ExoPlayer? = null,
         val playbackOwnership: StreamMedia3PlaybackOwnership = StreamMedia3PlaybackOwnership(),
     )

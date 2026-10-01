@@ -21,6 +21,7 @@ import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.OptIn
 import androidx.core.content.ContextCompat
@@ -81,6 +82,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.snackbar.Snackbar
+import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.Futures
 import kotlinx.coroutines.CancellationException
@@ -130,6 +132,13 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var liveRewindFallbackPreferredQuality: SourceSwitchQualityIdentity? = null
     private var liveRewindFallbackQualityMetadata: List<VideoQuality>? = null
     private var videoOutputCover: View? = null
+    private var vaftFrozenFrameView: ImageView? = null
+    private var vaftFrozenFrameBitmap: Bitmap? = null
+    private var vaftFrameCaptureRequestId: String? = null
+    private var vaftFrozenFrameRequestId: String? = null
+    private var vaftHandoffTargetMediaId: String? = null
+    private var vaftHandoffGeneration = -1L
+    private var vaftHandoffTargetFrameRendered = false
     private val player: MediaController?
         get() = controllerFuture?.let {
             if (it.isDone && !it.isCancelled) {
@@ -155,6 +164,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 val previousRendition = viewModel.vaftVerifiedRendition
                 val wasHandoff = vaftHandoffInProgress
                 vaftHandoffInProgress = args.getBoolean(PlaybackService.VAFT_HANDOFF)
+                vaftHandoffTargetMediaId = args.getString(PlaybackService.VAFT_HANDOFF_TARGET_MEDIA_ID)
+                vaftHandoffGeneration = args.getLong(PlaybackService.VAFT_HANDOFF_GENERATION, -1L)
+                vaftHandoffTargetFrameRendered = args.getBoolean(PlaybackService.VAFT_HANDOFF_TARGET_FRAME_RENDERED)
                 if (vaftHandoffInProgress && !wasHandoff) {
                     invalidateQualityRequest()
                     viewModel.qualities = null
@@ -169,8 +181,26 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 }
                 viewModel.usingAlternateStream = args.getBoolean(PlaybackService.VAFT_ALTERNATE_ACTIVE)
                 viewModel.vaftVerifiedRendition = decodePlaybackQuality(xtraModule.json, args.getString(PlaybackService.VAFT_VERIFIED_RENDITION))
+                val captureId = args.getString(PlaybackService.VAFT_HANDOFF_FRAME_CAPTURE_ID)
+                reconcileVaftFrameCaptureResult(args)
+                if (captureId != vaftFrameCaptureRequestId && vaftFrameCaptureRequestId != null) {
+                    vaftFrameCaptureRequestId = null
+                }
                 viewModel.vaftRequired = args.getBoolean(PlaybackService.SUPPRESS_VAFT_OUTPUT)
-                if (viewModel.vaftRequired) suppressVaftPlayback() else restoreVaftPlayback()
+                if (!captureId.isNullOrBlank()) {
+                    viewModel.hidden = false
+                    setVideoOutputVisible(true)
+                    requestVaftFrozenFrame(controller, captureId)
+                } else if (viewModel.vaftRequired) {
+                    suppressVaftPlayback()
+                } else {
+                    restoreVaftPlayback()
+                }
+                if (vaftHandoffTargetMediaId == null && !vaftHandoffInProgress) {
+                    clearVaftFrozenFrame()
+                } else {
+                    clearVaftFrozenFrameAfterTargetFrame(controller)
+                }
                 if (!viewModel.vaftRequired && !viewModel.usingAlternateStream &&
                     (wasAlternate || (wasWindowActive && !viewModel.vaftWindowActive))) {
                     args.getString(PlaybackService.VAFT_SOURCE_URI)?.let { uri ->
@@ -395,6 +425,135 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         videoOutputCover?.visibility = View.GONE
     }
 
+    private fun requestVaftFrozenFrame(controller: MediaController, requestId: String) {
+        if (vaftFrameCaptureRequestId == requestId) return
+        vaftFrameCaptureRequestId = requestId
+        val surfaceView = videoOutputView
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || !surfaceView.isAttachedToWindow ||
+            surfaceView.width <= 0 || surfaceView.height <= 0 || !surfaceView.holder.surface.isValid
+        ) {
+            finishVaftFrameCapture(controller, requestId, null)
+            return
+        }
+        val bitmap = runCatching {
+            Bitmap.createBitmap(surfaceView.width, surfaceView.height, Bitmap.Config.ARGB_8888)
+        }.getOrNull()
+        if (bitmap == null) {
+            finishVaftFrameCapture(controller, requestId, null)
+            return
+        }
+        try {
+            PixelCopy.request(
+                surfaceView,
+                bitmap,
+                { result ->
+                    if (result == PixelCopy.SUCCESS) {
+                        finishVaftFrameCapture(controller, requestId, bitmap, result)
+                    } else {
+                        bitmap.recycle()
+                        finishVaftFrameCapture(controller, requestId, null, result)
+                    }
+                },
+                Handler(Looper.getMainLooper()),
+            )
+        } catch (_: RuntimeException) {
+            bitmap.recycle()
+            finishVaftFrameCapture(controller, requestId, null)
+        }
+    }
+
+    private fun finishVaftFrameCapture(
+        controller: MediaController,
+        requestId: String,
+        bitmap: Bitmap?,
+        result: Int? = null,
+    ) {
+        if (vaftFrameCaptureRequestId != requestId || !isAdded || view == null) {
+            bitmap?.recycle()
+            return
+        }
+        vaftFrameCaptureRequestId = null
+        if (bitmap == null) {
+            clearVaftFrozenFrame()
+            viewModel.vaftRequired = true
+            suppressVaftPlayback()
+            acknowledgeVaftFrameCapture(controller, requestId, ready = false)
+            if (BuildConfig.DEBUG) Log.d("XtraVaft", "ui_return_frame result=${result ?: -1} ready=false")
+            return
+        }
+
+        clearVaftFrozenFrame()
+        vaftFrozenFrameRequestId = requestId
+        vaftFrozenFrameBitmap = bitmap
+        vaftFrozenFrameView?.apply {
+            setImageBitmap(bitmap)
+            visibility = View.VISIBLE
+            bringToFront()
+        }
+        binding.root.postOnAnimation {
+            val requestGeneration = requestId.substringBefore(':').toLongOrNull()
+            if (requestGeneration != vaftHandoffGeneration ||
+                vaftHandoffTargetMediaId.isNullOrBlank() ||
+                vaftFrozenFrameBitmap !== bitmap || !isAdded || view == null
+            ) {
+                if (vaftFrozenFrameBitmap === bitmap) clearVaftFrozenFrame() else bitmap.recycle()
+                return@postOnAnimation
+            }
+            viewModel.vaftRequired = true
+            suppressVaftPlayback()
+            acknowledgeVaftFrameCapture(controller, requestId, ready = true)
+            if (BuildConfig.DEBUG) Log.d("XtraVaft", "ui_return_frame result=${result ?: PixelCopy.SUCCESS} ready=true")
+        }
+    }
+
+    private fun acknowledgeVaftFrameCapture(controller: MediaController, requestId: String, ready: Boolean) {
+        val future = controller.sendCustomCommand(
+            SessionCommand(PlaybackService.ACK_VAFT_HANDOFF_FRAME, Bundle.EMPTY),
+            Bundle().apply {
+                putString(PlaybackService.VAFT_HANDOFF_FRAME_CAPTURE_ID, requestId)
+                putBoolean(PlaybackService.VAFT_HANDOFF_FRAME_READY, ready)
+            },
+        )
+        future.addListener({
+            val resultCode = runCatching { future.get().resultCode }.getOrNull()
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "XtraVaft",
+                    "ui_return_frame_ack request=${requestId.takeLast(8)} ready=$ready result=$resultCode",
+                )
+            }
+        }, MoreExecutors.directExecutor())
+    }
+
+    private fun reconcileVaftFrameCaptureResult(extras: Bundle) {
+        val resolvedId = extras.getString(PlaybackService.VAFT_HANDOFF_FRAME_CAPTURE_RESOLVED_ID) ?: return
+        if (vaftFrameCaptureRequestId == resolvedId) vaftFrameCaptureRequestId = null
+        if (vaftFrozenFrameRequestId == resolvedId &&
+            !extras.getBoolean(PlaybackService.VAFT_HANDOFF_FRAME_CAPTURE_ACCEPTED)
+        ) {
+            clearVaftFrozenFrame()
+        }
+    }
+
+    private fun clearVaftFrozenFrameAfterTargetFrame(controller: MediaController) {
+        val targetMediaId = vaftHandoffTargetMediaId ?: return
+        if (!vaftHandoffInProgress && !viewModel.hidden && vaftHandoffTargetFrameRendered &&
+            vaftHandoffGeneration >= 0L && controller.currentMediaItem?.mediaId == targetMediaId
+        ) {
+            clearVaftFrozenFrame()
+        }
+    }
+
+    private fun clearVaftFrozenFrame() {
+        vaftFrozenFrameView?.apply {
+            setImageDrawable(null)
+            visibility = View.GONE
+        }
+        vaftFrozenFrameBitmap?.takeUnless { it.isRecycled }?.recycle()
+        vaftFrozenFrameBitmap = null
+        vaftFrozenFrameRequestId = null
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         liveClipDirectoryPath = savedInstanceState?.getString(STATE_CLIP_DIRECTORY)
@@ -422,6 +581,19 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
         videoOutputCover = outputCover
         binding.aspectRatioFrameLayout.addView(outputCover)
+        val frozenFrameView = ImageView(requireContext()).apply {
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            )
+            scaleType = ImageView.ScaleType.FIT_XY
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            isClickable = false
+            isFocusable = false
+            visibility = View.GONE
+        }
+        vaftFrozenFrameView = frozenFrameView
+        binding.aspectRatioFrameLayout.addView(frozenFrameView)
         configureVideoOutputView()
         childFragmentManager.setFragmentResultListener(
             ClipEditorDialogFragment.RESULT_KEY,
@@ -522,18 +694,28 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val extras = state.extras
         viewModel.vaftWindowActive = extras.getBoolean(PlaybackService.VAFT_WINDOW_ACTIVE)
         vaftHandoffInProgress = extras.getBoolean(PlaybackService.VAFT_HANDOFF)
+        vaftHandoffTargetMediaId = extras.getString(PlaybackService.VAFT_HANDOFF_TARGET_MEDIA_ID)
+        vaftHandoffGeneration = extras.getLong(PlaybackService.VAFT_HANDOFF_GENERATION, -1L)
+        vaftHandoffTargetFrameRendered = extras.getBoolean(PlaybackService.VAFT_HANDOFF_TARGET_FRAME_RENDERED)
+        reconcileVaftFrameCaptureResult(extras)
         viewModel.vaftLogicalQuality = decodePlaybackQuality(xtraModule.json, extras.getString(PlaybackService.VAFT_LOGICAL_QUALITY))
         viewModel.vaftVerifiedRendition = decodePlaybackQuality(
             xtraModule.json,
             extras.getString(PlaybackService.VAFT_VERIFIED_RENDITION),
         )
         viewModel.usingAlternateStream = extras.getBoolean(PlaybackService.VAFT_ALTERNATE_ACTIVE)
-        viewModel.hidden = extras.getBoolean(PlaybackService.SUPPRESS_VAFT_OUTPUT) || vaftHandoffInProgress
+        val captureId = extras.getString(PlaybackService.VAFT_HANDOFF_FRAME_CAPTURE_ID)
+        val alternateActive = extras.getBoolean(PlaybackService.VAFT_ALTERNATE_ACTIVE)
+        viewModel.hidden = extras.getBoolean(PlaybackService.SUPPRESS_VAFT_OUTPUT) ||
+            (vaftHandoffInProgress && !alternateActive && captureId.isNullOrBlank())
         viewModel.vaftRequired = viewModel.hidden
         setVideoOutputVisible(
             !viewModel.hidden && viewModel.quality?.name != AUDIO_ONLY_QUALITY &&
                 viewModel.quality?.name != CHAT_ONLY_QUALITY,
         )
+        if (!captureId.isNullOrBlank()) requestVaftFrozenFrame(controller, captureId)
+        if (vaftHandoffTargetMediaId == null && !vaftHandoffInProgress) clearVaftFrozenFrame()
+        else clearVaftFrozenFrameAfterTargetFrame(controller)
         return true
     }
 
@@ -1057,6 +1239,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         sampleRenderedSurfaceFrame(controller, videoOutputView)
                         if (liveSurfaceRestoreListener != null) finishLiveSurfaceRestore(controller)
                         else hideVideoOutputCover()
+                        clearVaftFrozenFrameAfterTargetFrame(controller)
                         refreshPlayerHudLayout()
                     }
                 }
@@ -4882,6 +5065,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         liveSurfaceRestoreListener?.let { listener -> player?.removeListener(listener) }
         liveSurfaceRestoreListener = null
         clearForegroundVideoRestore()
+        vaftFrameCaptureRequestId = null
+        vaftFrozenFrameRequestId = null
+        clearVaftFrozenFrame()
+        vaftFrozenFrameView = null
         videoOutputCover = null
         resetProgressRenderState()
         renderedPlaybackChrome = null

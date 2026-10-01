@@ -36,6 +36,7 @@ import com.github.andreyasadchy.xtra.player.lowlatency.TwitchHlsRequestRules.MUL
 import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfiguration
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
+import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
 import okhttp3.Credentials
@@ -66,6 +67,12 @@ class StreamProxyState {
 
     @Volatile
     var twitchHlsDiagnostics: TwitchHlsPlaylistDiagnostics? = null
+
+    @Volatile
+    var lastMediaPlaylistBaseUri: String? = null
+
+    @Volatile
+    var lastMediaPlaylistClean: Boolean? = null
 
     fun recordRequestObservation(observation: StreamRequestObservation) {
         if (!primaryPlayback) return
@@ -129,6 +136,8 @@ class StreamHlsMediaSourceFactory(
                     diagnostics = TwitchHlsDiagnosticsSink { diagnostics, parsed ->
                         if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
                             state.twitchHlsDiagnostics = diagnostics
+                            state.lastMediaPlaylistBaseUri = parsed.baseUri
+                            state.lastMediaPlaylistClean = !TwitchVaftDetector.requiresVaft(parsed)
                             if (BuildConfig.DEBUG) {
                                 Log.d(
                                     "TwitchLLSource",

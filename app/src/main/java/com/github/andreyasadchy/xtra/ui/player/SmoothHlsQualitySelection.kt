@@ -25,6 +25,8 @@ import androidx.media3.exoplayer.upstream.BandwidthMeter
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.CopyOnWriteArraySet
 import kotlin.math.floor
 
 /** The requested quality, kept independent from the format currently being loaded. */
@@ -84,18 +86,29 @@ data class DesiredHlsQuality(
 /** Thread-safe quality intent shared by the player service and its playback-thread selections. */
 class SmoothHlsQualityPolicy {
     private val desired = AtomicReference(DesiredHlsQuality(PlaybackContract.AUTO_QUALITY))
+    private val revisionCounter = AtomicLong()
+    private val listeners = CopyOnWriteArraySet<(DesiredHlsQuality) -> Unit>()
 
     fun set(name: String?, bitrate: Int? = null, codecs: String? = null) {
-        desired.set(
-            DesiredHlsQuality(
-                name = name?.takeIf { it.isNotBlank() } ?: PlaybackContract.AUTO_QUALITY,
-                bitrate = bitrate,
-                codecs = codecs,
-            ),
+        val next = DesiredHlsQuality(
+            name = name?.takeIf { it.isNotBlank() } ?: PlaybackContract.AUTO_QUALITY,
+            bitrate = bitrate,
+            codecs = codecs,
         )
+        val previous = desired.getAndSet(next)
+        if (previous != next) {
+            revisionCounter.incrementAndGet()
+            listeners.forEach { it(next) }
+        }
     }
 
     fun snapshot(): DesiredHlsQuality = desired.get()
+
+    fun revision(): Long = revisionCounter.get()
+
+    fun addChangeListener(listener: (DesiredHlsQuality) -> Unit) {
+        listeners += listener
+    }
 }
 
 /** Applies manual intent before Media3 loads the first video chunks. */
