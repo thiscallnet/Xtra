@@ -169,6 +169,11 @@ class PlaybackService : MediaSessionService() {
     private var liveRewindTransitioning = false
     private var lastMediaButtonSeekable: Boolean? = null
     private var liveStreamUri: String? = null
+    private var livePlaybackSessionGeneration = 0L
+    private var primaryQualityCatalogMasterUri: String? = null
+    private var primaryQualityCatalog: List<VideoQuality>? = null
+    private var primaryQualityCatalogRenditionUris: Set<String> = emptySet()
+    private var primaryQualityCatalogSessionGeneration = -1L
     private var vaftHandoffJob: Job? = null
     private var vaftAlternateActive = false
     private var vaftOutputSuppressed = false
@@ -1481,7 +1486,9 @@ class PlaybackService : MediaSessionService() {
                             }
                             GET_QUALITIES -> {
                                 if (vaftHandoffJob?.isActive == true) return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_INVALID_STATE))
-                                val sourceUri = session.player.currentMediaItem?.localConfiguration?.uri?.toString()
+                                val currentMediaItem = session.player.currentMediaItem
+                                val sourceMediaId = currentMediaItem?.mediaId
+                                val sourceUri = currentMediaItem?.localConfiguration?.uri?.toString()
                                 val playlist = (session.player.currentManifest as? HlsManifest)?.multivariantPlaylist
                                 val list = playlist?.variants?.mapNotNull { variant ->
                                     val name = variant.format.label?.takeIf { it.isNotBlank() }
@@ -1496,13 +1503,79 @@ class PlaybackService : MediaSessionService() {
                                         )
                                     } else null
                                 }
+                                val currentCatalog = list?.takeIf { it.isNotEmpty() }?.toList()
+                                val cachedSessionMatches =
+                                    primaryQualityCatalogSessionGeneration == livePlaybackSessionGeneration &&
+                                        !primaryQualityCatalogMasterUri.isNullOrBlank() &&
+                                        !primaryQualityCatalog.isNullOrEmpty()
+                                val liveUriMatchesCachedCatalog = liveStreamUri == primaryQualityCatalogMasterUri ||
+                                    liveStreamUri?.let { it in primaryQualityCatalogRenditionUris } == true
+                                if (cachedSessionMatches && !liveUriMatchesCachedCatalog) {
+                                    primaryQualityCatalogMasterUri = null
+                                    primaryQualityCatalog = null
+                                    primaryQualityCatalogRenditionUris = emptySet()
+                                    primaryQualityCatalogSessionGeneration = -1L
+                                }
+                                if (!vaftAlternateActive && !vaftSourceSwitching &&
+                                    sourceUri == liveStreamUri && currentCatalog != null
+                                ) {
+                                    primaryQualityCatalogMasterUri = sourceUri
+                                    primaryQualityCatalog = currentCatalog
+                                    primaryQualityCatalogRenditionUris = currentCatalog.mapNotNull { it.url }.toSet()
+                                    primaryQualityCatalogSessionGeneration = livePlaybackSessionGeneration
+                                }
+                                val cachedPrimaryCatalogIsCurrent =
+                                    primaryQualityCatalogSessionGeneration == livePlaybackSessionGeneration &&
+                                        !primaryQualityCatalogMasterUri.isNullOrBlank() &&
+                                        !primaryQualityCatalog.isNullOrEmpty() &&
+                                        (liveStreamUri == primaryQualityCatalogMasterUri ||
+                                            liveStreamUri?.let { it in primaryQualityCatalogRenditionUris } == true)
+                                val sourceMatchesCachedPrimaryCatalog = cachedPrimaryCatalogIsCurrent &&
+                                    (sourceUri == primaryQualityCatalogMasterUri ||
+                                        sourceUri?.let { it in primaryQualityCatalogRenditionUris } == true)
+                                val isPrimaryQualitySource = !vaftAlternateActive && !vaftSourceSwitching &&
+                                    (sourceUri == liveStreamUri || sourceMatchesCachedPrimaryCatalog)
+                                val catalog = if (sourceMatchesCachedPrimaryCatalog && isPrimaryQualitySource) {
+                                    primaryQualityCatalog
+                                } else {
+                                    list
+                                }
+                                val catalogMasterUri = if (sourceMatchesCachedPrimaryCatalog && isPrimaryQualitySource) {
+                                    primaryQualityCatalogMasterUri
+                                } else if (isPrimaryQualitySource && sourceUri == liveStreamUri && currentCatalog != null) {
+                                    sourceUri
+                                } else {
+                                    null
+                                }
+                                if (BuildConfig.DEBUG) {
+                                    val catalogOrigin = if (sourceMatchesCachedPrimaryCatalog && isPrimaryQualitySource) {
+                                        "primary_cache"
+                                    } else {
+                                        "current_manifest"
+                                    }
+                                    Log.d(
+                                        "XtraQuality",
+                                        "event=quality_catalog_emit itemToken=${diagnosticToken(sourceMediaId)} " +
+                                            "sourceToken=${diagnosticToken(sourceUri)} " +
+                                            "catalogUriToken=${diagnosticToken(catalogMasterUri)} " +
+                                            "origin=$catalogOrigin primary=$isPrimaryQualitySource " +
+                                            "count=${catalog?.size ?: 0} " +
+                                            "rowsToken=${qualityCatalogRowsToken(catalog)}",
+                                    )
+                                }
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                                    putString(QUALITIES_MEDIA_ID, sourceMediaId)
                                     putString(QUALITIES_SOURCE_URI, sourceUri)
-                                    putStringArray(NAMES, list?.map { it.name.toString() }?.toTypedArray())
-                                    putStringArray(CODECS, list?.map { it.codecs.toString() }?.toTypedArray())
-                                    putStringArray(BITRATES, list?.map { it.bitrate.toString() }?.toTypedArray())
-                                    putStringArray(FRAME_RATES, list?.map { it.frameRate.toString() }?.toTypedArray())
-                                    putStringArray(URLS, list?.map { it.url.toString() }?.toTypedArray())
+                                    putString(QUALITIES_CATALOG_URI, catalogMasterUri)
+                                    putBoolean(QUALITIES_CATALOG_PRIMARY, isPrimaryQualitySource)
+                                    if (BuildConfig.DEBUG) {
+                                        putString(QUALITIES_ROWS_TOKEN, qualityCatalogRowsToken(catalog))
+                                    }
+                                    putStringArray(NAMES, catalog?.map { it.name.toString() }?.toTypedArray())
+                                    putStringArray(CODECS, catalog?.map { it.codecs.toString() }?.toTypedArray())
+                                    putStringArray(BITRATES, catalog?.map { it.bitrate.toString() }?.toTypedArray())
+                                    putStringArray(FRAME_RATES, catalog?.map { it.frameRate.toString() }?.toTypedArray())
+                                    putStringArray(URLS, catalog?.map { it.url.toString() }?.toTypedArray())
                                 }))
                             }
                             GET_DURATION -> {
@@ -1548,6 +1621,7 @@ class PlaybackService : MediaSessionService() {
                                             quality?.name?.let { putString(VIDEO_QUALITY_NAME, it) }
                                             quality?.codecs?.let { putString(VIDEO_QUALITY_CODECS, it) }
                                             quality?.bitrate?.let { putInt(VIDEO_QUALITY_BITRATE, it) }
+                                            quality?.frameRate?.let { putFloat(VIDEO_QUALITY_FRAME_RATE, it) }
                                         },
                                     ),
                                 )
@@ -4042,6 +4116,13 @@ class PlaybackService : MediaSessionService() {
         val title = extras.getString(TITLE)
         val channelName = extras.getString(CHANNEL_NAME)
         val channelLogo = extras.getString(CHANNEL_LOGO)
+        if (beginNewPlayback) {
+            livePlaybackSessionGeneration++
+            primaryQualityCatalogMasterUri = null
+            primaryQualityCatalog = null
+            primaryQualityCatalogRenditionUris = emptySet()
+            primaryQualityCatalogSessionGeneration = -1L
+        }
         liveStreamUri = uri
         liveStreamExtras = Bundle(extras)
         setViewingMetadata(
@@ -5028,7 +5109,11 @@ class PlaybackService : MediaSessionService() {
         const val BACKGROUND_PLAYBACK = "backgroundPlayback"
         const val DURATION = "duration"
         const val NAMES = "names"
+        const val QUALITIES_MEDIA_ID = "qualitiesMediaId"
         const val QUALITIES_SOURCE_URI = "qualitiesSourceUri"
+        const val QUALITIES_CATALOG_URI = "qualitiesCatalogUri"
+        const val QUALITIES_CATALOG_PRIMARY = "qualitiesCatalogPrimary"
+        const val QUALITIES_ROWS_TOKEN = "qualitiesRowsToken"
         const val CODECS = "codecs"
         const val BITRATES = "bitrates"
         const val FRAME_RATES = "frameRates"

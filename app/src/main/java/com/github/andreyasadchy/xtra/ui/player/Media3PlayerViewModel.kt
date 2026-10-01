@@ -122,12 +122,15 @@ class Media3PlayerViewModel(
     val savedOfflineVideoPosition = MutableStateFlow<Long?>(null)
 
     var qualities: List<VideoQuality>? = null
+    internal var streamQualityCatalogIdentity: StreamQualityCatalogIdentity? = null
     var quality: VideoQuality? = null
     /** Restored quality arguments are a one-time startup fallback, never ongoing authority. */
     var restoredQualityBootstrapConsumed = false
     /** Last rendition reported by the active video decoder input. */
     var confirmedVideoQuality: VideoQuality? = null
     var confirmedVideoQualityMediaId: String? = null
+    var confirmedVideoQualitySourceUri: String? = null
+    var primaryQualityCatalogUri: String? = null
     var resumeAppliedVideoQuality: VideoQuality? = null
     var resumeAppliedVideoQualityMediaId: String? = null
     var pendingResumeAppliedVideoQuality: VideoQuality? = null

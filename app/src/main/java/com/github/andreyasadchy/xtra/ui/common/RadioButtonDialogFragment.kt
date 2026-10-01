@@ -95,6 +95,7 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         val context = radioGroup.context
         val arguments = requireArguments()
         val generation = ++optionsGeneration
+        radioGroup.clearCheck()
         radioGroup.removeAllViews()
         if (arguments.getBoolean(LOADING)) {
             radioGroup.addView(ProgressBar(context), LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
