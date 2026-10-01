@@ -245,6 +245,7 @@ object HudDefaultLayout {
         television: Boolean = false,
         televisionEdgePadding: Float = TV_EDGE_PADDING * density,
         liveTimePosition: HudTimelineTimePosition = HudTimelineTimePosition.LEFT,
+        measuredPresentations: Map<HudElementId, HudMeasuredPresentation> = emptyMap(),
     ): Map<HudElementId, HudPlacement> {
         val compact = safeRect.height < 260f * density
         val edge = if (television) {
@@ -269,6 +270,7 @@ object HudDefaultLayout {
         val globalScale = HudScale.clampGlobal(profile.globalScale)
 
         fun scaledSize(id: HudElementId): HudSize {
+            measuredPresentations[id]?.let { return it.visualSize }
             val spec = HudElementRegistry.get(id)
             val size = if (id == HudElementId.STREAM_INFO || id == HudElementId.TIME_STATUS) {
                 measuredVisualSizes[id] ?: spec.visualSize(compact).let { HudSize(it.width * density, it.height * density) }
