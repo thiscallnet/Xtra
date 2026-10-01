@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/coordinatorLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
@@ -19,19 +20,25 @@
             android:layout_height="wrap_content"
             android:minHeight="?attr/actionBarSize"
             app:layout_scrollFlags="scroll|enterAlways"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
             app:menu="@menu/search_menu">
 
             <androidx.appcompat.widget.SearchView
                 android:id="@+id/searchView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:background="@drawable/bg_search_field"
                 android:imeOptions="flagNoFullscreen"
                 android:inputType="textAutoComplete"
+                android:minHeight="52dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
                 android:textDirection="locale"
                 app:iconifiedByDefault="false"
                 app:queryBackground="@android:color/transparent"
                 app:queryHint="@string/search"
-                app:searchIcon="@null" />
+                app:searchIcon="@drawable/baseline_search_black_24" />
         </com.google.android.material.appbar.MaterialToolbar>
 
         <com.google.android.material.tabs.TabLayout
@@ -89,5 +96,87 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
+
+    <FrameLayout
+        android:id="@+id/searchLanding"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        app:layout_behavior="@string/appbar_scrolling_view_behavior"
+        tools:visibility="visible">
+
+        <androidx.core.widget.NestedScrollView
+            android:id="@+id/searchLandingScrollView"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:fillViewport="true">
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:clipToPadding="false">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:paddingBottom="24dp"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:layout_constraintWidth_default="spread"
+                    app:layout_constraintWidth_max="840dp">
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/searchSuggestions"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:nestedScrollingEnabled="false" />
+
+                    <TextView
+                        android:id="@+id/searchLandingTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="20dp"
+                        android:layout_marginTop="8dp"
+                        android:layout_marginEnd="20dp"
+                        android:text="@string/search_landing_title"
+                        android:textAppearance="?attr/textAppearanceHeadlineSmall" />
+
+                    <TextView
+                        android:id="@+id/searchLandingSummary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="20dp"
+                        android:layout_marginTop="4dp"
+                        android:layout_marginEnd="20dp"
+                        android:text="@string/search_landing_summary"
+                        android:textAppearance="?attr/textAppearanceBodyLarge"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <TextView
+                        android:id="@+id/recentSearchesTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="20dp"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginEnd="20dp"
+                        android:layout_marginBottom="8dp"
+                        android:text="@string/search_recent_searches"
+                        android:textAppearance="?attr/textAppearanceTitleMedium"
+                        android:visibility="gone"
+                        tools:visibility="visible" />
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/recentSearchesRecyclerView"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:nestedScrollingEnabled="false" />
+
+                </LinearLayout>
+            </androidx.constraintlayout.widget.ConstraintLayout>
+        </androidx.core.widget.NestedScrollView>
+    </FrameLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

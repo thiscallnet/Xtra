@@ -16,6 +16,7 @@ import androidx.preference.PreferenceFragmentCompat
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.ui.chat.DEFAULT_CHAT_HIGHLIGHT_COLOR
 import com.github.andreyasadchy.xtra.ui.chat.parseChatHighlightColor
+import com.github.andreyasadchy.xtra.ui.common.usesExpressiveInterface
 import com.github.andreyasadchy.xtra.util.C
 import com.google.android.material.color.MaterialColors
 
@@ -23,6 +24,11 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        if (requireContext().usesExpressiveInterface()) {
+            val inset = (8 * resources.displayMetrics.density).toInt()
+            listView.setPadding(inset, inset, inset, listView.paddingBottom)
+            listView.clipToPadding = false
+        }
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
             listView.updatePadding(bottom = insets.bottom)

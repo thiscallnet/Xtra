@@ -15,6 +15,7 @@
     android:orientation="vertical">
 
     <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/gameImageContainer"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
@@ -33,47 +34,63 @@
             tools:src="@tools:sample/backgrounds/scenic" />
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <TextView
-        android:id="@+id/gameName"
+    <LinearLayout
+        android:id="@+id/gameInfo"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:ellipsize="end"
-        android:maxLines="2"
-        android:textAppearance="?attr/textAppearanceTitleSmall"
-        android:textStyle="bold"
-        tools:text="League of Legends" />
+        android:orientation="vertical">
 
-    <TextView
-        android:id="@+id/viewers"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:drawableStart="@drawable/bg_game_viewer_dot"
-        android:drawablePadding="4dp"
-        android:ellipsize="end"
-        android:gravity="center_vertical"
-        android:maxLines="1"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?android:attr/textColorSecondary"
-        tools:text="1.2M viewers" />
+        <TextView
+            android:id="@+id/gameName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:ellipsize="end"
+            android:maxLines="2"
+            android:textAppearance="?attr/textAppearanceTitleSmall"
+            android:textStyle="bold"
+            tools:text="League of Legends" />
 
-    <TextView
-        android:id="@+id/broadcastersCount"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:ellipsize="end"
-        android:maxLines="1"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?android:attr/textColorSecondary"
-        tools:text="123456 broadcasters" />
+        <LinearLayout
+            android:id="@+id/audience"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:gravity="center_vertical"
+            android:orientation="vertical">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
-        android:id="@+id/tagsLayout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:visibility="gone"
-        tools:visibility="visible" />
+            <TextView
+                android:id="@+id/viewers"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:drawableStart="@drawable/bg_game_viewer_dot"
+                android:drawablePadding="4dp"
+                android:ellipsize="end"
+                android:gravity="center_vertical"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?android:attr/textColorSecondary"
+                tools:text="1.2M viewers" />
+
+            <TextView
+                android:id="@+id/broadcastersCount"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="0dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?android:attr/textColorSecondary"
+                tools:text="123456 broadcasters" />
+        </LinearLayout>
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/tagsLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+    </LinearLayout>
 
 </LinearLayout>

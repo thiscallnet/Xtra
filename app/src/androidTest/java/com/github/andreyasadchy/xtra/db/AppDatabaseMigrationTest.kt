@@ -202,6 +202,8 @@ class AppDatabaseMigrationTest {
                 GameFeedMigrations.FROM_49,
                 NotificationMigrations.FROM_50,
                 EmoteUsageMigrations.FROM_51,
+                StreamFeedMigrations.FROM_52,
+                StreamFeedMigrations.FROM_53,
             )
             .build()
             .also { it.openHelper.writableDatabase }
@@ -250,6 +252,7 @@ class AppDatabaseMigrationTest {
         databaseNames += name
         val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
         val sqlite = database.openHelper.writableDatabase
+        StreamFeedMigrationTestFixtures.useVersion52Schema(sqlite)
         sqlite.execSQL("DROP INDEX IF EXISTS index_game_feed_items_feedKey_position")
         sqlite.execSQL("DROP TABLE IF EXISTS game_feed_items")
         sqlite.execSQL("DROP TABLE IF EXISTS game_feed_states")
@@ -262,6 +265,7 @@ class AppDatabaseMigrationTest {
         databaseNames += name
         val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
         val sqlite = database.openHelper.writableDatabase
+        StreamFeedMigrationTestFixtures.useVersion52Schema(sqlite)
         sqlite.execSQL("DROP TABLE shown_notifications")
         sqlite.execSQL("CREATE TABLE shown_notifications (channelId TEXT NOT NULL, startedAt INTEGER NOT NULL, PRIMARY KEY (channelId))")
         sqlite.execSQL("INSERT INTO shown_notifications (channelId, startedAt) VALUES ('A', 1000)")
@@ -353,9 +357,11 @@ class AppDatabaseMigrationTest {
         context.deleteDatabase(name)
         databaseNames += name
         val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
-        database.openHelper.writableDatabase.execSQL("DROP TABLE IF EXISTS favorite_emotes")
-        dropViewingStatsTables(database.openHelper.writableDatabase)
-        database.openHelper.writableDatabase.execSQL("PRAGMA user_version = 44")
+        val sqlite = database.openHelper.writableDatabase
+        StreamFeedMigrationTestFixtures.useVersion52Schema(sqlite)
+        sqlite.execSQL("DROP TABLE IF EXISTS favorite_emotes")
+        dropViewingStatsTables(sqlite)
+        sqlite.execSQL("PRAGMA user_version = 44")
         database.close()
     }
 
@@ -364,6 +370,7 @@ class AppDatabaseMigrationTest {
         databaseNames += name
         val database = Room.databaseBuilder(context, AppDatabase::class.java, name).build()
         val sqlite = database.openHelper.writableDatabase
+        StreamFeedMigrationTestFixtures.useVersion52Schema(sqlite)
         sqlite.execSQL("DROP TABLE IF EXISTS favorite_emotes")
         sqlite.execSQL("INSERT INTO recent_emotes (name, used_at) VALUES ('legacy', 1000)")
         sqlite.execSQL("PRAGMA user_version = 45")

@@ -54,7 +54,8 @@ internal class SearchStreamsDataSource(
                 currentKey = params.key,
                 queryIndex = queryIndex,
             )
-            if (dropsFilters.isEmpty()) pageWithNextQuery else filterDropPage(pageWithNextQuery)
+            val visiblePage = if (dropsFilters.isEmpty()) pageWithNextQuery else filterDropPage(pageWithNextQuery)
+            visiblePage.withHelixBroadcasterTypes()
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -124,6 +125,11 @@ internal class SearchStreamsDataSource(
         val result: LoadResult<SearchPageKey, Stream>,
         val api: String,
     )
+
+    private suspend fun LoadResult<SearchPageKey, Stream>.withHelixBroadcasterTypes(): LoadResult<SearchPageKey, Stream> {
+        val page = this as? LoadResult.Page<SearchPageKey, Stream> ?: return this
+        return page.copy(data = page.data.withHelixBroadcasterTypes(networkLibrary, helixHeaders, helixRepository))
+    }
 
     private suspend fun loadGql(
         loadSize: Int,

@@ -242,9 +242,13 @@ class StreamsAdapter(
                     }
                     if (presentation?.username != null || item.channelName != null) {
                         username.visibility = View.VISIBLE
-                        username.text = presentation?.username ?: item.channelName
+                        username.setVerifiedPartnerName(
+                            presentation?.username ?: item.channelName,
+                            item.broadcasterType,
+                        )
                     } else {
                         username.visibility = View.GONE
+                        username.setVerifiedPartnerName(null, null)
                     }
                     val streamTitle = presentation?.title ?: item.title
                     if (!streamTitle.isNullOrBlank()) {
@@ -253,6 +257,7 @@ class StreamsAdapter(
                     } else {
                         title.visibility = View.GONE
                     }
+                    titleScroll.scrollTo(0, 0)
                     if (showGame && item.gameName != null) {
                         gameName.visibility = View.VISIBLE
                         gameName.text = item.gameName
@@ -295,6 +300,8 @@ class StreamsAdapter(
                     username.visibility = View.GONE
                     title.visibility = View.GONE
                     gameName.visibility = View.GONE
+                    username.setVerifiedPartnerName(null, null)
+                    titleScroll.scrollTo(0, 0)
                     viewers.visibility = View.GONE
                     clearStreamTags(tagViews)
                     tagsLayout.visibility = View.GONE
@@ -308,9 +315,10 @@ class StreamsAdapter(
             with(binding) {
                 if (presentation.username != null) {
                     username.visibility = View.VISIBLE
-                    username.text = presentation.username
+                    username.setVerifiedPartnerName(presentation.username, boundStream?.broadcasterType)
                 } else {
                     username.visibility = View.GONE
+                    username.setVerifiedPartnerName(null, null)
                 }
                 if (presentation.title != null) {
                     title.visibility = View.VISIBLE
@@ -318,6 +326,7 @@ class StreamsAdapter(
                 } else {
                     title.visibility = View.GONE
                 }
+                titleScroll.scrollTo(0, 0)
                 if (presentation.viewerLabel != null) {
                     viewers.visibility = View.VISIBLE
                     viewers.text = presentation.viewerLabel

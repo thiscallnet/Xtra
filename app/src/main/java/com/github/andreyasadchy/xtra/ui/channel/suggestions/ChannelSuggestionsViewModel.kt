@@ -13,6 +13,7 @@ import androidx.paging.PagingConfig
 import androidx.paging.cachedIn
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.datasource.ChannelSuggestionsDataSource
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentArgs
 import com.github.andreyasadchy.xtra.util.C
@@ -22,6 +23,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 class ChannelSuggestionsViewModel(
     applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
+    private val helixRepository: HelixRepository,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -33,6 +35,8 @@ class ChannelSuggestionsViewModel(
         ChannelSuggestionsDataSource(
             channelLogin = args.channelLogin,
             gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true),
+            helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext),
+            helixRepository = helixRepository,
             graphQLRepository = graphQLRepository,
             networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
         )
@@ -44,7 +48,12 @@ class ChannelSuggestionsViewModel(
                 val savedStateHandle = createSavedStateHandle()
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChannelSuggestionsViewModel(application.applicationContext, xtraModule.graphQLRepository, savedStateHandle)
+                ChannelSuggestionsViewModel(
+                    application.applicationContext,
+                    xtraModule.graphQLRepository,
+                    xtraModule.helixRepository,
+                    savedStateHandle,
+                )
             }
         }
     }

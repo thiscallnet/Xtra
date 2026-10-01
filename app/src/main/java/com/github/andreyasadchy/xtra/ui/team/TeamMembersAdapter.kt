@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.databinding.FragmentStreamsListItemCompactB
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
+import com.github.andreyasadchy.xtra.ui.common.setVerifiedPartnerName
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -44,7 +45,8 @@ class TeamMembersAdapter(
         override fun areContentsTheSame(oldItem: Stream, newItem: Stream): Boolean =
             oldItem.viewerCount == newItem.viewerCount &&
                     oldItem.gameName == newItem.gameName &&
-                    oldItem.title == newItem.title
+                    oldItem.title == newItem.title &&
+                    oldItem.broadcasterType == newItem.broadcasterType
     }) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
@@ -97,7 +99,7 @@ class TeamMembersAdapter(
                     }
                     if (item.channelName != null) {
                         username.visibility = View.VISIBLE
-                        username.text = if (item.channelLogin != null && !item.channelLogin.equals(item.channelName, true)) {
+                        val displayName = if (item.channelLogin != null && !item.channelLogin.equals(item.channelName, true)) {
                             when (context.prefs().getString(C.UI_NAME_DISPLAY, "0")) {
                                 "0" -> "${item.channelName}(${item.channelLogin})"
                                 "1" -> item.channelName
@@ -106,9 +108,11 @@ class TeamMembersAdapter(
                         } else {
                             item.channelName
                         }
+                        username.setVerifiedPartnerName(displayName, item.broadcasterType)
                         username.setOnClickListener(channelListener)
                     } else {
                         username.visibility = View.GONE
+                        username.setVerifiedPartnerName(null, null)
                     }
                     if (item.viewerCount != null) {
                         viewers.visibility = View.VISIBLE

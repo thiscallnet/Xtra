@@ -21,13 +21,20 @@ class WhisperThreadsAdapter(
     private val onAvatarClick: (TwitchUserSummary) -> Unit,
 ) : RecyclerView.Adapter<WhisperThreadsAdapter.ViewHolder>() {
     private var items: List<WhisperThread> = emptyList()
-    fun submitList(value: List<WhisperThread>) { items = value; notifyDataSetChanged() }
+    private var selectedPeerId: String? = null
+
+    fun submitList(value: List<WhisperThread>, selectedPeerId: String? = null) {
+        items = value
+        this.selectedPeerId = selectedPeerId
+        notifyDataSetChanged()
+    }
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(ItemWhisperThreadBinding.inflate(LayoutInflater.from(parent.context), parent, false))
     override fun getItemCount() = items.size
     override fun onBindViewHolder(holder: ViewHolder, position: Int) = holder.bind(items[position])
 
     inner class ViewHolder(private val binding: ItemWhisperThreadBinding) : RecyclerView.ViewHolder(binding.root) {
         fun bind(item: WhisperThread) = with(binding) {
+            root.isSelected = item.peer.id == selectedPeerId
             root.setOnClickListener { onClick(item) }
             avatar.isClickable = true
             avatar.isFocusable = true

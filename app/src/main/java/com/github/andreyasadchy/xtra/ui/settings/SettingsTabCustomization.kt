@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.settings
 import android.content.Context
 import android.content.Intent
 import android.view.View
+import androidx.activity.result.ActivityResultLauncher
 import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
 import com.github.andreyasadchy.xtra.util.C
 import com.google.android.material.tabs.TabLayout
@@ -47,11 +48,21 @@ internal fun resolveNavigationTabList(stored: String?, isTelevision: Boolean): L
 }
 
 internal fun Context.openTabCustomization(preferenceKey: String) {
-    startActivity(Intent(this, SettingsActivity::class.java).apply {
+    startActivity(tabCustomizationIntent(preferenceKey))
+}
+
+internal fun Context.openTabCustomization(
+    preferenceKey: String,
+    launcher: ActivityResultLauncher<Intent>,
+) {
+    launcher.launch(tabCustomizationIntent(preferenceKey))
+}
+
+private fun Context.tabCustomizationIntent(preferenceKey: String) =
+    Intent(this, SettingsActivity::class.java).apply {
         putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_TABS)
         putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, "${preferenceKey}_dialog")
-    })
-}
+    }
 
 internal fun View.setTabCustomizationLongPress(context: Context, preferenceKey: String) {
     setOnLongClickListener {

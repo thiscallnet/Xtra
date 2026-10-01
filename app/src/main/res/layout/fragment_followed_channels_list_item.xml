@@ -7,6 +7,7 @@
     android:layout_margin="4dp"
     android:clickable="true"
     android:focusable="true"
+    android:importantForAccessibility="yes"
     android:foreground="?attr/selectableItemBackground"
     app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
     app:cardCornerRadius="12dp"
@@ -17,7 +18,7 @@
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="104dp">
+        android:minHeight="80dp">
 
         <View
             android:layout_width="4dp"
@@ -30,8 +31,8 @@
 
         <ImageView
             android:id="@+id/userImage"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:layout_marginStart="16dp"
             android:background="@drawable/bg_following_avatar"
             android:clipToOutline="true"
@@ -49,9 +50,9 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="10dp"
             android:layout_marginEnd="8dp"
-            android:layout_marginBottom="16dp"
+            android:layout_marginBottom="10dp"
             android:orientation="vertical"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@id/layout2"
@@ -63,8 +64,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
+                android:importantForAccessibility="no"
                 android:maxLines="1"
-                android:textAppearance="?attr/textAppearanceTitleMedium"
+                android:textAppearance="?attr/textAppearanceTitleSmall"
                 android:textStyle="bold"
                 tools:text="Gorgc" />
 
@@ -72,8 +74,9 @@
                 android:id="@+id/userStream"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:ellipsize="end"
+                android:importantForAccessibility="no"
                 android:maxLines="1"
                 android:textAppearance="?attr/textAppearanceBodySmall"
                 android:textColor="?android:attr/textColorSecondary"
@@ -85,8 +88,9 @@
                 android:id="@+id/userFollowed"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
+                android:layout_marginTop="0dp"
                 android:ellipsize="end"
+                android:importantForAccessibility="no"
                 android:maxLines="1"
                 android:textAppearance="?attr/textAppearanceBodySmall"
                 android:textColor="?android:attr/textColorSecondary"
@@ -112,7 +116,8 @@
                 android:layout_height="wrap_content"
                 android:text="@string/account"
                 android:textAppearance="?attr/textAppearanceLabelSmall"
-                android:textColor="?attr/colorPrimary"
+                android:textColor="?android:attr/textColorSecondary"
+                android:importantForAccessibility="no"
                 android:visibility="gone"
                 tools:visibility="visible" />
 
@@ -123,7 +128,8 @@
                 android:layout_marginTop="4dp"
                 android:text="@string/local"
                 android:textAppearance="?attr/textAppearanceLabelSmall"
-                android:textColor="?attr/colorPrimary"
+                android:textColor="?android:attr/textColorSecondary"
+                android:importantForAccessibility="no"
                 android:visibility="gone"
                 tools:visibility="visible" />
         </LinearLayout>

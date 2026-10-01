@@ -26,6 +26,8 @@ import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.decodeFromString
@@ -43,6 +45,8 @@ class DropsLiveUpdateManager(
     private var artworkJob: Job? = null
     private var artworkKey: String? = null
     private var snapshot: DropsLiveUpdateSnapshot? = loadSnapshot()
+    private val _trackedDropId = MutableStateFlow(snapshot?.dropId)
+    val trackedDropId = _trackedDropId.asStateFlow()
     private var lastFinishedDropId: String? = preferences.getString(C.DROPS_LIVE_UPDATE_RESULT_ID, null)
 
     init {
@@ -87,6 +91,7 @@ class DropsLiveUpdateManager(
             },
             expiresAtMs = expiresAtMs,
         )
+        _trackedDropId.value = snapshot?.dropId
         saveSnapshot()
         when {
             LiveUpdateLogic.dropIsActive(snapshot!!) -> {
@@ -121,6 +126,7 @@ class DropsLiveUpdateManager(
 
     fun untrack() {
         snapshot = null
+        _trackedDropId.value = null
         lastFinishedDropId = null
         artworkJob?.cancel()
         artworkJob = null
@@ -145,6 +151,7 @@ class DropsLiveUpdateManager(
             postResult(current)
         }
         snapshot = null
+        _trackedDropId.value = null
         preferences.edit { remove(C.DROPS_LIVE_UPDATE_SNAPSHOT) }
     }
 

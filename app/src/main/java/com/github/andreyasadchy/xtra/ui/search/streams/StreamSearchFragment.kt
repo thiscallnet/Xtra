@@ -16,6 +16,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.ConcatAdapter
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
@@ -41,6 +42,8 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     private val viewModel: StreamSearchViewModel by viewModels { StreamSearchViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
     private var recentSearchAdapter = RecentSearchAdapter({ (parentFragment as? SearchPagerFragment)?.setQuery(it.query) }, { viewModel.deleteRecentSearch(it) })
+    private lateinit var suggestionsHeaderAdapter: SearchStreamSuggestionsHeaderAdapter
+    private lateinit var landingAdapter: ConcatAdapter
     private val initialDropsFilters: List<DropStreamFilter>
         get() = arguments?.parcelableArrayList<DropStreamFilter>(FILTERS).orEmpty()
 
@@ -68,6 +71,8 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
                 )
             })
         }
+        suggestionsHeaderAdapter = SearchStreamSuggestionsHeaderAdapter(this)
+        landingAdapter = ConcatAdapter(suggestionsHeaderAdapter, recentSearchAdapter)
         setAdapter(binding.recyclerView, pagingAdapter)
         binding.recyclerView.usePageGrid(GridPage.SEARCH_STREAMS) {
             binding.recyclerView.adapter !is RecentSearchAdapter
@@ -87,6 +92,11 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
             if (searchPager != null) searchPager.currentDropsFilters() else initialDropsFilters,
         )
         with(binding) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.cachedSuggestions.collectLatest(suggestionsHeaderAdapter::submitStreams)
+                }
+            }
             setupPagingControls(binding, pagingAdapter)
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -101,13 +111,7 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
                         val hasActiveSearch = viewModel.query.value.isNotBlank() ||
                             viewModel.dropsFilters.value.isNotEmpty()
                         updatePagingState(binding, pagingAdapter, loadState, showEmpty = hasActiveSearch)
-                        if (!hasActiveSearch && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-                            setDisplayedAdapter(recentSearchAdapter)
-                        } else {
-                            if (recyclerView.adapter is RecentSearchAdapter) {
-                                setDisplayedAdapter(pagingAdapter)
-                            }
-                        }
+                        updateDisplayedAdapter()
                     }
                 }
             }
@@ -121,10 +125,12 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
                 }
             }
         }
+        viewModel.refreshCachedSuggestions()
     }
 
     override fun search(query: String) {
         val changed = viewModel.setQuery(query)
+        updateDisplayedAdapter()
         if (changed && query.isNotBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
             viewModel.saveRecentSearch(query)
         }
@@ -132,6 +138,7 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
 
     fun searchWithoutSaving(query: String) {
         viewModel.setQuery(query)
+        updateDisplayedAdapter()
     }
 
     override fun onNetworkRestored() {
@@ -145,21 +152,23 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
 
     fun clearDropsFilter() {
         viewModel.setDropsFilters(emptyList())
-        if (_binding != null && viewModel.query.value.isBlank() && binding.recyclerView.adapter is RecentSearchAdapter) {
-            setDisplayedAdapter(pagingAdapter)
-        }
+        updateDisplayedAdapter()
     }
 
     fun applyDropsFilters(filters: List<DropStreamFilter>) {
         viewModel.setDropsFilters(filters)
-        if (_binding != null && filters.isNotEmpty() && binding.recyclerView.adapter is RecentSearchAdapter) {
-            setDisplayedAdapter(pagingAdapter)
-        }
+        updateDisplayedAdapter()
     }
 
     private fun setDisplayedAdapter(adapter: RecyclerView.Adapter<*>) {
-        binding.recyclerView.setTemporarilySingleColumn(adapter is RecentSearchAdapter)
+        binding.recyclerView.setTemporarilySingleColumn(adapter !== pagingAdapter)
         binding.recyclerView.adapter = adapter
+    }
+
+    private fun updateDisplayedAdapter() {
+        if (_binding == null || !::landingAdapter.isInitialized || !::pagingAdapter.isInitialized) return
+        val showLanding = viewModel.query.value.isBlank() && viewModel.dropsFilters.value.isEmpty()
+        setDisplayedAdapter(if (showLanding) landingAdapter else pagingAdapter)
     }
 
     companion object {

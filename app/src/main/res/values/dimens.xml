@@ -8,6 +8,11 @@
     <dimen name="following_overview_bottom_padding">16dp</dimen>
     <dimen name="following_categories_empty_horizontal_margin">24dp</dimen>
     <dimen name="tv_navigation_width">176dp</dimen>
+    <dimen name="adaptive_navigation_rail_width">96dp</dimen>
+    <dimen name="channel_hero_expanded_min_width">720dp</dimen>
+    <dimen name="channel_hero_landscape_min_width">520dp</dimen>
+    <dimen name="channel_hero_wide_gutter">16dp</dimen>
+    <dimen name="game_hero_expanded_min_width">720dp</dimen>
     <dimen name="tv_navigation_vertical_padding">20dp</dimen>
     <dimen name="tv_content_padding">16dp</dimen>
     <dimen name="tv_safe_horizontal">48dp</dimen>

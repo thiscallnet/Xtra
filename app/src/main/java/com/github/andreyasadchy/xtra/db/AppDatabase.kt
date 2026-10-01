@@ -53,14 +53,14 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         GameFeedState::class,
         MetadataCacheEntry::class,
     ],
-    version = 52,
+    version = 54,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
     companion object {
-        const val VERSION = 52
-        const val IDENTITY_HASH = "e85fd19d9972cb60eeb55d0a35edbebb"
+        const val VERSION = 54
+        const val IDENTITY_HASH = "ca2943e6a37ec0b11e2a5ed3c062aa91"
     }
 
     abstract fun offlineVideos(): OfflineVideosDao

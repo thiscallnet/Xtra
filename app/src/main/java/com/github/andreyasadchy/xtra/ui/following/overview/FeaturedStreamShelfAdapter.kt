@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
 import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
+import com.github.andreyasadchy.xtra.ui.common.setVerifiedPartnerName
 import com.github.andreyasadchy.xtra.ui.common.StreamDropsBadgeBinder
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.StreamUptimeViewHolder
@@ -37,6 +38,8 @@ import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
+import com.github.andreyasadchy.xtra.ui.common.ExpressiveShapeStyling
+import com.github.andreyasadchy.xtra.ui.common.usesExpressiveInterface
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.drops.StreamDropsBottomSheet
@@ -58,6 +61,7 @@ class FeaturedStreamShelfAdapter(
     private var snapHelper: PagerSnapHelper? = null
     private var initialCardPositioned = false
     private var originalPadding: IntArray? = null
+    private var expressiveUi = true
 
     init {
         setHasStableIds(true)
@@ -65,8 +69,18 @@ class FeaturedStreamShelfAdapter(
 
     override fun getItemId(position: Int): Long = getItem(position).streamIdentity().hashCode().toLong()
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder =
-        ViewHolder(ItemFeaturedStreamShelfBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+        val expressive = parent.context.usesExpressiveInterface()
+        expressiveUi = expressive
+        val layout = if (expressive) {
+            R.layout.item_featured_stream_shelf
+        } else {
+            R.layout.item_featured_stream_shelf_classic
+        }
+        val itemView = LayoutInflater.from(parent.context).inflate(layout, parent, false)
+        if (expressive) ExpressiveShapeStyling.applyFeaturedStreamItem(itemView)
+        return ViewHolder(ItemFeaturedStreamShelfBinding.bind(itemView))
+    }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         (holder.itemView.parent as? RecyclerView)?.let(::updateShelfLayout)
@@ -197,10 +211,17 @@ class FeaturedStreamShelfAdapter(
             val childCenter = (child.left + child.right) / 2f
             val distance = (abs(childCenter - center) / span).coerceIn(0f, 1f)
             val emphasis = 1f - distance
-            child.scaleX = 0.88f + emphasis * 0.12f
-            child.scaleY = 0.88f + emphasis * 0.12f
-            child.alpha = 0.62f + emphasis * 0.38f
-            child.translationZ = emphasis * 8f
+            if (expressiveUi) {
+                child.scaleX = 0.96f + emphasis * 0.04f
+                child.scaleY = 0.96f + emphasis * 0.04f
+                child.alpha = 0.84f + emphasis * 0.16f
+                child.translationZ = 0f
+            } else {
+                child.scaleX = 0.88f + emphasis * 0.12f
+                child.scaleY = 0.88f + emphasis * 0.12f
+                child.alpha = 0.62f + emphasis * 0.38f
+                child.translationZ = emphasis * 8f
+            }
         }
     }
 
@@ -360,7 +381,10 @@ class FeaturedStreamShelfAdapter(
 
                 title.text = presentation?.title ?: stream.title.orEmpty()
                 title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                channel.text = presentation?.username ?: stream.channelName.orEmpty()
+                channel.setVerifiedPartnerName(
+                    presentation?.username ?: stream.channelName.orEmpty(),
+                    stream.broadcasterType,
+                )
                 channel.visibility = if (channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 category.text = presentation?.gameName ?: stream.gameName.orEmpty()
                 category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
@@ -381,7 +405,7 @@ class FeaturedStreamShelfAdapter(
                 viewers.visibility = if (viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 title.text = presentation.title.orEmpty()
                 title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                channel.text = presentation.username.orEmpty()
+                channel.setVerifiedPartnerName(presentation.username, boundStream?.broadcasterType)
                 channel.visibility = if (channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 category.text = presentation.gameName.orEmpty()
                 category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE

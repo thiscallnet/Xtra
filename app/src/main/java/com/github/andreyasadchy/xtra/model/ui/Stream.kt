@@ -25,6 +25,10 @@ class Stream(
     /** Feed refresh generation used to revalidate live preview pixels. */
     @IgnoredOnParcel
     val thumbnailGeneration: Long = 0L,
+    /** Twitch broadcaster type, including "partner" for verified Partners. */
+    val broadcasterType: String? = null,
+    /** Wall-clock time at which Helix last confirmed [broadcasterType]. */
+    val broadcasterTypeFetchedAtEpochMs: Long? = null,
 ) : Parcelable {
 
     val channelImage: String?
@@ -49,5 +53,34 @@ class Stream(
         tags = tags,
         dropsAvailable = dropsAvailable,
         thumbnailGeneration = generation,
+        broadcasterType = broadcasterType,
+        broadcasterTypeFetchedAtEpochMs = broadcasterTypeFetchedAtEpochMs,
     )
+
+    /** Creates the same stream snapshot with an updated Twitch broadcaster type. */
+    fun withBroadcasterType(type: String?, fetchedAtEpochMs: Long? = null): Stream = if (
+        broadcasterType == type && broadcasterTypeFetchedAtEpochMs == fetchedAtEpochMs
+    ) {
+        this
+    } else {
+        Stream(
+            id = id,
+            channelId = channelId,
+            channelLogin = channelLogin,
+            channelName = channelName,
+            channelImageURL = channelImageURL,
+            gameId = gameId,
+            gameSlug = gameSlug,
+            gameName = gameName,
+            title = title,
+            thumbnailURL = thumbnailURL,
+            createdAt = createdAt,
+            viewerCount = viewerCount,
+            tags = tags,
+            dropsAvailable = dropsAvailable,
+            thumbnailGeneration = thumbnailGeneration,
+            broadcasterType = type,
+            broadcasterTypeFetchedAtEpochMs = fetchedAtEpochMs,
+        )
+    }
 }

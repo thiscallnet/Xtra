@@ -17,6 +17,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.twitchinbox.NotificationUnreadSummary
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import java.util.WeakHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -29,12 +30,14 @@ object TwitchInboxMenuBinder {
     private var cachedNotificationSummary: NotificationUnreadSummary? = null
     private var cachedWhisperSummary: com.github.andreyasadchy.xtra.repository.WhisperUnreadSummary? = null
     private var hasCachedSummary = false
+    private val boundToolbars = WeakHashMap<Toolbar, Unit>()
 
     fun invalidateSummary() {
         lastSummaryRefreshAt = 0L
         cachedNotificationSummary = null
         cachedWhisperSummary = null
         hasCachedSummary = false
+        applyCachedBadges()
     }
 
     fun bind(toolbar: Toolbar, activity: MainActivity) {
@@ -43,6 +46,7 @@ object TwitchInboxMenuBinder {
         val notificationItem = toolbar.menu.findItem(R.id.twitchNotifications)
         val whispersItem = toolbar.menu.findItem(R.id.whispers)
         if (notificationItem == null && whispersItem == null) return
+        boundToolbars[toolbar] = Unit
         notificationItem?.isVisible = loggedIn
         whispersItem?.isVisible = loggedIn
         if (!loggedIn) {
@@ -51,6 +55,11 @@ object TwitchInboxMenuBinder {
             cachedNotificationSummary = null
             cachedWhisperSummary = null
             hasCachedSummary = false
+            boundToolbars.keys.toList().forEach { boundToolbar ->
+                boundToolbar.menu.findItem(R.id.twitchNotifications)?.isVisible = false
+                boundToolbar.menu.findItem(R.id.whispers)?.isVisible = false
+            }
+            applyCachedBadges()
             return
         }
         if (lastSummaryAccount != null && lastSummaryAccount != accountId) {
@@ -66,8 +75,12 @@ object TwitchInboxMenuBinder {
         whispersItem?.let { bindItem(toolbar.context, it, R.drawable.ic_twitch_whispers, activity.getString(R.string.whispers)) {
             Navigation.findNavController(activity, R.id.navHostFragment).navigate(R.id.action_global_whispersFragment)
         } }
-        applyCachedBadges(toolbar)
+        applyCachedBadges()
         refreshBadges(toolbar, activity)
+    }
+
+    private fun applyCachedBadges() {
+        boundToolbars.keys.toList().forEach(::applyCachedBadges)
     }
 
     private fun applyCachedBadges(toolbar: Toolbar) {
@@ -113,7 +126,7 @@ object TwitchInboxMenuBinder {
             notificationSummary?.let { cachedNotificationSummary = it }
             whisperSummary?.let { cachedWhisperSummary = it }
             hasCachedSummary = cachedNotificationSummary != null || cachedWhisperSummary != null
-            applyCachedBadges(toolbar)
+            applyCachedBadges()
         }
         toolbar.setTag(R.id.twitch_inbox_refresh_job, job)
     }

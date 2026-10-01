@@ -4,31 +4,32 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingTop="10dp"
+    android:paddingTop="8dp"
     android:paddingBottom="4dp">
 
     <View
         android:id="@+id/sectionDivider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginBottom="10dp"
-        android:background="?attr/colorOutlineVariant"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="14dp"
+        android:background="?attr/sectionDividerColor"
         android:visibility="gone" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:gravity="center_vertical"
-        android:paddingStart="0dp"
-        android:paddingEnd="0dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
         <TextView
             android:id="@+id/sectionTitle"
+            style="?attr/sectionTitleStyle"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:textAppearance="?attr/textAppearanceTitleLarge"
-            android:textStyle="bold"
             tools:text="Live channels" />
 
         <TextView
@@ -36,15 +37,14 @@
             android:layout_width="wrap_content"
             android:layout_height="48dp"
             android:gravity="center"
-            android:minWidth="48dp"
-            android:paddingStart="8dp"
-            android:paddingEnd="4dp"
+            android:minWidth="72dp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
             android:text="@string/following_see_all"
             android:textAppearance="?attr/textAppearanceLabelLarge"
-            android:textColor="?attr/colorPrimary"
+            android:textColor="?attr/colorOnPrimaryContainer"
             android:clickable="true"
             android:focusable="true"
-            android:foreground="?attr/selectableItemBackground"
             tools:ignore="UsingOnClickInXml" />
     </LinearLayout>
 
@@ -60,8 +60,8 @@
             android:layout_height="wrap_content"
             android:clipToPadding="false"
             android:overScrollMode="never"
-            android:paddingStart="0dp"
-            android:paddingEnd="0dp" />
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp" />
 
         <ImageButton
             android:id="@+id/heroPrevious"
@@ -93,11 +93,15 @@
         android:id="@+id/emptyMessage"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="0dp"
         android:paddingStart="0dp"
-        android:paddingTop="8dp"
+        android:paddingTop="0dp"
         android:paddingEnd="0dp"
-        android:paddingBottom="12dp"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
+        android:paddingBottom="0dp"
+        android:textAppearance="?attr/textAppearanceBodySmall"
         android:textColor="?android:attr/textColorSecondary"
         android:visibility="gone"
         tools:text="No followed channels are live right now."

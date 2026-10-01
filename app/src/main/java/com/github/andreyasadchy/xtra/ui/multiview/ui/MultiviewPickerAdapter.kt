@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.databinding.MultiviewPickerListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
+import com.github.andreyasadchy.xtra.ui.common.setVerifiedPartnerName
 
 class MultiviewPickerAdapter(
     private val isExcluded: (Stream) -> Boolean,
@@ -31,7 +32,10 @@ class MultiviewPickerAdapter(
     ) : RecyclerView.ViewHolder(binding.root) {
         fun bind(stream: Stream) {
             val excluded = isExcluded(stream)
-            binding.channelName.text = stream.channelName ?: stream.channelLogin.orEmpty()
+            binding.channelName.setVerifiedPartnerName(
+                stream.channelName ?: stream.channelLogin.orEmpty(),
+                stream.broadcasterType,
+            )
             binding.streamTitle.text = stream.title.orEmpty()
             binding.streamTitle.visibility = if (stream.title.isNullOrBlank()) android.view.View.GONE else android.view.View.VISIBLE
             binding.metadata.text = listOfNotNull(
@@ -43,9 +47,9 @@ class MultiviewPickerAdapter(
             binding.root.alpha = if (excluded) 0.55f else 1f
             binding.root.isEnabled = !excluded
             binding.root.contentDescription = if (excluded) {
-                "${binding.channelName.text}, ${binding.root.context.getString(com.github.andreyasadchy.xtra.R.string.multiview_already_added)}"
+                "${binding.channelName.contentDescription}, ${binding.root.context.getString(com.github.andreyasadchy.xtra.R.string.multiview_already_added)}"
             } else {
-                binding.channelName.text
+                binding.channelName.contentDescription
             }
             binding.root.setOnClickListener { if (!excluded) onClick(stream) }
         }

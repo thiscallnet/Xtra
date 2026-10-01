@@ -1,12 +1,16 @@
 package com.github.andreyasadchy.xtra.ui.common
 
 import android.view.LayoutInflater
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
+import androidx.core.view.updateLayoutParams
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil3.imageLoader
 import coil3.request.ImageRequest
@@ -17,6 +21,7 @@ import com.github.andreyasadchy.xtra.databinding.FragmentGamesListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
+import com.github.andreyasadchy.xtra.ui.view.GridRecyclerView
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,6 +32,7 @@ import kotlinx.coroutines.launch
 
 class GamesAdapter(
     private val fragment: Fragment,
+    private val adaptSingleColumn: Boolean = false,
     private val selectTag: (Tag) -> Unit,
 ) : PagingDataAdapter<Game, GamesAdapter.PagingViewHolder>(
     object : DiffUtil.ItemCallback<Game>() {
@@ -124,6 +130,7 @@ class GamesAdapter(
         }
 
         fun bind(item: Game?) {
+            applyCardLayout()
             boundGame = item
             with(binding) {
                 if (item != null) {
@@ -200,6 +207,44 @@ class GamesAdapter(
                     broadcastersCount.visibility = View.GONE
                     clearGameTags(tagViews)
                 }
+            }
+        }
+
+        private fun applyCardLayout() {
+            val recyclerView = if (adaptSingleColumn) {
+                fragment.view?.findViewById<GridRecyclerView>(R.id.recyclerView)
+            } else null
+            val horizontal = recyclerView?.gridSpanCount == 1
+            val root = binding.root
+            if (root.orientation == if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL) return
+
+            val density = root.resources.displayMetrics.density
+            fun dp(value: Int) = (value * density + 0.5f).toInt()
+            root.orientation = if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+            root.gravity = if (horizontal) Gravity.CENTER_VERTICAL else Gravity.TOP
+            binding.gameImageContainer.layoutParams = if (horizontal) {
+                LinearLayout.LayoutParams(dp(88), dp(118))
+            } else {
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            binding.gameInfo.layoutParams = if (horizontal) {
+                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(12)
+                }
+            } else {
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            }
+            binding.gameInfo.gravity = if (horizontal) Gravity.CENTER_VERTICAL else Gravity.TOP
+            binding.gameInfo.setPaddingRelative(if (horizontal) dp(4) else 0, 0, 0, 0)
+            binding.gameName.updateLayoutParams<LinearLayout.LayoutParams> {
+                topMargin = if (horizontal) 0 else dp(6)
+            }
+            binding.audience.orientation = if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
+            binding.viewers.updateLayoutParams<LinearLayout.LayoutParams> {
+                width = ViewGroup.LayoutParams.WRAP_CONTENT
+            }
+            binding.broadcastersCount.updateLayoutParams<LinearLayout.LayoutParams> {
+                marginStart = if (horizontal) dp(8) else 0
             }
         }
 

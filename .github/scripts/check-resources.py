@@ -45,6 +45,12 @@ ARRAY_REFERENCE = re.compile(r"^@string/([A-Za-z0-9_]+)$")
 # Android falls back to values/ for these keys; keeping the allowlist explicit
 # prevents this policy from hiding missing translations elsewhere in the app.
 INTENTIONAL_FALLBACK_RESOURCES = {
+    # Whispers' adaptive inbox placeholder currently uses default English copy
+    # until this redesign is included in the translation review.
+    "select_whisper_conversation",
+    # The first-message state uses default English copy until localized.
+    "whisper_no_messages_yet",
+    "whisper_no_messages_description",
     # Watch streak protection is shipped with the default English wording until
     # the new notification settings are translated.
     "watch_streak_protection_category",
@@ -87,6 +93,20 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_user_card_roles_summary",
     "settings_user_card_last_broadcast",
     "settings_user_card_last_broadcast_summary",
+    # The interface-style selector is shipping with its default English labels
+    # until the new visual style has been reviewed and localized.
+    "settings_ui_style",
+    "settings_ui_style_classic",
+    "settings_ui_style_expressive",
+    # Compact phone navigation overflow uses the default English labels until
+    # those new destinations are reviewed and localized.
+    "navigation_more",
+    "navigation_more_destinations",
+    # Search landing copy ships in English until the new unified entry screen
+    # is reviewed and localized.
+    "search_landing_title",
+    "search_landing_summary",
+    "search_recent_searches",
     "add_emoji_to_favorites",
     "remove_emoji_from_favorites",
     "added_emoji_to_favorites",
@@ -99,6 +119,14 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "drops_show_summary",
     # Following categories empty-state copy uses the default English wording until translated.
     "following_categories_empty",
+    # Saved page empty-state copy ships with the default English wording until translated.
+    "bookmarks_empty",
+    "downloads_empty",
+    "saved_filters_empty",
+    # The compact Drops card labels ship with the default English wording until translated.
+    "drops_tracked",
+    "drops_more_actions",
+    "drops_more_actions_for",
     # Drops browsing controls use the default English wording until translated.
     "drops_progress_accessibility",
     "drops_minimize_progress",
@@ -444,7 +472,12 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_app_background",
     "settings_app_background_preview",
     "settings_app_background_preview_summary",
-    "settings_app_background_preview_sample",
+    # The local illustrative app-background sample ships with English
+    # placeholder copy until the preview is included in translation review.
+    "settings_app_background_preview_content_description",
+    "settings_app_background_preview_stream_title",
+    "settings_app_background_preview_stream_detail",
+    "settings_app_background_preview_viewers",
     "settings_app_background_enabled",
     "settings_app_background_enabled_summary",
     "settings_app_background_choose",

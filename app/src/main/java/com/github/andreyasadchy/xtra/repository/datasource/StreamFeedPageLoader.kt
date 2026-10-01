@@ -32,6 +32,14 @@ interface StreamFeedPageLoader {
     suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage
 }
 
+private suspend fun StreamFeedPage.withHelixBroadcasterTypes(
+    networkLibrary: String?,
+    headers: Map<String, String>,
+    helixRepository: HelixRepository,
+): StreamFeedPage = copy(
+    items = items.withHelixBroadcasterTypes(networkLibrary, headers, helixRepository),
+)
+
 internal fun nextStreamFeedCursor(
     api: String,
     currentCursor: String?,
@@ -135,8 +143,9 @@ class TopStreamsPageLoader(
 
     override suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage {
         if (cursor == null) api = null
-        if (cursor != null) return loadFromApi(cursor)
-        return if (api == null) {
+        val page = if (cursor != null) {
+            loadFromApi(cursor)
+        } else if (api == null) {
             try {
                 api = C.GQL
                 loadFromApi(cursor)
@@ -154,6 +163,7 @@ class TopStreamsPageLoader(
         } else {
             loadFromApi(cursor)
         }
+        return page.withHelixBroadcasterTypes(networkLibrary, helixHeaders(), helixRepository)
     }
 
     private suspend fun loadFromApi(cursor: StreamFeedCursor?): StreamFeedPage = when (cursor?.api ?: api) {
@@ -270,7 +280,7 @@ class TopStreamsPageLoader(
             offset = cursor,
         )
         val users = response.data.mapNotNull { it.channelId }.let {
-            helixRepository.getUsers(networkLibrary, helixHeaders(), ids = it).data
+            helixRepository.getUsers(networkLibrary, helixHeaders(), ids = it).data.also(::rememberHelixBroadcasterTypes)
         }
         return StreamFeedPage(
             items = response.data.mapNotNull { item ->
@@ -319,7 +329,7 @@ class FollowedStreamsPageLoader(
         if (cursor != null) {
             // The persisted cursor is authoritative. This also works after a
             // process restart or when another loader refreshed the feed.
-            return loadFromCursor(cursor)
+            return loadFromCursor(cursor).withHelixBroadcasterTypes(networkLibrary, helixHeaders(), helixRepository)
         }
         api = null
 
@@ -347,6 +357,7 @@ class FollowedStreamsPageLoader(
         }
         val merged = merge(localItems, remotePage?.items.orEmpty())
         return StreamFeedPage(merged, remotePage?.nextCursor)
+            .withHelixBroadcasterTypes(networkLibrary, helixHeaders(), helixRepository)
     }
 
     private suspend fun loadFirstPageWithFallback(): StreamFeedPage {
@@ -471,7 +482,7 @@ class FollowedStreamsPageLoader(
     private suspend fun helixLoad(cursor: String?): StreamFeedPage {
         val response = helixRepository.getFollowedStreams(networkLibrary, helixHeaders(), userId, 100, cursor)
         val users = response.data.mapNotNull { it.channelId }.let {
-            helixRepository.getUsers(networkLibrary, helixHeaders(), ids = it).data
+            helixRepository.getUsers(networkLibrary, helixHeaders(), ids = it).data.also(::rememberHelixBroadcasterTypes)
         }
         return StreamFeedPage(
             items = response.data.map { item ->
@@ -527,7 +538,7 @@ class FollowedStreamsPageLoader(
             helixRepository.getStreams(networkLibrary, helixHeaders(), ids = it).data
         }.flatMap { it }
         val users = items.mapNotNull { it.channelId }.chunked(100).map {
-            helixRepository.getUsers(networkLibrary, helixHeaders(), ids = it).data
+            helixRepository.getUsers(networkLibrary, helixHeaders(), ids = it).data.also(::rememberHelixBroadcasterTypes)
         }.flatMap { it }
         return items.mapNotNull { item ->
             item.takeIf { it.viewerCount != null }?.let {
@@ -595,8 +606,9 @@ class GameStreamsPageLoader(
 
     override suspend fun load(cursor: StreamFeedCursor?): StreamFeedPage {
         if (cursor == null) api = null
-        if (cursor != null) return loadFromApi(cursor)
-        return if (api == null) {
+        val page = if (cursor != null) {
+            loadFromApi(cursor)
+        } else if (api == null) {
             try {
                 api = C.GQL
                 loadFromApi(cursor)
@@ -614,6 +626,7 @@ class GameStreamsPageLoader(
         } else {
             loadFromApi(cursor)
         }
+        return page.withHelixBroadcasterTypes(networkLibrary, helixHeaders(), helixRepository)
     }
 
     private suspend fun loadFromApi(cursor: StreamFeedCursor?): StreamFeedPage = when (cursor?.api ?: api) {
@@ -725,7 +738,7 @@ class GameStreamsPageLoader(
             offset = cursor,
         )
         val users = response.data.mapNotNull { it.channelId }.let {
-            helixRepository.getUsers(networkLibrary, helixHeaders(), ids = it).data
+            helixRepository.getUsers(networkLibrary, helixHeaders(), ids = it).data.also(::rememberHelixBroadcasterTypes)
         }
         return StreamFeedPage(
             items = response.data.mapNotNull { item ->

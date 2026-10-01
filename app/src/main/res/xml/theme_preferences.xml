@@ -10,6 +10,15 @@
         android:title="@string/theme"
         app:iconSpaceReserved="false" />
 
+    <ListPreference
+        android:defaultValue="expressive"
+        android:entries="@array/settingsUiStyleEntries"
+        android:entryValues="@array/settingsUiStyleValues"
+        android:key="settings_ui_style"
+        android:summary="%s"
+        android:title="@string/settings_ui_style"
+        app:iconSpaceReserved="false" />
+
     <PreferenceCategory
         android:title="@string/settings_app_background"
         app:iconSpaceReserved="false">

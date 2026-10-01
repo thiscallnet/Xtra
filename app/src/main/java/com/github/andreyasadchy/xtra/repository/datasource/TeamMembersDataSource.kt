@@ -4,12 +4,16 @@ import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.util.C
+import kotlinx.coroutines.CancellationException
 
 class TeamMembersDataSource(
     private val teamName: String?,
     private val gqlHeaders: Map<String, String>,
     private val graphQLRepository: GraphQLRepository,
+    private val helixHeaders: Map<String, String>,
+    private val helixRepository: HelixRepository,
     private val networkLibrary: String?,
 ) : PagingSource<Int, Stream>() {
     private var getLiveMembers = true
@@ -47,7 +51,7 @@ class TeamMembersDataSource(
                 liveMemberIds.addAll(list.mapNotNull { it.channelId })
                 if (getLiveMembers) {
                     LoadResult.Page(
-                        data = list,
+                        data = list.withHelixBroadcasterTypes(networkLibrary, helixHeaders, helixRepository),
                         prevKey = null,
                         nextKey = (params.key ?: 1) + 1
                     )
@@ -77,7 +81,7 @@ class TeamMembersDataSource(
                     offset = items?.lastOrNull()?.cursor
                     val nextPage = data?.pageInfo?.hasNextPage != false
                     LoadResult.Page(
-                        data = list + members,
+                        data = (list + members).withHelixBroadcasterTypes(networkLibrary, helixHeaders, helixRepository),
                         prevKey = null,
                         nextKey = if (!offset.isNullOrBlank() && nextPage) {
                             (params.key ?: 1) + 1
@@ -111,13 +115,15 @@ class TeamMembersDataSource(
                 offset = items?.lastOrNull()?.cursor
                 val nextPage = data?.pageInfo?.hasNextPage != false
                 LoadResult.Page(
-                    data = list,
+                    data = list.withHelixBroadcasterTypes(networkLibrary, helixHeaders, helixRepository),
                     prevKey = null,
                     nextKey = if (!offset.isNullOrBlank() && nextPage) {
                         (params.key ?: 1) + 1
                     } else null
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             LoadResult.Error(e)
         }

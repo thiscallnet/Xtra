@@ -20,9 +20,15 @@ import com.github.andreyasadchy.xtra.ui.common.prepareStreamThumbnailImage
 import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamThumbnail
 import com.github.andreyasadchy.xtra.ui.common.restoreWarmStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
+import com.github.andreyasadchy.xtra.ui.common.ExpressiveShapeStyling
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.FeedUiPreferencesStore
+import com.github.andreyasadchy.xtra.ui.common.StreamTagViews
+import com.github.andreyasadchy.xtra.ui.common.bindStreamTags
+import com.github.andreyasadchy.xtra.ui.common.clearStreamTags
+import com.github.andreyasadchy.xtra.ui.common.createStreamTagViews
 import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
+import com.github.andreyasadchy.xtra.ui.common.setVerifiedPartnerName
 import com.github.andreyasadchy.xtra.ui.common.StreamDropsBadgeBinder
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.thumbnailIdentity
@@ -30,6 +36,7 @@ import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
+import com.github.andreyasadchy.xtra.ui.common.usesExpressiveInterface
 import com.github.andreyasadchy.xtra.ui.common.StreamUptimeViewHolder
 import com.github.andreyasadchy.xtra.ui.common.VisibleStreamUptimeTicker
 import com.github.andreyasadchy.xtra.ui.common.formatStreamUptime
@@ -38,6 +45,7 @@ import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.drops.StreamDropsBottomSheet
+import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 
 class StreamsShelfPagingAdapter(
     private val fragment: Fragment,
@@ -68,7 +76,11 @@ class StreamsShelfPagingAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        return ViewHolder(ItemStreamShelfBinding.inflate(LayoutInflater.from(parent.context), parent, false))
+        val expressive = parent.context.usesExpressiveInterface()
+        val layout = if (expressive) R.layout.item_stream_shelf else R.layout.item_stream_shelf_classic
+        val itemView = LayoutInflater.from(parent.context).inflate(layout, parent, false)
+        if (expressive) ExpressiveShapeStyling.applyStreamShelfItem(itemView)
+        return ViewHolder(ItemStreamShelfBinding.bind(itemView), expressive)
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
@@ -100,6 +112,7 @@ class StreamsShelfPagingAdapter(
 
     inner class ViewHolder(
         private val binding: ItemStreamShelfBinding,
+        expressiveUi: Boolean,
     ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner, StreamUptimeViewHolder {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
@@ -108,6 +121,17 @@ class StreamsShelfPagingAdapter(
         private var boundThumbnailKey: String? = null
         private var boundStream: Stream? = null
         private var boundTags: List<String> = emptyList()
+        private val titleScroll: com.github.andreyasadchy.xtra.ui.view.DirectionalHorizontalScrollView? =
+            binding.root.findViewById(R.id.titleScroll)
+        private val channelIdentity: View? = binding.root.findViewById(R.id.channelIdentity)
+        private val tagsScroll: com.github.andreyasadchy.xtra.ui.view.DirectionalHorizontalScrollView? =
+            binding.root.findViewById(R.id.tagsScroll)
+        private val horizontalTagViews: StreamTagViews? = tagsScroll?.let { scroll ->
+            val row = binding.root.findViewById<android.widget.LinearLayout>(R.id.tags)
+            createStreamTagViews(scroll, row, listOf(binding.tagOne, binding.tagTwo, binding.tagThree)) {
+                if (expressiveUi) ExpressiveShapeStyling.applyStreamShelfTagChip(it)
+            }
+        }
         private var uptimeStartedAtMs: Long? = null
         private var uptimeEnabled = false
         private var lastRenderedUptimeSecond = Long.MIN_VALUE
@@ -119,12 +143,17 @@ class StreamsShelfPagingAdapter(
             binding.root.setOnClickListener {
                 boundStream?.let { (fragment.activity as? MainActivity)?.startStream(it) }
             }
-            binding.avatar.setOnClickListener { boundStream?.let(::openChannel) }
+            if (expressiveUi) TvFocusHelper.install(binding.root)
+            (channelIdentity ?: binding.avatar).setOnClickListener { boundStream?.let(::openChannel) }
             binding.channel.setOnClickListener { boundStream?.let(::openChannel) }
             binding.category.setOnClickListener { boundStream?.let(::openGame) }
             binding.multiview.setOnClickListener { boundStream?.let(::openMultiview) }
-            binding.tagOne.setOnClickListener { boundTags.getOrNull(0)?.let(selectTag) }
-            binding.tagTwo.setOnClickListener { boundTags.getOrNull(1)?.let(selectTag) }
+            if (horizontalTagViews != null) {
+                horizontalTagViews.setOnTagClickListener(selectTag)
+            } else {
+                binding.tagOne.setOnClickListener { boundTags.getOrNull(0)?.let(selectTag) }
+                binding.tagTwo.setOnClickListener { boundTags.getOrNull(1)?.let(selectTag) }
+            }
         }
 
         fun beginImageBind(item: Stream?) {
@@ -154,6 +183,8 @@ class StreamsShelfPagingAdapter(
             boundStream = null
             dropsBadgeBinder.clear()
             boundTags = emptyList()
+            horizontalTagViews?.let(::clearStreamTags)
+            titleScroll?.scrollTo(0, 0)
             clearUptime()
         }
 
@@ -218,11 +249,15 @@ class StreamsShelfPagingAdapter(
 
                 title.text = presentation?.title ?: item.title.orEmpty()
                 title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
+                this@ViewHolder.titleScroll?.scrollTo(0, 0)
                 if (presentation?.username != null || item.channelName != null) {
                     channel.visibility = View.VISIBLE
-                    channel.text = presentation?.username ?: item.channelName.orEmpty()
+                    channel.setVerifiedPartnerName(
+                        presentation?.username ?: item.channelName.orEmpty(),
+                        item.broadcasterType,
+                    )
                 } else {
-                    channel.text = null
+                    channel.setVerifiedPartnerName(null, null)
                     channel.visibility = View.GONE
                 }
                 category.text = presentation?.gameName ?: item.gameName.orEmpty()
@@ -247,13 +282,9 @@ class StreamsShelfPagingAdapter(
 
                 multiview.visibility = if (item.channelLogin.isNullOrBlank()) View.GONE else View.VISIBLE
 
-                val tags = presentation?.tags?.take(2)
-                    ?: if (uiPreferences.showTags) item.tags.orEmpty().take(2) else emptyList()
-                boundTags = tags
-                tagOne.text = tags.getOrNull(0).orEmpty()
-                tagOne.visibility = if (tags.isNotEmpty()) View.VISIBLE else View.GONE
-                tagTwo.text = tags.getOrNull(1).orEmpty()
-                tagTwo.visibility = if (tags.size > 1) View.VISIBLE else View.GONE
+                val tags = presentation?.tags
+                    ?: if (uiPreferences.showTags) item.tags.orEmpty() else emptyList()
+                bindTags(tags)
             }
         }
 
@@ -264,16 +295,24 @@ class StreamsShelfPagingAdapter(
                 viewers.visibility = if (viewers.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 title.text = presentation.title.orEmpty()
                 title.visibility = if (title.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                channel.text = presentation.username.orEmpty()
+                this@ViewHolder.titleScroll?.scrollTo(0, 0)
+                channel.setVerifiedPartnerName(presentation.username, boundStream?.broadcasterType)
                 channel.visibility = if (channel.text.isNullOrBlank()) View.GONE else View.VISIBLE
                 category.text = presentation.gameName.orEmpty()
                 category.visibility = if (category.text.isNullOrBlank()) View.GONE else View.VISIBLE
-                val tags = presentation.tags.take(2)
-                boundTags = tags
-                tagOne.text = tags.getOrNull(0).orEmpty()
-                tagOne.visibility = if (tags.isNotEmpty()) View.VISIBLE else View.GONE
-                tagTwo.text = tags.getOrNull(1).orEmpty()
-                tagTwo.visibility = if (tags.size > 1) View.VISIBLE else View.GONE
+                bindTags(presentation.tags)
+            }
+        }
+
+        private fun bindTags(tags: List<String>) {
+            if (horizontalTagViews != null) {
+                bindStreamTags(horizontalTagViews, tags)
+            } else {
+                boundTags = tags.take(2)
+                binding.tagOne.text = boundTags.getOrNull(0).orEmpty()
+                binding.tagOne.visibility = if (boundTags.isNotEmpty()) View.VISIBLE else View.GONE
+                binding.tagTwo.text = boundTags.getOrNull(1).orEmpty()
+                binding.tagTwo.visibility = if (boundTags.size > 1) View.VISIBLE else View.GONE
             }
         }
 
@@ -335,6 +374,8 @@ class StreamsShelfPagingAdapter(
             with(binding) {
                 boundStream = null
                 boundTags = emptyList()
+                horizontalTagViews?.let(::clearStreamTags)
+                this@ViewHolder.titleScroll?.scrollTo(0, 0)
                 avatar.visibility = View.INVISIBLE
                 avatar.setImageDrawable(null)
                 avatar.tag = null
@@ -342,7 +383,7 @@ class StreamsShelfPagingAdapter(
                 thumbnail.tag = null
                 title.text = null
                 title.visibility = View.GONE
-                channel.text = null
+                channel.setVerifiedPartnerName(null, null)
                 channel.visibility = View.GONE
                 category.text = null
                 category.visibility = View.GONE

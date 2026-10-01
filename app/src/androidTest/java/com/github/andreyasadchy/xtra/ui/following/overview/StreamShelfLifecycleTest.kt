@@ -138,7 +138,12 @@ class StreamShelfLifecycleTest {
                 }
                 (host.requireView() as FrameLayout).addView(recyclerView)
                 when (type) {
-                    StreamShelfType.NORMAL -> StreamShelfAdapter(host, {}, {}).also { adapter ->
+                    StreamShelfType.NORMAL -> StreamShelfAdapter(
+                        host,
+                        {},
+                        {},
+                        compactOverviewCards = false,
+                    ).also { adapter ->
                         recyclerView.adapter = adapter
                         adapter.submitList(listOf(testStream(context, streamId)))
                         resumeImageWork = { holder ->

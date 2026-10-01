@@ -15,12 +15,17 @@ import android.widget.ImageButton
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.ActionMenuView
+import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.view.marginBottom
 import androidx.core.view.marginTop
+import androidx.core.view.updateLayoutParams
+import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -56,7 +61,6 @@ import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.applyStableTopSystemBarMargin
 import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -239,8 +243,36 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
         super.onViewCreated(view, savedInstanceState)
         with(binding) {
             val activity = requireActivity() as MainActivity
-            if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                appBar.setExpanded(true, false)
+            val heroVisibilityOwnedIds = intArrayOf(userLayout.id, streamLayout.id, lastBroadcast.id, watchLive.id)
+            val compactHeroConstraints = ConstraintSet().apply {
+                clone(channelHero)
+                heroVisibilityOwnedIds.forEach { setVisibilityMode(it, ConstraintSet.VISIBILITY_MODE_IGNORE) }
+            }
+            val wideHeroConstraints = ConstraintSet().apply {
+                clone(channelHero)
+                heroVisibilityOwnedIds.forEach { setVisibilityMode(it, ConstraintSet.VISIBILITY_MODE_IGNORE) }
+                val gutter = resources.getDimensionPixelSize(R.dimen.channel_hero_wide_gutter)
+                connect(userLayout.id, ConstraintSet.END, channelHeroSplit.id, ConstraintSet.START, gutter)
+                connect(userLayout.id, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, gutter)
+                connect(streamLayout.id, ConstraintSet.START, channelHeroSplit.id, ConstraintSet.END, gutter)
+                connect(streamLayout.id, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, gutter)
+                connect(streamLayout.id, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP, gutter)
+                connect(lastBroadcast.id, ConstraintSet.START, channelHeroSplit.id, ConstraintSet.END, gutter)
+                connect(lastBroadcast.id, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, gutter)
+                connect(watchLive.id, ConstraintSet.START, channelHeroSplit.id, ConstraintSet.END, gutter)
+                connect(watchLive.id, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, gutter)
+            }
+            var heroUsesWideLayout: Boolean? = null
+            channelHero.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                val useWideLayout = channelHero.width >= resources.getDimensionPixelSize(
+                    R.dimen.channel_hero_expanded_min_width,
+                ) || (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE &&
+                    channelHero.width >= resources.getDimensionPixelSize(
+                        R.dimen.channel_hero_landscape_min_width,
+                    ))
+                if (heroUsesWideLayout == useWideLayout) return@addOnLayoutChangeListener
+                heroUsesWideLayout = useWideLayout
+                if (useWideLayout) wideHeroConstraints.applyTo(channelHero) else compactHeroConstraints.applyTo(channelHero)
             }
             if (viewModel.stream.value == null) {
                 watchLive.setOnClickListener {
@@ -714,10 +746,28 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 }
             }
 
-            view.applyStableTopSystemBarMargin(collapsingToolbar) { topInset ->
-                stableTopInset = topInset
+            val basePinnedChromeBottomPadding = toolbarContainer2.paddingBottom
+            ViewCompat.setOnApplyWindowInsetsListener(coordinatorLayout) { _, windowInsets ->
+                // Keep top and bottom inset handling in one listener; registering a second
+                // listener on the root replaces the first and loses the status-bar margin.
+                stableTopInset = maxOf(
+                    windowInsets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top,
+                    windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
+                )
+                collapsingToolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                    if (topMargin != stableTopInset) topMargin = stableTopInset
+                }
                 toolbarContainer2.post(::updateChannelChromeSafeArea)
+                val navigationRailIsVisible = activity.findViewById<View>(R.id.navBarContainer)?.isVisible == false
+                val bottomInset = if (navigationRailIsVisible) {
+                    windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
+                } else {
+                    0
+                }
+                toolbarContainer2.updatePadding(bottom = basePinnedChromeBottomPadding + bottomInset)
+                windowInsets
             }
+            ViewCompat.requestApplyInsets(coordinatorLayout)
             safeAreaTargets.forEach { safeAreaTarget ->
                 safeAreaTarget.view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                     updateChannelChromeSafeArea()
@@ -775,6 +825,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     private fun updateStreamLayout(stream: Stream?) {
         with(binding) {
             val activity = requireActivity() as MainActivity
+            liveStatus.isVisible = stream?.viewerCount != null
             if (stream?.viewerCount != null) {
                 watchLive.text = getString(R.string.watch_live)
                 watchLive.setOnClickListener { activity.startStream(stream) }

@@ -25,7 +25,7 @@
     <com.github.andreyasadchy.xtra.ui.settings.AppBackgroundPreviewView
         android:id="@+id/appBackgroundPreview"
         android:layout_width="match_parent"
-        android:layout_height="150dp"
+        android:layout_height="132dp"
         android:layout_marginTop="10dp" />
 
 </LinearLayout>

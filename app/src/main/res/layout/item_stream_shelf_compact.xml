@@ -1,0 +1,342 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginEnd="8dp"
+    android:clickable="true"
+    android:focusable="true"
+    android:orientation="vertical"
+    android:padding="6dp">
+
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <ImageView
+            android:id="@+id/thumbnail"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintDimensionRatio="H,16:9"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            tools:src="@tools:sample/backgrounds/scenic" />
+
+        <FrameLayout
+            android:id="@+id/previewHost"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:importantForAccessibility="no"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="@id/thumbnail"
+            app:layout_constraintEnd_toEndOf="@id/thumbnail"
+            app:layout_constraintStart_toStartOf="@id/thumbnail"
+            app:layout_constraintTop_toTopOf="@id/thumbnail" />
+
+        <TextView
+            android:id="@+id/liveBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="5dp"
+            android:layout_marginTop="5dp"
+            android:paddingStart="5dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="5dp"
+            android:paddingBottom="2dp"
+            android:text="@string/live"
+            android:textAllCaps="true"
+            android:textColor="@android:color/white"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
+            android:id="@+id/uptime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:layout_marginEnd="5dp"
+            android:background="@drawable/bg_stream_overlay"
+            android:paddingStart="4dp"
+            android:paddingTop="2dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="2dp"
+            android:maxLines="1"
+            android:singleLine="true"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            tools:text="3:12"
+            tools:visibility="visible" />
+
+        <ImageButton
+            android:id="@+id/multiview"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="1dp"
+            android:layout_marginBottom="1dp"
+            android:background="@drawable/bg_stream_overlay"
+            android:contentDescription="@string/watch_in_multiview"
+            android:padding="12dp"
+            android:src="@drawable/ic_multiview"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            tools:visibility="visible" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:gravity="center_vertical"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="top"
+            android:orientation="horizontal">
+
+            <FrameLayout
+                android:id="@+id/channelIdentity"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:layout_marginEnd="4dp"
+                android:clickable="true"
+                android:focusable="true"
+                android:foreground="?attr/selectableItemBackground"
+                android:contentDescription="@string/account_view_channel">
+
+                <ImageView
+                    android:id="@+id/avatar"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:layout_gravity="top|center_horizontal"
+                    android:background="@drawable/bg_following_avatar"
+                    android:clipToOutline="true"
+                    android:importantForAccessibility="no"
+                    android:scaleType="centerCrop"
+                    android:visibility="invisible"
+                    tools:src="@tools:sample/backgrounds/scenic"
+                    tools:visibility="visible" />
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <com.github.andreyasadchy.xtra.ui.view.DirectionalHorizontalScrollView
+                    android:id="@+id/titleScroll"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:importantForAccessibility="no"
+                    android:overScrollMode="never"
+                    android:scrollbars="none">
+
+                    <TextView
+                        android:id="@+id/title"
+                        android:includeFontPadding="false"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="none"
+                        android:importantForAccessibility="yes"
+                        android:maxLines="1"
+                        android:singleLine="true"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textStyle="bold"
+                        tools:text="Mortal Shell II" />
+                </com.github.andreyasadchy.xtra.ui.view.DirectionalHorizontalScrollView>
+
+                <TextView
+                    android:id="@+id/channel"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?android:attr/textColorSecondary"
+                    tools:text="Caedrel" />
+
+                <TextView
+                    android:id="@+id/category"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:includeFontPadding="false"
+                    android:ellipsize="end"
+                    android:foreground="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:maxLines="1"
+                    android:minHeight="48dp"
+                    android:textAppearance="?attr/textAppearanceBodySmall"
+                    android:textColor="?android:attr/textColorSecondary"
+                    tools:text="League of Legends" />
+                <LinearLayout
+                    android:id="@+id/streamCardFooter"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="0dp"
+                    android:orientation="vertical">
+
+                    <com.github.andreyasadchy.xtra.ui.view.DirectionalHorizontalScrollView
+                        android:id="@+id/tagsScroll"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:importantForAccessibility="no"
+                        android:overScrollMode="never"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/tags"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
+
+                            <FrameLayout
+                                android:id="@+id/tagOneTarget"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:foreground="?attr/selectableItemBackground"
+                                android:minHeight="48dp"
+                                android:minWidth="48dp"
+                                android:visibility="gone"
+                                tools:visibility="visible">
+
+                                <TextView
+                                    android:id="@+id/tagOne"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="center"
+                                    android:ellipsize="end"
+                                    android:maxWidth="84dp"
+                                    android:maxLines="1"
+                                    android:importantForAccessibility="no"
+                                    android:paddingStart="5dp"
+                                    android:paddingTop="2dp"
+                                    android:paddingEnd="5dp"
+                                    android:paddingBottom="2dp"
+                                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                                    android:textColor="?android:attr/textColorSecondary"
+                                    tools:text="English" />
+                            </FrameLayout>
+
+                            <FrameLayout
+                                android:id="@+id/tagTwoTarget"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:foreground="?attr/selectableItemBackground"
+                                android:minHeight="48dp"
+                                android:minWidth="48dp"
+                                android:visibility="gone"
+                                tools:visibility="visible">
+
+                                <TextView
+                                    android:id="@+id/tagTwo"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="center"
+                                    android:ellipsize="end"
+                                    android:maxWidth="84dp"
+                                    android:maxLines="1"
+                                    android:importantForAccessibility="no"
+                                    android:paddingStart="5dp"
+                                    android:paddingTop="2dp"
+                                    android:paddingEnd="5dp"
+                                    android:paddingBottom="2dp"
+                                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                                    android:textColor="?android:attr/textColorSecondary"
+                                    tools:text="No backseating" />
+                            </FrameLayout>
+
+                            <FrameLayout
+                                android:id="@+id/tagThreeTarget"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:clickable="true"
+                                android:focusable="true"
+                                android:foreground="?attr/selectableItemBackground"
+                                android:minHeight="48dp"
+                                android:minWidth="48dp"
+                                android:visibility="gone"
+                                tools:visibility="visible">
+
+                                <TextView
+                                    android:id="@+id/tagThree"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:layout_gravity="center"
+                                    android:ellipsize="end"
+                                    android:maxWidth="84dp"
+                                    android:maxLines="1"
+                                    android:importantForAccessibility="no"
+                                    android:paddingStart="5dp"
+                                    android:paddingTop="2dp"
+                                    android:paddingEnd="5dp"
+                                    android:paddingBottom="2dp"
+                                    android:textAppearance="?attr/textAppearanceLabelSmall"
+                                    android:textColor="?android:attr/textColorSecondary"
+                                    tools:text="DropsEnabled" />
+                            </FrameLayout>
+                        </LinearLayout>
+                    </com.github.andreyasadchy.xtra.ui.view.DirectionalHorizontalScrollView>
+
+                    <LinearLayout
+                        android:id="@+id/streamCardStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.github.andreyasadchy.xtra.ui.view.TextWithShadow
+                            android:id="@+id/viewers"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:textAppearance="?attr/textAppearanceLabelSmall"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:visibility="gone"
+                            tools:text="6.7K viewers"
+                            tools:visibility="visible" />
+
+                        <TextView
+                            android:id="@+id/dropsBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="8dp"
+                            android:clickable="true"
+                            android:drawableStart="@drawable/ic_drops"
+                            android:drawableTint="?android:attr/textColorSecondary"
+                            android:drawablePadding="3dp"
+                            android:ellipsize="end"
+                            android:focusable="true"
+                            android:gravity="center_vertical"
+                            android:maxLines="1"
+                            android:minWidth="48dp"
+                            android:minHeight="48dp"
+                            android:paddingStart="0dp"
+                            android:paddingTop="0dp"
+                            android:paddingEnd="0dp"
+                            android:paddingBottom="0dp"
+                            android:textColor="?android:attr/textColorSecondary"
+                            android:textSize="11sp"
+                            android:visibility="gone"
+                            tools:text="3 Drops"
+                            tools:visibility="visible" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

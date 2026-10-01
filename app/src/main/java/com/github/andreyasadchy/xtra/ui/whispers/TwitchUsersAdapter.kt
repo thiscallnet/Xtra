@@ -19,13 +19,20 @@ class TwitchUsersAdapter(
     private val onAvatarClick: (TwitchUserSummary) -> Unit,
 ) : RecyclerView.Adapter<TwitchUsersAdapter.ViewHolder>() {
     private var items: List<TwitchUserSummary> = emptyList()
-    fun submitList(value: List<TwitchUserSummary>) { items = value; notifyDataSetChanged() }
+    private var selectedPeerId: String? = null
+
+    fun submitList(value: List<TwitchUserSummary>, selectedPeerId: String? = null) {
+        items = value
+        this.selectedPeerId = selectedPeerId
+        notifyDataSetChanged()
+    }
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(ItemTwitchUserResultBinding.inflate(LayoutInflater.from(parent.context), parent, false))
     override fun getItemCount() = items.size
     override fun onBindViewHolder(holder: ViewHolder, position: Int) = holder.bind(items[position])
 
     inner class ViewHolder(private val binding: ItemTwitchUserResultBinding) : RecyclerView.ViewHolder(binding.root) {
         fun bind(item: TwitchUserSummary) = with(binding) {
+            root.isSelected = item.id == selectedPeerId
             root.setOnClickListener { onClick(item) }
             avatar.isClickable = true
             avatar.isFocusable = true

@@ -14,6 +14,7 @@ import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.RecommendationSource
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
+import com.github.andreyasadchy.xtra.repository.datasource.withHelixBroadcasterTypes
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedCache
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedSpec
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedSpecs
@@ -27,6 +28,9 @@ import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedFreshnessPo
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewLoadingType
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSection
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -231,12 +235,17 @@ class DiscoverViewModel(
                         limit = STREAM_LIMIT,
                         excludedChannelIds = topStreamsSection.value.data.mapNotNull { it.channelId }.toSet(),
                     )
+                    val streams = result.streams.withHelixBroadcasterTypes(
+                        networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                        headers = TwitchApiHelper.getHelixHeaders(applicationContext),
+                        helixRepository = helixRepository,
+                    )
                     recommendationsSection.update { current ->
                         if (result.source == RecommendationSource.UNAVAILABLE && current.data.isNotEmpty()) {
                             current.copy(refreshing = false, hasLoadedOnce = true, error = null)
                         } else {
                             val recommendationsChanged = !result.isCacheHit ||
-                                !recommendationStreamsSame(current.data, result.streams)
+                                !recommendationStreamsSame(current.data, streams)
                             val generation = if (recommendationsChanged) {
                                 ++recommendationsRefreshGeneration
                             } else {
@@ -245,7 +254,7 @@ class DiscoverViewModel(
                             }
                             current.copy(
                                 data = if (recommendationsChanged) {
-                                    result.streams.map { stream ->
+                                    streams.map { stream ->
                                         stream.withThumbnailGeneration(generation)
                                     }
                                 } else {
@@ -409,5 +418,6 @@ private fun recommendationStreamsSame(
         old.createdAt == new.createdAt &&
         old.viewerCount == new.viewerCount &&
         old.tags == new.tags &&
+        old.broadcasterType == new.broadcasterType &&
         old.dropsAvailable == new.dropsAvailable
 }

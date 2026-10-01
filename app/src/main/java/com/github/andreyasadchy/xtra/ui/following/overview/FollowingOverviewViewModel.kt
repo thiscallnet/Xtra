@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.RecommendationAuthMode
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.RecommendationSource
+import com.github.andreyasadchy.xtra.repository.datasource.withHelixBroadcasterTypes
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
@@ -644,8 +645,13 @@ class FollowingOverviewViewModel(
             try {
                 val liveChannelIds = allLiveChannelIds.first()
                 val result = recommendationsRepository.getLiveRecommendations(RECOMMENDED_LIMIT, liveChannelIds)
+                val streams = result.streams.withHelixBroadcasterTypes(
+                    networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    headers = TwitchApiHelper.getHelixHeaders(applicationContext),
+                    helixRepository = helixRepository,
+                )
                 if (isCurrentRecommendationRequest(generation, requestAccountId)) {
-                    _recommendedStreams.value = result.streams
+                    _recommendedStreams.value = streams
                     _recommendationSource.value = result.source
                     _recommendationAuthMode.value = result.authMode
                 }
