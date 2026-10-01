@@ -42,6 +42,8 @@ class PlayerHudLayout @JvmOverloads constructor(
     private var safeInsetsOverride: Rect? = null
     private var availability: Set<HudElementId> = emptySet()
     private var resolved = emptyMap<HudElementId, ResolvedHudElement>()
+    private var canonicalMeasuredSizes = emptyMap<HudElementId, HudSize>()
+    private var measuredPresentations = emptyMap<HudElementId, HudMeasuredPresentation>()
     private val frames = linkedMapOf<HudElementId, HudElementFrame>()
     private var edgeMarker: EdgeMarkerView? = null
     private var edgeMarkerBar: HudTimeBar? = null
@@ -817,7 +819,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         if (!HudElementRegistry.get(id).isMovable) return placement
         val safe = safeRect(width.toFloat(), height.toFloat())
         val testProfile = profile.copy(mode = HudProfileMode.CUSTOM, placements = profile.placements + (id to placement))
-        val test = resolve(safe, testProfile, HudElementRegistry.activeIds).firstOrNull { it.id == id } ?: return placement
+        val test = editorElements(testProfile).firstOrNull { it.id == id } ?: return placement
         val spec = HudElementRegistry.get(id)
         val x = when (spec.pivot) {
             HudPivot.TOP_START -> if (layoutDirection == View.LAYOUT_DIRECTION_RTL) test.visualRect.right else test.visualRect.left
@@ -842,7 +844,28 @@ class PlayerHudLayout @JvmOverloads constructor(
 
     private fun editorElements(candidateProfile: HudProfile): List<ResolvedHudElement> {
         val safe = safeRect(width.toFloat(), height.toFloat())
-        return resolve(safe, candidateProfile.copy(mode = HudProfileMode.CUSTOM), HudElementRegistry.activeIds)
+        val customProfile = candidateProfile.copy(mode = HudProfileMode.CUSTOM)
+        val sizes = currentCanonicalMeasuredSizes()
+        val proposed = resolve(safe, customProfile, HudElementRegistry.activeIds, sizes)
+            .firstOrNull { it.id == HudElementId.TIME_STATUS }
+        val timeFrame = frames[HudElementId.TIME_STATUS]
+        val presentation = if (proposed != null && timeFrame != null) {
+            val current = measuredPresentations[HudElementId.TIME_STATUS]
+            current?.takeIf { abs(it.effectiveScale - proposed.effectiveScale) <= 0.0001f }
+                ?: measureTimeStatusPresentation(
+                    frame = timeFrame,
+                    element = proposed,
+                    safe = safe,
+                )
+        } else {
+            null
+        }
+        val overrides = if (presentation == null) {
+            emptyMap()
+        } else {
+            mapOf(HudElementId.TIME_STATUS to presentation)
+        }
+        return resolve(safe, customProfile, HudElementRegistry.activeIds, sizes, overrides)
     }
 
     private fun editorProfileIsLegal(
@@ -1162,11 +1185,7 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     fun editorProfileHasCollision(candidateProfile: HudProfile): Boolean {
-        val elements = resolve(
-            safeRect(width.toFloat(), height.toFloat()),
-            candidateProfile.copy(mode = HudProfileMode.CUSTOM),
-            HudElementRegistry.activeIds,
-        )
+        val elements = editorElements(candidateProfile)
         return elements.withIndex().any { (index, element) ->
             elements.drop(index + 1).any { other ->
                 element.visualRect.overlaps(other.visualRect)
@@ -1227,10 +1246,29 @@ class PlayerHudLayout @JvmOverloads constructor(
         val frameWidthSpec = MeasureSpec.makeMeasureSpec(safe.width.roundToInt().coerceAtLeast(1), MeasureSpec.AT_MOST)
         val frameHeightSpec = MeasureSpec.makeMeasureSpec(safe.height.roundToInt().coerceAtLeast(1), MeasureSpec.AT_MOST)
         frames.values.forEach { it.measureNatural(frameWidthSpec, frameHeightSpec) }
-        val measuredSizes = frames.mapValues { (id, frame) ->
+        val measuredSizes = frames.mapValues { (_, frame) ->
             frame.naturalVisualSize()
         }
+        canonicalMeasuredSizes = measuredSizes
+        measuredPresentations = emptyMap()
         resolved = resolve(safe, profile, availability, measuredSizes).associateBy { it.id }
+        val timeStatus = frames[HudElementId.TIME_STATUS]
+        val timeStatusElement = resolved[HudElementId.TIME_STATUS]
+        if (timeStatus != null && timeStatusElement != null) {
+            val measuredPresentation = measureTimeStatusPresentation(
+                frame = timeStatus,
+                element = timeStatusElement,
+                safe = safe,
+            )
+            measuredPresentations = mapOf(HudElementId.TIME_STATUS to measuredPresentation)
+            resolved = resolve(
+                safe,
+                profile,
+                availability,
+                measuredSizes,
+                measuredPresentations = measuredPresentations,
+            ).associateBy { it.id }
+        }
         frames.forEach { (id, frame) ->
             val element = resolved[id]
             frame.setGeometry(element)
@@ -1508,7 +1546,8 @@ class PlayerHudLayout @JvmOverloads constructor(
         safe: HudRect,
         value: HudProfile,
         visible: Set<HudElementId>,
-        sizes: Map<HudElementId, HudSize> = frames.mapValues { it.value.naturalVisualSize() },
+        sizes: Map<HudElementId, HudSize> = currentCanonicalMeasuredSizes(),
+        measuredPresentations: Map<HudElementId, HudMeasuredPresentation> = emptyMap(),
     ): List<ResolvedHudElement> = HudLayoutEngine(
         density = density,
         rtl = layoutDirection == View.LAYOUT_DIRECTION_RTL,
@@ -1521,7 +1560,60 @@ class PlayerHudLayout @JvmOverloads constructor(
         sizes,
         availability = visible,
         liveTimePosition = store.loadTimelineTimePosition(),
+        measuredPresentations = measuredPresentations,
     )
+
+    private fun currentCanonicalMeasuredSizes(): Map<HudElementId, HudSize> =
+        canonicalMeasuredSizes.ifEmpty { frames.mapValues { it.value.naturalVisualSize() } }
+
+    private fun measureTimeStatusPresentation(
+        frame: HudElementFrame,
+        element: ResolvedHudElement,
+        safe: HudRect,
+    ): HudMeasuredPresentation {
+        val widthMeasureSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        val heightMeasureSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        val requestedScale = element.effectiveScale.coerceAtLeast(HudElementFrame.MIN_PRESENTATION_SCALE)
+
+        fun probe(scale: Float): HudSize = frame.measureNaturalAtPresentationScale(
+            scale,
+            widthMeasureSpec,
+            heightMeasureSpec,
+        )
+
+        fun fits(size: HudSize): Boolean =
+            size.width <= safe.width && size.height <= safe.height
+
+        var selectedScale = requestedScale
+        val requestedSize = probe(selectedScale)
+        if (!fits(requestedSize)) {
+            var lowScale = HudElementFrame.MIN_PRESENTATION_SCALE
+            check(fits(probe(lowScale))) {
+                "TIME_STATUS cannot fit within the player safe area at minimum presentation scale"
+            }
+            var highScale = requestedScale
+            repeat(12) {
+                val middleScale = (lowScale + highScale) / 2f
+                val middleSize = probe(middleScale)
+                if (fits(middleSize)) {
+                    lowScale = middleScale
+                } else {
+                    highScale = middleScale
+                }
+            }
+            selectedScale = lowScale
+        }
+
+        val finalSize = probe(selectedScale)
+        check(fits(finalSize)) {
+            "TIME_STATUS final measurement exceeds the player safe area"
+        }
+
+        return HudMeasuredPresentation(
+            effectiveScale = selectedScale,
+            visualSize = finalSize,
+        )
+    }
 
     private fun safeRect(rootWidth: Float, rootHeight: Float): HudRect {
         val viewport = videoViewport(rootWidth, rootHeight)
@@ -1616,7 +1708,7 @@ class PlayerHudLayout @JvmOverloads constructor(
             globalScale = profile.globalScale,
             defaultPolicyVersion = profile.defaultPolicyVersion,
         )
-        return resolve(safeRect(width.toFloat(), height.toFloat()), defaultProfile, HudElementRegistry.activeIds)
+        return editorElements(defaultProfile)
             .firstOrNull { it.id == id }
             ?.let { element ->
                 val safe = safeRect(width.toFloat(), height.toFloat())

@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.player.hud
 
 import android.content.Context
 import android.graphics.Rect
+import android.graphics.drawable.Drawable
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -17,6 +18,10 @@ class HudElementFrame @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : FrameLayout(context, attrs) {
+    companion object {
+        const val MIN_PRESENTATION_SCALE = 0.0001f
+    }
+
     private var geometry: ResolvedHudElement? = null
     private var active = false
     private var interactionBlocked = false
@@ -29,12 +34,21 @@ class HudElementFrame @JvmOverloads constructor(
     private var compositeTouchTarget: View? = null
     private val baselineMetrics = IdentityHashMap<View, PresentationMetrics>()
     private val canonicalMetrics = IdentityHashMap<View, PresentationMetrics>()
+    private val canonicalCompoundDrawableMetrics = IdentityHashMap<TextView, CompoundDrawableMetrics>()
+
+    private data class CompoundDrawableMetrics(
+        val drawables: Array<Drawable?>,
+        val bounds: Array<Rect?>,
+        val padding: Int,
+    )
 
     private data class PresentationMetrics(
         val textSize: Float?,
         val maxWidth: Int?,
         val layoutWidth: Int?,
         val layoutHeight: Int?,
+        val minimumWidth: Int,
+        val minimumHeight: Int,
         val padding: IntArray,
         val margin: IntArray?,
         val iconSize: Int?,
@@ -86,6 +100,21 @@ class HudElementFrame @JvmOverloads constructor(
         }
     }
 
+    fun measureNaturalAtPresentationScale(
+        scale: Float,
+        widthMeasureSpec: Int,
+        heightMeasureSpec: Int,
+    ): HudSize {
+        resetPresentationMetrics()
+        return try {
+            applyPresentationScale(scale)
+            measureNatural(widthMeasureSpec, heightMeasureSpec)
+            naturalVisualSize()
+        } finally {
+            resetPresentationMetrics()
+        }
+    }
+
     fun hitRect(): HudRect? = geometry?.hitRect
 
     fun visualRect(): HudRect? = geometry?.visualRect
@@ -131,6 +160,7 @@ class HudElementFrame @JvmOverloads constructor(
     fun resetPresentationMetrics() {
         val child = getChildAt(0) ?: return
         captureBaseline(child)
+        captureCompoundDrawableMetrics(child)
         restoreCanonical(child)
     }
 
@@ -145,7 +175,7 @@ class HudElementFrame @JvmOverloads constructor(
     fun applyPresentationScale(scale: Float) {
         val child = getChildAt(0) ?: return
         captureBaseline(child)
-        val effectiveScale = scale.coerceAtLeast(0.01f)
+        val effectiveScale = scale.coerceAtLeast(MIN_PRESENTATION_SCALE)
         applyScale(child, effectiveScale)
     }
 
@@ -356,6 +386,8 @@ class HudElementFrame @JvmOverloads constructor(
                 maxWidth = (view as? TextView)?.maxWidth,
                 layoutWidth = view.layoutParams?.width,
                 layoutHeight = view.layoutParams?.height,
+                minimumWidth = view.minimumWidth,
+                minimumHeight = view.minimumHeight,
                 padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom),
                 margin = margins,
                 iconSize = (view as? MaterialButton)?.iconSize,
@@ -379,6 +411,8 @@ class HudElementFrame @JvmOverloads constructor(
                 metrics.layoutHeight?.let { params.height = it }
                 view.layoutParams = params
             }
+            view.minimumWidth = metrics.minimumWidth
+            view.minimumHeight = metrics.minimumHeight
             view.setPadding(
                 metrics.padding[0],
                 metrics.padding[1],
@@ -396,6 +430,7 @@ class HudElementFrame @JvmOverloads constructor(
                 }
             }
         }
+        restoreCompoundDrawableMetrics(view)
         if (view is ViewGroup) {
             for (index in 0 until view.childCount) restoreBaseline(view.getChildAt(index))
         }
@@ -419,6 +454,8 @@ class HudElementFrame @JvmOverloads constructor(
             maxWidth = (view as? TextView)?.maxWidth,
             layoutWidth = view.layoutParams?.width,
             layoutHeight = view.layoutParams?.height,
+            minimumWidth = view.minimumWidth,
+            minimumHeight = view.minimumHeight,
             padding = intArrayOf(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom),
             margin = margins,
             iconSize = (view as? MaterialButton)?.iconSize,
@@ -427,11 +464,43 @@ class HudElementFrame @JvmOverloads constructor(
     }
 
     private fun applyScale(view: View, scale: Float) {
+        val metrics = canonicalMetrics[view] ?: baselineMetrics[view]
+        if (metrics != null) {
+            view.minimumWidth = (metrics.minimumWidth * scale).roundToInt().coerceAtLeast(0)
+            view.minimumHeight = (metrics.minimumHeight * scale).roundToInt().coerceAtLeast(0)
+        }
         val text = view as? TextView
         if (text != null) {
             text.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, text.textSize * scale)
             if (text.maxWidth != Int.MAX_VALUE) {
                 text.maxWidth = (text.maxWidth * scale).roundToInt().coerceAtLeast(1)
+            }
+            val compoundMetrics = canonicalCompoundDrawableMetrics[text]
+            val drawables = text.compoundDrawablesRelative
+            if (compoundMetrics != null && sameCompoundDrawables(compoundMetrics.drawables, drawables)) {
+                val scaledPadding = (compoundMetrics.padding * scale).roundToInt().coerceAtLeast(0)
+                if (text.compoundDrawablePadding != scaledPadding) {
+                    text.compoundDrawablePadding = scaledPadding
+                }
+                var boundsChanged = false
+                drawables.forEachIndexed { index, drawable ->
+                    val canonicalBounds = compoundMetrics.bounds[index]
+                    if (drawable != null && canonicalBounds != null) {
+                        val scaledBounds = Rect(
+                            (canonicalBounds.left * scale).roundToInt(),
+                            (canonicalBounds.top * scale).roundToInt(),
+                            (canonicalBounds.right * scale).roundToInt(),
+                            (canonicalBounds.bottom * scale).roundToInt(),
+                        )
+                        if (drawable.bounds != scaledBounds) {
+                            drawable.bounds = scaledBounds
+                            boundsChanged = true
+                        }
+                    }
+                }
+                if (boundsChanged) {
+                    text.setCompoundDrawablesRelative(drawables[0], drawables[1], drawables[2], drawables[3])
+                }
             }
         }
         view.setPadding(
@@ -464,4 +533,57 @@ class HudElementFrame @JvmOverloads constructor(
             for (index in 0 until view.childCount) applyScale(view.getChildAt(index), scale)
         }
     }
+
+    private fun captureCompoundDrawableMetrics(view: View) {
+        if (view is TextView) {
+            val drawables = view.compoundDrawablesRelative
+            if (drawables.none { it != null }) {
+                canonicalCompoundDrawableMetrics.remove(view)
+            } else {
+                val previous = canonicalCompoundDrawableMetrics[view]
+                if (previous == null || !sameCompoundDrawables(previous.drawables, drawables)) {
+                    val bounds = arrayOfNulls<Rect>(drawables.size)
+                    drawables.forEachIndexed { index, drawable ->
+                        if (drawable != null) {
+                            val previousIndex = previous?.drawables?.indexOfFirst { it === drawable } ?: -1
+                            bounds[index] = previous?.bounds?.getOrNull(previousIndex)?.let { Rect(it) }
+                                ?: Rect(drawable.bounds)
+                        }
+                    }
+                    canonicalCompoundDrawableMetrics[view] = CompoundDrawableMetrics(
+                        drawables = drawables.copyOf(),
+                        bounds = bounds,
+                        padding = previous?.padding ?: view.compoundDrawablePadding,
+                    )
+                }
+            }
+        }
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) captureCompoundDrawableMetrics(view.getChildAt(index))
+        }
+    }
+
+    private fun restoreCompoundDrawableMetrics(view: View) {
+        val text = view as? TextView ?: return
+        val metrics = canonicalCompoundDrawableMetrics[text] ?: return
+        val drawables = text.compoundDrawablesRelative
+        if (!sameCompoundDrawables(metrics.drawables, drawables)) return
+        if (text.compoundDrawablePadding != metrics.padding) text.compoundDrawablePadding = metrics.padding
+        var boundsChanged = false
+        drawables.forEachIndexed { index, drawable ->
+            val bounds = metrics.bounds[index]
+            if (drawable != null && bounds != null && drawable.bounds != bounds) {
+                drawable.bounds = Rect(bounds)
+                boundsChanged = true
+            }
+        }
+        if (boundsChanged) {
+            text.setCompoundDrawablesRelative(drawables[0], drawables[1], drawables[2], drawables[3])
+        }
+    }
+
+    private fun sameCompoundDrawables(
+        first: Array<Drawable?>,
+        second: Array<Drawable?>,
+    ): Boolean = first.size == second.size && first.indices.all { first[it] === second[it] }
 }

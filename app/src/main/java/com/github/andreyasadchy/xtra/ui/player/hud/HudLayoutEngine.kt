@@ -7,6 +7,11 @@ data class ResolvedHudElement(
     val effectiveScale: Float,
 )
 
+data class HudMeasuredPresentation(
+    val effectiveScale: Float,
+    val visualSize: HudSize,
+)
+
 enum class HudEditorGuideAxis {
     VERTICAL,
     HORIZONTAL,
@@ -138,6 +143,7 @@ class HudLayoutEngine(
         minimumHitSizes: Map<HudElementId, HudSize> = emptyMap(),
         availability: Set<HudElementId> = HudElementRegistry.activeIds,
         liveTimePosition: HudTimelineTimePosition = HudTimelineTimePosition.LEFT,
+        measuredPresentations: Map<HudElementId, HudMeasuredPresentation> = emptyMap(),
     ): List<ResolvedHudElement> {
         val safe = safeRect
         val compact = safe.height < 260f * density
@@ -183,6 +189,7 @@ class HudLayoutEngine(
             television = television,
             televisionEdgePadding = televisionEdgePadding,
             liveTimePosition = liveTimePosition,
+            measuredPresentations = measuredPresentations,
         )
         // A custom profile is a sparse override layer over the same responsive
         // default. An element is only independent after its placement is
@@ -239,16 +246,18 @@ class HudLayoutEngine(
                 1f
             }
             val effectiveScale = rawScale * minOf(viewportFitScale, compactMetadataFitScale)
-            val visualSize = HudSize(
-                baseSize.width * effectiveScale,
-                baseSize.height * effectiveScale,
+            val measuredPresentation = measuredPresentations[id]
+            val resolvedScale = measuredPresentation?.effectiveScale ?: effectiveScale
+            val visualSize = measuredPresentation?.visualSize ?: HudSize(
+                baseSize.width * resolvedScale,
+                baseSize.height * resolvedScale,
             )
             val rawVisualRect = visualRect(safe, placement, spec.pivot, visualSize)
             // The visible bounds are also the interaction bounds. A previous
             // 48/56/72dp minimum made a small icon own invisible space and
             // caused neighboring controls to activate or appear misaligned.
             val visual = rawVisualRect.clampInside(safe)
-            ResolvedHudElement(id, visual, visual, effectiveScale)
+            ResolvedHudElement(id, visual, visual, resolvedScale)
         }
     }
 
