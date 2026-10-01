@@ -313,7 +313,7 @@
     <string name="enable_ffz">Activer les emotes FFZ</string>
     <string name="user_id">ID utilisateur</string>
     <string name="user_login">Identifiant utilisateur</string>
-    <string name="waiting_ads">Changement de source de lecture…</string>
+    <string name="waiting_vaft">Changement de source de lecture…</string>
     <string name="show_playlist_tags">Afficher les balises de la liste de lecture</string>
     <string name="show_media_playlist_tags">Afficher les balises des médias</string>
     <string name="show_multivariant_playlist_tags">Afficher les balises multivariantes de la liste de lecture</string>

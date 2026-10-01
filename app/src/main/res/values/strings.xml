@@ -1387,7 +1387,7 @@ Metadata text</string>
     <string name="user_login">User login</string>
     <string name="avoid_twitch_ads">VAFT alternate streams</string>
     <string name="avoid_twitch_ads_summary">Uses alternate Twitch playback sources when needed and automatically returns to your preferred source when appropriate.</string>
-    <string name="waiting_ads">Switching playback source…</string>
+    <string name="waiting_vaft">Switching playback source…</string>
     <string name="show_playlist_tags">Show playlist tags</string>
     <string name="show_media_playlist_tags">Show media playlist tags</string>
     <string name="show_multivariant_playlist_tags">Show multivariant playlist tags</string>

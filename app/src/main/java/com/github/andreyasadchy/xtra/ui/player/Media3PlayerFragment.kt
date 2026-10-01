@@ -2573,7 +2573,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     compactQualityLabel(label)
                 }
                 contentDescription = if (vaftActive) {
-                    getString(R.string.waiting_ads)
+                    getString(R.string.waiting_vaft)
                 } else {
                     label ?: getString(R.string.player_quality)
                 }
