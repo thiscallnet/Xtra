@@ -111,6 +111,7 @@ class Media3PlayerViewModel(
     val videoResult = MutableStateFlow<String?>(null)
     var backupQualities: List<String>? = null
     var playbackPosition: Long? = null
+    var pendingVodStartupPositionMs: Long? = null
     val savedPosition = MutableStateFlow<Long?>(null)
     val isBookmarked = MutableStateFlow<Boolean?>(null)
     val gamesList = MutableStateFlow<List<Game>?>(null)

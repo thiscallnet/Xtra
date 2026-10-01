@@ -859,6 +859,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         } else if (BuildConfig.DEBUG && playbackState == Player.STATE_ENDED) {
                             player?.let { logPlaybackTimeline("state_ended", it) }
                         }
+                        if (playbackState == Player.STATE_READY) {
+                            clearPendingVodStartupPositionIfSettled(controller)
+                        }
                         if (playbackState == Player.STATE_ENDED) {
                             val handledByLiveRewind = onLiveRewindPlaybackError()
                             if (!handledByLiveRewind && player?.playWhenReady == true) {
@@ -953,6 +956,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
 
                     override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                        if (videoType == VIDEO && reason == Player.DISCONTINUITY_REASON_SEEK) {
+                            val pendingPosition = viewModel.pendingVodStartupPositionMs
+                            if (pendingPosition != null &&
+                                !vodStartupPositionsAreClose(newPosition.positionMs, pendingPosition)
+                            ) {
+                                viewModel.pendingVodStartupPositionMs = null
+                            }
+                        }
                         if (BuildConfig.DEBUG && reason == Player.DISCONTINUITY_REASON_SEEK) {
                             player?.let { currentPlayer ->
                                 Log.d(
@@ -3095,6 +3106,44 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
     }
 
+    private fun positionForVideoSourceReplacement(player: Player): Long {
+        if (videoType == VIDEO) {
+            viewModel.pendingVodStartupPositionMs?.let { return it }
+        }
+        return player.currentPosition
+    }
+
+    private fun installQualitySourceAtPosition(
+        player: Player,
+        mediaItem: MediaItem,
+        position: Long,
+    ) {
+        if (videoType == VIDEO) {
+            player.setMediaItem(mediaItem, position)
+        } else {
+            player.setMediaItem(mediaItem)
+        }
+        xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(mediaItem)
+        player.prepare()
+        if (videoType != VIDEO) {
+            player.seekTo(position)
+        }
+    }
+
+    private fun clearPendingVodStartupPositionIfSettled(player: Player) {
+        val pendingPosition = viewModel.pendingVodStartupPositionMs ?: return
+        if (videoType != VIDEO) return
+
+        if (vodStartupPositionsAreClose(player.currentPosition, pendingPosition)) {
+            viewModel.pendingVodStartupPositionMs = null
+        }
+    }
+
+    private fun vodStartupPositionsAreClose(left: Long, right: Long): Boolean {
+        val distance = if (left >= right) left - right else right - left
+        return distance <= VOD_START_POSITION_SETTLED_TOLERANCE_MS
+    }
+
     private fun clearResumeAppliedQualityTarget() {
         viewModel.resumeAppliedVideoQuality = null
         viewModel.resumeAppliedVideoQualityMediaId = null
@@ -3593,7 +3642,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         player.currentMediaItem == null
                 if (vodWithoutControllerItem) {
                     pendingAudioOnlySourceSwitch = false
-                    val position = player.currentPosition
+                    val position = positionForVideoSourceReplacement(player)
                     val playWhenReady = player.playWhenReady
                     player.sendCustomCommand(
                         SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
@@ -3634,17 +3683,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                     clearOverridesOfType(androidx.media3.common.C.TRACK_TYPE_VIDEO)
                                 }.build()
                                 if (mediaItem.localConfiguration?.uri != uri) {
-                                    val position = player.currentPosition
+                                    val position = positionForVideoSourceReplacement(player)
                                     player.sendCustomCommand(
                                         SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
                                         Bundle.EMPTY,
                                     )
                                     val sourceInstance = xtraModule.streamMedia3Runtime
                                         .newSourceInstanceMediaItem(mediaItem, uri.toString())
-                                    player.setMediaItem(sourceInstance)
-                                    xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(sourceInstance)
-                                    player.prepare()
-                                    player.seekTo(position)
+                                    installQualitySourceAtPosition(player, sourceInstance, position)
                                 }
                                 if (videoType != PlaybackContract.VIDEO) {
                                     viewModel.playlistUrl = null
@@ -3660,7 +3706,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                             quality.url?.let { audioUrl ->
                                 pendingAudioOnlySourceSwitch = false
                                 if (mediaItem.localConfiguration?.uri?.toString() != audioUrl) {
-                                    val position = player.currentPosition
+                                    val position = positionForVideoSourceReplacement(player)
                                     if (viewModel.playlistUrl == null &&
                                         viewModel.qualities?.find { it.name == AUTO_QUALITY } != null
                                     ) {
@@ -3672,10 +3718,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                     )
                                     val sourceInstance = xtraModule.streamMedia3Runtime
                                         .newSourceInstanceMediaItem(mediaItem, audioUrl)
-                                    player.setMediaItem(sourceInstance)
-                                    xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(sourceInstance)
-                                    player.prepare()
-                                    player.seekTo(position)
+                                    installQualitySourceAtPosition(player, sourceInstance, position)
                                 }
                             }
                         }
@@ -3740,17 +3783,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                         if (viewModel.playlistUrl == null) {
                                             viewModel.playlistUrl = mediaItem.localConfiguration?.uri
                                         }
-                                        val position = player.currentPosition
+                                        val position = positionForVideoSourceReplacement(player)
                                         player.sendCustomCommand(
                                             SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
                                             Bundle.EMPTY,
                                         )
                                         val sourceInstance = xtraModule.streamMedia3Runtime
                                             .newSourceInstanceMediaItem(mediaItem, qualityUri)
-                                        player.setMediaItem(sourceInstance)
-                                        xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(sourceInstance)
-                                        player.prepare()
-                                        player.seekTo(position)
+                                        installQualitySourceAtPosition(player, sourceInstance, position)
                                     } else if (qualityUri.isNullOrBlank()) {
                                         videoQualityTrackOverride(player.currentTracks, quality)?.let { override ->
                                             player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
@@ -3798,17 +3838,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                                     "targetName=${quality.name}",
                                             )
                                         }
-                                        val position = player.currentPosition
+                                        val position = positionForVideoSourceReplacement(player)
                                         player.sendCustomCommand(
                                             SessionCommand(PlaybackService.RESET_VIDEO_INFO_SIZE, Bundle.EMPTY),
                                             Bundle.EMPTY,
                                         )
                                         val sourceInstance = xtraModule.streamMedia3Runtime
                                             .newSourceInstanceMediaItem(mediaItem, quality.url)
-                                        player.setMediaItem(sourceInstance)
-                                        xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(sourceInstance)
-                                        player.prepare()
-                                        player.seekTo(position)
+                                        installQualitySourceAtPosition(player, sourceInstance, position)
                                     }
                                 }
                                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().apply {
@@ -4153,6 +4190,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun close() {
+        viewModel.pendingVodStartupPositionMs = null
         releaseV2ChatSession()
         savePosition()
         val controller = player
@@ -5213,6 +5251,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         private const val CLIP_EDITOR_COVER_TIMEOUT_MS = 5_000L
         private const val QUALITY_RETRY_DELAY_MS = 500L
         private const val RESUME_QUALITY_CONFIRMATION_TIMEOUT_MS = 5_000L
+        private const val VOD_START_POSITION_SETTLED_TOLERANCE_MS = 2_000L
         private const val MAX_QUALITY_RETRY_ATTEMPTS = 10
 
         fun newInstance(item: Stream, tapElapsedMs: Long? = null): Media3Fragment {

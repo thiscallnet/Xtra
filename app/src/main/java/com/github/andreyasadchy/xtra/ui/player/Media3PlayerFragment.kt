@@ -4354,6 +4354,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     protected fun playVideo(skipAccessToken: Boolean, playbackPosition: Long?) {
+        if (videoType == VIDEO) {
+            viewModel.pendingVodStartupPositionMs = playbackPosition ?: 0L
+        }
         if (skipAccessToken && !requireArguments().getString(KEY_VIDEO_ANIMATED_PREVIEW).isNullOrBlank()) {
             requireArguments().getString(KEY_VIDEO_ANIMATED_PREVIEW)?.let { preview ->
                 val urls = TwitchApiHelper.getVideoUrlsFromPreview(preview, requireArguments().getString(KEY_VIDEO_TYPE), viewModel.backupQualities)
