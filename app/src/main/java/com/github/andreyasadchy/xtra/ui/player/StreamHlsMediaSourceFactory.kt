@@ -14,6 +14,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
@@ -37,6 +38,7 @@ import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfigurat
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
+import com.github.andreyasadchy.xtra.util.m3u8.VaftSegmentEvidenceRecorder
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
 import okhttp3.Credentials
@@ -83,6 +85,16 @@ class StreamProxyState {
 
     fun setPrimaryPlayback(isPrimary: Boolean) {
         primaryPlayback = isPrimary
+    }
+
+    fun recordVaftSegmentEvidence(
+        playlist: HlsMediaPlaylist,
+        sourceIdentity: String,
+        alternateSource: Boolean,
+    ) {
+        if (primaryPlayback && !alternateSource) {
+            VaftSegmentEvidenceRecorder.record(playlist, sourceIdentity)
+        }
     }
 
 }
@@ -135,6 +147,13 @@ class StreamHlsMediaSourceFactory(
                     lowLatencyEnabled = lowLatencyEnabled,
                     diagnostics = TwitchHlsDiagnosticsSink { diagnostics, parsed ->
                         if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
+                            if (BuildConfig.DEBUG) {
+                                state.recordVaftSegmentEvidence(
+                                    playlist = parsed,
+                                    sourceIdentity = mediaItem.mediaId,
+                                    alternateSource = mediaItem.mediaId.startsWith("vaft-source:"),
+                                )
+                            }
                             state.twitchHlsDiagnostics = diagnostics
                             state.lastMediaPlaylistBaseUri = parsed.baseUri
                             state.lastMediaPlaylistClean = !TwitchVaftDetector.requiresVaft(parsed)
