@@ -227,6 +227,7 @@ object SettingsMigration {
         C.LIVE_NOTIFICATION_CHAT_ACTION,
         C.SYSTEM_MEDIA_CONTROLS_ENABLED,
         C.SYSTEM_MEDIA_ARTWORK_SOURCE,
+        C.SYSTEM_MEDIA_ARTWORK_DEFAULT_MIGRATED,
         C.SYSTEM_MEDIA_SHOW_TITLE,
         C.SYSTEM_MEDIA_SHOW_CATEGORY,
         C.SYSTEM_MEDIA_SHOW_SEEK_BUTTONS,
@@ -469,6 +470,14 @@ object SettingsMigration {
             }
         }
         migrateAppearancePreferences(preferences)
+        // Apply the new artwork default once, including already-current installs.
+        // Save the marker with the value so later user choices survive migration.
+        if (!preferences.getBoolean(C.SYSTEM_MEDIA_ARTWORK_DEFAULT_MIGRATED, false)) {
+            preferences.edit {
+                putString(C.SYSTEM_MEDIA_ARTWORK_SOURCE, C.SYSTEM_MEDIA_ARTWORK_STREAM_PREVIEW)
+                putBoolean(C.SYSTEM_MEDIA_ARTWORK_DEFAULT_MIGRATED, true)
+            }
+        }
         if (preferences.getInt(C.SETTINGS_VERSION, 0) >= C.SETTINGS_SCHEMA_VERSION) return
         val isFreshInstall = freshInstall ?: inferFreshInstall(preferences)
 

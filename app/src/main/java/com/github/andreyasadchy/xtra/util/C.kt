@@ -472,6 +472,7 @@ object C {
     const val LIVE_UPDATE_RESULT_NOTIFICATION_SETTINGS = "live_update_result_notification_settings"
     const val SYSTEM_MEDIA_CONTROLS_ENABLED = "system_media_controls_enabled"
     const val SYSTEM_MEDIA_ARTWORK_SOURCE = "system_media_artwork_source"
+    const val SYSTEM_MEDIA_ARTWORK_DEFAULT_MIGRATED = "system_media_artwork_default_migrated"
     const val SYSTEM_MEDIA_SHOW_TITLE = "system_media_show_title"
     const val SYSTEM_MEDIA_SHOW_CATEGORY = "system_media_show_category"
     const val SYSTEM_MEDIA_SHOW_SEEK_BUTTONS = "system_media_show_seek_buttons"

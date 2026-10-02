@@ -4109,7 +4109,7 @@ class PlaybackService : MediaSessionService() {
         val showTitle = prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_TITLE, true)
         val showCategory = prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_CATEGORY, true)
         val isLive = viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
-        val artwork = when (prefs().getString(C.SYSTEM_MEDIA_ARTWORK_SOURCE, C.SYSTEM_MEDIA_ARTWORK_STREAMER_AVATAR)) {
+        val artwork = when (prefs().getString(C.SYSTEM_MEDIA_ARTWORK_SOURCE, C.SYSTEM_MEDIA_ARTWORK_STREAM_PREVIEW)) {
             C.SYSTEM_MEDIA_ARTWORK_STREAM_PREVIEW -> TwitchApiHelper.getStreamThumbnail(viewingStreamPreview, 720, 405)
             C.SYSTEM_MEDIA_ARTWORK_CATEGORY -> TwitchApiHelper.getGameBoxArt(viewingCategoryImage)
             C.SYSTEM_MEDIA_ARTWORK_NONE -> null
