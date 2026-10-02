@@ -796,6 +796,8 @@ class PlayerRepository(
             response.data!!.streamPlaybackAccessToken!!.let {
                 it.signature to it.value
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             val response = if (proxyPlaybackAccessToken && !proxyHost.isNullOrBlank() && proxyPort != null) {
                 val query = StreamPlaybackAccessTokenQuery(channelLogin, platform, playerType ?: "")

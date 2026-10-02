@@ -313,7 +313,7 @@
     <string name="enable_ffz">FFZ-Emotes aktivieren</string>
     <string name="user_id">Nutzer-ID</string>
     <string name="user_login">Nutzeranmeldung</string>
-    <string name="waiting_ads">Wiedergabequelle wird gewechselt…</string>
+    <string name="waiting_vaft">Wiedergabequelle wird gewechselt…</string>
     <string name="show_playlist_tags">Playlist-Tags anzeigen</string>
     <string name="show_media_playlist_tags">Medien-Playlist-Tags anzeigen</string>
     <string name="show_multivariant_playlist_tags">Multivariante Playlist-Tags anzeigen</string>

@@ -33,6 +33,7 @@ import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
+import com.github.andreyasadchy.xtra.util.m3u8.VaftSegmentEvidenceRecorder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import java.security.MessageDigest
@@ -64,7 +65,7 @@ data class VaftPreloadedMediaSource(
     val mediaSource: MediaSource,
     val mediaItem: MediaItem,
     val warmAgeMs: Long,
-    val exactRenditionWarm: Boolean,
+    val renditionCompatibleWithIntent: Boolean,
 )
 
 private data class VaftWarmupKey(
@@ -76,6 +77,7 @@ private data class VaftWarmupKey(
     val qualityIntent: DesiredHlsQuality,
     val qualityIntentRevision: Long,
     val verifiedRenditionUrl: String?,
+    val allowAdaptiveRendition: Boolean,
 )
 
 internal fun shouldResetPreloadManager(hasPrimaryPlaybackPlayer: Boolean): Boolean = !hasPrimaryPlaybackPlayer
@@ -393,6 +395,7 @@ class StreamMedia3Runtime(
         channelLogo: String?,
         qualityIntent: DesiredHlsQuality,
         verifiedRenditionUrl: String?,
+        allowAdaptiveRendition: Boolean,
     ): VaftWarmupHandle? {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 VAFT warmup must run on the main looper" }
         val generation = states.firstOrNull { it.player === playbackPlayer } ?: return null
@@ -409,6 +412,7 @@ class StreamMedia3Runtime(
             qualityIntent = qualityIntent,
             qualityIntentRevision = qualitySelectionPolicy.revision(),
             verifiedRenditionUrl = verifiedRenditionUrl,
+            allowAdaptiveRendition = allowAdaptiveRendition,
         )
         generation.vaftWarmEntries.values.firstOrNull { it.key == key }?.let { existing ->
             val completedAgeMs = existing.completedAtMs?.let { elapsedRealtimeMs() - it }
@@ -476,14 +480,22 @@ class StreamMedia3Runtime(
         }
         val sourceState = generation.hlsFactory.findState(entry.mediaItem.mediaId) ?: return null
         if (sourceState.lastMediaPlaylistClean != true) return null
+        val loadedRenditionKnown = sourceState.lastMediaPlaylistBaseUri?.isNotBlank() == true
         val exactRenditionWarm = entry.key.verifiedRenditionUrl == null ||
             sourceState.lastMediaPlaylistBaseUri == entry.key.verifiedRenditionUrl
+        val renditionCompatibleWithIntent = exactRenditionWarm ||
+            (entry.key.allowAdaptiveRendition && loadedRenditionKnown)
         val mediaSource = runCatching { generation.manager.getMediaSource(entry.mediaItem) }.getOrNull() ?: return null
         entry.adopted = true
         if (BuildConfig.DEBUG) {
-            Log.d(TAG, "vaft_warm_adopt token=${token.take(8)} ageMs=$warmAgeMs exactRendition=$exactRenditionWarm")
+            val renditionMode = when {
+                exactRenditionWarm -> "exact"
+                renditionCompatibleWithIntent -> "adaptive_clean"
+                else -> "mismatch"
+            }
+            Log.d(TAG, "vaft_warm_adopt token=${token.take(8)} ageMs=$warmAgeMs renditionMode=$renditionMode")
         }
-        return VaftPreloadedMediaSource(mediaSource, entry.mediaItem, warmAgeMs, exactRenditionWarm)
+        return VaftPreloadedMediaSource(mediaSource, entry.mediaItem, warmAgeMs, renditionCompatibleWithIntent)
     }
 
     @Synchronized
@@ -554,6 +566,18 @@ class StreamMedia3Runtime(
         primaryPlaybackMediaId = mediaItem?.mediaId
         currentMediaId?.let(::releaseClipDataSourceFactoryIfUnretained)
         if (desiredCandidates.isNotEmpty()) reconcile(desiredCandidates)
+    }
+
+    @Synchronized
+    fun setVaftEvidenceAlternateSource(mediaItem: MediaItem?, isAlternate: Boolean) {
+        val mediaId = mediaItem?.mediaId ?: return
+        states.asReversed().firstNotNullOfOrNull { generation ->
+            generation.hlsFactory.findState(mediaId)
+        }?.setVaftAlternateEvidenceSource(isAlternate)
+    }
+
+    fun resetVaftEvidenceSession() {
+        if (BuildConfig.DEBUG) VaftSegmentEvidenceRecorder.resetSession()
     }
 
     @Synchronized
@@ -644,6 +668,10 @@ class StreamMedia3Runtime(
             .asSequence()
             .mapNotNull { it.hlsFactory.hlsDiagnosticsFor(mediaId) }
             .firstOrNull()
+
+    @Synchronized
+    fun controlledPlaylistFor(mediaId: String?): com.github.andreyasadchy.xtra.player.hls.ControlledVaftPlaylist? =
+        mediaId?.let { id -> states.asReversed().firstNotNullOfOrNull { it.hlsFactory.findState(id)?.controlledPlaylist } }
 
     @Synchronized
     fun proxyPlaylistObservationFor(mediaId: String): com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestObservation? =
@@ -770,10 +798,17 @@ class StreamMedia3Runtime(
                     if (BuildConfig.DEBUG) {
                         val exactRendition = vaftWarm.key.verifiedRenditionUrl == null ||
                             sourceState?.lastMediaPlaylistBaseUri == vaftWarm.key.verifiedRenditionUrl
+                        val loadedRenditionKnown = sourceState?.lastMediaPlaylistBaseUri?.isNotBlank() == true
+                        val adaptiveCleanRendition = vaftWarm.key.allowAdaptiveRendition && loadedRenditionKnown
+                        val renditionMode = when {
+                            exactRendition -> "exact"
+                            isClean && adaptiveCleanRendition -> "adaptive_clean"
+                            else -> "mismatch"
+                        }
                         Log.d(
                             TAG,
                             "vaft_warm_complete token=${vaftWarm.token.take(8)} clean=$isClean " +
-                                "exactRendition=$exactRendition elapsedMs=${vaftWarm.completedAtMs!! - vaftWarm.addedAtMs}",
+                                "renditionMode=$renditionMode elapsedMs=${vaftWarm.completedAtMs!! - vaftWarm.addedAtMs}",
                         )
                     }
                     return

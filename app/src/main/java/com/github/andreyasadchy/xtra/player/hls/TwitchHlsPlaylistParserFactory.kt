@@ -56,6 +56,7 @@ internal fun HlsMediaPlaylist.copyWithInterstitials(
 class TwitchHlsPlaylistParserFactory(
     private val lowLatencyEnabled: Boolean,
     private val diagnostics: TwitchHlsDiagnosticsSink? = null,
+    private val transform: (Uri, HlsPlaylist) -> HlsPlaylist = { _, playlist -> playlist },
 ) : HlsPlaylistParserFactory {
 
     private val delegate = DefaultHlsPlaylistParserFactory()
@@ -121,11 +122,11 @@ class TwitchHlsPlaylistParserFactory(
                     playlistText = finalAdaptation.playlistText,
                 )
             }
-            val compatible = TwitchMultivariantPlaylistCompatibility.apply(
+            val compatible = transform(uri, TwitchMultivariantPlaylistCompatibility.apply(
                 parsed = parsed,
                 rawPlaylist = finalAdaptation.playlistText,
                 playlistUri = uri,
-            )
+            ))
             val compatibleMediaPlaylist = compatible as? HlsMediaPlaylist
             val collectExpandedDiagnostics = BuildConfig.DEBUG || BuildConfig.PERF_DIAGNOSTICS
             val finalDiagnostics = finalAdaptation.diagnostics.copy(

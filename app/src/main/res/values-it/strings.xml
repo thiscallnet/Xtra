@@ -313,7 +313,7 @@
     <string name="enable_ffz">Abilita emote FFZ</string>
     <string name="user_id">ID utente</string>
     <string name="user_login">Accesso utente</string>
-    <string name="waiting_ads">Cambio della sorgente di riproduzione…</string>
+    <string name="waiting_vaft">Cambio della sorgente di riproduzione…</string>
     <string name="show_playlist_tags">Mostra tag della playlist</string>
     <string name="show_media_playlist_tags">Mostra tag della playlist multimediale</string>
     <string name="show_multivariant_playlist_tags">Mostra tag della playlist multivariante</string>

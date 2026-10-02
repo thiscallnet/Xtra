@@ -314,7 +314,7 @@
     <string name="enable_ffz">Aktifkan emote FFZ</string>
     <string name="user_id">ID Pengguna</string>
     <string name="user_login">Login pengguna</string>
-    <string name="waiting_ads">Beralih sumber pemutaran…</string>
+    <string name="waiting_vaft">Beralih sumber pemutaran…</string>
     <string name="show_playlist_tags">Tampilkan tag daftar putar</string>
     <string name="show_media_playlist_tags">Tampilkan tag daftar putar media</string>
     <string name="show_multivariant_playlist_tags">Tampilkan tag daftar putar multivarian</string>
