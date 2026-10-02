@@ -262,6 +262,7 @@ class PlaybackService : MediaSessionService() {
     private var vaftHandoffTargetFrameRendered = false
     private var lastVaftBoundaryObservationKey: String? = null
     private var vaftPrimaryFirstFrameMediaId: String? = null
+    private var vaftPrimaryFirstFrameSourceUri: String? = null
     private var vaftPrimaryFirstFrameElapsedMs: Long? = null
 
     private fun invalidateVaftOwnership() {
@@ -619,6 +620,7 @@ class PlaybackService : MediaSessionService() {
                     val firstFrameSourceUri = firstFrameItem?.localConfiguration?.uri?.toString()
                     if (firstFrameItem != null && firstFrameSourceUri == liveStreamUri) {
                         vaftPrimaryFirstFrameMediaId = firstFrameItem.mediaId
+                        vaftPrimaryFirstFrameSourceUri = firstFrameSourceUri
                         vaftPrimaryFirstFrameElapsedMs = firstFrameElapsedMs
                     }
                     if (!vaftHandoffTargetFrameRendered && vaftHandoffTargetGeneration == vaftGeneration &&
@@ -3222,7 +3224,29 @@ class PlaybackService : MediaSessionService() {
             vaftPreparationRequestId != null
         val generationBeforeStart = vaftGeneration
         val generation = if (preparationMatches) vaftGeneration else ++vaftGeneration
-        val primaryFrameAgeMs = if (vaftPrimaryFirstFrameMediaId == currentMediaId) {
+        val preparedCandidateAtTrigger = vaftPreparedCandidate?.takeIf { prepared ->
+            prepared.requestId == vaftPreparationRequestId && prepared.markerKey == triggerMarkerKey &&
+                prepared.vaftGeneration == vaftGeneration && prepared.sourceGeneration == vaftSourceGeneration &&
+                prepared.playbackMediaId == currentMediaId && isVaftCandidateCurrent(player, prepared)
+        }
+        val preparationJobActive = vaftPreparationJob?.isActive == true
+        val preparationState = when {
+            preparedCandidateAtTrigger != null -> "candidate_ready"
+            preparationMatches && preparationJobActive -> "inflight"
+            preparationMatches -> "empty"
+            else -> "none"
+        }
+        val preparationAgeMs = if (preparationMatches) {
+            vaftPreparationStartedAtMs?.let { (nowElapsedMs - it).coerceAtLeast(0L) } ?: -1L
+        } else {
+            -1L
+        }
+        val preparationWarmup = preparedCandidateAtTrigger?.warmup
+        val preparationWarmupReady = preparationWarmup?.completion?.takeIf { it.isDone }
+            ?.let { runCatching { it.get() }.getOrDefault(false) } == true
+        val primaryFrameAgeMs = if (vaftPrimaryFirstFrameMediaId == currentMediaId &&
+            vaftPrimaryFirstFrameSourceUri == currentUri && currentUri == liveStreamUri
+        ) {
             (nowElapsedMs - (vaftPrimaryFirstFrameElapsedMs ?: nowElapsedMs)).coerceAtLeast(0L)
         } else {
             -1L
@@ -3230,11 +3254,15 @@ class PlaybackService : MediaSessionService() {
         if (BuildConfig.DEBUG) {
             Log.d(
                 "XtraVaft",
-                "event=activation_start activationToken=${diagnosticToken("$generation:$vaftSourceGeneration:${triggerMarkerKey.orEmpty()}")} " +
+                "event=vaft_trigger activationToken=${diagnosticToken("$generation:$vaftSourceGeneration:${triggerMarkerKey.orEmpty()}")} " +
                     "markerToken=${diagnosticToken(triggerMarkerKey)} itemToken=${diagnosticToken(currentMediaId)} " +
                     "sourceToken=${diagnosticToken(currentUri)} phase=${boundaryPhase.name.lowercase()} " +
                     "basis=${trackedBoundary?.observation?.basis ?: "untracked"} publisherEdge=$publisherEdgeRequiresVaft " +
-                    "prewarmed=$preparationMatches primaryFrameAgeMs=$primaryFrameAgeMs elapsedRealtimeMs=$nowElapsedMs",
+                    "vaftGeneration=$generation sourceGeneration=$vaftSourceGeneration " +
+                    "prepState=$preparationState prepRequestToken=${diagnosticToken(vaftPreparationRequestId.takeIf { preparationMatches })} " +
+                    "prepAgeMs=$preparationAgeMs prepWarmupStarted=${preparationWarmup != null} " +
+                    "prepWarmupReady=$preparationWarmupReady primaryFrameAgeMs=$primaryFrameAgeMs " +
+                    "elapsedRealtimeMs=$nowElapsedMs",
             )
         }
         if (!preparationMatches) {
@@ -4652,6 +4680,9 @@ class PlaybackService : MediaSessionService() {
         val channelLogo = extras.getString(CHANNEL_LOGO)
         if (beginNewPlayback) {
             livePlaybackSessionGeneration++
+            vaftPrimaryFirstFrameMediaId = null
+            vaftPrimaryFirstFrameSourceUri = null
+            vaftPrimaryFirstFrameElapsedMs = null
             primaryQualityCatalogMasterUri = null
             primaryQualityCatalog = null
             primaryQualityCatalogRenditionUris = emptySet()
