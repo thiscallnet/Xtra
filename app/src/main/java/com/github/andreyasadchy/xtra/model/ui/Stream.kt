@@ -36,6 +36,11 @@ class Stream(
     val thumbnail: String?
         get() = TwitchApiHelper.getStreamThumbnail(thumbnailURL)
 
+    /** Completes metadata in a new snapshot without mutating a published card. */
+    fun withCreatedAt(timestamp: String): Stream = withThumbnailGeneration(thumbnailGeneration).also {
+        it.createdAt = timestamp
+    }
+
     /** Creates the same stream snapshot with a new live-preview refresh generation. */
     fun withThumbnailGeneration(generation: Long): Stream = Stream(
         id = id,

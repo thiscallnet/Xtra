@@ -15,6 +15,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ItemFeaturedStreamShelfBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.common.StreamCardUptimeBinder
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.loadStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.loadStreamThumbnail
@@ -29,11 +30,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamCardPresentationCache
 import com.github.andreyasadchy.xtra.ui.common.setVerifiedPartnerName
 import com.github.andreyasadchy.xtra.ui.common.StreamDropsBadgeBinder
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
-import com.github.andreyasadchy.xtra.ui.common.StreamUptimeViewHolder
-import com.github.andreyasadchy.xtra.ui.common.VisibleStreamUptimeTicker
-import com.github.andreyasadchy.xtra.ui.common.formatStreamUptime
 import com.github.andreyasadchy.xtra.ui.common.thumbnailIdentity
-import com.github.andreyasadchy.xtra.ui.common.parseStreamStartedAtMs
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
@@ -56,7 +53,6 @@ class FeaturedStreamShelfAdapter(
 ) : ListAdapter<Stream, FeaturedStreamShelfAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     private val thumbnailLoadScheduler = StreamThumbnailIdleScheduler()
-    private val uptimeTicker = VisibleStreamUptimeTicker(fragment)
 
     private var snapHelper: PagerSnapHelper? = null
     private var initialCardPositioned = false
@@ -115,7 +111,6 @@ class FeaturedStreamShelfAdapter(
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
         thumbnailLoadScheduler.attachTo(recyclerView)
-        uptimeTicker.attach(recyclerView)
         originalPadding = intArrayOf(
             recyclerView.paddingLeft,
             recyclerView.paddingTop,
@@ -133,7 +128,6 @@ class FeaturedStreamShelfAdapter(
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
         thumbnailLoadScheduler.detach()
-        uptimeTicker.detach()
         recyclerView.removeOnScrollListener(scrollListener)
         recyclerView.removeOnLayoutChangeListener(layoutChangeListener)
         if (snapHelper != null) snapHelper?.attachToRecyclerView(null)
@@ -241,7 +235,7 @@ class FeaturedStreamShelfAdapter(
 
     inner class ViewHolder(
         private val binding: ItemFeaturedStreamShelfBinding,
-    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner, StreamUptimeViewHolder {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
         private val imageRequests = FeedImageRequestBag()
@@ -250,9 +244,7 @@ class FeaturedStreamShelfAdapter(
         private var boundThumbnailKey: String? = null
         private var boundStream: Stream? = null
         private var boundTags: List<String> = emptyList()
-        private var uptimeStartedAtMs: Long? = null
-        private var uptimeEnabled = false
-        private var lastRenderedUptimeSecond = Long.MIN_VALUE
+        private val uptimeBinder = StreamCardUptimeBinder(binding.uptime)
         private val dropsBadgeBinder = StreamDropsBadgeBinder(binding.dropsBadge) { stream ->
             StreamDropsBottomSheet.show(fragment, stream)
         }
@@ -297,7 +289,7 @@ class FeaturedStreamShelfAdapter(
             boundStream = null
             boundTags = emptyList()
             dropsBadgeBinder.clear()
-            clearUptime()
+            uptimeBinder.clear()
         }
 
         fun bindThumbnail(stream: Stream?) {
@@ -356,10 +348,7 @@ class FeaturedStreamShelfAdapter(
             val uiPreferences = FeedUiPreferencesStore.current(context)
             val presentation = StreamCardPresentationCache.get(stream, uiPreferences)
             boundStream = stream
-            uptimeEnabled = uiPreferences.showUptime
-            uptimeStartedAtMs = if (uptimeEnabled) parseStreamStartedAtMs(stream.createdAt) else null
-            lastRenderedUptimeSecond = Long.MIN_VALUE
-            updateUptime(System.currentTimeMillis())
+            uptimeBinder.bind(stream.createdAt, uiPreferences.showUptime)
             if (presentation == null) {
                 StreamCardPresentationCache.request(context, stream, uiPreferences) {
                     if (boundStream === stream && binding.root.isAttachedToWindow) applyPresentation(it)
@@ -439,29 +428,6 @@ class FeaturedStreamShelfAdapter(
             )
         }
 
-        override fun updateUptime(nowMs: Long) {
-            val startedAtMs = uptimeStartedAtMs
-            if (!uptimeEnabled || startedAtMs == null || nowMs <= startedAtMs) {
-                lastRenderedUptimeSecond = Long.MIN_VALUE
-                if (binding.uptime.visibility != View.GONE) binding.uptime.visibility = View.GONE
-                return
-            }
-
-            val elapsedSeconds = (nowMs - startedAtMs) / 1000L
-            if (elapsedSeconds == lastRenderedUptimeSecond) return
-
-            lastRenderedUptimeSecond = elapsedSeconds
-            val text = formatStreamUptime(startedAtMs, nowMs) ?: return
-            if (binding.uptime.text.toString() != text) binding.uptime.text = text
-            if (binding.uptime.visibility != View.VISIBLE) binding.uptime.visibility = View.VISIBLE
-        }
-
-        private fun clearUptime() {
-            uptimeEnabled = false
-            uptimeStartedAtMs = null
-            lastRenderedUptimeSecond = Long.MIN_VALUE
-            binding.uptime.visibility = View.GONE
-        }
     }
 
     private companion object {

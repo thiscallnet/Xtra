@@ -12,6 +12,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.ItemStreamShelfBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.ui.common.StreamCardUptimeBinder
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.loadStreamProfileImage
 import com.github.andreyasadchy.xtra.ui.common.loadStreamThumbnail
@@ -37,10 +38,6 @@ import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.streamThumbnailOnlyChanged
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailChangedPayload
 import com.github.andreyasadchy.xtra.ui.common.usesExpressiveInterface
-import com.github.andreyasadchy.xtra.ui.common.StreamUptimeViewHolder
-import com.github.andreyasadchy.xtra.ui.common.VisibleStreamUptimeTicker
-import com.github.andreyasadchy.xtra.ui.common.formatStreamUptime
-import com.github.andreyasadchy.xtra.ui.common.parseStreamStartedAtMs
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
@@ -53,7 +50,6 @@ class StreamsShelfPagingAdapter(
 ) : PagingDataAdapter<Stream, StreamsShelfPagingAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     private val thumbnailLoadScheduler = StreamThumbnailIdleScheduler()
-    private val uptimeTicker = VisibleStreamUptimeTicker(fragment)
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
@@ -67,11 +63,9 @@ class StreamsShelfPagingAdapter(
 
     internal fun attachImageScheduler(recyclerView: RecyclerView) {
         thumbnailLoadScheduler.attachTo(recyclerView)
-        uptimeTicker.attach(recyclerView)
     }
 
     internal fun detachImageScheduler() {
-        uptimeTicker.detach()
         thumbnailLoadScheduler.detach()
     }
 
@@ -113,7 +107,7 @@ class StreamsShelfPagingAdapter(
     inner class ViewHolder(
         private val binding: ItemStreamShelfBinding,
         expressiveUi: Boolean,
-    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner, StreamUptimeViewHolder {
+    ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
         private val imageRequests = FeedImageRequestBag()
@@ -132,9 +126,7 @@ class StreamsShelfPagingAdapter(
                 if (expressiveUi) ExpressiveShapeStyling.applyStreamShelfTagChip(it)
             }
         }
-        private var uptimeStartedAtMs: Long? = null
-        private var uptimeEnabled = false
-        private var lastRenderedUptimeSecond = Long.MIN_VALUE
+        private val uptimeBinder = StreamCardUptimeBinder(binding.uptime)
         private val dropsBadgeBinder = StreamDropsBadgeBinder(binding.dropsBadge) { stream ->
             StreamDropsBottomSheet.show(fragment, stream)
         }
@@ -185,7 +177,7 @@ class StreamsShelfPagingAdapter(
             boundTags = emptyList()
             horizontalTagViews?.let(::clearStreamTags)
             titleScroll?.scrollTo(0, 0)
-            clearUptime()
+            uptimeBinder.clear()
         }
 
         fun bindThumbnail(item: Stream?) {
@@ -235,10 +227,7 @@ class StreamsShelfPagingAdapter(
                 }
 
                 bindThumbnail(item)
-                uptimeEnabled = uiPreferences.showUptime
-                uptimeStartedAtMs = if (uptimeEnabled) parseStreamStartedAtMs(item.createdAt) else null
-                lastRenderedUptimeSecond = Long.MIN_VALUE
-                updateUptime(System.currentTimeMillis())
+                uptimeBinder.bind(item.createdAt, uiPreferences.showUptime)
                 thumbnail.contentDescription = item.title?.takeIf { it.isNotBlank() }
                     ?: context.getString(R.string.live)
                 liveBadge.visibility = View.VISIBLE
@@ -314,30 +303,6 @@ class StreamsShelfPagingAdapter(
                 binding.tagTwo.text = boundTags.getOrNull(1).orEmpty()
                 binding.tagTwo.visibility = if (boundTags.size > 1) View.VISIBLE else View.GONE
             }
-        }
-
-        override fun updateUptime(nowMs: Long) {
-            val startedAtMs = uptimeStartedAtMs
-            if (!uptimeEnabled || startedAtMs == null || nowMs <= startedAtMs) {
-                lastRenderedUptimeSecond = Long.MIN_VALUE
-                if (binding.uptime.visibility != View.GONE) binding.uptime.visibility = View.GONE
-                return
-            }
-
-            val elapsedSeconds = (nowMs - startedAtMs) / 1000L
-            if (elapsedSeconds == lastRenderedUptimeSecond) return
-
-            lastRenderedUptimeSecond = elapsedSeconds
-            val text = formatStreamUptime(startedAtMs, nowMs) ?: return
-            if (binding.uptime.text.toString() != text) binding.uptime.text = text
-            if (binding.uptime.visibility != View.VISIBLE) binding.uptime.visibility = View.VISIBLE
-        }
-
-        private fun clearUptime() {
-            uptimeEnabled = false
-            uptimeStartedAtMs = null
-            lastRenderedUptimeSecond = Long.MIN_VALUE
-            binding.uptime.visibility = View.GONE
         }
 
         private fun openChannel(stream: Stream) {
