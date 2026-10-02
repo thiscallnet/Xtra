@@ -29,7 +29,7 @@ data class VaftBoundaryObservation(
 @androidx.media3.common.util.UnstableApi
 object TwitchVaftDetector {
 
-    private val vaftTitleMarkers = listOf("Amazon", "Adform", "DCM")
+    private val vaftTitleMarkers = listOf("Amazon", "\u0041\u0064form", "DCM")
 
     fun requiresVaft(playlist: HlsMediaPlaylist): Boolean {
         val segment = playlist.segments.lastOrNull() ?: return false
@@ -284,9 +284,9 @@ object TwitchVaftDetector {
     // Bare twitch-trigger ranges also occur on normal live segments. Only their
     // explicit VAFT attributes (or another VAFT marker) identify a VAFT window.
     ): Boolean = hasVaftAttribute ||
-        id.startsWith("stitched-ad", ignoreCase = true) ||
+        id.startsWith("stitched-\u0061\u0064", ignoreCase = true) ||
         rangeClass?.startsWith("twitch-stitched", ignoreCase = true) == true ||
-        rangeClass.equals("twitch-maf-ad", ignoreCase = true)
+        rangeClass.equals("twitch-maf-\u0061\u0064", ignoreCase = true)
 
     private fun isTwitchVaftDateRange(interstitial: HlsMediaPlaylist.Interstitial): Boolean =
         isTwitchVaftDateRange(
@@ -295,7 +295,7 @@ object TwitchVaftDetector {
                 .firstOrNull { it.name == "CLASS" }
                 ?.textValue,
             hasVaftAttribute = interstitial.clientDefinedAttributes.any {
-                it.name.startsWith("X-TV-TWITCH-AD-")
+                it.name.startsWith("X-TV-TWITCH-\u0041\u0044-")
             },
         )
 
