@@ -65,6 +65,9 @@ class StreamProxyState {
     private var primaryPlayback = false
 
     @Volatile
+    private var vaftAlternateEvidenceSource = false
+
+    @Volatile
     var proxyMediaPlaylist: Boolean = false
 
     @Volatile
@@ -87,12 +90,16 @@ class StreamProxyState {
         primaryPlayback = isPrimary
     }
 
+    fun setVaftAlternateEvidenceSource(isAlternate: Boolean) {
+        vaftAlternateEvidenceSource = isAlternate
+    }
+
     fun recordVaftSegmentEvidence(
         playlist: HlsMediaPlaylist,
         sourceIdentity: String,
-        alternateSource: Boolean,
+        isLiveSource: Boolean,
     ) {
-        if (primaryPlayback && !alternateSource) {
+        if (primaryPlayback && isLiveSource && !vaftAlternateEvidenceSource) {
             VaftSegmentEvidenceRecorder.record(playlist, sourceIdentity)
         }
     }
@@ -151,7 +158,7 @@ class StreamHlsMediaSourceFactory(
                                 state.recordVaftSegmentEvidence(
                                     playlist = parsed,
                                     sourceIdentity = mediaItem.mediaId,
-                                    alternateSource = mediaItem.mediaId.startsWith("vaft-source:"),
+                                    isLiveSource = streamSource,
                                 )
                             }
                             state.twitchHlsDiagnostics = diagnostics

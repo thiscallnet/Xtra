@@ -33,6 +33,7 @@ import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
+import com.github.andreyasadchy.xtra.util.m3u8.VaftSegmentEvidenceRecorder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import java.security.MessageDigest
@@ -554,6 +555,18 @@ class StreamMedia3Runtime(
         primaryPlaybackMediaId = mediaItem?.mediaId
         currentMediaId?.let(::releaseClipDataSourceFactoryIfUnretained)
         if (desiredCandidates.isNotEmpty()) reconcile(desiredCandidates)
+    }
+
+    @Synchronized
+    fun setVaftEvidenceAlternateSource(mediaItem: MediaItem?, isAlternate: Boolean) {
+        val mediaId = mediaItem?.mediaId ?: return
+        states.asReversed().firstNotNullOfOrNull { generation ->
+            generation.hlsFactory.findState(mediaId)
+        }?.setVaftAlternateEvidenceSource(isAlternate)
+    }
+
+    fun resetVaftEvidenceSession() {
+        if (BuildConfig.DEBUG) VaftSegmentEvidenceRecorder.resetSession()
     }
 
     @Synchronized

@@ -366,6 +366,14 @@ internal object VaftSegmentEvidenceRecorder {
     private var controlPreviousFirstSequence: Long? = null
 
     @Synchronized
+    fun resetSession() {
+        if (!BuildConfig.DEBUG) return
+        ranges.clear()
+        clearControl()
+        controlSourceIdentity = null
+    }
+
+    @Synchronized
     fun record(playlist: HlsMediaPlaylist, sourceIdentity: String) {
         if (!BuildConfig.DEBUG) return
 

@@ -2613,9 +2613,10 @@ class PlaybackService : MediaSessionService() {
             .build()
         diagnostics.resetRenderedVideoSize()
         player.volume = 0f
-        player.setMediaSource(
-            preloadedSource?.mediaSource ?: xtraModule.streamMedia3Runtime.createLiveMediaSource(item),
-        )
+        val runtime = xtraModule.streamMedia3Runtime
+        val source = preloadedSource?.mediaSource ?: runtime.createLiveMediaSource(item)
+        runtime.setVaftEvidenceAlternateSource(item, extras.getBoolean(VAFT_ALTERNATE_ACTIVE))
+        player.setMediaSource(source)
         // Keep the normal live resumption source authoritative until commit.
         player.prepare()
         player.playWhenReady = playWhenReady
@@ -4343,6 +4344,7 @@ class PlaybackService : MediaSessionService() {
         val verified = decodePlaybackQuality(xtraModule.json, extras.getString(VAFT_VERIFIED_RENDITION))
         val previousExtras = liveStreamExtras?.let(::Bundle)?.apply {
             putString(URI, player.currentMediaItem?.localConfiguration?.uri?.toString())
+            putBoolean(VAFT_ALTERNATE_ACTIVE, vaftAlternateActive)
             putBoolean(SUPPRESS_VAFT_OUTPUT, true)
         }
         val previousAlternate = vaftAlternateActive
@@ -4548,7 +4550,10 @@ class PlaybackService : MediaSessionService() {
                         liveStreamUri = targetUri
                         liveStreamExtras = Bundle(extras).apply { remove(VAFT_ALTERNATE_ACTIVE); remove(VAFT_VERIFIED_RENDITION); remove(VAFT_PLAYER_TYPE) }
                     }
-                    player.currentMediaItem?.let(xtraModule.streamMedia3Runtime::setPrimaryPlaybackMediaItem)
+                    player.currentMediaItem?.let { mediaItem ->
+                        xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(mediaItem)
+                        xtraModule.streamMedia3Runtime.setVaftEvidenceAlternateSource(mediaItem, vaftAlternateActive)
+                    }
                     vaftOutputSuppressed = false
                     player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
                     authorizeVaftEntryFrameRelease(player)
@@ -4637,7 +4642,10 @@ class PlaybackService : MediaSessionService() {
                         val cleanRollback = rollbackState?.clean == true
                         vaftOutputSuppressed = !cleanRollback
                         if (rollbackRestored) {
-                            player.currentMediaItem?.let(xtraModule.streamMedia3Runtime::setPrimaryPlaybackMediaItem)
+                            player.currentMediaItem?.let { mediaItem ->
+                                xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(mediaItem)
+                                xtraModule.streamMedia3Runtime.setVaftEvidenceAlternateSource(mediaItem, previousAlternate)
+                            }
                         }
                         if (cleanRollback) {
                             player.volume = prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
@@ -4715,6 +4723,7 @@ class PlaybackService : MediaSessionService() {
 
         val streamStartElapsedMs = SystemClock.elapsedRealtime()
         val runtime = xtraModule.streamMedia3Runtime
+        if (beginNewPlayback) runtime.resetVaftEvidenceSession()
         val login = channelLogin ?: "unknown"
         val startupQuality = decodePlaybackQuality(xtraModule.json, extras.getString(PLAYBACK_QUALITY))
         val desired = resumptionHlsQuality(startupQuality)
@@ -4770,6 +4779,7 @@ class PlaybackService : MediaSessionService() {
         val playbackSource = preloaded?.mediaSource ?: runtime.createLiveMediaSource(mediaItem)
         updateLiveClipSource(playbackMediaItem)
         player.setMediaSource(playbackSource)
+        runtime.setVaftEvidenceAlternateSource(playbackMediaItem, isAlternate = false)
         runtime.setPrimaryPlaybackMediaItem(playbackMediaItem)
         player.volume = if (extras.getBoolean(SUPPRESS_VAFT_OUTPUT)) 0f else prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
         player.setPlaybackSpeed(1f)
