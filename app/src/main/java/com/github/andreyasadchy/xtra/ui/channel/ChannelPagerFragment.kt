@@ -2,8 +2,6 @@ package com.github.andreyasadchy.xtra.ui.channel
 
 import android.content.Intent
 import android.content.res.Configuration
-import android.graphics.Color
-import android.graphics.Rect
 import android.os.Build
 import android.os.Bundle
 import android.text.format.DateUtils
@@ -11,19 +9,16 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
-import android.widget.ImageButton
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.widget.ActionMenuView
 import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.content.ContextCompat
+import androidx.core.content.res.use
 import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
-import androidx.core.view.marginBottom
-import androidx.core.view.marginTop
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
@@ -67,8 +62,6 @@ import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.appbar.AppBarLayout
-import com.google.android.material.appbar.CollapsingToolbarLayout
-import com.google.android.material.color.MaterialColors
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.flow.collectLatest
@@ -76,133 +69,6 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 import kotlin.time.Clock
 import kotlin.time.Instant
-
-private class ChannelChromeSafeAreaTarget(val view: View) {
-    val baseClip: Rect? = view.clipBounds
-    private var appliedClip: Rect? = baseClip?.let(::Rect)
-    val location = IntArray(2)
-    val rawBounds = Rect()
-    val naturalBounds = Rect()
-    val baseBounds = Rect()
-    val safetyClip = Rect()
-
-    fun measureNaturalBounds(appBarBounds: Rect, rootBounds: Rect): Boolean {
-        if (!view.isShown || view.width <= 0 || view.height <= 0) {
-            naturalBounds.setEmpty()
-            return false
-        }
-
-        view.getLocationOnScreen(location)
-        rawBounds.set(
-            location[0],
-            location[1],
-            location[0] + view.width,
-            location[1] + view.height,
-        )
-        naturalBounds.set(rawBounds)
-
-        if (baseClip != null) {
-            baseBounds.set(baseClip)
-            baseBounds.offset(rawBounds.left, rawBounds.top)
-            if (!naturalBounds.intersect(baseBounds)) naturalBounds.setEmpty()
-        }
-        if (!naturalBounds.isEmpty && !naturalBounds.intersect(appBarBounds)) {
-            naturalBounds.setEmpty()
-        }
-        if (!naturalBounds.isEmpty && !naturalBounds.intersect(rootBounds)) {
-            naturalBounds.setEmpty()
-        }
-        return !naturalBounds.isEmpty
-    }
-
-    fun applyClip(clip: Rect?) {
-        if (appliedClip == clip) return
-        view.clipBounds = clip
-        appliedClip = clip?.let(::Rect)
-    }
-
-    fun restoreBaseClip() = applyClip(baseClip)
-
-    fun applyEmptyClip() {
-        safetyClip.setEmpty()
-        applyClip(safetyClip)
-    }
-}
-
-private fun toolbarActionBandBottom(
-    toolbar: ViewGroup,
-    toolbarBounds: Rect,
-    safeTop: Int,
-    appBarBounds: Rect,
-    rootBounds: Rect,
-    location: IntArray,
-): Int {
-    val visibleToolbarTop = maxOf(toolbarBounds.top, safeTop)
-    if (toolbarBounds.bottom <= visibleToolbarTop) return safeTop
-
-    var actionBandBottom = safeTop
-    for (childIndex in 0 until toolbar.childCount) {
-        val child = toolbar.getChildAt(childIndex)
-        when {
-            child is ActionMenuView -> {
-                for (actionIndex in 0 until child.childCount) {
-                    val actionCell = child.getChildAt(actionIndex)
-                    val cellBottom = visibleActionCellBottom(
-                        actionCell,
-                        toolbarBounds,
-                        visibleToolbarTop,
-                        appBarBounds,
-                        rootBounds,
-                        location,
-                    )
-                    actionBandBottom = maxOf(actionBandBottom, cellBottom)
-                }
-            }
-            child is ImageButton || child.isClickable -> {
-                val cellBottom = visibleActionCellBottom(
-                    child,
-                    toolbarBounds,
-                    visibleToolbarTop,
-                    appBarBounds,
-                    rootBounds,
-                    location,
-                )
-                actionBandBottom = maxOf(actionBandBottom, cellBottom)
-            }
-        }
-    }
-    return actionBandBottom
-}
-
-private fun visibleActionCellBottom(
-    actionCell: View,
-    toolbarBounds: Rect,
-    visibleToolbarTop: Int,
-    appBarBounds: Rect,
-    rootBounds: Rect,
-    location: IntArray,
-): Int {
-    if (!actionCell.isShown || !actionCell.isClickable || actionCell.width <= 0 || actionCell.height <= 0) {
-        return visibleToolbarTop
-    }
-
-    actionCell.getLocationOnScreen(location)
-    val visibleLeft = maxOf(location[0], toolbarBounds.left, appBarBounds.left, rootBounds.left)
-    val visibleTop = maxOf(location[1], visibleToolbarTop, toolbarBounds.top, appBarBounds.top, rootBounds.top)
-    val visibleRight = minOf(
-        location[0] + actionCell.width,
-        toolbarBounds.right,
-        appBarBounds.right,
-        rootBounds.right,
-    )
-    val visibleBottom = minOf(
-        location[1] + actionCell.height,
-        toolbarBounds.bottom,
-        appBarBounds.bottom,
-        rootBounds.bottom,
-    )
-    return if (visibleRight > visibleLeft && visibleBottom > visibleTop) visibleBottom else visibleToolbarTop
-}
 
 class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
 
@@ -243,7 +109,8 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
         super.onViewCreated(view, savedInstanceState)
         with(binding) {
             val activity = requireActivity() as MainActivity
-            val heroVisibilityOwnedIds = intArrayOf(userLayout.id, streamLayout.id, lastBroadcast.id, watchLive.id)
+            if (isCompactLandscape()) appBar.post { _binding?.appBar?.setExpanded(false, false) }
+            val heroVisibilityOwnedIds = intArrayOf(userLayout.id, streamLayout.id, lastBroadcast.id, profileActions.id)
             val compactHeroConstraints = ConstraintSet().apply {
                 clone(channelHero)
                 heroVisibilityOwnedIds.forEach { setVisibilityMode(it, ConstraintSet.VISIBILITY_MODE_IGNORE) }
@@ -253,14 +120,16 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 heroVisibilityOwnedIds.forEach { setVisibilityMode(it, ConstraintSet.VISIBILITY_MODE_IGNORE) }
                 val gutter = resources.getDimensionPixelSize(R.dimen.channel_hero_wide_gutter)
                 connect(userLayout.id, ConstraintSet.END, channelHeroSplit.id, ConstraintSet.START, gutter)
-                connect(userLayout.id, ConstraintSet.BOTTOM, ConstraintSet.PARENT_ID, ConstraintSet.BOTTOM, gutter)
+                clear(userLayout.id, ConstraintSet.BOTTOM)
+                setGuidelinePercent(channelHeroSplit.id, 0.5f)
                 connect(streamLayout.id, ConstraintSet.START, channelHeroSplit.id, ConstraintSet.END, gutter)
                 connect(streamLayout.id, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, gutter)
                 connect(streamLayout.id, ConstraintSet.TOP, ConstraintSet.PARENT_ID, ConstraintSet.TOP, gutter)
                 connect(lastBroadcast.id, ConstraintSet.START, channelHeroSplit.id, ConstraintSet.END, gutter)
                 connect(lastBroadcast.id, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, gutter)
-                connect(watchLive.id, ConstraintSet.START, channelHeroSplit.id, ConstraintSet.END, gutter)
-                connect(watchLive.id, ConstraintSet.END, ConstraintSet.PARENT_ID, ConstraintSet.END, gutter)
+                connect(profileActions.id, ConstraintSet.START, ConstraintSet.PARENT_ID, ConstraintSet.START, gutter)
+                connect(profileActions.id, ConstraintSet.END, channelHeroSplit.id, ConstraintSet.START, gutter)
+                connect(profileActions.id, ConstraintSet.TOP, userLayout.id, ConstraintSet.BOTTOM, gutter / 2)
             }
             var heroUsesWideLayout: Boolean? = null
             channelHero.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -273,6 +142,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 if (heroUsesWideLayout == useWideLayout) return@addOnLayoutChangeListener
                 heroUsesWideLayout = useWideLayout
                 if (useWideLayout) wideHeroConstraints.applyTo(channelHero) else compactHeroConstraints.applyTo(channelHero)
+                updateCompactHero()
             }
             if (viewModel.stream.value == null) {
                 watchLive.setOnClickListener {
@@ -331,6 +201,8 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             val appBarConfiguration = AppBarConfiguration(setOf(R.id.rootGamesFragment, R.id.rootTopFragment, R.id.followPagerFragment, R.id.followMediaFragment, R.id.savedPagerFragment, R.id.savedMediaFragment))
             toolbar.setupWithNavController(navController, appBarConfiguration)
             toolbar.menu.findItem(R.id.login).title = if (isLoggedIn) getString(R.string.log_out) else getString(R.string.log_in)
+            profileShare.setOnClickListener { toolbar.menu.performIdentifierAction(R.id.share, 0) }
+            profileFollow.setOnClickListener { toolbar.menu.performIdentifierAction(R.id.followButton, 0) }
             toolbar.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     R.id.toggleNotifications -> {
@@ -517,10 +389,16 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             if (setting == 0 || setting == 1) {
                 val followButton = toolbar.menu.findItem(R.id.followButton)
                 followButton?.isVisible = true
+                followButton?.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER)
+                profileFollow.isVisible = true
+                profileFollow.isEnabled = false
                 viewLifecycleOwner.lifecycleScope.launch {
                     repeatOnLifecycle(Lifecycle.State.STARTED) {
                         viewModel.isFollowing.collectLatest {
                             if (it != null) {
+                                profileFollow.isEnabled = true
+                                profileFollow.text = getString(if (it) R.string.channel_following else R.string.follow)
+                                profileFollow.setIconResource(if (it) R.drawable.baseline_favorite_black_24 else R.drawable.baseline_favorite_border_black_24)
                                 followButton?.apply {
                                     if (it) {
                                         icon = ContextCompat.getDrawable(requireContext(), R.drawable.baseline_favorite_black_24)
@@ -618,7 +496,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             val adapter = ChannelPagerAdapter(this@ChannelPagerFragment, args, tabs)
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-                private val layoutParams = collapsingToolbar.layoutParams as AppBarLayout.LayoutParams
+                private val layoutParams = channelHero.layoutParams as AppBarLayout.LayoutParams
                 private val originalScrollFlags = layoutParams.scrollFlags
 
                 override fun onPageScrollStateChanged(state: Int) {
@@ -637,20 +515,8 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                         childFragmentManager.findFragmentByTag("f${position}").let { fragment ->
                             if (fragment is Sortable) {
                                 fragment.setupSortBar(sortBar)
-                                sortBar.root.doOnLayout {
-                                    toolbarContainer.layoutParams = (toolbarContainer.layoutParams as CollapsingToolbarLayout.LayoutParams).apply { bottomMargin = toolbarContainer2.height }
-                                    val toolbarHeight = toolbarContainer.marginTop + toolbarContainer.marginBottom
-                                    toolbar.layoutParams = toolbar.layoutParams.apply { height = toolbarHeight }
-                                    collapsingToolbar.scrimVisibleHeightTrigger = toolbarHeight + 1
-                                }
                             } else {
                                 sortBar.root.visibility = View.GONE
-                                toolbarContainer2.doOnLayout {
-                                    toolbarContainer.layoutParams = (toolbarContainer.layoutParams as CollapsingToolbarLayout.LayoutParams).apply { bottomMargin = toolbarContainer2.height }
-                                    val toolbarHeight = toolbarContainer.marginTop + toolbarContainer.marginBottom
-                                    toolbar.layoutParams = toolbar.layoutParams.apply { height = toolbarHeight }
-                                    collapsingToolbar.scrimVisibleHeightTrigger = toolbarHeight + 1
-                                }
                             }
                         }
                     }
@@ -676,109 +542,28 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 }
             }.attach()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_CHANNEL_TABS)
-            var stableTopInset = 0
-            val safeAreaTargets = listOf(toolbarContainer, toolbar, toolbarContainer2)
-                .map(::ChannelChromeSafeAreaTarget)
-            val rootVisibleBounds = Rect()
-            val appBarVisibleBounds = Rect()
-            val rootLocation = IntArray(2)
-            val actionLocation = IntArray(2)
-
-            fun updateChannelChromeSafeArea() {
-                if (!coordinatorLayout.getGlobalVisibleRect(rootVisibleBounds) ||
-                    !appBar.getGlobalVisibleRect(appBarVisibleBounds)
-                ) {
-                    safeAreaTargets.forEach(ChannelChromeSafeAreaTarget::restoreBaseClip)
-                    return
-                }
-
-                coordinatorLayout.getLocationOnScreen(rootLocation)
-                val stableTop = maxOf(
-                    rootVisibleBounds.top,
-                    rootLocation[1] + stableTopInset,
-                )
-                val toolbarTarget = safeAreaTargets[1]
-                val actionBandBottom = if (
-                    toolbarTarget.measureNaturalBounds(appBarVisibleBounds, rootVisibleBounds)
-                ) {
-                    (toolbarTarget.view as? ViewGroup)?.let { toolbarView ->
-                        toolbarActionBandBottom(
-                            toolbarView,
-                            toolbarTarget.naturalBounds,
-                            stableTop,
-                            appBarVisibleBounds,
-                            rootVisibleBounds,
-                            actionLocation,
-                        )
-                    } ?: stableTop
-                } else {
-                    stableTop
-                }
-
-                safeAreaTargets.forEach { safeAreaTarget ->
-                    val target = safeAreaTarget.view
-                    val baseClip = safeAreaTarget.baseClip
-                    if (!safeAreaTarget.measureNaturalBounds(appBarVisibleBounds, rootVisibleBounds)) {
-                        safeAreaTarget.restoreBaseClip()
-                        return@forEach
-                    }
-
-                    val requiredTop = if (target === toolbarContainer) {
-                        maxOf(stableTop, actionBandBottom)
-                    } else {
-                        stableTop
-                    }
-                    val rawTop = safeAreaTarget.rawBounds.top
-                    when {
-                        safeAreaTarget.naturalBounds.top >= requiredTop ->
-                            safeAreaTarget.restoreBaseClip()
-                        safeAreaTarget.naturalBounds.bottom <= requiredTop ->
-                            safeAreaTarget.applyEmptyClip()
-                        else -> {
-                            val safeTop = (requiredTop - rawTop).coerceIn(0, target.height)
-                            safeAreaTarget.safetyClip.set(0, safeTop, target.width, target.height)
-                            if (baseClip != null && !safeAreaTarget.safetyClip.intersect(baseClip)) {
-                                safeAreaTarget.safetyClip.setEmpty()
-                            }
-                            safeAreaTarget.applyClip(safeAreaTarget.safetyClip)
-                        }
-                    }
-                }
-            }
-
-            val basePinnedChromeBottomPadding = toolbarContainer2.paddingBottom
             ViewCompat.setOnApplyWindowInsetsListener(coordinatorLayout) { _, windowInsets ->
-                // Keep top and bottom inset handling in one listener; registering a second
-                // listener on the root replaces the first and loses the status-bar margin.
-                stableTopInset = maxOf(
+                val topInset = maxOf(
                     windowInsets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top,
                     windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout()).top,
                 )
-                collapsingToolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                    if (topMargin != stableTopInset) topMargin = stableTopInset
+                val toolbarHeight = requireContext().obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.actionBarSize)).use {
+                    it.getDimensionPixelSize(0, (56 * resources.displayMetrics.density).toInt())
                 }
-                toolbarContainer2.post(::updateChannelChromeSafeArea)
+                toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> { topMargin = topInset }
+                coordinatorLayout.updateLayoutParams<ViewGroup.MarginLayoutParams> { topMargin = topInset + toolbarHeight }
+                statusBarScrim.updateLayoutParams { height = topInset }
                 val navigationRailIsVisible = activity.findViewById<View>(R.id.navBarContainer)?.isVisible == false
-                val bottomInset = if (navigationRailIsVisible) {
+                toolbarContainer2.updatePadding(bottom = if (navigationRailIsVisible) {
                     windowInsets.getInsets(WindowInsetsCompat.Type.systemBars()).bottom
-                } else {
-                    0
-                }
-                toolbarContainer2.updatePadding(bottom = basePinnedChromeBottomPadding + bottomInset)
+                } else 0)
                 windowInsets
             }
             ViewCompat.requestApplyInsets(coordinatorLayout)
-            safeAreaTargets.forEach { safeAreaTarget ->
-                safeAreaTarget.view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                    updateChannelChromeSafeArea()
-                }
-            }
-            collapsingToolbar.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                updateChannelChromeSafeArea()
-            }
-            view.doOnLayout { updateChannelChromeSafeArea() }
-            appBar.addOnOffsetChangedListener { _, _ ->
-                updateChannelChromeSafeArea()
+            appBar.addOnOffsetChangedListener { bar, offset ->
+                val collapsed = bar.totalScrollRange > 0 && -offset >= bar.totalScrollRange
+                val name = if (collapsed) userName.text else null
+                if (toolbar.title != name) toolbar.title = name
             }
         }
         view.doOnLayout {
@@ -825,11 +610,12 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     private fun updateStreamLayout(stream: Stream?) {
         with(binding) {
             val activity = requireActivity() as MainActivity
-            liveStatus.isVisible = stream?.viewerCount != null
-            if (stream?.viewerCount != null) {
-                watchLive.text = getString(R.string.watch_live)
-                watchLive.setOnClickListener { activity.startStream(stream) }
-            }
+            val isLive = stream?.viewerCount != null
+            liveStatus.isVisible = isLive
+            streamLayout.isVisible = isLive
+            lastBroadcast.isVisible = !isLive && !lastBroadcast.text.isNullOrBlank()
+            watchLive.text = getString(if (isLive) R.string.watch_live else R.string.open_player)
+            watchLive.setOnClickListener { activity.startStream(stream ?: Stream(channelId = args.channelId, channelLogin = args.channelLogin)) }
             stream?.channelImage.let {
                 if (it != null) {
                     userLayout.visibility = View.VISIBLE
@@ -973,23 +759,16 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                         target(bannerImage)
                     }.build()
                 )
-                if (userName.isVisible) {
-                    userName.setTextColor(Color.WHITE)
-                    userName.setShadowLayer(4f, 0f, 0f, Color.BLACK)
-                }
             } else {
-                bannerImage.visibility = View.GONE
+                bannerImage.visibility = View.VISIBLE
+                bannerImage.setImageDrawable(null)
             }
             if (user.createdAt != null) {
                 val text = Instant.parseOrNull(user.createdAt)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }?.let {
                     TwitchApiHelper.formatDate(requireContext(), it)
                 }
-                userCreated.visibility = View.VISIBLE
+                userCreated.isVisible = text != null
                 userCreated.text = getString(R.string.created_at, text)
-                if (user.bannerImageURL != null) {
-                    userCreated.setTextColor(Color.LTGRAY)
-                    userCreated.setShadowLayer(4f, 0f, 0f, Color.BLACK)
-                }
             } else {
                 userCreated.visibility = View.GONE
             }
@@ -1001,10 +780,6 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                     count,
                     TwitchApiHelper.formatCount(count, requireContext().prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
                 )
-                if (user.bannerImageURL != null) {
-                    userFollowers.setTextColor(Color.LTGRAY)
-                    userFollowers.setShadowLayer(4f, 0f, 0f, Color.BLACK)
-                }
             } else {
                 userFollowers.visibility = View.GONE
             }
@@ -1021,13 +796,10 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             if (typeString != null) {
                 userType.visibility = View.VISIBLE
                 userType.text = typeString
-                if (user.bannerImageURL != null) {
-                    userType.setTextColor(Color.LTGRAY)
-                    userType.setShadowLayer(4f, 0f, 0f, Color.BLACK)
-                }
             } else {
                 userType.visibility = View.GONE
             }
+            updateCompactHero()
             if (args.updateLocal) {
                 viewModel.updateLocalUser(requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP), requireContext().filesDir.path, user)
             }
@@ -1043,11 +815,35 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
         )
     }
 
+    private fun isCompactLandscape(): Boolean = resources.configuration.let {
+        it.orientation == Configuration.ORIENTATION_LANDSCAPE && it.screenHeightDp < 480
+    }
+
+    private fun updateCompactHero() {
+        val compact = isCompactLandscape()
+        val density = resources.displayMetrics.density
+        with(binding) {
+            bannerImage.isVisible = !compact
+            bannerImage.updateLayoutParams { height = ((if (compact) 0 else if (resources.configuration.screenWidthDp < 360) 72 else 88) * density).toInt() }
+            userImage.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                width = ((if (compact) 48 else 72) * density).toInt()
+                height = width
+                topMargin = ((if (compact) 0 else -24) * density).toInt()
+            }
+            creatorIdentity.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                topMargin = ((if (compact) 0 else 12) * density).toInt()
+            }
+            userName.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 20f else 24f)
+            userCreated.isVisible = !compact && viewModel.user.value?.createdAt?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } } != null
+            title.maxLines = if (compact) 1 else 2
+            watchLive.setIconResource(if (compact || resources.configuration.screenWidthDp < 360) 0 else R.drawable.baseline_play_arrow_black_48)
+        }
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
-        if (newConfig.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            binding.appBar.setExpanded(true, false)
-        }
+        updateCompactHero()
+        binding.appBar.setExpanded(!isCompactLandscape(), false)
     }
 
     override fun scrollToTop() {

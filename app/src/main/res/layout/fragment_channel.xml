@@ -1,162 +1,150 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/coordinatorLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <androidx.coordinatorlayout.widget.CoordinatorLayout
+        android:id="@+id/coordinatorLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBar"
+        android:elevation="0dp"
+        android:stateListAnimator="@null"
+        app:liftOnScroll="false"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
 
-        <com.google.android.material.appbar.CollapsingToolbarLayout
-            android:id="@+id/collapsingToolbar"
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:id="@+id/channelHero"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:layout_scrollFlags="scroll|enterAlways|enterAlwaysCollapsed"
-            app:scrimVisibleHeightTrigger="147dp">
+            app:layout_scrollFlags="scroll">
 
-            <LinearLayout
-                android:id="@+id/toolbarContainer"
-                android:layout_width="match_parent"
+            <androidx.constraintlayout.widget.Guideline
+                android:id="@+id/channelHeroSplit"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="?attr/actionBarSize"
-                android:layout_marginBottom="82dp"
-                android:orientation="vertical">
+                android:orientation="vertical"
+                app:layout_constraintGuide_percent="0.42" />
 
-                <androidx.constraintlayout.widget.ConstraintLayout
-                    android:id="@+id/channelHero"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content">
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:id="@+id/userLayout"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp"
+                android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent"
+                tools:visibility="visible">
 
-                    <androidx.constraintlayout.widget.Guideline
-                        android:id="@+id/channelHeroSplit"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        app:layout_constraintGuide_percent="0.42" />
-
-                    <androidx.constraintlayout.widget.ConstraintLayout
-                    android:id="@+id/userLayout"
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/bannerImage"
                     android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginEnd="16dp"
-                    android:visibility="gone"
+                    android:layout_height="88dp"
+                    android:background="?attr/colorSurfaceContainerHigh"
+                    android:importantForAccessibility="no"
+                    android:scaleType="centerCrop"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChannelCover"
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toTopOf="parent"
-                    tools:visibility="visible">
+                    app:layout_constraintTop_toTopOf="parent" />
 
-                    <ImageView
-                        android:id="@+id/bannerImage"
-                        android:layout_width="0dp"
-                        android:layout_height="0dp"
-                        android:importantForAccessibility="no"
-                        android:scaleType="centerCrop"
-                        android:visibility="gone"
-                        app:layout_constraintBottom_toBottomOf="parent"
-                        app:layout_constraintEnd_toEndOf="parent"
-                        app:layout_constraintStart_toStartOf="parent"
-                        app:layout_constraintTop_toTopOf="parent"
-                        app:tint="#8C000000"
-                        app:tintMode="src_atop"
-                        tools:src="@tools:sample/backgrounds/scenic"
-                        tools:visibility="visible" />
+                <ImageView
+                    android:id="@+id/userImage"
+                    style="@style/UserPicture"
+                    android:layout_width="72dp"
+                    android:layout_height="72dp"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginTop="-24dp"
+                    android:background="@drawable/bg_channel_avatar"
+                    android:padding="4dp"
+                    android:importantForAccessibility="no"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/bannerImage" />
 
-                    <ImageView
-                        android:id="@+id/userImage"
-                        style="@style/UserPicture"
-                        android:importantForAccessibility="no"
-                        android:layout_width="72dp"
-                        android:layout_height="72dp"
-                        android:layout_marginTop="8dp"
-                        android:layout_marginBottom="8dp"
-                        android:visibility="gone"
-                        app:layout_constraintBottom_toBottomOf="parent"
-                        app:layout_constraintStart_toStartOf="parent"
-                        app:layout_constraintTop_toTopOf="parent"
-                        tools:src="@tools:sample/backgrounds/scenic"
-                        tools:visibility="visible" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:layout_marginEnd="12dp"
-                        android:layout_marginTop="6dp"
-                        android:layout_marginBottom="6dp"
-                        android:orientation="vertical"
-                        app:layout_constraintBottom_toBottomOf="parent"
-                        app:layout_constraintEnd_toEndOf="parent"
-                        app:layout_constraintStart_toEndOf="@id/userImage"
-                        app:layout_constraintTop_toTopOf="parent">
-
-                        <TextView
-                            android:id="@+id/userName"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textAppearance="?attr/textAppearanceTitleLarge"
-                            android:visibility="gone"
-                            tools:text="@sample/games.json/top/game/name"
-                            tools:visibility="visible" />
-
-                        <TextView
-                            android:id="@+id/userCreated"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textAppearance="?attr/textAppearanceBodyMedium"
-                            android:textColor="?android:attr/textColorSecondary"
-                            android:visibility="gone"
-                            tools:text="Created at 123456"
-                            tools:visibility="visible" />
-
-                        <TextView
-                            android:id="@+id/userFollowers"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textAppearance="?attr/textAppearanceBodyMedium"
-                            android:textColor="?android:attr/textColorSecondary"
-                            android:visibility="gone"
-                            tools:text="123456 followers"
-                            tools:visibility="visible" />
-
-                        <TextView
-                            android:id="@+id/userType"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:textAppearance="?attr/textAppearanceBodyMedium"
-                            android:textColor="?android:attr/textColorSecondary"
-                            android:visibility="gone"
-                            tools:text="Partner"
-                            tools:visibility="visible" />
-                    </LinearLayout>
-
-                    </androidx.constraintlayout.widget.ConstraintLayout>
-
-                <com.google.android.material.card.MaterialCardView
-                    android:id="@+id/streamLayout"
+                <LinearLayout
+                    android:id="@+id/creatorIdentity"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginEnd="12dp"
-                    android:visibility="gone"
-                    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
-                    app:cardCornerRadius="20dp"
-                    app:cardElevation="0dp"
-                    app:strokeWidth="0dp"
+                    android:layout_marginTop="12dp"
+                    android:orientation="vertical"
                     app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/userLayout"
-                    tools:visibility="visible">
+                    app:layout_constraintStart_toEndOf="@id/userImage"
+                    app:layout_constraintTop_toBottomOf="@id/bannerImage">
 
-                    <androidx.constraintlayout.widget.ConstraintLayout
+                    <TextView
+                        android:id="@+id/userName"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:padding="12dp">
+                        android:breakStrategy="balanced"
+                        android:textAppearance="?attr/textAppearanceHeadlineSmall"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/userType"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textAppearance="?attr/textAppearanceLabelMedium"
+                        android:textColor="?attr/colorPrimary"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/userFollowers"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:visibility="gone" />
+
+                    <TextView
+                        android:id="@+id/userCreated"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <androidx.constraintlayout.widget.Barrier
+                    android:id="@+id/identityBottom"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:barrierDirection="bottom"
+                    app:constraint_referenced_ids="userImage,creatorIdentity" />
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/streamLayout"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginEnd="12dp"
+                android:visibility="gone"
+                app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+                app:cardCornerRadius="20dp"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/userLayout"
+                tools:visibility="visible">
+
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:padding="12dp">
 
                     <LinearLayout
                         android:id="@+id/streamLayout1"
@@ -164,26 +152,10 @@
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="8dp"
                         android:orientation="vertical"
-                        app:layout_constraintBottom_toBottomOf="parent"
-                        app:layout_constraintEnd_toStartOf="@id/streamLayout2"
+                        app:layout_constraintEnd_toEndOf="parent"
                         app:layout_constraintStart_toStartOf="parent"
                         app:layout_constraintTop_toTopOf="parent">
 
-                        <TextView
-                            android:id="@+id/liveStatus"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:background="@drawable/bg_live_badge"
-                            android:paddingStart="8dp"
-                            android:paddingTop="3dp"
-                            android:paddingEnd="8dp"
-                            android:paddingBottom="3dp"
-                            android:text="@string/live"
-                            android:textAllCaps="true"
-                            android:textColor="@android:color/white"
-                            android:textAppearance="?attr/textAppearanceLabelSmall"
-                            android:visibility="gone"
-                            tools:visibility="visible" />
 
                         <TextView
                             android:id="@+id/title"
@@ -213,14 +185,32 @@
 
                     <LinearLayout
                         android:id="@+id/streamLayout2"
-                        android:layout_width="wrap_content"
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:gravity="end|top"
-                        android:orientation="vertical"
+                        android:layout_marginTop="8dp"
+                        android:gravity="start|center_vertical"
+                        android:orientation="horizontal"
                         app:layout_constraintBottom_toBottomOf="parent"
                         app:layout_constraintEnd_toEndOf="parent"
-                        app:layout_constraintStart_toEndOf="@id/streamLayout1"
-                        app:layout_constraintTop_toTopOf="parent">
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toBottomOf="@id/streamLayout1">
+
+                        <TextView
+                            android:id="@+id/liveStatus"
+                            android:layout_marginEnd="12dp"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/bg_live_badge"
+                            android:paddingStart="8dp"
+                            android:paddingTop="3dp"
+                            android:paddingEnd="8dp"
+                            android:paddingBottom="3dp"
+                            android:text="@string/live"
+                            android:textAllCaps="true"
+                            android:textColor="@android:color/white"
+                            android:textAppearance="?attr/textAppearanceLabelSmall"
+                            android:visibility="gone"
+                            tools:visibility="visible" />
 
                         <TextView
                             android:id="@+id/viewers"
@@ -233,6 +223,7 @@
 
                         <TextView
                             android:id="@+id/uptime"
+                            android:layout_marginStart="12dp"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:textAppearance="?attr/textAppearanceBodyMedium"
@@ -241,82 +232,110 @@
                             tools:visibility="visible" />
                     </LinearLayout>
 
-                    </androidx.constraintlayout.widget.ConstraintLayout>
-                </com.google.android.material.card.MaterialCardView>
+                </androidx.constraintlayout.widget.ConstraintLayout>
+            </com.google.android.material.card.MaterialCardView>
 
-                <TextView
-                    android:id="@+id/lastBroadcast"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginEnd="16dp"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:visibility="gone"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/streamLayout"
-                    tools:text="Last broadcast %s"
-                    tools:visibility="visible" />
+            <TextView
+                android:id="@+id/lastBroadcast"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginTop="8dp"
+                android:layout_marginEnd="16dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?android:attr/textColorSecondary"
+                android:visibility="gone"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/streamLayout"
+                tools:text="Last broadcast %s"
+                tools:visibility="visible" />
 
+            <LinearLayout
+                android:id="@+id/profileActions"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginTop="12dp"
+                android:layout_marginEnd="16dp"
+                android:layout_marginBottom="12dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintTop_toBottomOf="@id/lastBroadcast"
+                app:layout_constraintBottom_toBottomOf="parent">
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/watchLive"
                     style="@style/Widget.Material3.Button"
-                    android:layout_width="wrap_content"
-                    android:layout_height="48dp"
-                    android:layout_marginStart="16dp"
-                    android:layout_marginTop="8dp"
-                    android:layout_marginEnd="16dp"
-                    android:layout_marginBottom="8dp"
-                    android:minWidth="140dp"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:minHeight="48dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
                     android:textAllCaps="false"
                     android:text="@string/open_player"
                     app:icon="@drawable/baseline_play_arrow_black_48"
                     app:iconGravity="textStart"
-                    app:iconSize="18dp"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/lastBroadcast" />
-
-                </androidx.constraintlayout.widget.ConstraintLayout>
-
+                    app:iconSize="18dp" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/profileFollow"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:minHeight="48dp"
+                    android:minWidth="0dp"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="12dp"
+                    android:text="@string/follow"
+                    android:textAllCaps="false"
+                    android:visibility="gone"
+                    app:icon="@drawable/baseline_favorite_border_black_24"
+                    app:iconGravity="textStart"
+                    app:iconSize="18dp" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/profileShare"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:minWidth="0dp"
+                    android:padding="0dp"
+                    android:contentDescription="@string/share"
+                    app:icon="@drawable/baseline_share_black_24"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconSize="20dp" />
             </LinearLayout>
 
-            <com.google.android.material.appbar.MaterialToolbar
-                android:id="@+id/toolbar"
+        </androidx.constraintlayout.widget.ConstraintLayout>
+
+        <LinearLayout
+            android:id="@+id/toolbarContainer2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <com.google.android.material.tabs.TabLayout
+                android:id="@+id/tabLayout"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:minHeight="?attr/actionBarSize"
-                app:layout_collapseMode="pin"
-                app:menu="@menu/channel_menu" />
+                android:layout_height="?attr/tabLayoutHeight"
+                app:tabGravity="fill"
+                app:tabMaxWidth="0dp"
+                app:tabMode="fixed" />
 
-            <LinearLayout
-                android:id="@+id/toolbarContainer2"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="bottom"
-                android:orientation="vertical"
-                app:layout_collapseMode="pin">
+            <include
+                android:id="@+id/sortBar"
+                layout="@layout/sort_bar" />
 
-                <com.google.android.material.tabs.TabLayout
-                    android:id="@+id/tabLayout"
-                    android:layout_width="match_parent"
-                    android:layout_height="?attr/tabLayoutHeight"
-                    app:tabGravity="fill"
-                    app:tabMaxWidth="0dp"
-                    app:tabMode="fixed" />
+        </LinearLayout>
 
-                <include
-                    android:id="@+id/sortBar"
-                    layout="@layout/sort_bar" />
-
-            </LinearLayout>
-
-        </com.google.android.material.appbar.CollapsingToolbarLayout>
     </com.google.android.material.appbar.AppBarLayout>
 
     <androidx.viewpager2.widget.ViewPager2
@@ -325,4 +344,25 @@
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
 
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+    </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:minHeight="?attr/actionBarSize"
+        android:background="?attr/colorSurface"
+        android:elevation="8dp"
+        android:outlineProvider="none"
+        app:menu="@menu/channel_menu" />
+
+    <View
+        android:id="@+id/statusBarScrim"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:background="?attr/colorSurface"
+        android:elevation="16dp"
+        android:outlineProvider="none"
+        android:importantForAccessibility="no" />
+
+</FrameLayout>

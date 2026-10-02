@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="ShapeAppearanceOverlay.ChannelCover" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">20dp</item>
+    </style>
+    <string name="channel_about_heading">About the creator</string>
+    <string name="channel_links_heading">Around the web</string>
+    <string name="channel_panels_heading">From the creator</string>
+    <string name="channel_about_empty">This creator hasn\'t shared any channel details yet.</string>
+    <string name="channel_about_failed">Couldn\'t load channel details. Check your connection and try again.</string>
+    <string name="channel_schedule_heading">Published schedule</string>
+    <string name="channel_schedule_empty">No upcoming broadcasts published this week.</string>
+    <string name="channel_schedule_failed">Couldn\'t load the schedule.</string>
+    <string name="channel_schedule_timezone">Times shown in your time zone</string>
+    <string name="channel_schedule_broadcast">Scheduled broadcast</string>
+    <string name="channel_connection_heading">Your connection</string>
+    <string name="channel_followed_since">Following since %s</string>
+    <string name="channel_subscribed">Subscribed</string>
+    <string name="channel_following">Following</string>
+    <string name="channel_schedule_time_range">%1$s - %2$s</string>
+</resources>

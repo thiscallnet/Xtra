@@ -1,0 +1,14 @@
+query UserSchedule($id: ID, $login: String) {
+    user(id: $id, login: $login, lookupType: ALL) {
+        channel {
+            schedule {
+                segments {
+                    title
+                    startAt
+                    endAt
+                    categories { name }
+                }
+            }
+        }
+    }
+}
