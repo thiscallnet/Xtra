@@ -3,10 +3,12 @@ package com.github.andreyasadchy.xtra.ui.common
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.fragment.app.Fragment
 import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.PagerSnapHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentStreamsListItemBinding
@@ -31,6 +33,8 @@ class StreamsAdapter(
     private val selectTag: (String) -> Unit,
     private val showGame: Boolean = true,
     private val onStreamClick: ((Stream) -> Unit)? = null,
+    private val shelfCardSizing: Boolean = false,
+    private val featuredCarousel: Boolean = false,
 ) : PagingDataAdapter<Stream, StreamsAdapter.PagingViewHolder>(
     object : DiffUtil.ItemCallback<Stream>() {
         override fun areItemsTheSame(oldItem: Stream, newItem: Stream): Boolean =
@@ -47,6 +51,16 @@ class StreamsAdapter(
     private val uptimeTicker = VisibleStreamUptimeTicker(fragment)
     private val presentationScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var presentationPrewarmJob: Job? = null
+    private var featuredSnapHelper: PagerSnapHelper? = null
+    private var featuredRecyclerView: RecyclerView? = null
+    private var shouldCenterFeaturedCard = false
+    private var initialFeaturedCardPositioned = false
+
+    private val featuredDataObserver = object : RecyclerView.AdapterDataObserver() {
+        override fun onChanged() = centerFeaturedCardIfReady()
+        override fun onItemRangeInserted(positionStart: Int, itemCount: Int) = centerFeaturedCardIfReady()
+        override fun onItemRangeChanged(positionStart: Int, itemCount: Int) = centerFeaturedCardIfReady()
+    }
 
     override fun onAttachedToRecyclerView(recyclerView: RecyclerView) {
         super.onAttachedToRecyclerView(recyclerView)
@@ -65,6 +79,18 @@ class StreamsAdapter(
                 )
             }
         }
+        if (shelfCardSizing) {
+            recyclerView.addOnLayoutChangeListener(shelfLayoutChangeListener)
+            if (featuredCarousel) {
+                featuredRecyclerView = recyclerView
+                registerAdapterDataObserver(featuredDataObserver)
+                recyclerView.clipToPadding = false
+                val snapHelper = PagerSnapHelper()
+                snapHelper.attachToRecyclerView(recyclerView)
+                featuredSnapHelper = snapHelper
+            }
+            recyclerView.post { updateShelfCardSizing(recyclerView) }
+        }
     }
 
     override fun onDetachedFromRecyclerView(recyclerView: RecyclerView) {
@@ -72,15 +98,119 @@ class StreamsAdapter(
         presentationPrewarmJob = null
         thumbnailLoadScheduler.detach()
         uptimeTicker.detach()
+        if (shelfCardSizing) recyclerView.removeOnLayoutChangeListener(shelfLayoutChangeListener)
+        if (featuredCarousel) {
+            unregisterAdapterDataObserver(featuredDataObserver)
+            featuredSnapHelper?.attachToRecyclerView(null)
+            featuredSnapHelper = null
+            featuredRecyclerView = null
+        }
         super.onDetachedFromRecyclerView(recyclerView)
+    }
+
+    private val shelfLayoutChangeListener = View.OnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
+        if (right - left != oldRight - oldLeft) {
+            val recyclerView = view as RecyclerView
+            recyclerView.post { updateShelfCardSizing(recyclerView) }
+        }
+    }
+
+    private fun updateShelfCardSizing(recyclerView: RecyclerView) {
+        if (!shelfCardSizing || recyclerView.width <= 0) return
+        val cardWidth = shelfCardWidth(recyclerView)
+        if (featuredCarousel) {
+            val sidePadding = ((recyclerView.width - cardWidth) / 2).coerceAtLeast(0)
+            if (recyclerView.paddingLeft != sidePadding || recyclerView.paddingRight != sidePadding) {
+                recyclerView.setPadding(sidePadding, recyclerView.paddingTop, sidePadding, recyclerView.paddingBottom)
+            }
+        }
+        repeat(recyclerView.childCount) { index ->
+            val item = recyclerView.getChildAt(index)
+            val params = item.layoutParams ?: return@repeat
+            if (params.width != cardWidth) {
+                params.width = cardWidth
+                item.layoutParams = params
+            }
+        }
+    }
+
+    private fun shelfCardWidth(recyclerView: RecyclerView): Int {
+        val measuredWidth = recyclerView.width.takeIf { it > 0 }
+            ?: recyclerView.rootView.width.takeIf { it > 0 }
+            ?: recyclerView.resources.displayMetrics.widthPixels
+        val availableWidth = if (featuredCarousel) {
+            measuredWidth
+        } else {
+            (measuredWidth - recyclerView.paddingLeft - recyclerView.paddingRight).coerceAtLeast(1)
+        }
+        val density = recyclerView.resources.displayMetrics.density
+        val widthDp = availableWidth / density
+        val narrowPhone = recyclerView.resources.configuration.smallestScreenWidthDp < 600
+        val portrait = recyclerView.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_PORTRAIT
+        return when {
+            narrowPhone && portrait -> (availableWidth * 0.95f).toInt().coerceAtMost(availableWidth)
+            narrowPhone -> ((widthDp / 2f).coerceIn(260f, 360f) * density).toInt()
+            widthDp < 840f -> ((widthDp / 1.9f).coerceIn(290f, 360f) * density).toInt()
+            else -> ((widthDp / 2f).coerceIn(320f, 380f) * density).toInt()
+        }
+    }
+
+    fun scrollBy(recyclerView: RecyclerView, direction: Int) {
+        if (!featuredCarousel || itemCount == 0) return
+        val layoutManager = recyclerView.layoutManager as? androidx.recyclerview.widget.LinearLayoutManager ?: return
+        val currentPosition = layoutManager.findFirstCompletelyVisibleItemPosition()
+            .takeIf { it != RecyclerView.NO_POSITION }
+            ?: layoutManager.findFirstVisibleItemPosition()
+        if (currentPosition == RecyclerView.NO_POSITION) return
+        recyclerView.smoothScrollToPosition((currentPosition + direction).coerceIn(0, itemCount - 1))
+    }
+
+    fun centerInitialCard(recyclerView: RecyclerView) {
+        if (!featuredCarousel || initialFeaturedCardPositioned) return
+        shouldCenterFeaturedCard = true
+        featuredRecyclerView = recyclerView
+        centerFeaturedCardIfReady()
+    }
+
+    private fun centerFeaturedCardIfReady() {
+        val recyclerView = featuredRecyclerView ?: return
+        if (!shouldCenterFeaturedCard || initialFeaturedCardPositioned || itemCount < 2) return
+        recyclerView.post {
+            if (featuredRecyclerView === recyclerView && shouldCenterFeaturedCard &&
+                !initialFeaturedCardPositioned && itemCount > 1
+            ) {
+                shouldCenterFeaturedCard = false
+                initialFeaturedCardPositioned = true
+                recyclerView.smoothScrollToPosition(1)
+            }
+        }
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
         val binding = FragmentStreamsListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-        return PagingViewHolder(binding, fragment, showGame, createStreamTagViews(binding.tagsLayout))
+        (parent as? RecyclerView)?.let { recyclerView ->
+            if (shelfCardSizing) {
+                binding.root.layoutParams.width = shelfCardWidth(recyclerView)
+                updateShelfCardSizing(recyclerView)
+            }
+        }
+        val tagViews = createStreamTagViews(
+            binding.tagsLayout,
+        )
+        return PagingViewHolder(binding, fragment, showGame, tagViews, shelfCardSizing)
     }
 
     override fun onBindViewHolder(holder: PagingViewHolder, position: Int) {
+        if (shelfCardSizing) {
+            (holder.itemView.parent as? RecyclerView)?.let { recyclerView ->
+                val params = holder.itemView.layoutParams
+                val cardWidth = shelfCardWidth(recyclerView)
+                if (params.width != cardWidth) {
+                    params.width = cardWidth
+                    holder.itemView.layoutParams = params
+                }
+            }
+        }
         holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
     }
@@ -108,6 +238,7 @@ class StreamsAdapter(
         private val fragment: Fragment,
         private val showGame: Boolean,
         private val tagViews: StreamTagViews,
+        private val shelfCardSizing: Boolean,
     ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner, StreamUptimeViewHolder {
         val previewSurface get() = binding.previewHost
         var boundPreviewIdentity: String? = null
@@ -118,8 +249,35 @@ class StreamsAdapter(
         private var uptimeStartedAtMs: Long? = null
         private var uptimeEnabled = false
         private var lastRenderedUptimeSecond = Long.MIN_VALUE
-        private val dropsBadgeBinder = StreamDropsBadgeBinder(binding.dropsBadge) { stream ->
-            StreamDropsBottomSheet.show(fragment, stream)
+        private val dropsBadgeBinder = StreamDropsBadgeBinder(
+            badge = binding.dropsBadge,
+            onClick = { stream -> StreamDropsBottomSheet.show(fragment, stream) },
+            touchTarget = if (shelfCardSizing) binding.dropsBadgeTarget else null,
+        )
+
+        init {
+            if (shelfCardSizing) {
+                val density = binding.root.resources.displayMetrics.density
+                val targetSize = (48 * density + 0.5f).toInt()
+                val avatarParams = binding.userImageTarget.layoutParams as ConstraintLayout.LayoutParams
+                avatarParams.width = targetSize
+                avatarParams.height = targetSize
+                avatarParams.topMargin = (4 * density + 0.5f).toInt()
+                avatarParams.bottomMargin = avatarParams.topMargin
+                binding.userImageTarget.layoutParams = avatarParams
+                binding.root.touchDelegate = ExpandedStreamCardTouchDelegate(
+                    card = binding.root,
+                    detailTargets = listOf(
+                        binding.userImageTarget,
+                        binding.username,
+                        binding.gameName,
+                        binding.dropsBadgeTarget,
+                    ),
+                    tagTargets = { tagViews.touchTargets },
+                    titleScroll = binding.titleScroll,
+                    targetSizePx = targetSize,
+                )
+            }
         }
 
         init {
@@ -131,7 +289,7 @@ class StreamsAdapter(
                     boundStream != null
                 }
             }
-            binding.userImage.setOnClickListener { boundStream?.let(::openChannel) }
+            binding.userImageTarget.setOnClickListener { boundStream?.let(::openChannel) }
             binding.username.setOnClickListener { boundStream?.let(::openChannel) }
             binding.gameName.setOnClickListener { boundStream?.let(::openGame) }
             binding.multiview.setOnClickListener { boundStream?.let(::openMultiview) }
@@ -221,8 +379,9 @@ class StreamsAdapter(
                     val selectionMode = onStreamClick != null
                     multiview.visibility = if (selectionMode || item.channelLogin.isNullOrBlank() || context.isTelevision()) View.GONE else View.VISIBLE
                     if (presentation?.channelImage != null || item.channelImage != null) {
+                        userImageTarget.visibility = View.VISIBLE
                         userImage.visibility = View.VISIBLE
-                        userImage.contentDescription = item.channelName?.let {
+                        userImageTarget.contentDescription = item.channelName?.let {
                             context.getString(R.string.player_open_channel, it)
                         }
                         prepareStreamProfileImage(userImage, item)
@@ -235,8 +394,9 @@ class StreamsAdapter(
                             }
                         }
                     } else {
+                        userImageTarget.visibility = View.GONE
+                        userImageTarget.contentDescription = null
                         userImage.visibility = View.GONE
-                        userImage.contentDescription = null
                         userImage.setImageDrawable(null)
                         userImage.tag = null
                     }
@@ -295,6 +455,8 @@ class StreamsAdapter(
                     clearUptime()
                     userImage.setImageDrawable(null)
                     userImage.tag = null
+                    userImageTarget.visibility = View.GONE
+                    userImageTarget.contentDescription = null
                     thumbnail.setImageDrawable(null)
                     thumbnail.tag = null
                     username.visibility = View.GONE

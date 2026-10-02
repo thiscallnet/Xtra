@@ -28,6 +28,7 @@ internal class StreamTagViews(
     private val tagTargets = initialTagViews.map { view ->
         if (minimumTouchTargetSizePx > 0) wrapInitialTagView(view) else view
     }.toMutableList()
+    val touchTargets: List<View> get() = tagTargets
     private val boundTags = arrayOfNulls<String>(MAX_STREAM_TAGS)
     private var onTagClick: ((String) -> Unit)? = null
 
@@ -156,7 +157,10 @@ internal class StreamTagViews(
     }
 }
 
-internal fun createStreamTagViews(tagsLayout: ConstraintLayout): StreamTagViews {
+internal fun createStreamTagViews(
+    tagsLayout: ConstraintLayout,
+    minimumTouchTargetSizeDp: Int = 0,
+): StreamTagViews {
     val context = tagsLayout.context
     val tagContainer = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
@@ -179,13 +183,19 @@ internal fun createStreamTagViews(tagsLayout: ConstraintLayout): StreamTagViews 
             ConstraintLayout.LayoutParams.WRAP_CONTENT,
         ).apply {
             topToTop = tagsLayout.id
-            bottomToBottom = tagsLayout.id
+            if (minimumTouchTargetSizeDp == 0) bottomToBottom = tagsLayout.id
             startToStart = tagsLayout.id
             endToEnd = tagsLayout.id
         }
     }
     tagsLayout.addView(scrollView)
-    return StreamTagViews(tagsLayout, scrollView, tagContainer, emptyList())
+    return StreamTagViews(
+        visibilityHost = tagsLayout,
+        scrollView = scrollView,
+        tagContainer = tagContainer,
+        initialTagViews = emptyList(),
+        minimumTouchTargetSizeDp = minimumTouchTargetSizeDp,
+    )
 }
 
 internal fun createStreamTagViews(

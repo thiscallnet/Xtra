@@ -4,13 +4,13 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginStart="4dp"
-    android:layout_marginEnd="4dp"
+    android:layout_marginStart="8dp"
+    android:layout_marginEnd="8dp"
     android:layout_marginBottom="8dp"
     android:clickable="true"
     android:focusable="true"
     android:foreground="?attr/selectableItemBackground"
-    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+    app:cardBackgroundColor="?attr/colorSurface"
     app:cardCornerRadius="12dp"
     app:strokeColor="?attr/colorOutlineVariant"
     app:strokeWidth="1dp"
@@ -19,13 +19,13 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:minHeight="176dp"
+        android:minHeight="160dp"
         android:orientation="horizontal">
 
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1.5"
+            android:layout_weight="1"
             android:orientation="vertical"
             android:padding="16dp">
 
@@ -44,7 +44,6 @@
                     android:clipToOutline="true"
                     android:importantForAccessibility="no"
                     android:scaleType="centerCrop"
-                    android:visibility="invisible"
                     tools:src="@tools:sample/backgrounds/scenic"
                     tools:visibility="visible" />
 
@@ -64,7 +63,7 @@
                 android:id="@+id/title"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="12dp"
                 android:ellipsize="end"
                 android:maxLines="2"
                 android:textAppearance="?attr/textAppearanceTitleLarge"
@@ -84,7 +83,7 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="18dp"
+                android:layout_marginTop="12dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
@@ -107,9 +106,8 @@
 
         <FrameLayout
             android:id="@+id/previewHost"
-            android:layout_width="0dp"
+            android:layout_width="96dp"
             android:layout_height="match_parent"
-            android:layout_weight="1"
             android:background="@drawable/bg_thumbnail_placeholder"
             android:importantForAccessibility="no"
             android:visibility="gone">
@@ -122,11 +120,6 @@
                 android:scaleType="centerCrop"
                 tools:src="@tools:sample/backgrounds/scenic" />
 
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:background="@drawable/bg_upcoming_preview_scrim"
-                android:importantForAccessibility="no" />
         </FrameLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

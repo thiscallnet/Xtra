@@ -7,12 +7,20 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 
 class StreamDropsBadgeBinder(
     private val badge: TextView,
+    private val touchTarget: View? = null,
     private val onClick: (Stream) -> Unit,
 ) {
     private var boundStream: Stream? = null
 
     init {
-        badge.setOnClickListener { boundStream?.let(onClick) }
+        (touchTarget ?: badge).setOnClickListener { boundStream?.let(onClick) }
+        if (touchTarget != null) {
+            touchTarget.isFocusable = true
+            touchTarget.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+            badge.isClickable = false
+            badge.isFocusable = false
+            badge.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
     }
 
     fun bind(stream: Stream?) {
@@ -31,6 +39,7 @@ class StreamDropsBadgeBinder(
         badge.visibility = View.GONE
         badge.text = null
         badge.contentDescription = null
+        syncTouchTarget()
     }
 
     private fun renderHint(stream: Stream, visible: Boolean) {
@@ -38,6 +47,7 @@ class StreamDropsBadgeBinder(
             badge.visibility = View.GONE
             badge.text = null
             badge.contentDescription = null
+            syncTouchTarget()
             return
         }
         badge.visibility = View.VISIBLE
@@ -46,6 +56,14 @@ class StreamDropsBadgeBinder(
             R.string.stream_drops_badge_content_description,
             stream.channelName ?: badge.context.getString(R.string.channels),
         )
+        syncTouchTarget()
+    }
+
+    private fun syncTouchTarget() {
+        touchTarget?.apply {
+            visibility = badge.visibility
+            contentDescription = badge.contentDescription
+        }
     }
 }
 

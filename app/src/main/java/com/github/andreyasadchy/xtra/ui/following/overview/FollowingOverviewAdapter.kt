@@ -8,6 +8,7 @@ import android.text.Spanned
 import android.text.style.StyleSpan
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.paging.PagingData
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -22,6 +23,7 @@ import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.ui.common.streamContentsSame
 import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.ExpressiveShapeStyling
+import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
 import com.github.andreyasadchy.xtra.ui.common.usesExpressiveInterface
 
 data class FollowingOverviewSection(
@@ -52,11 +54,11 @@ class FollowingOverviewAdapter(
     private val onStreamShelfDetached: ((String) -> Unit)? = null,
     private val onVideoShelfAttached: ((String, RecyclerView, (Int) -> VideoHistory?) -> Unit)? = null,
     private val onVideoShelfDetached: ((String) -> Unit)? = null,
+    private val useFollowedStreamCardLayout: Boolean = false,
 ) : ListAdapter<FollowingOverviewSection, FollowingOverviewAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     private val recycledViewPool = RecyclerView.RecycledViewPool()
     private val videoRecycledViewPool = RecyclerView.RecycledViewPool()
-    private val upcomingRecycledViewPool = RecyclerView.RecycledViewPool()
     private val gameRecycledViewPool = RecyclerView.RecycledViewPool()
     private val featuredRecycledViewPool = RecyclerView.RecycledViewPool()
     private val skeletonRecycledViewPool = RecyclerView.RecycledViewPool()
@@ -103,8 +105,19 @@ class FollowingOverviewAdapter(
         private val shelfAdapter = StreamShelfAdapter(fragment, onStreamClick, onStreamTagClick, compactOverviewCards = true)
         private val videoShelfAdapter = VideoShelfAdapter(fragment, onVideoClick)
         private val upcomingShelfAdapter = UpcomingStreamShelfAdapter(fragment, onUpcomingClick)
+        // Upcoming holders own requests through their creating adapter's scheduler.
+        // Sharing them between section adapters leaves requests on a detached scheduler.
+        private val upcomingRecycledViewPool = RecyclerView.RecycledViewPool()
         private val gameShelfAdapter = GameShelfAdapter(onGameClick)
         private val featuredShelfAdapter = FeaturedStreamShelfAdapter(fragment, onStreamClick, onStreamTagClick)
+        private val feedStreamShelfAdapter by lazy {
+            StreamsAdapter(fragment, onStreamTagClick, shelfCardSizing = true)
+        }
+        private val feedFeaturedShelfAdapter by lazy {
+            StreamsAdapter(fragment, onStreamTagClick, shelfCardSizing = true, featuredCarousel = true)
+        }
+        private val feedStreamRecycledViewPool = RecyclerView.RecycledViewPool()
+        private val feedFeaturedStreamRecycledViewPool = RecyclerView.RecycledViewPool()
         private val skeletonShelfAdapter = ShelfSkeletonAdapter()
         private var shelfType: ShelfType? = null
         private var boundStreamShelfKey: String? = null
@@ -128,10 +141,21 @@ class FollowingOverviewAdapter(
                 boundSectionKey?.let(onSeeAll)
             }
             binding.heroPrevious.setOnClickListener {
-                featuredShelfAdapter.scrollBy(binding.shelfRecyclerView, -1)
+                scrollFeaturedShelf(-1)
             }
             binding.heroNext.setOnClickListener {
-                featuredShelfAdapter.scrollBy(binding.shelfRecyclerView, 1)
+                scrollFeaturedShelf(1)
+            }
+        }
+
+        private val usesFollowedStreamCardLayout: Boolean
+            get() = useFollowedStreamCardLayout && binding.root.context.usesExpressiveInterface()
+
+        private fun scrollFeaturedShelf(direction: Int) {
+            if (usesFollowedStreamCardLayout) {
+                feedFeaturedShelfAdapter.scrollBy(binding.shelfRecyclerView, direction)
+            } else {
+                featuredShelfAdapter.scrollBy(binding.shelfRecyclerView, direction)
             }
         }
 
@@ -206,16 +230,26 @@ class FollowingOverviewAdapter(
                         binding.shelfRecyclerView.setRecycledViewPool(gameRecycledViewPool)
                     }
                     ShelfType.FEATURED -> {
-                        binding.shelfRecyclerView.swapAdapter(featuredShelfAdapter, true)
-                        binding.shelfRecyclerView.setRecycledViewPool(featuredRecycledViewPool)
+                        binding.shelfRecyclerView.swapAdapter(
+                            if (usesFollowedStreamCardLayout) feedFeaturedShelfAdapter else featuredShelfAdapter,
+                            true,
+                        )
+                        binding.shelfRecyclerView.setRecycledViewPool(
+                            if (usesFollowedStreamCardLayout) feedFeaturedStreamRecycledViewPool else featuredRecycledViewPool,
+                        )
                     }
                     ShelfType.SKELETON -> {
                         binding.shelfRecyclerView.swapAdapter(skeletonShelfAdapter, true)
                         binding.shelfRecyclerView.setRecycledViewPool(skeletonRecycledViewPool)
                     }
                     ShelfType.STREAM -> {
-                        binding.shelfRecyclerView.swapAdapter(shelfAdapter, true)
-                        binding.shelfRecyclerView.setRecycledViewPool(recycledViewPool)
+                        binding.shelfRecyclerView.swapAdapter(
+                            if (usesFollowedStreamCardLayout) feedStreamShelfAdapter else shelfAdapter,
+                            true,
+                        )
+                        binding.shelfRecyclerView.setRecycledViewPool(
+                            if (usesFollowedStreamCardLayout) feedStreamRecycledViewPool else recycledViewPool,
+                        )
                     }
                 }
                 shelfType = nextShelfType
@@ -253,34 +287,48 @@ class FollowingOverviewAdapter(
                 }
                 ShelfType.FEATURED -> {
                     if (submittedStreams == null || !streamListsSame(submittedStreams!!, section.streams)) {
-                        featuredShelfAdapter.submitList(section.streams)
+                        if (usesFollowedStreamCardLayout) {
+                            feedFeaturedShelfAdapter.submitData(fragment.lifecycle, PagingData.from(section.streams))
+                        } else {
+                            featuredShelfAdapter.submitList(section.streams)
+                        }
                         submittedStreams = section.streams
                     }
                     if (shelfLayoutStates[section.key] == null) {
-                        featuredShelfAdapter.centerInitialCard(binding.shelfRecyclerView)
+                        if (usesFollowedStreamCardLayout) {
+                            feedFeaturedShelfAdapter.centerInitialCard(binding.shelfRecyclerView)
+                        } else {
+                            featuredShelfAdapter.centerInitialCard(binding.shelfRecyclerView)
+                        }
                     }
                     restoreShelfState(section.key)
                     if (hasItems && boundStreamShelfKey != section.key) {
                         detachStreamShelf()
                         boundStreamShelfKey = section.key
                         onStreamShelfAttached?.invoke(section.key, binding.shelfRecyclerView, { position ->
-                            featuredShelfAdapter.currentList.getOrNull(position)
+                            if (usesFollowedStreamCardLayout) feedFeaturedShelfAdapter.peek(position)
+                            else featuredShelfAdapter.currentList.getOrNull(position)
                         }, true)
                     }
                 }
                 ShelfType.SKELETON -> skeletonShelfAdapter.setLoadingType(section.loadingType)
                 ShelfType.STREAM -> {
                     if (submittedStreams == null || !streamListsSame(submittedStreams!!, section.streams)) {
-                        shelfAdapter.submitList(section.streams)
+                        if (usesFollowedStreamCardLayout) {
+                            feedStreamShelfAdapter.submitData(fragment.lifecycle, PagingData.from(section.streams))
+                        } else {
+                            shelfAdapter.submitList(section.streams)
+                        }
                         submittedStreams = section.streams
                     }
-                    if (orientationChanged) shelfAdapter.notifyDataSetChanged()
+                    if (orientationChanged && !usesFollowedStreamCardLayout) shelfAdapter.notifyDataSetChanged()
                     restoreShelfState(section.key)
                     if (hasItems && boundStreamShelfKey != section.key) {
                         detachStreamShelf()
                         boundStreamShelfKey = section.key
                         onStreamShelfAttached?.invoke(section.key, binding.shelfRecyclerView, { position ->
-                            shelfAdapter.currentList.getOrNull(position)
+                            if (usesFollowedStreamCardLayout) feedStreamShelfAdapter.peek(position)
+                            else shelfAdapter.currentList.getOrNull(position)
                         }, false)
                     }
                 }
@@ -290,7 +338,10 @@ class FollowingOverviewAdapter(
         private fun configureShelfLayout(type: ShelfType) {
             val shelf = binding.shelfRecyclerView
             val compactStreamShelf = type == ShelfType.STREAM && binding.root.context.usesExpressiveInterface()
-            val shelfSidePadding = if (compactStreamShelf) 0 else (16 * shelf.resources.displayMetrics.density).toInt()
+            val followedStreamShelf = usesFollowedStreamCardLayout &&
+                (type == ShelfType.STREAM || type == ShelfType.FEATURED)
+            val shelfSidePadding = if (compactStreamShelf || followedStreamShelf || type == ShelfType.UPCOMING) 0
+                else (16 * shelf.resources.displayMetrics.density).toInt()
             shelf.setPaddingRelative(shelfSidePadding, shelf.paddingTop, shelfSidePadding, shelf.paddingBottom)
             if (type == ShelfType.UPCOMING) {
                 val spanCount = if (shelf.resources.configuration.smallestScreenWidthDp >= 600) 2 else 1
@@ -303,7 +354,9 @@ class FollowingOverviewAdapter(
             } else {
                 shelf.layoutManager = LinearLayoutManager(shelf.context, RecyclerView.HORIZONTAL, false)
             }
-            shelf.setHasFixedSize(type != ShelfType.STREAM && type != ShelfType.UPCOMING)
+            shelf.setHasFixedSize(
+                type != ShelfType.STREAM && type != ShelfType.UPCOMING && !followedStreamShelf,
+            )
         }
 
         fun saveShelfState() {

@@ -5,6 +5,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.DrawableCompat
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -14,6 +16,8 @@ import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.target
+import coil3.request.error
+import coil3.request.placeholder
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
@@ -24,7 +28,7 @@ import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestBag
 import com.github.andreyasadchy.xtra.ui.common.FeedImageRequestOwner
 import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
-import com.github.andreyasadchy.xtra.ui.common.thumbnailState
+import com.google.android.material.color.MaterialColors
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
@@ -74,8 +78,15 @@ class UpcomingStreamShelfAdapter(
         private val imageRequests = FeedImageRequestBag()
         private var boundItemId: String? = null
         private var boundItem: UpcomingStream? = null
+        private var showPreview = false
 
         init {
+            // The parent section can detach without changing this nested list's children.
+            // Replay their image recipes on the actual window attachment, too.
+            binding.root.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(view: View) = resumeImageWork()
+                override fun onViewDetachedFromWindow(view: View) = cancelImageRequests()
+            })
             TvFocusHelper.install(binding.root)
             binding.root.setOnClickListener { boundItem?.let(onUpcomingClick) }
             binding.avatar.setOnClickListener { boundItem?.let(::openChannel) }
@@ -103,18 +114,27 @@ class UpcomingStreamShelfAdapter(
             boundItem = null
         }
 
+        fun resumeImageWork() {
+            boundItem?.let { bind(it, showPreview) }
+        }
+
         fun bind(item: UpcomingStream, showPreview: Boolean) {
             val context = binding.root.context
             boundItem = item
+            this.showPreview = showPreview
+            val avatarPlaceholder = ContextCompat.getDrawable(context, R.drawable.baseline_person_black_24)
+                ?.mutate()?.also {
+                    DrawableCompat.setTint(it, MaterialColors.getColor(binding.avatar,
+                        com.google.android.material.R.attr.colorOnSurfaceVariant))
+                }
             val avatarUrl = item.channelImageURL?.let(TwitchApiHelper::getProfileImage)
-            binding.avatar.visibility = if (avatarUrl.isNullOrBlank()) View.INVISIBLE else View.VISIBLE
             if (avatarUrl.isNullOrBlank()) {
-                binding.avatar.setImageDrawable(null)
+                binding.avatar.setImageDrawable(avatarPlaceholder)
                 binding.avatar.tag = null
             } else {
                 val avatarKey = "xtra:upcoming-avatar:${item.id}|$avatarUrl"
                 if (binding.avatar.tag != avatarKey) {
-                    binding.avatar.setImageDrawable(null)
+                    binding.avatar.setImageDrawable(avatarPlaceholder)
                     binding.avatar.tag = avatarKey
                 }
                 val avatarRestored = restoreDecodedMemoryImage(avatarKey, binding.avatar)
@@ -126,6 +146,8 @@ class UpcomingStreamShelfAdapter(
                         diskCachePolicy(CachePolicy.ENABLED)
                         transformations(CircleCropTransformation())
                         crossfade(false)
+                        placeholder(avatarPlaceholder)
+                        error(avatarPlaceholder)
                         target(binding.avatar)
                     }.build()))
                 }
@@ -140,7 +162,7 @@ class UpcomingStreamShelfAdapter(
             binding.startTime.text = formatStartTime(context, item.startTimeMillis)
 
             val previewUrl = item.previewImageURL?.takeIf { showPreview && it.isNotBlank() }
-            binding.previewHost.visibility = if (previewUrl == null) View.GONE else View.VISIBLE
+            binding.previewHost.visibility = if (previewUrl == null) View.GONE else View.INVISIBLE
             if (previewUrl != null) {
                 val previewKey = "xtra:upcoming-preview:${item.id}|$previewUrl"
                 if (binding.previewImage.tag != previewKey) {
@@ -148,6 +170,7 @@ class UpcomingStreamShelfAdapter(
                     binding.previewImage.tag = previewKey
                 }
                 val previewRestored = restoreDecodedMemoryImage(previewKey, binding.previewImage)
+                if (previewRestored) binding.previewHost.visibility = View.VISIBLE
                 if (!previewRestored) imageLoadScheduler.runOrDefer(this@ViewHolder, binding.previewImage) {
                     if (!binding.root.isAttachedToWindow || boundItemId != item.id) return@runOrDefer
                     imageRequests.replace(binding.previewImage, context.imageLoader.enqueue(ImageRequest.Builder(context).apply {
@@ -156,7 +179,14 @@ class UpcomingStreamShelfAdapter(
                         diskCachePolicy(CachePolicy.ENABLED)
                         crossfade(false)
                         target(binding.previewImage)
-                        thumbnailState()
+                        listener(
+                            onSuccess = { _, _ ->
+                                if (boundItemId == item.id) binding.previewHost.visibility = View.VISIBLE
+                            },
+                            onError = { _, _ ->
+                                if (boundItemId == item.id) binding.previewHost.visibility = View.GONE
+                            },
+                        )
                     }.build()))
                 }
             } else if (binding.previewImage.tag != null) {

@@ -118,6 +118,7 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
             onStreamShelfDetached = { key ->
                 streamShelfPreloadControllers.remove(key)?.stop()
             },
+            useFollowedStreamCardLayout = true,
             onVideoShelfAttached = { key, recyclerView, videoAtPosition ->
                 videoShelfPreviewControllers.remove(key)?.stop()
                 StreamPreloadViewportController(
