@@ -261,6 +261,8 @@ class PlaybackService : MediaSessionService() {
     private var vaftHandoffTargetGeneration = -1L
     private var vaftHandoffTargetFrameRendered = false
     private var lastVaftBoundaryObservationKey: String? = null
+    private var vaftPrimaryFirstFrameMediaId: String? = null
+    private var vaftPrimaryFirstFrameElapsedMs: Long? = null
 
     private fun invalidateVaftOwnership() {
         vaftGeneration++
@@ -612,6 +614,13 @@ class PlaybackService : MediaSessionService() {
                     streamStartupTrace?.markFirstFrame()
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFirstFrame(it.channelLogin) }
                     diagnostics.recordRenderedFirstFrame(player.currentTracks)
+                    val firstFrameElapsedMs = SystemClock.elapsedRealtime()
+                    val firstFrameItem = player.currentMediaItem
+                    val firstFrameSourceUri = firstFrameItem?.localConfiguration?.uri?.toString()
+                    if (firstFrameItem != null && firstFrameSourceUri == liveStreamUri) {
+                        vaftPrimaryFirstFrameMediaId = firstFrameItem.mediaId
+                        vaftPrimaryFirstFrameElapsedMs = firstFrameElapsedMs
+                    }
                     if (!vaftHandoffTargetFrameRendered && vaftHandoffTargetGeneration == vaftGeneration &&
                         player.currentMediaItem?.mediaId == vaftHandoffTargetMediaId
                     ) {
@@ -633,7 +642,8 @@ class PlaybackService : MediaSessionService() {
                             "event=rendered_first_frame pid=${Process.myPid()} player=${player.identityId()} " +
                                 "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)} " +
                                 "state=${player.playbackState} playWhenReady=${player.playWhenReady} " +
-                                "positionMs=${player.currentPosition}",
+                                "positionMs=${player.currentPosition} elapsedRealtimeMs=$firstFrameElapsedMs " +
+                                "primaryVaftSource=${firstFrameSourceUri == liveStreamUri}",
                         )
                     }
                 }
@@ -3206,11 +3216,27 @@ class PlaybackService : MediaSessionService() {
         val triggerMarkerKey = trackedBoundary?.observation?.markerKey
             ?: TwitchVaftDetector.activeBoundary(playlist)?.markerKey
         val currentMediaId = player.currentMediaItem?.mediaId
+        val nowElapsedMs = SystemClock.elapsedRealtime()
         val preparationMatches = triggerMarkerKey != null && vaftPreparationMarkerKey == triggerMarkerKey &&
             vaftPreparationGeneration == vaftGeneration && vaftPreparationMediaId == currentMediaId &&
             vaftPreparationRequestId != null
         val generationBeforeStart = vaftGeneration
         val generation = if (preparationMatches) vaftGeneration else ++vaftGeneration
+        val primaryFrameAgeMs = if (vaftPrimaryFirstFrameMediaId == currentMediaId) {
+            (nowElapsedMs - (vaftPrimaryFirstFrameElapsedMs ?: nowElapsedMs)).coerceAtLeast(0L)
+        } else {
+            -1L
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "XtraVaft",
+                "event=activation_start activationToken=${diagnosticToken("$generation:$vaftSourceGeneration:${triggerMarkerKey.orEmpty()}")} " +
+                    "markerToken=${diagnosticToken(triggerMarkerKey)} itemToken=${diagnosticToken(currentMediaId)} " +
+                    "sourceToken=${diagnosticToken(currentUri)} phase=${boundaryPhase.name.lowercase()} " +
+                    "basis=${trackedBoundary?.observation?.basis ?: "untracked"} publisherEdge=$publisherEdgeRequiresVaft " +
+                    "prewarmed=$preparationMatches primaryFrameAgeMs=$primaryFrameAgeMs elapsedRealtimeMs=$nowElapsedMs",
+            )
+        }
         if (!preparationMatches) {
             discardVaftPreparation()
         } else {
@@ -3301,6 +3327,16 @@ class PlaybackService : MediaSessionService() {
                 } else {
                     null
                 }
+                val candidateRequestId = preparedCandidate?.requestId ?: java.util.UUID.randomUUID().toString()
+                val candidateRuntime = xtraModule.streamMedia3Runtime
+                val candidateConfiguration = candidateRuntime.configurationFingerprintFor(player)
+                val candidateQualityRevision = candidateRuntime.qualitySelectionPolicy.revision()
+                val candidateItem = player.currentMediaItem
+                val candidateLeadMs = if (currentPlaylist != null && trackedNow != null) {
+                    vaftBoundaryLeadMs(player, currentPlaylist, trackedNow) ?: -1L
+                } else {
+                    -1L
+                }
                 preparedCandidate?.let { prepared ->
                     (player.currentManifest as? HlsManifest)?.mediaPlaylist?.let { latestPlaylist ->
                         maybeWarmVaftCandidate(player, latestPlaylist, prepared)
@@ -3313,6 +3349,16 @@ class PlaybackService : MediaSessionService() {
                     preferredQuality = vaftLogicalQuality?.takeUnless { it.name.equals("Auto", true) }
                         ?: diagnostics.confirmedVideoQuality(player.currentMediaItem?.mediaId, vaftAuthoritativeUri),
                     timeoutMs = 55_000L,
+                    requestId = candidateRequestId,
+                    origin = if (vaftAlternateActive) "recovery" else "active_direct",
+                    markerKey = triggerMarkerKey,
+                    mediaId = candidateItem?.mediaId,
+                    sourceUri = candidateItem?.localConfiguration?.uri?.toString(),
+                    configurationFingerprint = candidateConfiguration,
+                    qualityRevision = candidateQualityRevision,
+                    vaftGeneration = generation,
+                    sourceGeneration = vaftSourceGeneration,
+                    leadMs = candidateLeadMs,
                     onPlayerTypeAttempt = types::onPlayerTypeAttemptStarted,
                 )
                 if (generation != vaftGeneration) break
@@ -3722,6 +3768,16 @@ class PlaybackService : MediaSessionService() {
                     deviceId = deviceId,
                     preferredQuality = preferredQuality,
                     timeoutMs = 12_000L,
+                    requestId = requestId,
+                    origin = "before",
+                    markerKey = boundary.markerKey,
+                    mediaId = mediaId,
+                    sourceUri = sourceUri,
+                    configurationFingerprint = configurationFingerprint,
+                    qualityRevision = qualityRevision,
+                    vaftGeneration = generation,
+                    sourceGeneration = vaftSourceGeneration,
+                    leadMs = leadMs,
                 )
                 val latestPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
                 val latestPublisherRequires = latestPlaylist?.let(TwitchVaftDetector::requiresVaft) == true
@@ -3757,10 +3813,21 @@ class PlaybackService : MediaSessionService() {
                     )
                     vaftPreparedCandidate = result
                     if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "XtraVaft",
+                            "event=candidate_lookup_validated requestToken=${diagnosticToken(requestId)} result=accepted " +
+                                "stillOwned=true markerToken=${diagnosticToken(boundary.markerKey)}",
+                        )
                         Log.d("XtraVaft", "future_candidate_ready basis=${boundary.basis} leadMs=$leadMs playerType=${candidate.playerType}")
                     }
                     if (latestPlaylist != null) maybeWarmVaftCandidate(player, latestPlaylist, result)
                 } else if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "XtraVaft",
+                        "event=candidate_lookup_validated requestToken=${diagnosticToken(requestId)} result=discarded " +
+                            "stillOwned=$stillOwned verifiedClean=${candidate?.verifiedClean == true} " +
+                            "markerToken=${diagnosticToken(boundary.markerKey)}",
+                    )
                     Log.d("XtraVaft", "future_candidate_discarded basis=${boundary.basis} leadMs=$leadMs owned=$stillOwned clean=${candidate?.verifiedClean == true}")
                 }
             } catch (error: CancellationException) {
@@ -3818,6 +3885,16 @@ class PlaybackService : MediaSessionService() {
                     deviceId = deviceId,
                     preferredQuality = preferredQuality,
                     timeoutMs = 9_000L,
+                    requestId = requestId,
+                    origin = "refresh",
+                    markerKey = tracked.observation.markerKey,
+                    mediaId = sourceMediaId,
+                    sourceUri = sourceUri,
+                    configurationFingerprint = configurationFingerprint,
+                    qualityRevision = qualityRevision,
+                    vaftGeneration = prepared.vaftGeneration,
+                    sourceGeneration = vaftSourceGeneration,
+                    leadMs = leadMs,
                 )
                 val latestPlaylist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
                 val latestTracked = trackedVaftBoundary
@@ -3860,10 +3937,21 @@ class PlaybackService : MediaSessionService() {
                     vaftPreparationRequestId = requestId
                     vaftCandidateRefreshRequestId = null
                     if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "XtraVaft",
+                            "event=candidate_lookup_validated requestToken=${diagnosticToken(requestId)} result=accepted " +
+                                "stillOwned=true markerToken=${diagnosticToken(tracked.observation.markerKey)}",
+                        )
                         Log.d("XtraVaft", "future_candidate_refresh_ready basis=${tracked.observation.basis} leadMs=$leadMs playerType=${candidate.playerType}")
                     }
                     if (latestPlaylist != null) maybeWarmVaftCandidate(player, latestPlaylist, replacement)
                 } else if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "XtraVaft",
+                        "event=candidate_lookup_validated requestToken=${diagnosticToken(requestId)} result=discarded " +
+                            "stillOwned=false verifiedClean=${candidate?.verifiedClean == true} " +
+                            "markerToken=${diagnosticToken(tracked.observation.markerKey)}",
+                    )
                     Log.d("XtraVaft", "future_candidate_refresh_discarded basis=${tracked.observation.basis} leadMs=$leadMs")
                 }
             } catch (error: CancellationException) {
@@ -3965,36 +4053,80 @@ class PlaybackService : MediaSessionService() {
         deviceId: String?,
         preferredQuality: VideoQuality?,
         timeoutMs: Long,
+        requestId: String,
+        origin: String,
+        markerKey: String?,
+        mediaId: String?,
+        sourceUri: String?,
+        configurationFingerprint: String?,
+        qualityRevision: Long,
+        vaftGeneration: Long,
+        sourceGeneration: Long,
+        leadMs: Long,
         onPlayerTypeAttempt: (String) -> Unit = {},
-    ): PlayerRepository.StreamPlaylistCandidate? = try {
-        withTimeoutOrNull(timeoutMs) {
-            xtraModule.playerRepository.loadCleanStreamPlaylistUrl(
-                context = this@PlaybackService,
-                networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                gqlHeaders = TwitchApiHelper.getGQLHeaders(
-                    this@PlaybackService,
-                    prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true),
-                ),
-                channelLogin = login,
-                randomDeviceId = false,
-                xDeviceId = deviceId,
-                playerTypes = playerTypes,
-                supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
-                proxyHost = prefs().httpProxyHost(),
-                proxyPort = prefs().httpProxyPort(),
-                proxyUser = prefs().getString(C.PROXY_USER, null),
-                proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
-                requireVerifiedClean = true,
-                preferredQuality = preferredQuality,
-                onPlayerTypeAttempt = onPlayerTypeAttempt,
+    ): PlayerRepository.StreamPlaylistCandidate? {
+        val startedAtMs = SystemClock.elapsedRealtime()
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "XtraVaft",
+                "event=candidate_lookup_start requestToken=${diagnosticToken(requestId)} origin=$origin " +
+                    "markerToken=${diagnosticToken(markerKey)} itemToken=${diagnosticToken(mediaId)} " +
+                    "sourceToken=${diagnosticToken(sourceUri)} vaftGeneration=$vaftGeneration " +
+                    "sourceGeneration=$sourceGeneration configToken=${diagnosticToken(configurationFingerprint)} " +
+                    "qualityRevision=$qualityRevision leadMs=$leadMs playerTypeCount=${playerTypes.size} timeoutMs=$timeoutMs",
             )
         }
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Exception) {
-        if (BuildConfig.DEBUG) Log.d("XtraVaft", "candidate_lookup_failed type=${error::class.simpleName}")
-        null
+        var outcome = "unknown"
+        var resultPlayerType: String? = null
+        var requestCompleted = false
+        return try {
+            withTimeoutOrNull(timeoutMs) {
+                xtraModule.playerRepository.loadCleanStreamPlaylistUrl(
+                    context = this@PlaybackService,
+                    networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    gqlHeaders = TwitchApiHelper.getGQLHeaders(
+                        this@PlaybackService,
+                        prefs().getBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true),
+                    ),
+                    channelLogin = login,
+                    randomDeviceId = false,
+                    xDeviceId = deviceId,
+                    playerTypes = playerTypes,
+                    supportedCodecs = prefs().getString(C.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
+                    proxyPlaybackAccessToken = prefs().getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
+                    proxyHost = prefs().httpProxyHost(),
+                    proxyPort = prefs().httpProxyPort(),
+                    proxyUser = prefs().getString(C.PROXY_USER, null),
+                    proxyPassword = prefs().getString(C.PROXY_PASSWORD, null),
+                    requireVerifiedClean = true,
+                    preferredQuality = preferredQuality,
+                    onPlayerTypeAttempt = onPlayerTypeAttempt,
+                ).also { requestCompleted = true }
+            }.also { result ->
+                outcome = when {
+                    result != null -> "ready"
+                    requestCompleted -> "empty"
+                    else -> "timeout"
+                }
+                resultPlayerType = result?.playerType
+            }
+        } catch (error: CancellationException) {
+            outcome = "cancelled"
+            throw error
+        } catch (error: Exception) {
+            outcome = "failed"
+            if (BuildConfig.DEBUG) Log.d("XtraVaft", "candidate_lookup_failed type=${error::class.simpleName}")
+            null
+        } finally {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "XtraVaft",
+                    "event=candidate_lookup_done requestToken=${diagnosticToken(requestId)} origin=$origin " +
+                        "result=$outcome durationMs=${(SystemClock.elapsedRealtime() - startedAtMs).coerceAtLeast(0L)} " +
+                        "playerType=${resultPlayerType ?: "none"}",
+                )
+            }
+        }
     }
 
     private suspend fun awaitPreparedVaftCandidate(
@@ -4008,7 +4140,28 @@ class PlaybackService : MediaSessionService() {
             vaftPreparationRequestId != null && timeoutMs > 0L
         ) {
             vaftPreparationJob?.takeIf { it.isActive }?.let { job ->
-                withTimeoutOrNull(timeoutMs) { job.join() }
+                val joinStartedAtMs = SystemClock.elapsedRealtime()
+                val requestId = vaftPreparationRequestId
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "XtraVaft",
+                        "event=candidate_lookup_join requestToken=${diagnosticToken(requestId)} " +
+                            "markerToken=${diagnosticToken(markerKey)} itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)} " +
+                            "timeoutMs=$timeoutMs",
+                    )
+                }
+                val completed = withTimeoutOrNull(timeoutMs) {
+                    job.join()
+                    true
+                } == true
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "XtraVaft",
+                        "event=candidate_lookup_join_done requestToken=${diagnosticToken(requestId)} " +
+                            "completed=$completed jobActive=${job.isActive} " +
+                            "durationMs=${(SystemClock.elapsedRealtime() - joinStartedAtMs).coerceAtLeast(0L)}",
+                    )
+                }
             }
         }
         val prepared = vaftPreparedCandidate
