@@ -219,6 +219,10 @@ class PlaybackService : MediaSessionService() {
         var nearTriggerWarmStarted: Boolean = false,
         var refreshAttempted: Boolean = false,
     )
+    private data class VaftPreparedSourceResolution(
+        val source: VaftPreloadedMediaSource? = null,
+        val rejectionReason: String? = null,
+    )
     private data class VaftEntryFrameOwner(
         val requestId: String,
         val vaftGeneration: Long,
@@ -3342,7 +3346,7 @@ class PlaybackService : MediaSessionService() {
                         putString(VAFT_PLAYER_TYPE, candidate.playerType)
                         candidate.verifiedRendition?.let { putString(VAFT_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
                     }
-                    val preloadedSource = preparedCandidate?.let { prepared ->
+                    val preparedSource = preparedCandidate?.let { prepared ->
                         awaitPreparedVaftSource(
                             player,
                             prepared,
@@ -3350,20 +3354,32 @@ class PlaybackService : MediaSessionService() {
                             generation,
                             timeoutMs = (vaftPreparationGraceDeadlineMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L),
                         )
-                    }
-                    val future = startVaftHandoff(player, extras, preloadedSource)
-                    vaftPreparedCandidate = null
-                    val committed = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { continuation ->
-                        future.addListener({
-                            if (continuation.isActive) continuation.resumeWith(runCatching { future.get().resultCode == SessionResult.RESULT_SUCCESS })
-                        }, MoreExecutors.directExecutor())
-                    }
-                    if (generation != vaftGeneration) break
-                    if (!committed) {
+                    } ?: VaftPreparedSourceResolution()
+                    if (preparedSource.rejectionReason != null) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "XtraVaft",
+                                "handoff candidate_rejected reason=${preparedSource.rejectionReason} playerType=${candidate.playerType}",
+                            )
+                        }
                         types.onHandoffFailed(candidate.playerType)
+                        discardVaftPreparation()
                         tryNextPlayerTypeImmediately = true
+                    } else {
+                        val future = startVaftHandoff(player, extras, preparedSource.source)
+                        vaftPreparedCandidate = null
+                        val committed = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { continuation ->
+                            future.addListener({
+                                if (continuation.isActive) continuation.resumeWith(runCatching { future.get().resultCode == SessionResult.RESULT_SUCCESS })
+                            }, MoreExecutors.directExecutor())
+                        }
+                        if (generation != vaftGeneration) break
+                        if (!committed) {
+                            types.onHandoffFailed(candidate.playerType)
+                            tryNextPlayerTypeImmediately = true
+                        }
+                        if (committed && returningPrimary) break
                     }
-                    if (committed && returningPrimary) break
                 }
                 delay(
                     if (tryNextPlayerTypeImmediately) VAFT_DIFFERENT_TYPE_RETRY_YIELD_MS
@@ -4034,12 +4050,12 @@ class PlaybackService : MediaSessionService() {
         expectedUrl: String,
         generation: Long,
         timeoutMs: Long,
-    ): VaftPreloadedMediaSource? {
-        val handle = prepared.warmup ?: return null
+    ): VaftPreparedSourceResolution {
+        val handle = prepared.warmup ?: return VaftPreparedSourceResolution()
         if (prepared.requestId != vaftPreparationRequestId) {
             xtraModule.streamMedia3Runtime.discardVaftCandidateWarmup(handle.token)
             if (vaftWarmupToken == handle.token) vaftWarmupToken = null
-            return null
+            return VaftPreparedSourceResolution()
         }
         val warmCompleted = if (handle.completion.isDone) {
             runCatching { handle.completion.get() }.getOrDefault(false)
@@ -4063,8 +4079,14 @@ class PlaybackService : MediaSessionService() {
         if (source == null) {
             xtraModule.streamMedia3Runtime.discardVaftCandidateWarmup(handle.token)
             if (vaftWarmupToken == handle.token) vaftWarmupToken = null
+            return VaftPreparedSourceResolution()
         }
-        return source
+        if (!source.exactRenditionWarm) {
+            xtraModule.streamMedia3Runtime.discardVaftCandidateWarmup(handle.token)
+            if (vaftWarmupToken == handle.token) vaftWarmupToken = null
+            return VaftPreparedSourceResolution(rejectionReason = "warm_rendition_mismatch")
+        }
+        return VaftPreparedSourceResolution(source = source)
     }
 
     private suspend fun <T> ListenableFuture<T>.awaitVaftFuture(): T =
