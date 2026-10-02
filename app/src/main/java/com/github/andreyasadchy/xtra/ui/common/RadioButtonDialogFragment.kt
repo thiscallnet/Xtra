@@ -112,7 +112,12 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
             if (clickedId != checkedId) {
                 listenerSort.onChange(arguments.getInt(REQUEST_CODE), clickedId, (v as RadioButton).text, v.tag as String?, tags2?.getOrNull(clickedId)?.takeIf { it != "null" })
             }
-            dismiss()
+            // The callback can reject a stale source selection and refresh this
+            // dialog into its loading state. Do not let the old click dismiss that
+            // newly rendered state.
+            if (generation == optionsGeneration && !arguments.getBoolean(LOADING)) {
+                dismiss()
+            }
         }
         val tags = arguments.getStringArray(TAGS)
         arguments.getCharSequenceArrayList(LABELS)?.forEachIndexed { index, label ->
