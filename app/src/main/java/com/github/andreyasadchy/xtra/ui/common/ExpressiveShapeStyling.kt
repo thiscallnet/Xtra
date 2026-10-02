@@ -22,7 +22,7 @@ object ExpressiveShapeStyling {
         applySurface(
             view,
             com.google.android.material.R.attr.shapeAppearanceLargeComponent,
-            com.google.android.material.R.attr.colorSurfaceContainerLow,
+            com.google.android.material.R.attr.colorSurface,
             clickable = true,
         )
         view.findViewById<View>(R.id.thumbnail)?.let { thumbnail ->

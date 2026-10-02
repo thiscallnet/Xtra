@@ -178,6 +178,7 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
             onStreamShelfDetached = { key ->
                 streamShelfPreloadControllers.remove(key)?.stop()
             },
+            useFollowedStreamCardLayout = true,
         )
         binding.recyclerView.apply {
             layoutManager = LinearLayoutManager(context)

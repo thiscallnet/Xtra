@@ -428,7 +428,7 @@
     </style>
 
     <style name="ExpressiveFeaturedStreamCard" parent="Widget.Material3.CardView.Elevated">
-        <item name="cardBackgroundColor">?attr/colorSurfaceContainerLow</item>
+        <item name="cardBackgroundColor">?attr/colorSurface</item>
         <item name="shapeAppearance">?attr/shapeAppearanceLargeComponent</item>
         <item name="cardElevation">0dp</item>
         <item name="strokeWidth">0dp</item>
