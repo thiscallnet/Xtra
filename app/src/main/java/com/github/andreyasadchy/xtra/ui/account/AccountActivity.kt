@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.account
 
 import android.content.Intent
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -68,6 +70,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.util.Locale
+import java.text.NumberFormat
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import androidx.appcompat.widget.TooltipCompat
 
 class AccountActivity : AppCompatActivity() {
 
@@ -84,6 +91,8 @@ class AccountActivity : AppCompatActivity() {
     private var blockedUsersQuery = ""
     private var logoutPending = false
     private var authHealth = AuthHealth.UNKNOWN
+    private var selectedSection = R.id.profileTab
+    private var avatarUrl: String? = null
 
     private val loginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (logoutPending) {
@@ -107,6 +116,7 @@ class AccountActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         page = intent.getStringExtra(EXTRA_PAGE) ?: PAGE_MAIN
+        selectedSection = savedInstanceState?.getInt("account_section", R.id.profileTab) ?: R.id.profileTab
         applyTheme()
         binding = ActivityAccountBinding.inflate(layoutInflater)
         setContentView(binding.root)
@@ -122,7 +132,25 @@ class AccountActivity : AppCompatActivity() {
         }
         setupWindowInsets()
         binding.toolbar.setNavigationOnClickListener { finish() }
+        binding.toolbar.menu.add(R.string.account_refresh).apply {
+            setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_NEVER)
+            setOnMenuItemClickListener {
+                viewModel.refresh()
+                true
+            }
+        }
+        if (page == PAGE_MAIN) binding.toolbar.menu.add(R.string.account_share_channel).setOnMenuItemClickListener {
+            shareChannel()
+            true
+        }
         binding.viewChannel.setOnClickListener { openOwnProfile() }
+        binding.retryAccount.setOnClickListener { viewModel.refresh() }
+        binding.accountProgress.isIndeterminate = true
+        binding.sectionChips.check(selectedSection)
+        binding.sectionChips.setOnCheckedStateChangeListener { _, checked ->
+            selectedSection = checked.firstOrNull() ?: R.id.profileTab
+            showSelectedSection()
+        }
         binding.blockedUsersSearch.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -132,6 +160,7 @@ class AccountActivity : AppCompatActivity() {
             override fun afterTextChanged(s: Editable?) = Unit
         })
         configurePage()
+        showSelectedSection()
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -161,9 +190,24 @@ class AccountActivity : AppCompatActivity() {
         super.onStop()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putInt("account_section", selectedSection)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun showSelectedSection() {
+        binding.sectionNavigation.isVisible = page == PAGE_MAIN
+        binding.profileSection.isVisible = selectedSection == R.id.profileTab
+        binding.detailsSection.isVisible = selectedSection == R.id.profileTab
+        binding.channelSection.isVisible = selectedSection == R.id.channelTab
+        binding.privacySection.isVisible = selectedSection == R.id.privacyTab
+        binding.accountSection.isVisible = selectedSection == R.id.accountTab
+    }
+
     private fun setupWindowInsets() {
         ViewCompat.setOnApplyWindowInsetsListener(binding.root) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            binding.root.updatePadding(left = insets.left, right = insets.right)
             binding.toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                 topMargin = insets.top
             }
@@ -201,11 +245,14 @@ class AccountActivity : AppCompatActivity() {
     }
 
     private fun render(state: AccountUiState) {
-        renderHeader(state.user)
+        renderHeader(state.user, state.profileDetails?.takeIf { it.userId == state.user?.id })
         renderAuthHealth(state)
         binding.progressBar.isVisible = state.loading && state.user == null
         binding.errorText.isVisible = page == PAGE_MAIN && !state.error.isNullOrBlank()
         binding.errorText.text = state.error
+        binding.retryAccount.isVisible = binding.errorText.isVisible && !state.loading
+        binding.accountProgress.isVisible = state.loading || state.saving
+        binding.accountProgress.contentDescription = getString(if (state.saving) R.string.account_saved_status else R.string.account_details_loading)
 
         when (page) {
             PAGE_CHAT_SETTINGS -> renderChatSettings(state)
@@ -259,14 +306,14 @@ class AccountActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderHeader(user: User?) {
+    private fun renderHeader(user: User?, details: AccountProfileDetails?) {
         val login = user?.login?.takeIf { it.isNotBlank() }
             ?: tokenPrefs().getString(C.USERNAME, null)
         val displayName = user?.displayName?.takeIf { it.isNotBlank() } ?: login
         binding.displayName.text = displayName ?: getString(R.string.account_hub_title)
         binding.login.text = login?.let { "@$it" }.orEmpty()
         binding.broadcasterBadge.apply {
-            val badge = when (user?.broadcasterType?.lowercase()) {
+            val badge = if (details?.staff == true) getString(R.string.account_staff) else when (details?.broadcasterType ?: user?.broadcasterType?.lowercase()) {
                 "affiliate" -> getString(R.string.account_affiliate)
                 "partner" -> getString(R.string.account_partner)
                 else -> null
@@ -274,9 +321,14 @@ class AccountActivity : AppCompatActivity() {
             text = badge
             isVisible = badge != null
         }
+        binding.profileMetrics.isVisible = details?.followers != null || details?.following != null
+        binding.followersMetric.text = details?.followers?.let { NumberFormat.getIntegerInstance().format(it) } ?: "—"
+        binding.followingMetric.text = details?.following?.let { NumberFormat.getIntegerInstance().format(it) } ?: "—"
         binding.viewChannel.isEnabled = user?.id != null || !login.isNullOrBlank()
         val imageUrl = TwitchApiHelper.getProfileImage(user?.profileImageURL)
             ?: tokenPrefs().getString(C.PROFILE_IMAGE_URL, null)
+        if (imageUrl == avatarUrl && binding.avatar.drawable != null) return
+        avatarUrl = imageUrl
         if (imageUrl.isNullOrBlank()) {
             binding.avatar.setImageDrawable(ContextCompat.getDrawable(this, R.drawable.baseline_person_black_24))
         } else {
@@ -295,6 +347,7 @@ class AccountActivity : AppCompatActivity() {
         binding.channelRows.removeAllViews()
         binding.privacyRows.removeAllViews()
         binding.accountRows.removeAllViews()
+        renderProfileDetails(state)
 
         val canEditBio = state.capabilities.editBio
         addSettingRow(
@@ -387,6 +440,31 @@ class AccountActivity : AppCompatActivity() {
             if (blockedEnabled) getString(R.string.account_manage_blocked_users) else getString(R.string.account_reconnect_to_enable),
             onClick = if (blockedEnabled) ({ openPage(PAGE_BLOCKED_USERS) }) else ({ reconnectFor(R.string.account_blocked_users) }),
         )
+        addSettingRow(binding.privacyRows, getString(R.string.account_security), getString(R.string.account_security_hint),
+            onClick = { openTwitchPage("https://www.twitch.tv/settings/security") })
+        addSettingRow(binding.privacyRows, getString(R.string.account_connections), getString(R.string.account_connections_hint),
+            onClick = { openTwitchPage("https://www.twitch.tv/settings/connections") })
+
+        addSettingRow(binding.accountRows, getString(R.string.account_subscriptions), getString(R.string.account_subscriptions_hint),
+            onClick = { openTwitchPage("https://www.twitch.tv/subscriptions") })
+        if (state.benefitsError) {
+            addSettingRow(binding.accountRows, getString(R.string.account_benefits_retry), "",
+                onClick = { viewModel.refreshBenefits() })
+        } else if (state.benefitsLoading && state.benefits == null) {
+            addSettingRow(binding.accountRows, getString(R.string.account_benefits_loading), "")
+        }
+        state.benefits?.takeIf { it.userId == state.user?.id }?.let { benefits ->
+            benefits.prime?.let {
+                addSettingRow(binding.accountRows, getString(R.string.account_prime),
+                    getString(if (it) R.string.account_benefit_active else R.string.account_benefit_inactive),
+                    onClick = { openTwitchPage("https://gaming.amazon.com/") })
+            }
+            benefits.turbo?.let {
+                addSettingRow(binding.accountRows, getString(R.string.account_turbo),
+                    getString(if (it) R.string.account_benefit_active else R.string.account_benefit_inactive),
+                    onClick = { openTwitchPage("https://www.twitch.tv/turbo") })
+            }
+        }
 
         addSettingRow(
             binding.accountRows,
@@ -394,6 +472,8 @@ class AccountActivity : AppCompatActivity() {
             getString(R.string.drops_progress_title),
             onClick = { openDrops() },
         )
+        addSettingRow(binding.accountRows, getString(R.string.account_inventory), getString(R.string.account_inventory_hint),
+            onClick = { openTwitchPage("https://www.twitch.tv/drops/inventory") })
         addSettingRow(
             binding.accountRows,
             getString(R.string.account_manage_on_twitch),
@@ -406,6 +486,64 @@ class AccountActivity : AppCompatActivity() {
             "",
             onClick = { confirmLogout() },
         )
+    }
+
+    private fun renderProfileDetails(state: AccountUiState) {
+        binding.detailsRows.removeAllViews()
+        val details = state.profileDetails?.takeIf { it.userId == state.user?.id }
+        if (state.profileDetailsError) {
+            addSettingRow(binding.detailsRows, getString(R.string.account_details_error), "",
+                onClick = { viewModel.refreshProfileDetails() })
+        } else if (state.profileDetailsLoading && details == null) {
+            addSettingRow(binding.detailsRows, getString(R.string.account_details_loading), "")
+        }
+        val createdAt = details?.createdAt ?: state.user?.createdAt
+        createdAt?.let { addSettingRow(binding.detailsRows, getString(R.string.account_joined), formatProfileDate(it)) }
+        details?.let {
+            val numbers = NumberFormat.getIntegerInstance()
+            addSettingRow(binding.detailsRows, getString(R.string.account_live_status),
+                if (it.live) it.liveViewers?.let { count -> getString(R.string.account_live_viewers, numbers.format(count)) }
+                    ?: getString(R.string.account_live_label) else getString(R.string.account_offline_status),
+                onClick = { openOwnProfile() })
+            addSettingRow(binding.detailsRows, getString(R.string.account_last_broadcast),
+                it.lastBroadcast?.let(::formatProfileDate) ?: getString(R.string.account_never_broadcast))
+            if (!it.teamName.isNullOrBlank()) {
+                addSettingRow(binding.detailsRows, getString(R.string.account_team), it.teamName,
+                    onClick = it.teamLogin?.let { team -> { openTwitchPage("https://www.twitch.tv/team/${android.net.Uri.encode(team)}") } })
+            }
+            it.socialLinks.forEach { (title, url) ->
+                addSettingRow(binding.detailsRows, title, url, onClick = { openTwitchPage(url) })
+            }
+        }
+        state.user?.id?.let { id ->
+            addSettingRow(binding.detailsRows, getString(R.string.account_user_id), id, onClick = { copyAccountId(id) })
+        }
+        state.benefits?.takeIf { it.userId == state.user?.id }?.let { benefits ->
+            benefits.selectedBadge?.let {
+                addSettingRow(binding.detailsRows, getString(R.string.account_selected_badge), it)
+            }
+            if (benefits.availableBadges.isNotEmpty()) {
+                addSettingRow(binding.detailsRows, getString(R.string.account_available_badges), benefits.availableBadges.joinToString(", "))
+            }
+        }
+    }
+
+    private fun formatProfileDate(value: String): String = runCatching {
+        DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.MEDIUM)
+            .withLocale(Locale.getDefault()).withZone(ZoneId.systemDefault()).format(Instant.parse(value))
+    }.getOrDefault(value)
+
+    private fun copyAccountId(id: String) {
+        getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(getString(R.string.account_user_id), id))
+        if (android.os.Build.VERSION.SDK_INT < 33) Toast.makeText(this, R.string.account_id_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun shareChannel() {
+        val login = viewModel.uiState.value.user?.login ?: tokenPrefs().getString(C.USERNAME, null) ?: return
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, "https://www.twitch.tv/${android.net.Uri.encode(login)}")
+        }, getString(R.string.account_share_channel)))
     }
 
     private fun renderChatSettings(state: AccountUiState) {
@@ -541,12 +679,14 @@ class AccountActivity : AppCompatActivity() {
         val row = ItemAccountSettingBinding.inflate(LayoutInflater.from(this), container, false)
         row.label.text = label
         row.value.text = value
+        row.value.isGone = value.isBlank()
         row.root.isEnabled = enabled
         row.root.alpha = if (enabled) 1f else 0.55f
         row.root.isClickable = onClick != null
         row.root.isFocusable = onClick != null
         if (row.root.isFocusable) TvFocusHelper.install(row.root, focusedScale = 1.02f)
         row.arrow.isVisible = onClick != null
+        if (label == getString(R.string.log_out)) row.label.setTextColor(MaterialColors.getColor(row.root, androidx.appcompat.R.attr.colorError))
         color?.let { parseColor(it) }?.let { parsed ->
             row.colorSwatch.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
@@ -555,11 +695,18 @@ class AccountActivity : AppCompatActivity() {
             row.colorSwatch.isVisible = true
         }
         row.root.setOnClickListener { if (enabled) onClick?.invoke() }
+        TooltipCompat.setTooltipText(row.root, value.takeIf { it.isNotBlank() })
         container.addView(row.root)
     }
 
     private fun showBioEditor(current: String) {
         showTextEditor(R.string.account_bio, current, 300) { viewModel.updateBio(it) }
+    }
+
+    private fun dialogContent(view: View): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(24.dp(), 8.dp(), 24.dp(), 8.dp())
+        addView(view)
     }
 
     private fun showTextEditor(title: Int, current: String, maxLength: Int, onSave: (String) -> Unit) {
@@ -580,7 +727,7 @@ class AccountActivity : AppCompatActivity() {
         inputLayout.addView(input)
         MaterialAlertDialogBuilder(this)
             .setTitle(title)
-            .setView(inputLayout)
+            .setView(dialogContent(inputLayout))
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ -> onSave(input.text?.toString().orEmpty()) }
             .show()
@@ -614,7 +761,7 @@ class AccountActivity : AppCompatActivity() {
         list.addView(custom)
         dialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.account_chat_color)
-            .setView(ScrollView(this).apply { addView(list) })
+            .setView(dialogContent(ScrollView(this).apply { addView(list) }))
             .setNegativeButton(android.R.string.cancel, null)
             .create()
         dialog.show()
@@ -658,7 +805,7 @@ class AccountActivity : AppCompatActivity() {
         }
         categoryDialog = MaterialAlertDialogBuilder(this)
             .setTitle(R.string.account_category)
-            .setView(content)
+            .setView(dialogContent(content))
             .setNegativeButton(android.R.string.cancel, null)
             .create()
         categoryDialog?.setOnDismissListener {
@@ -729,7 +876,7 @@ class AccountActivity : AppCompatActivity() {
         inputLayout.addView(input)
         MaterialAlertDialogBuilder(this)
             .setTitle(title)
-            .setView(inputLayout)
+            .setView(dialogContent(inputLayout))
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 val value = input.text?.toString()?.toIntOrNull() ?: return@setPositiveButton
@@ -800,8 +947,17 @@ class AccountActivity : AppCompatActivity() {
     }
 
     private fun openManageOnTwitch() {
+        openTwitchPage("https://dashboard.twitch.tv/settings/channel")
+    }
+
+    private fun openTwitchPage(url: String) {
+        val uri = url.toUri()
+        if (uri.scheme !in listOf("https", "http") || uri.host.isNullOrBlank()) {
+            Toast.makeText(this, R.string.account_link_unavailable, Toast.LENGTH_SHORT).show()
+            return
+        }
         runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, "https://dashboard.twitch.tv/settings/channel".toUri()))
+            startActivity(Intent(Intent.ACTION_VIEW, uri))
         }.onFailure {
             Toast.makeText(this, R.string.no_browser_found, Toast.LENGTH_SHORT).show()
         }

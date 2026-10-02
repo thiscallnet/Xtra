@@ -15,9 +15,11 @@ import com.github.andreyasadchy.xtra.repository.AccountCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.NetworkInterferenceReporter
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -80,6 +82,59 @@ query CurrentUserBlockedUsers {
     }
 }
 """.trimIndent()
+
+// Keep optional profile metadata separate from the account's editing capabilities.
+private val ACCOUNT_PROFILE_DETAILS_QUERY = """
+query AccountProfileDetails(${'$'}id: ID!) {
+    user(id: ${'$'}id, lookupType: ALL) {
+        id
+        createdAt
+        followers { totalCount }
+        follows(first: 0) { totalCount }
+        lastBroadcast { startedAt }
+        roles { isAffiliate isPartner isStaff }
+        primaryTeam { displayName name }
+        channel { socialMedias { title url } }
+        stream { viewersCount }
+    }
+}
+""".trimIndent()
+
+// These fields also power the production Chat Identity picker.
+private val ACCOUNT_BENEFITS_QUERY = """
+query AccountBenefits {
+    currentUser {
+        id
+        hasPrime
+        turboStatus { hasActiveTurbo }
+        selectedBadge { title }
+        availableBadges { title }
+    }
+}
+""".trimIndent()
+
+data class AccountBenefits(
+    val userId: String,
+    val prime: Boolean?,
+    val turbo: Boolean?,
+    val selectedBadge: String?,
+    val availableBadges: List<String>,
+)
+
+data class AccountProfileDetails(
+    val userId: String,
+    val createdAt: String?,
+    val followers: Int?,
+    val following: Int?,
+    val lastBroadcast: String?,
+    val broadcasterType: String?,
+    val staff: Boolean,
+    val teamName: String?,
+    val teamLogin: String?,
+    val socialLinks: List<Pair<String, String>>,
+    val live: Boolean,
+    val liveViewers: Int?,
+)
 
 private val UPDATE_USER_MUTATION = """
 mutation UpdateUser(${ '$' }input: UpdateUserInput!) {
@@ -146,6 +201,12 @@ private data class WebAccountSnapshot(
 data class AccountUiState(
     val loading: Boolean = true,
     val user: User? = null,
+    val profileDetails: AccountProfileDetails? = null,
+    val profileDetailsLoading: Boolean = false,
+    val profileDetailsError: Boolean = false,
+    val benefits: AccountBenefits? = null,
+    val benefitsLoading: Boolean = false,
+    val benefitsError: Boolean = false,
     val webSession: Boolean = false,
     val scopes: Set<String> = emptySet(),
     val capabilities: AccountCapabilities = AccountCapabilities(),
@@ -176,14 +237,103 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     val categoryResults: StateFlow<List<Game>> = _categoryResults.asStateFlow()
 
     private var categorySearchJob: Job? = null
+    private var refreshJob: Job? = null
+    private var profileDetailsJob: Job? = null
+    private var benefitsJob: Job? = null
 
     init {
         refresh()
     }
 
     fun refresh() {
-        viewModelScope.launch {
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
             loadAccount()
+            if (_uiState.value.error == null) {
+                refreshProfileDetails()
+                refreshBenefits()
+            }
+        }
+    }
+
+    fun refreshBenefits() {
+        val state = _uiState.value
+        val userId = state.user?.id ?: return
+        if (!state.webSession || benefitsJob?.isActive == true) return
+        benefitsJob = viewModelScope.launch {
+            _uiState.update { it.copy(benefitsLoading = true, benefitsError = false,
+                benefits = it.benefits?.takeIf { benefits -> benefits.userId == userId }) }
+            try {
+                val user = module.graphQLRepository.executeRawOperation(
+                    networkLibrary(), gqlHeaders(), "AccountBenefits", ACCOUNT_BENEFITS_QUERY,
+                ).requireDataObject("currentUser")
+                check(user.string("id") == userId)
+                val benefits = AccountBenefits(
+                    userId, user.booleanValue("hasPrime"),
+                    user.objectValue("turboStatus")?.booleanValue("hasActiveTurbo"),
+                    user.objectValue("selectedBadge")?.string("title"),
+                    user.arrayValue("availableBadges").mapNotNull { it.string("title") }.distinct(),
+                )
+                _uiState.update { if (it.user?.id == userId) it.copy(benefits = benefits, benefitsLoading = false) else it }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _uiState.update { it.copy(benefitsLoading = false, benefitsError = true) }
+            }
+        }
+    }
+
+    fun refreshProfileDetails() {
+        val userId = _uiState.value.user?.id ?: return
+        if (profileDetailsJob?.isActive == true) return
+        profileDetailsJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    profileDetailsLoading = true,
+                    profileDetailsError = false,
+                    profileDetails = it.profileDetails?.takeIf { details -> details.userId == userId },
+                )
+            }
+            try {
+                val response = module.graphQLRepository.executeRawOperation(
+                    networkLibrary(),
+                    TwitchApiHelper.getWebGQLHeaders(context, includeToken = false),
+                    "AccountProfileDetails",
+                    ACCOUNT_PROFILE_DETAILS_QUERY,
+                    buildJsonObject { put("id", userId) },
+                )
+                val user = response.requireDataObject("user")
+                check(user.string("id") == userId)
+                val roles = user.objectValue("roles")
+                val details = AccountProfileDetails(
+                    userId = userId,
+                    createdAt = user.string("createdAt"),
+                    followers = user.objectValue("followers")?.intValue("totalCount"),
+                    following = user.objectValue("follows")?.intValue("totalCount"),
+                    lastBroadcast = user.objectValue("lastBroadcast")?.string("startedAt"),
+                    broadcasterType = when {
+                        roles?.booleanValue("isPartner") == true -> "partner"
+                        roles?.booleanValue("isAffiliate") == true -> "affiliate"
+                        else -> null
+                    },
+                    staff = roles?.booleanValue("isStaff") == true,
+                    teamName = user.objectValue("primaryTeam")?.string("displayName"),
+                    teamLogin = user.objectValue("primaryTeam")?.string("name"),
+                    socialLinks = user.objectValue("channel")?.arrayValue("socialMedias").orEmpty().mapNotNull {
+                        val url = it.string("url") ?: return@mapNotNull null
+                        (it.string("title")?.takeIf(String::isNotBlank) ?: url) to url
+                    },
+                    live = user.objectValue("stream") != null,
+                    liveViewers = user.objectValue("stream")?.intValue("viewersCount"),
+                )
+                _uiState.update {
+                    if (it.user?.id == userId) it.copy(profileDetails = details, profileDetailsLoading = false) else it
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _uiState.update { it.copy(profileDetailsLoading = false, profileDetailsError = true) }
+            }
         }
     }
 
@@ -234,14 +384,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 _uiState.update {
                     it.copy(
                         loading = false,
-                        webSession = false,
-                        scopes = emptySet(),
-                        capabilities = AccountCapabilities(),
-                        chatColorLoadError = null,
-                        channelLoadError = null,
-                        chatSettingsLoadError = null,
                         blockedUsersLoading = false,
-                        blockedUsersLoadError = null,
                         error = readableError(error),
                     )
                 }
@@ -849,6 +992,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun mutate(successMessage: Int, block: suspend () -> Unit) {
+        if (_uiState.value.saving) return
         viewModelScope.launch {
             _uiState.update { it.copy(saving = true, actionError = null, actionMessage = null) }
             try {
@@ -945,6 +1089,10 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun readableError(error: Throwable): String {
+        if (NetworkInterferenceReporter.isDnsResolutionFailure(error) ||
+            (error is java.io.IOException && error !is TwitchApiException)) {
+            return context.getString(R.string.account_connection_error)
+        }
         val message = error.message?.trim().orEmpty()
         if (message.isNotBlank()) {
             val apiMessage = Regex("\\\"message\\\"\\s*:\\s*\\\"([^\\\"]+)").find(message)?.groupValues?.getOrNull(1)
