@@ -2390,4 +2390,7 @@ Metadata text</string>
     <string name="account_benefits_loading">Loading memberships…</string>
     <string name="account_connection_error">Could not reach Twitch. Check your connection and try again.</string>
     <string name="account_live_label">Live</string>
+    <string name="settings_hud_editor_drag_hint">Tap a control to select it. Hold and drag to move.</string>
+    <string name="settings_hud_editor_save_hint">Changes apply when you save. Close to discard them.</string>
+    <string name="settings_hud_editor_choose_control">Choose a control</string>
 </resources>

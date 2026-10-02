@@ -26,12 +26,16 @@ class HudMetadataBackgroundDrawable(
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var drawableAlpha = 255
+    private val drawingBounds = RectF()
 
-    override fun draw(canvas: Canvas) {
-        val bounds = bounds
+    override fun onBoundsChange(bounds: Rect) {
+        drawingBounds.set(bounds)
         val width = bounds.width().toFloat()
         val height = bounds.height().toFloat()
-        if (width <= 0f || height <= 0f) return
+        if (width <= 0f || height <= 0f) {
+            paint.shader = null
+            return
+        }
 
         val horizontalFade = min(8f * density, width / 2f)
         val verticalFade = min(6f * density, height / 2f)
@@ -64,14 +68,17 @@ class HudMetadataBackgroundDrawable(
             Shader.TileMode.CLAMP,
         )
         paint.shader = ComposeShader(horizontalShader, verticalShader, PorterDuff.Mode.MULTIPLY)
+    }
+
+    override fun draw(canvas: Canvas) {
+        if (drawingBounds.isEmpty) return
         paint.alpha = BACKGROUND_ALPHA * drawableAlpha / 255
         canvas.drawRoundRect(
-            RectF(bounds),
+            drawingBounds,
             8f * density,
             8f * density,
             paint,
         )
-        paint.shader = null
     }
 
     override fun setAlpha(alpha: Int) {
