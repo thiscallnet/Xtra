@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.coordinatorlayout.widget.CoordinatorLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?android:colorBackground">
-
     <ImageView
         android:id="@+id/appBackgroundImage"
         android:layout_width="match_parent"
@@ -13,27 +13,26 @@
         android:importantForAccessibility="no"
         android:scaleType="centerCrop"
         android:visibility="gone" />
-
     <View
         android:id="@+id/appBackgroundScrim"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:importantForAccessibility="no"
         android:visibility="gone" />
-
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/appBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
-
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:minHeight="?attr/actionBarSize"
-            android:title="@string/account_hub_title" />
+            android:title="@string/account_hub_title"
+            app:navigationIcon="@drawable/ic_account_back"
+            app:navigationIconTint="?attr/colorOnSurface"
+            app:navigationContentDescription="@string/abc_action_bar_up_description" />
     </com.google.android.material.appbar.AppBarLayout>
-
     <androidx.core.widget.NestedScrollView
         android:id="@+id/scrollView"
         android:layout_width="match_parent"
@@ -41,61 +40,57 @@
         android:clipToPadding="false"
         android:fillViewport="true"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
-
         <LinearLayout
             android:id="@+id/content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingBottom="16dp">
-
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/headerCard"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="12dp"
+                android:layout_marginStart="16dp"
                 android:layout_marginTop="12dp"
-                android:layout_marginEnd="12dp"
-                app:cardUseCompatPadding="false">
-
+                android:layout_marginEnd="16dp"
+                app:cardUseCompatPadding="false"
+                app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp"
+                app:cardBackgroundColor="?attr/colorSurfaceContainer">
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
                     android:paddingStart="16dp"
-                    android:paddingTop="16dp"
+                    android:paddingTop="24dp"
                     android:paddingEnd="16dp"
-                    android:paddingBottom="8dp">
-
+                    android:paddingBottom="16dp">
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:gravity="center_vertical"
                         android:orientation="horizontal">
-
                         <com.google.android.material.imageview.ShapeableImageView
                             android:id="@+id/avatar"
-                            android:layout_width="72dp"
-                            android:layout_height="72dp"
+                            android:layout_width="80dp"
+                            android:layout_height="80dp"
                             android:importantForAccessibility="no"
                             android:scaleType="centerCrop"
                             app:shapeAppearanceOverlay="@style/AccountAvatar" />
-
                         <LinearLayout
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_marginStart="16dp"
                             android:layout_weight="1"
                             android:orientation="vertical">
-
                             <TextView
                                 android:id="@+id/displayName"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:ellipsize="end"
-                                android:maxLines="1"
-                                android:textAppearance="?attr/textAppearanceTitleLarge" />
-
+                                android:maxLines="2"
+                                android:textAppearance="?attr/textAppearanceHeadlineSmall" />
                             <TextView
                                 android:id="@+id/login"
                                 android:layout_width="match_parent"
@@ -105,7 +100,6 @@
                                 android:maxLines="1"
                                 android:textAppearance="?attr/textAppearanceBodyMedium"
                                 android:textColor="?android:textColorSecondary" />
-
                             <TextView
                                 android:id="@+id/broadcasterBadge"
                                 android:layout_width="wrap_content"
@@ -116,7 +110,50 @@
                                 android:visibility="gone" />
                         </LinearLayout>
                     </LinearLayout>
-
+                    <LinearLayout
+                        android:id="@+id/profileMetrics"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:orientation="horizontal"
+                        android:visibility="gone">
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center_horizontal">
+                            <TextView
+                                android:id="@+id/followersMetric"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textAppearance="?attr/textAppearanceTitleLarge" />
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/account_followers"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
+                        </LinearLayout>
+                        <LinearLayout
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:orientation="vertical"
+                            android:gravity="center_horizontal">
+                            <TextView
+                                android:id="@+id/followingMetric"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textAppearance="?attr/textAppearanceTitleLarge" />
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="@string/account_following"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
+                        </LinearLayout>
+                    </LinearLayout>
                     <com.google.android.material.card.MaterialCardView
                         android:id="@+id/authHealthCard"
                         android:layout_width="match_parent"
@@ -126,26 +163,22 @@
                         app:cardBackgroundColor="?attr/colorSecondaryContainer"
                         app:strokeColor="?attr/colorSecondary"
                         app:strokeWidth="1dp">
-
                         <LinearLayout
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="vertical"
                             android:padding="12dp">
-
                             <TextView
                                 android:id="@+id/authHealthTitle"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:textAppearance="?attr/textAppearanceTitleSmall" />
-
                             <TextView
                                 android:id="@+id/authHealthMessage"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
                                 android:layout_marginTop="4dp"
                                 android:textAppearance="?attr/textAppearanceBodyMedium" />
-
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/authHealthAction"
                                 style="@style/Widget.Material3.Button.TextButton"
@@ -155,18 +188,16 @@
                                 android:layout_marginTop="4dp" />
                         </LinearLayout>
                     </com.google.android.material.card.MaterialCardView>
-
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/viewChannel"
-                        style="@style/Widget.Material3.Button.TextButton"
-                        android:layout_width="wrap_content"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_gravity="end"
-                        android:layout_marginTop="4dp"
+                        android:layout_marginTop="16dp"
                         android:text="@string/account_view_channel" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-
             <TextView
                 android:id="@+id/errorText"
                 android:layout_width="match_parent"
@@ -177,89 +208,253 @@
                 android:textAppearance="?attr/textAppearanceBodyMedium"
                 android:textColor="?attr/colorError"
                 android:visibility="gone" />
-
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/retryAccount"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:text="@string/account_retry"
+                android:visibility="gone" />
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/accountProgress"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="24dp"
+                android:layout_marginTop="12dp"
+                android:visibility="gone" />
+            <HorizontalScrollView
+                android:id="@+id/sectionNavigation"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:clipToPadding="false"
+                android:paddingStart="16dp"
+                android:paddingEnd="16dp"
+                android:scrollbars="none">
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/sectionChips"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:singleLine="true"
+                    app:singleSelection="true"
+                    app:selectionRequired="true">
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/profileTab"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/account_profile_section"
+                        android:checked="true"
+                        app:ensureMinTouchTargetSize="true" />
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/channelTab"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/account_channel_tab"
+                        android:checked="false"
+                        app:ensureMinTouchTargetSize="true" />
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/privacyTab"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/account_safety_tab"
+                        android:checked="false"
+                        app:ensureMinTouchTargetSize="true" />
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/accountTab"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/account_account_section"
+                        android:checked="false"
+                        app:ensureMinTouchTargetSize="true" />
+                </com.google.android.material.chip.ChipGroup>
+            </HorizontalScrollView>
             <LinearLayout
                 android:id="@+id/accountMain"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="@string/account_profile_section"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"
-                    android:textColor="?android:textColorSecondary" />
-
                 <LinearLayout
-                    android:id="@+id/profileRows"
+                    android:id="@+id/profileSection"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="vertical" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="@string/account_channel_section"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"
-                    android:textColor="?android:textColorSecondary" />
-
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="8dp"
+                        android:paddingStart="24dp"
+                        android:paddingEnd="24dp"
+                        android:accessibilityHeading="true"
+                        android:text="@string/account_profile_section"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorPrimary" />
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp"
+                        app:cardBackgroundColor="?attr/colorSurfaceContainerLow">
+                        <LinearLayout
+                            android:id="@+id/profileRows"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingTop="4dp"
+                            android:paddingBottom="4dp" />
+                    </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
                 <LinearLayout
-                    android:id="@+id/channelRows"
+                    android:id="@+id/detailsSection"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="vertical" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="@string/account_privacy_section"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"
-                    android:textColor="?android:textColorSecondary" />
-
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="8dp"
+                        android:paddingStart="24dp"
+                        android:paddingEnd="24dp"
+                        android:accessibilityHeading="true"
+                        android:text="@string/account_details_section"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorPrimary" />
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp"
+                        app:cardBackgroundColor="?attr/colorSurfaceContainerLow">
+                        <LinearLayout
+                            android:id="@+id/detailsRows"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingTop="4dp"
+                            android:paddingBottom="4dp" />
+                    </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
                 <LinearLayout
-                    android:id="@+id/privacyRows"
+                    android:id="@+id/channelSection"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="vertical" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="@string/account_account_section"
-                    android:textAppearance="?attr/textAppearanceTitleSmall"
-                    android:textColor="?android:textColorSecondary" />
-
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="8dp"
+                        android:paddingStart="24dp"
+                        android:paddingEnd="24dp"
+                        android:accessibilityHeading="true"
+                        android:text="@string/account_channel_section"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorPrimary" />
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp"
+                        app:cardBackgroundColor="?attr/colorSurfaceContainerLow">
+                        <LinearLayout
+                            android:id="@+id/channelRows"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingTop="4dp"
+                            android:paddingBottom="4dp" />
+                    </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
                 <LinearLayout
-                    android:id="@+id/accountRows"
+                    android:id="@+id/privacySection"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="vertical" />
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="8dp"
+                        android:paddingStart="24dp"
+                        android:paddingEnd="24dp"
+                        android:accessibilityHeading="true"
+                        android:text="@string/account_privacy_section"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorPrimary" />
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp"
+                        app:cardBackgroundColor="?attr/colorSurfaceContainerLow">
+                        <LinearLayout
+                            android:id="@+id/privacyRows"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingTop="4dp"
+                            android:paddingBottom="4dp" />
+                    </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
+                <LinearLayout
+                    android:id="@+id/accountSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="24dp"
+                        android:layout_marginBottom="8dp"
+                        android:paddingStart="24dp"
+                        android:paddingEnd="24dp"
+                        android:accessibilityHeading="true"
+                        android:text="@string/account_account_section"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorPrimary" />
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="16dp"
+                        android:layout_marginEnd="16dp"
+                        app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
+                        app:cardElevation="0dp"
+                        app:strokeWidth="0dp"
+                        app:cardBackgroundColor="?attr/colorSurfaceContainerLow">
+                        <LinearLayout
+                            android:id="@+id/accountRows"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:paddingTop="4dp"
+                            android:paddingBottom="4dp" />
+                    </com.google.android.material.card.MaterialCardView>
+                </LinearLayout>
             </LinearLayout>
-
             <LinearLayout
                 android:id="@+id/chatSettingsPage"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:visibility="gone">
-
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -269,22 +464,29 @@
                     android:text="@string/account_chat_settings_section"
                     android:textAppearance="?attr/textAppearanceTitleSmall"
                     android:textColor="?android:textColorSecondary" />
-
-                <LinearLayout
-                    android:id="@+id/chatSettingsRows"
+                <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:orientation="vertical" />
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginTop="12dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+                    app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
+                    app:cardElevation="0dp"
+                    app:strokeWidth="0dp">
+                    <LinearLayout
+                        android:id="@+id/chatSettingsRows"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingVertical="4dp"
+                        android:orientation="vertical" />
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
-
             <LinearLayout
                 android:id="@+id/blockedUsersPage"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
                 android:visibility="gone">
-
                 <TextView
                     android:id="@+id/blockedUsersHint"
                     android:layout_width="match_parent"
@@ -295,7 +497,6 @@
                     android:text="@string/account_blocked_users_hint"
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:textColor="?android:textColorSecondary" />
-
                 <com.google.android.material.textfield.TextInputLayout
                     android:id="@+id/blockedUsersSearchLayout"
                     style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
@@ -305,7 +506,6 @@
                     android:layout_marginTop="12dp"
                     android:layout_marginEnd="16dp"
                     android:hint="@string/account_search_blocked_users">
-
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/blockedUsersSearch"
                         android:layout_width="match_parent"
@@ -314,14 +514,22 @@
                         android:maxLines="1"
                         android:singleLine="true" />
                 </com.google.android.material.textfield.TextInputLayout>
-
-                <LinearLayout
-                    android:id="@+id/blockedUsersRows"
+                <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:orientation="vertical" />
-
+                    android:layout_marginHorizontal="16dp"
+                    android:layout_marginTop="12dp"
+                    app:cardBackgroundColor="?attr/colorSurfaceContainerLow"
+                    app:shapeAppearance="?attr/shapeAppearanceCornerExtraLarge"
+                    app:cardElevation="0dp"
+                    app:strokeWidth="0dp">
+                    <LinearLayout
+                        android:id="@+id/blockedUsersRows"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingVertical="4dp"
+                        android:orientation="vertical" />
+                </com.google.android.material.card.MaterialCardView>
                 <TextView
                     android:id="@+id/blockedUsersEmpty"
                     android:layout_width="match_parent"
@@ -332,7 +540,6 @@
                     android:textAppearance="?attr/textAppearanceBodyMedium"
                     android:textColor="?android:textColorSecondary"
                     android:visibility="gone" />
-
                 <ProgressBar
                     android:id="@+id/blockedUsersProgress"
                     android:layout_width="wrap_content"
@@ -340,7 +547,6 @@
                     android:layout_gravity="center_horizontal"
                     android:layout_margin="16dp"
                     android:visibility="gone" />
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/loadMoreBlockedUsers"
                     style="@style/Widget.Material3.Button.TextButton"
@@ -352,7 +558,6 @@
             </LinearLayout>
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
-
     <ProgressBar
         android:id="@+id/progressBar"
         android:layout_width="wrap_content"
