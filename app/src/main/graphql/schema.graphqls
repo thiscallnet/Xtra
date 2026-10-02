@@ -42,6 +42,7 @@ type BroadcastSettings {
 }
 
 type Channel {
+    schedule: Schedule
     chatters: ChattersInfo
     socialMedias: [SocialMedia!]
 }
@@ -211,6 +212,7 @@ type FreeformTag {
 }
 
 type Game {
+    name: String
     boxArtURL(width: Int, height: Int): String
     broadcastersCount: Int
     clips(first: Int, after: Cursor, criteria: GameClipsInput): ClipConnection
@@ -738,4 +740,15 @@ scalar Time
 
 schema {
     query: Query
+}
+
+type Schedule {
+    segments: [ScheduleSegment!]
+}
+
+type ScheduleSegment {
+    title: String
+    startAt: Time
+    endAt: Time
+    categories: [Game!]
 }

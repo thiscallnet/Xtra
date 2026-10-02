@@ -29,7 +29,8 @@ class ChannelPanelAdapter(
         override fun areItemsTheSame(oldItem: ChannelPanel, newItem: ChannelPanel): Boolean {
             return oldItem.title == newItem.title &&
                     oldItem.imageUrl == newItem.imageUrl &&
-                    oldItem.description == newItem.description
+                    oldItem.description == newItem.description &&
+                    oldItem.linkUrl == newItem.linkUrl
         }
 
         override fun areContentsTheSame(oldItem: ChannelPanel, newItem: ChannelPanel): Boolean {
@@ -58,6 +59,8 @@ class ChannelPanelAdapter(
             with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
+                    imageView.setOnClickListener(null)
+                    imageView.isClickable = false
                     if (item.title != null) {
                         title.visibility = View.VISIBLE
                         title.text = item.title
@@ -73,7 +76,7 @@ class ChannelPanelAdapter(
                                 target(imageView)
                             }.build()
                         )
-                        if (item.linkUrl != null) {
+                        if (item.linkUrl?.toUri()?.let { it.scheme in listOf("http", "https") && !it.host.isNullOrBlank() } == true) {
                             imageView.setOnClickListener {
                                 try {
                                     val intent = Intent(Intent.ACTION_VIEW, item.linkUrl.toUri()).apply {

@@ -1,0 +1,9 @@
+query UserProfileConnection($viewerId: ID!, $channelId: ID!) {
+    user(id: $viewerId) {
+        follow(targetID: $channelId) { followedAt }
+        relationship(targetUserID: $channelId) {
+            subscriptionBenefit { id }
+            subscriptionTenure(tenureMethod: CUMULATIVE) { months }
+        }
+    }
+}

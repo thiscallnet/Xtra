@@ -34,6 +34,8 @@ import com.github.andreyasadchy.xtra.graphql.TeamMembersQuery
 import com.github.andreyasadchy.xtra.graphql.TeamQuery
 import com.github.andreyasadchy.xtra.graphql.TopGamesQuery
 import com.github.andreyasadchy.xtra.graphql.TopStreamsQuery
+import com.github.andreyasadchy.xtra.graphql.UserScheduleQuery
+import com.github.andreyasadchy.xtra.graphql.UserProfileConnectionQuery
 import com.github.andreyasadchy.xtra.graphql.UserAboutQuery
 import com.github.andreyasadchy.xtra.graphql.UserBadgesQuery
 import com.github.andreyasadchy.xtra.graphql.UserChannelPageQuery
@@ -903,6 +905,17 @@ class GraphQLRepository(
             login = if (!login.isNullOrBlank()) Optional.Present(login) else Optional.Absent,
         )
         sendQuery(networkLibrary, headers, query)
+    }
+
+    suspend fun loadQueryUserSchedule(networkLibrary: String?, headers: Map<String, String>, id: String?, login: String?): ApolloResponse<UserScheduleQuery.Data> = withContext(Dispatchers.IO) {
+        sendQuery(networkLibrary, headers, UserScheduleQuery(
+            id = if (!id.isNullOrBlank()) Optional.Present(id) else Optional.Absent,
+            login = if (!login.isNullOrBlank()) Optional.Present(login) else Optional.Absent,
+        ))
+    }
+
+    suspend fun loadQueryUserProfileConnection(networkLibrary: String?, headers: Map<String, String>, viewerId: String, channelId: String): ApolloResponse<UserProfileConnectionQuery.Data> = withContext(Dispatchers.IO) {
+        sendQuery(networkLibrary, headers, UserProfileConnectionQuery(viewerId, channelId))
     }
 
     suspend fun loadQueryUserAbout(networkLibrary: String?, headers: Map<String, String>, id: String?, login: String?): ApolloResponse<UserAboutQuery.Data> = withContext(Dispatchers.IO) {

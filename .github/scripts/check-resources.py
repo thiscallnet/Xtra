@@ -45,6 +45,23 @@ ARRAY_REFERENCE = re.compile(r"^@string/([A-Za-z0-9_]+)$")
 # Android falls back to values/ for these keys; keeping the allowlist explicit
 # prevents this policy from hiding missing translations elsewhere in the app.
 INTENTIONAL_FALLBACK_RESOURCES = {
+    # Streamer profile copy uses the default English wording until its
+    # translations are reviewed by native speakers.
+    "channel_about_heading",
+    "channel_links_heading",
+    "channel_panels_heading",
+    "channel_about_empty",
+    "channel_about_failed",
+    "channel_schedule_heading",
+    "channel_schedule_empty",
+    "channel_schedule_failed",
+    "channel_schedule_timezone",
+    "channel_schedule_broadcast",
+    "channel_connection_heading",
+    "channel_followed_since",
+    "channel_subscribed",
+    "channel_following",
+    "channel_schedule_time_range",
     # Whispers' adaptive inbox placeholder currently uses default English copy
     # until this redesign is included in the translation review.
     "select_whisper_conversation",
