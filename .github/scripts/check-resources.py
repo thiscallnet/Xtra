@@ -339,6 +339,9 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_customize_controls_position",
     # HUD setup sharing labels currently use the default English wording until
     # the editor's new share flow is translated.
+    "settings_hud_editor_drag_hint",
+    "settings_hud_editor_save_hint",
+    "settings_hud_editor_choose_control",
     "settings_hud_share_setup",
     "settings_hud_share_setup_summary",
     "settings_hud_use_for_both",

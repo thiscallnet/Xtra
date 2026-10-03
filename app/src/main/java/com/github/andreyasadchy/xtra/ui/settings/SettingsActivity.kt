@@ -192,6 +192,7 @@ private const val DISCORD_URL = "https://discord.gg/2cKy8DNgPX"
 
 class SettingsActivity : AppCompatActivity() {
 
+    private var settingsChromeVisible = true
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var appBackgroundController: ActivityBackgroundController
     private var changed = false
@@ -257,8 +258,8 @@ class SettingsActivity : AppCompatActivity() {
                 rightMargin = cutoutInsets.right
             }
             binding.navHostFragment.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                leftMargin = cutoutInsets.left
-                rightMargin = cutoutInsets.right
+                leftMargin = if (settingsChromeVisible) cutoutInsets.left else 0
+                rightMargin = if (settingsChromeVisible) cutoutInsets.right else 0
             }
             windowInsets
         }
@@ -303,7 +304,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun applySettingsContentWidth() {
         val maxWidthDp = 840
-        val contentWidth = if (!isTelevision() && resources.configuration.screenWidthDp >= maxWidthDp) {
+        val contentWidth = if (settingsChromeVisible && !isTelevision() && resources.configuration.screenWidthDp >= maxWidthDp) {
             (maxWidthDp * resources.displayMetrics.density).toInt()
         } else {
             ViewGroup.LayoutParams.MATCH_PARENT
@@ -330,7 +331,10 @@ class SettingsActivity : AppCompatActivity() {
 
     internal fun setSettingsChromeVisible(visible: Boolean) {
         if (!::binding.isInitialized) return
+        settingsChromeVisible = visible
+        applySettingsContentWidth()
         binding.appBar.isVisible = visible
+        ViewCompat.requestApplyInsets(binding.root)
         // The editor supplies its own app bar. Remove the scrolling behavior
         // while the settings chrome is hidden so the editor really occupies
         // the full window instead of retaining an invisible 88dp top inset.

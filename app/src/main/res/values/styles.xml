@@ -2304,4 +2304,20 @@
         <item name="textAppearanceLabelSmall">@style/AppFontCompactTextAppearanceLabelSmall</item>
     </style>
 
+    <!-- The video editor stays dark regardless of the surrounding settings theme. -->
+    <style name="PlayerHudEditorTheme" parent="BaseDarkTheme">
+        <item name="colorPrimary">#D0C2FF</item>
+        <item name="colorOnPrimary">#241A3A</item>
+        <item name="colorSurface">#141218</item>
+        <item name="colorSurfaceContainerHigh">#29242F</item>
+        <item name="colorOnSurface">@android:color/white</item>
+        <item name="sliderStyle">@style/PlayerHudEditorSlider</item>
+        <item name="materialSwitchStyle">@style/Widget.Material3.CompoundButton.MaterialSwitch</item>
+    </style>
+    <style name="PlayerHudEditorSlider" parent="Widget.Material3.Slider.Legacy">
+        <item name="tickVisible">false</item>
+        <item name="trackHeight">4dp</item>
+        <item name="thumbRadius">10dp</item>
+        <item name="trackColorInactive">#514958</item>
+    </style>
 </resources>

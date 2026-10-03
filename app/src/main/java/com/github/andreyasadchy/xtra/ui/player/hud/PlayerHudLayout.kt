@@ -2,10 +2,12 @@ package com.github.andreyasadchy.xtra.ui.player.hud
 
 import android.content.Context
 import android.content.res.Configuration
+import android.content.res.ColorStateList
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
+import android.graphics.drawable.RippleDrawable
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -121,6 +123,26 @@ class PlayerHudLayout @JvmOverloads constructor(
             maxLines = 1
             ellipsize = android.text.TextUtils.TruncateAt.END
         }
+        // Keep feedback inside each control's existing visible/touch bounds.
+        // Transport buttons need their own backing when dragged onto bright video.
+        fun styleControls(view: View) {
+            if (view is android.widget.ImageButton || view.id == R.id.rewind || view.id == R.id.fastForward) {
+                androidx.core.view.ViewCompat.setBackgroundTintList(view, null)
+                val transport = view.id == R.id.playPause || view.id == R.id.rewind || view.id == R.id.fastForward
+                val shape = GradientDrawable().apply {
+                    this.shape = GradientDrawable.OVAL
+                    setColor(if (transport) 0x66000000 else 0x00000000)
+                }
+                val mask = GradientDrawable().apply {
+                    this.shape = GradientDrawable.OVAL
+                    setColor(android.graphics.Color.WHITE)
+                }
+                view.background = RippleDrawable(ColorStateList.valueOf(0x40FFFFFF), shape, mask)
+            } else if (view is ViewGroup) {
+                for (index in 0 until view.childCount) styleControls(view.getChildAt(index))
+            }
+        }
+        frames.values.forEach(::styleControls)
         availability = runtimeAvailability()
         updateInteractionAccessibility()
     }
@@ -1853,6 +1875,11 @@ class PlayerHudLayout @JvmOverloads constructor(
         ).forEach { id -> resizeView(id, buttonSize.roundToInt()) }
         resizeView(R.id.rewind, seekSize.roundToInt())
         resizeView(R.id.fastForward, seekSize.roundToInt())
+        listOf(R.id.rewind, R.id.fastForward).forEach { id ->
+            findViewById<TextView>(id)?.apply {
+                setPadding(paddingLeft, paddingTop, paddingRight, ((if (compact) 16 else 18) * density).roundToInt())
+            }
+        }
         resizeView(R.id.playPause, playSize.roundToInt())
         findViewById<TextView>(R.id.channel)?.apply {
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 12f else 15f)

@@ -434,13 +434,25 @@ open class ChatMessageTextView private constructor(
                 is ChatPiece.Source -> appendStyled(output, "[${piece.value}] ", piece.color)
                 is ChatPiece.Icon -> appendIcon(output, piece)
                 is ChatPiece.Mention -> appendStyled(output, piece.value, null)
-                is ChatPiece.Badge -> appendAsset(
-                    output,
-                    piece.asset,
-                    fallback = "",
-                    fallbackMode = ChatAssetFallbackMode.NONE,
-                    interaction = piece.interaction,
-                )
+                is ChatPiece.Badge -> {
+                    if (row.pieces.getOrNull(index - 1) is ChatPiece.Badge) {
+                        val gapStart = output.length
+                        output.append(' ')
+                        output.setSpan(
+                            BadgeGapSpan((2f * resources.displayMetrics.density).roundToInt()),
+                            gapStart,
+                            output.length,
+                            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                        )
+                    }
+                    appendAsset(
+                        output,
+                        piece.asset,
+                        fallback = "",
+                        fallbackMode = ChatAssetFallbackMode.NONE,
+                        interaction = piece.interaction,
+                    )
+                }
                 is ChatPiece.RewardIcon -> appendAsset(
                     output,
                     piece.asset,
@@ -1201,6 +1213,13 @@ open class ChatMessageTextView private constructor(
         val offset = textLayout.getOffsetForHorizontal(line, x)
         val end = (offset + 1).coerceAtMost(content.length)
         return content.getSpans(offset.coerceAtMost(content.length - 1), end, ClickableSpan::class.java).toList()
+    }
+
+    // A fixed gap between badges, independent of the message font size.
+    private class BadgeGapSpan(private val width: Int) : ReplacementSpan() {
+        override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int = width
+
+        override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) = Unit
     }
 
     private class EmoteClickableSpan(
