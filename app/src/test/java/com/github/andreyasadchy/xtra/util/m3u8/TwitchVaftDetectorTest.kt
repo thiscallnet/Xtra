@@ -45,7 +45,7 @@ class TwitchVaftDetectorTest {
     }
 
     @Test
-    fun recognizesMaintainedVaftDaterangeClassFamilies() {
+    fun distinguishesExplicitVaftFromScheduleOnlyClasses() {
         listOf("twitch-stitched-mid", "twitch-maf-ad").forEach { vaftClass ->
             val playlist = parsePlaylist(
                 """
@@ -58,7 +58,10 @@ class TwitchVaftDetectorTest {
                 """.trimIndent(),
             )
 
-            assertTrue("Expected $vaftClass to identify an active VAFT", TwitchVaftDetector.requiresVaft(playlist))
+            org.junit.Assert.assertEquals(
+                "A bare schedule class must not withhold normal media",
+                vaftClass.startsWith("twitch-stitched"), TwitchVaftDetector.requiresVaft(playlist),
+            )
         }
     }
 

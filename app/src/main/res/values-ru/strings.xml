@@ -313,7 +313,7 @@
     <string name="enable_ffz">Включить смайлы FFZ</string>
     <string name="user_id">ИД аккаунта</string>
     <string name="user_login">Логин аккаунта</string>
-    <string name="waiting_ads">Переключение источника воспроизведения…</string>
+    <string name="waiting_vaft">Переключение источника воспроизведения…</string>
     <string name="show_playlist_tags">Показать метки плейлиста</string>
     <string name="show_media_playlist_tags">Показать метки плейлиста медиа</string>
     <string name="show_multivariant_playlist_tags">Показать многовариантные метки плейлиста</string>

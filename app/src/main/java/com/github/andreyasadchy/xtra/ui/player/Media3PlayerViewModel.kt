@@ -102,6 +102,8 @@ class Media3PlayerViewModel(
     var usingProxy = false
     var stopProxy = false
     var usingAlternateStream = false
+    var controlledVaftActive = false
+    var controlledVaftFeed = false
     internal val vaftQualityState = VaftQualityState()
     private val vaftController = TwitchVaftController()
     var vaftLogicalQuality: VideoQuality? = null
@@ -122,12 +124,15 @@ class Media3PlayerViewModel(
     val savedOfflineVideoPosition = MutableStateFlow<Long?>(null)
 
     var qualities: List<VideoQuality>? = null
+    internal var streamQualityCatalogIdentity: StreamQualityCatalogIdentity? = null
     var quality: VideoQuality? = null
     /** Restored quality arguments are a one-time startup fallback, never ongoing authority. */
     var restoredQualityBootstrapConsumed = false
     /** Last rendition reported by the active video decoder input. */
     var confirmedVideoQuality: VideoQuality? = null
     var confirmedVideoQualityMediaId: String? = null
+    var confirmedVideoQualitySourceUri: String? = null
+    var primaryQualityCatalogUri: String? = null
     var resumeAppliedVideoQuality: VideoQuality? = null
     var resumeAppliedVideoQualityMediaId: String? = null
     var pendingResumeAppliedVideoQuality: VideoQuality? = null

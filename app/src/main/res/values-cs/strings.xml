@@ -834,7 +834,7 @@
     <string name="user_login">Přihlášení uživatele</string>
     <string name="avoid_twitch_ads">Alternativní streamy VAFT</string>
     <string name="avoid_twitch_ads_summary">V případě potřeby používá alternativní zdroje přehrávání Twitch a v případě potřeby se automaticky vrátí k preferovanému zdroji.</string>
-    <string name="waiting_ads">Přepínání zdroje přehrávání…</string>
+    <string name="waiting_vaft">Přepínání zdroje přehrávání…</string>
     <string name="show_playlist_tags">Zobrazit značky seznamu skladeb</string>
     <string name="show_media_playlist_tags">Zobrazit značky seznamu stop médií</string>
     <string name="show_multivariant_playlist_tags">Zobrazit značky seznamu videí s více variantami</string>

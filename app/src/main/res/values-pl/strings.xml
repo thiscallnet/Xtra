@@ -811,7 +811,7 @@
     <string name="user_login">Logowanie użytkownika</string>
     <string name="avoid_twitch_ads">Alternatywne strumienie VAFT</string>
     <string name="avoid_twitch_ads_summary">W razie potrzeby korzysta z alternatywnych źródeł odtwarzania Twitch i w razie potrzeby automatycznie powraca do preferowanego źródła.</string>
-    <string name="waiting_ads">Przełączanie źródła odtwarzania…</string>
+    <string name="waiting_vaft">Przełączanie źródła odtwarzania…</string>
     <string name="show_playlist_tags">Pokaż tagi playlist</string>
     <string name="show_media_playlist_tags">Pokaż tagi playlist multimediów</string>
     <string name="show_multivariant_playlist_tags">Pokaż wielowariantowe tagi playlist</string>

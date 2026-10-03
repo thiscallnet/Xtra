@@ -35,6 +35,7 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         private const val TAGS2 = "tags2"
         private const val CHECKED = "checked"
         private const val LOADING = "loading"
+        private const val REFRESHING = "refreshing"
 
         fun newInstance(requestCode: Int, labels: Collection<CharSequence>, tags: Array<String>? = null, tags2: Array<String>? = null, checkedIndex: Int): RadioButtonDialogFragment {
             return RadioButtonDialogFragment().apply {
@@ -61,6 +62,7 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         arguments.putStringArray(TAGS2, tags2)
         arguments.putInt(CHECKED, checkedIndex)
         arguments.putBoolean(LOADING, false)
+        arguments.putBoolean(REFRESHING, false)
         renderOptions()
         return true
     }
@@ -68,6 +70,15 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
     fun showOptionsLoading(requestCode: Int) {
         if (requireArguments().getInt(REQUEST_CODE) != requestCode) return
         requireArguments().putBoolean(LOADING, true)
+        requireArguments().putBoolean(REFRESHING, false)
+        renderOptions()
+    }
+
+    fun showOptionsRefreshing(requestCode: Int) {
+        val arguments = requireArguments()
+        if (arguments.getInt(REQUEST_CODE) != requestCode) return
+        arguments.putBoolean(LOADING, true)
+        arguments.putBoolean(REFRESHING, true)
         renderOptions()
     }
 
@@ -95,12 +106,22 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         val context = radioGroup.context
         val arguments = requireArguments()
         val generation = ++optionsGeneration
+        radioGroup.clearCheck()
         radioGroup.removeAllViews()
-        if (arguments.getBoolean(LOADING)) {
+        val labels = arguments.getCharSequenceArrayList(LABELS)
+        val refreshing = arguments.getBoolean(LOADING) && arguments.getBoolean(REFRESHING) && !labels.isNullOrEmpty()
+        if (arguments.getBoolean(LOADING) && !refreshing) {
             radioGroup.addView(ProgressBar(context), LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
             })
             return
+        }
+        if (refreshing) {
+            val size = (24 * context.resources.displayMetrics.density).toInt()
+            radioGroup.addView(ProgressBar(context), LinearLayout.LayoutParams(size, size).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = (8 * context.resources.displayMetrics.density).toInt()
+            })
         }
         val params = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT)
         val checkedId = arguments.getInt(CHECKED)
@@ -111,14 +132,20 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
             if (clickedId != checkedId) {
                 listenerSort.onChange(arguments.getInt(REQUEST_CODE), clickedId, (v as RadioButton).text, v.tag as String?, tags2?.getOrNull(clickedId)?.takeIf { it != "null" })
             }
-            dismiss()
+            // The callback can reject a stale source selection and refresh this
+            // dialog into its loading state. Do not let the old click dismiss that
+            // newly rendered state.
+            if (generation == optionsGeneration && !arguments.getBoolean(LOADING)) {
+                dismiss()
+            }
         }
         val tags = arguments.getStringArray(TAGS)
-        arguments.getCharSequenceArrayList(LABELS)?.forEachIndexed { index, label ->
+        labels?.forEachIndexed { index, label ->
             val button = AppCompatRadioButton(context).apply {
                 id = index
                 text = label
                 tag = tags?.getOrNull(index)?.takeIf { it != "null" }
+                isEnabled = !arguments.getBoolean(LOADING)
                 setOnClickListener(clickListener)
             }
             radioGroup.addView(button, params)

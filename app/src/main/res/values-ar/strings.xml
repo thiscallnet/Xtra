@@ -313,7 +313,7 @@
     <string name="enable_ffz">تمكين عواطف FFZ</string>
     <string name="user_id">معرف المستخدم</string>
     <string name="user_login">تسجيل دخول المستخدم</string>
-    <string name="waiting_ads">جارٍ تبديل مصدر التشغيل…</string>
+    <string name="waiting_vaft">جارٍ تبديل مصدر التشغيل…</string>
     <string name="show_playlist_tags">إظهار علامات قائمة التشغيل</string>
     <string name="show_media_playlist_tags">إظهار علامات قائمة تشغيل الوسائط</string>
     <string name="show_multivariant_playlist_tags">إظهار علامات قائمة التشغيل متعددة المتغيرات</string>

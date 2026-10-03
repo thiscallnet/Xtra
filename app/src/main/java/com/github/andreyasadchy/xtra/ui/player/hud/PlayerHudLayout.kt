@@ -117,6 +117,9 @@ class PlayerHudLayout @JvmOverloads constructor(
             addView(edgeMarker, indexOfChild(timeline) + 1)
             edgeMarkerBar?.setEdgeMarkerListener { updateEdgeMarker() }
         }
+        // Give the visible LIVE action first refusal over the timeline's
+        // larger scrub target. Blank status space still passes through.
+        frames[HudElementId.TIME_STATUS]?.bringToFront()
         findViewById<TextView>(R.id.liveTimeGroup)?.apply {
             gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.START
             includeFontPadding = false

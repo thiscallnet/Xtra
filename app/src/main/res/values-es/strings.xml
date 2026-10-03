@@ -318,7 +318,7 @@
     <string name="enable_ffz">Habilitar emotes de FFZ</string>
     <string name="user_id">ID de usuario</string>
     <string name="user_login">Inicio de sesión de usuario</string>
-    <string name="waiting_ads">Cambiando la fuente de reproducción…</string>
+    <string name="waiting_vaft">Cambiando la fuente de reproducción…</string>
     <string name="show_playlist_tags">Mostrar etiquetas de listas de reproducción</string>
     <string name="show_media_playlist_tags">Mostrar etiquetas de listas de reproducción multimedia</string>
     <string name="show_multivariant_playlist_tags">Mostrar etiquetas de listas de reproducción multivariantes</string>

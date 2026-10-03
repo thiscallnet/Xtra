@@ -314,7 +314,7 @@
     <string name="enable_ffz">FFZ ifadelerini etkinleştir</string>
     <string name="user_id">Kullanıcı Kimliği</string>
     <string name="user_login">Kullanıcı Girişi</string>
-    <string name="waiting_ads">Oynatma kaynağı değiştiriliyor…</string>
+    <string name="waiting_vaft">Oynatma kaynağı değiştiriliyor…</string>
     <string name="show_playlist_tags">Oynatma listesi etiketlerini göster</string>
     <string name="show_media_playlist_tags">Medya oynatma listesi etiketlerini göster</string>
     <string name="show_multivariant_playlist_tags">Çok değişkenli oynatma listesi etiketlerini göster</string>

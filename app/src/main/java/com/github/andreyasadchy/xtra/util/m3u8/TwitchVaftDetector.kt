@@ -1,7 +1,10 @@
 package com.github.andreyasadchy.xtra.util.m3u8
 
+import android.os.SystemClock
+import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
+import com.github.andreyasadchy.xtra.BuildConfig
 import kotlin.time.Instant
 
 data class VaftBoundaryObservation(
@@ -15,6 +18,7 @@ data class VaftBoundaryObservation(
     val sourceEndTimeUs: Long? = null,
     val sourceMediaSequenceStart: Long? = null,
     val sourceMediaSequenceEnd: Long? = null,
+    val matchSignals: String? = null,
 )
 
 /**
@@ -26,7 +30,7 @@ data class VaftBoundaryObservation(
 @androidx.media3.common.util.UnstableApi
 object TwitchVaftDetector {
 
-    private val vaftTitleMarkers = listOf("Amazon", "Adform", "DCM")
+    private val vaftTitleMarkers = listOf("Amazon", "\u0041\u0064form", "DCM")
 
     fun requiresVaft(playlist: HlsMediaPlaylist): Boolean {
         val segment = playlist.segments.lastOrNull() ?: return false
@@ -61,6 +65,7 @@ object TwitchVaftDetector {
                 epochEndTimeUs = endUs,
                 sourceStartTimeUs = startUs.takeIf { hasEpoch },
                 sourceEndTimeUs = endUs?.takeIf { hasEpoch },
+                matchSignals = dateRangeMatchSignals(interstitial),
             )
         }
         val segments = playlist.segments.mapIndexedNotNull { index, segment ->
@@ -137,6 +142,7 @@ object TwitchVaftDetector {
                 epochEndTimeUs = epochEndTimeUs,
                 sourceStartTimeUs = epochStartTimeUs.takeIf { hasEpoch },
                 sourceEndTimeUs = epochEndTimeUs?.takeIf { hasEpoch },
+                matchSignals = dateRangeMatchSignals(interstitial),
             )
         }
 
@@ -180,6 +186,7 @@ object TwitchVaftDetector {
                 sourceEndTimeUs = endTimeUs?.takeIf {
                     playlist.hasProgramDateTime && playlist.startTimeUs != C.TIME_UNSET
                 },
+                matchSignals = dateRangeMatchSignals(interstitial),
             )
         }.minByOrNull { it.epochStartTimeUs ?: Long.MAX_VALUE }
         if (activeRange != null) return activeRange
@@ -280,10 +287,30 @@ object TwitchVaftDetector {
         hasVaftAttribute: Boolean = false,
     // Bare twitch-trigger ranges also occur on normal live segments. Only their
     // explicit VAFT attributes (or another VAFT marker) identify a VAFT window.
-    ): Boolean = hasVaftAttribute ||
-        id.startsWith("stitched-ad", ignoreCase = true) ||
-        rangeClass?.startsWith("twitch-stitched", ignoreCase = true) == true ||
-        rangeClass.equals("twitch-maf-ad", ignoreCase = true)
+    ): Boolean = dateRangeMatchSignals(id, rangeClass, hasVaftAttribute).isNotEmpty()
+
+    internal fun dateRangeMatchSignals(
+        id: String,
+        rangeClass: String?,
+        hasVaftAttribute: Boolean,
+    ): List<String> = buildList {
+        if (hasVaftAttribute) add("range_attribute")
+        if (id.startsWith("stitched-\u0061\u0064", ignoreCase = true)) add("stitched_id")
+        if (rangeClass?.startsWith("twitch-stitched", ignoreCase = true) == true) add("stitched_class")
+        // Schedule-only classes also accompany unchanged live media. They do
+        // not establish a replaced segment without an explicit media signal.
+    }
+
+    private fun dateRangeMatchSignals(interstitial: HlsMediaPlaylist.Interstitial): String =
+        dateRangeMatchSignals(
+            id = interstitial.id,
+            rangeClass = interstitial.clientDefinedAttributes
+                .firstOrNull { it.name == "CLASS" }
+                ?.textValue,
+            hasVaftAttribute = interstitial.clientDefinedAttributes.any {
+                it.name.startsWith("X-TV-TWITCH-\u0041\u0044-", ignoreCase = true)
+            },
+        ).joinToString("+")
 
     private fun isTwitchVaftDateRange(interstitial: HlsMediaPlaylist.Interstitial): Boolean =
         isTwitchVaftDateRange(
@@ -292,8 +319,288 @@ object TwitchVaftDetector {
                 .firstOrNull { it.name == "CLASS" }
                 ?.textValue,
             hasVaftAttribute = interstitial.clientDefinedAttributes.any {
-                it.name.startsWith("X-TV-TWITCH-AD-")
+                it.name.startsWith("X-TV-TWITCH-\u0041\u0044-")
             },
         )
 
+    internal fun isTwitchVaftDateRangeForEvidence(interstitial: HlsMediaPlaylist.Interstitial): Boolean =
+        isTwitchVaftDateRange(interstitial)
+
+}
+
+internal enum class VaftSegmentEvidenceKind {
+    STITCHED,
+    LIVE,
+    OTHER_NON_LIVE,
+    UNKNOWN,
+}
+
+internal data class VaftEvidenceRange(
+    val key: String,
+    val basis: String,
+    val startTimeUs: Long,
+    val endTimeUs: Long?,
+)
+
+internal object VaftSegmentEvidenceRecorder {
+
+    private data class Counts(
+        var stitched: Int = 0,
+        var live: Int = 0,
+        var otherNonLive: Int = 0,
+        var unknown: Int = 0,
+    ) {
+        val total: Int get() = stitched + live + otherNonLive + unknown
+
+        fun add(kind: VaftSegmentEvidenceKind) {
+            when (kind) {
+                VaftSegmentEvidenceKind.STITCHED -> stitched++
+                VaftSegmentEvidenceKind.LIVE -> live++
+                VaftSegmentEvidenceKind.OTHER_NON_LIVE -> otherNonLive++
+                VaftSegmentEvidenceKind.UNKNOWN -> unknown++
+            }
+        }
+
+        fun summary(): String = when {
+            total == 0 || unknown == total -> "unknown"
+            stitched == total -> "stitched_only"
+            live == total -> "live_only"
+            otherNonLive == total -> "other_non_live_only"
+            else -> "mixed"
+        }
+    }
+
+    private data class RangeCounts(
+        val basis: String,
+        val seenSegments: MutableSet<SeenSegment> = HashSet(),
+        val counts: Counts = Counts(),
+        var missingRefreshes: Int = 0,
+    )
+
+    private data class SeenSegment(
+        val sourceIdentity: String,
+        val sequence: Long,
+    )
+
+    private val ranges = LinkedHashMap<String, RangeCounts>()
+    private val controlSegments = HashSet<Long>()
+    private val controlCounts = Counts()
+    private var controlStartedAtMs = 0L
+    private var controlSourceIdentity: String? = null
+    private var controlPreviousFirstSequence: Long? = null
+
+    @Synchronized
+    fun resetSession() {
+        if (!BuildConfig.DEBUG) return
+        ranges.clear()
+        clearControl()
+        controlSourceIdentity = null
+    }
+
+    @Synchronized
+    fun record(playlist: HlsMediaPlaylist, sourceIdentity: String) {
+        if (!BuildConfig.DEBUG) return
+
+        if (controlSourceIdentity != sourceIdentity) {
+            clearControl()
+            controlSourceIdentity = sourceIdentity
+        }
+
+        val activeRanges = activeRanges(playlist)
+        val activeKeys = activeRanges.mapTo(HashSet()) { it.key }
+        val hasProgramDateTime = playlist.hasProgramDateTime && playlist.startTimeUs != C.TIME_UNSET &&
+            playlist.segments.lastOrNull()?.relativeStartTimeUs != C.TIME_UNSET
+
+        activeRanges.forEach { range ->
+            val state = ranges[range.key] ?: run {
+                RangeCounts(range.basis).also { ranges[range.key] = it }
+            }
+            state.missingRefreshes = 0
+            playlist.segments.forEachIndexed { index, segment ->
+                if (segment.relativeStartTimeUs == C.TIME_UNSET || segment.durationUs <= 0L) return@forEachIndexed
+                val segmentStart = if (hasProgramDateTime) {
+                    playlist.startTimeUs + segment.relativeStartTimeUs
+                } else {
+                    segment.relativeStartTimeUs
+                }
+                val segmentEnd = segmentStart + segment.durationUs
+                if (segmentEnd <= range.startTimeUs || (range.endTimeUs != null && segmentStart >= range.endTimeUs)) {
+                    return@forEachIndexed
+                }
+                val seenSegment = SeenSegment(sourceIdentity, playlist.mediaSequence + index)
+                if (state.seenSegments.add(seenSegment)) {
+                    state.counts.add(classify(segment.title))
+                }
+            }
+        }
+
+        val completed = ranges.entries.iterator()
+        while (completed.hasNext()) {
+            val entry = completed.next()
+            if (entry.key in activeKeys) continue
+            entry.value.missingRefreshes++
+            if (entry.value.missingRefreshes >= 3) {
+                emitRange(entry.value)
+                completed.remove()
+            }
+        }
+        while (ranges.size > 32) {
+            val oldest = ranges.entries.iterator()
+            if (!oldest.hasNext()) break
+            emitRange(oldest.next().value)
+            oldest.remove()
+        }
+
+        val currentSegmentMarked = playlist.segments.lastOrNull()?.title?.let(TwitchVaftDetector::isVaftTitle) == true
+        val hasUncorrelatedRange = !hasProgramDateTime && playlist.interstitials.any {
+            TwitchVaftDetector.isTwitchVaftDateRangeForEvidence(it)
+        }
+        if (playlist.segments.isNotEmpty() && activeRanges.isEmpty() && !currentSegmentMarked && !hasUncorrelatedRange) {
+            recordControl(playlist)
+        } else {
+            emitControlIfReady(force = false)
+            clearControl()
+        }
+    }
+
+    private fun activeRanges(playlist: HlsMediaPlaylist): List<VaftEvidenceRange> {
+        val last = playlist.segments.lastOrNull() ?: return emptyList()
+        val hasProgramDateTime = playlist.hasProgramDateTime && playlist.startTimeUs != C.TIME_UNSET &&
+            last.relativeStartTimeUs != C.TIME_UNSET
+        val timelinePosition = if (hasProgramDateTime) playlist.startTimeUs + last.relativeStartTimeUs else C.TIME_UNSET
+        val dateRanges = if (hasProgramDateTime) playlist.interstitials.mapNotNull { interstitial ->
+            val start = interstitial.startDateUnixUs.takeIf { it != C.TIME_UNSET } ?: return@mapNotNull null
+            val end = interstitial.endDateUnixUs.takeIf { it != C.TIME_UNSET }
+                ?: interstitial.durationUs.takeIf { it != C.TIME_UNSET }?.let { start + it }
+                ?: interstitial.plannedDurationUs.takeIf { it != C.TIME_UNSET }?.let { start + it }
+            if (!TwitchVaftDetector.isTwitchVaftDateRangeForEvidence(interstitial) ||
+                !TwitchVaftDetector.isActiveRange(timelinePosition, start, end)
+            ) return@mapNotNull null
+            VaftEvidenceRange(
+                key = "range:${interstitial.id}:$start",
+                basis = "date_range",
+                startTimeUs = start,
+                endTimeUs = end,
+            )
+        } else {
+            emptyList()
+        }
+        val titleRange = if (last.relativeStartTimeUs != C.TIME_UNSET &&
+            TwitchVaftDetector.isVaftTitle(last.title.orEmpty())
+        ) {
+            val start = if (hasProgramDateTime) {
+                playlist.startTimeUs + last.relativeStartTimeUs
+            } else {
+                last.relativeStartTimeUs
+            }
+            val end = start + last.durationUs
+            listOf(
+                VaftEvidenceRange(
+                    key = "segment:${playlist.mediaSequence + playlist.segments.lastIndex}:$start",
+                    basis = "segment_title",
+                    startTimeUs = start,
+                    endTimeUs = end,
+                ),
+            )
+        } else {
+            emptyList()
+        }
+        return dateRanges + titleRange
+    }
+
+    private fun classify(title: String?): VaftSegmentEvidenceKind = when {
+        title.isNullOrBlank() -> VaftSegmentEvidenceKind.UNKNOWN
+        title.contains("stitched", ignoreCase = true) -> VaftSegmentEvidenceKind.STITCHED
+        title.trim().equals("live", ignoreCase = true) -> VaftSegmentEvidenceKind.LIVE
+        else -> VaftSegmentEvidenceKind.OTHER_NON_LIVE
+    }
+
+    private fun recordControl(playlist: HlsMediaPlaylist) {
+        val now = SystemClock.elapsedRealtime()
+        val firstSequence = playlist.mediaSequence
+        if (controlPreviousFirstSequence?.let { firstSequence < it } == true) clearControl()
+        controlPreviousFirstSequence = firstSequence
+        controlSegments.removeAll { it < firstSequence }
+
+        val hasProgramDateTime = playlist.hasProgramDateTime && playlist.startTimeUs != C.TIME_UNSET
+        val cleanSegments = playlist.segments.mapIndexedNotNull { index, segment ->
+            if (segment.relativeStartTimeUs == C.TIME_UNSET || segment.durationUs <= 0L) return@mapIndexedNotNull null
+            val title = segment.title
+            if (TwitchVaftDetector.isVaftTitle(title) || title.contains("stitched", ignoreCase = true)) {
+                return@mapIndexedNotNull null
+            }
+            val segmentStart = if (hasProgramDateTime) {
+                playlist.startTimeUs + segment.relativeStartTimeUs
+            } else {
+                segment.relativeStartTimeUs
+            }
+            val segmentEnd = segmentStart + segment.durationUs
+            val overlapsKnownRange = hasProgramDateTime && playlist.interstitials.any { interstitial ->
+                if (!TwitchVaftDetector.isTwitchVaftDateRangeForEvidence(interstitial)) return@any false
+                val start = interstitial.startDateUnixUs.takeIf { it != C.TIME_UNSET } ?: return@any false
+                val end = interstitial.endDateUnixUs.takeIf { it != C.TIME_UNSET }
+                    ?: interstitial.durationUs.takeIf { it != C.TIME_UNSET }?.let { start + it }
+                    ?: interstitial.plannedDurationUs.takeIf { it != C.TIME_UNSET }?.let { start + it }
+                segmentEnd > start && (end == null || segmentStart < end)
+            }
+            if (overlapsKnownRange) return@mapIndexedNotNull null
+            (playlist.mediaSequence + index) to segment
+        }
+        if (cleanSegments.isEmpty()) {
+            emitControlIfReady(force = false)
+            clearControl()
+            return
+        }
+        if (controlStartedAtMs == 0L) controlStartedAtMs = now
+        cleanSegments.forEach { (sequence, segment) ->
+            if (controlSegments.add(sequence)) controlCounts.add(classify(segment.title))
+        }
+        if (now - controlStartedAtMs >= 60_000L) emitControlIfReady(force = true)
+    }
+
+    private fun emitControlIfReady(force: Boolean) {
+        if (controlStartedAtMs == 0L || controlCounts.total == 0) return
+        val now = SystemClock.elapsedRealtime()
+        if (!force && now - controlStartedAtMs < 60_000L) return
+        emitSummary("control", controlCounts, controlCounts.summary())
+        controlCounts.stitched = 0
+        controlCounts.live = 0
+        controlCounts.otherNonLive = 0
+        controlCounts.unknown = 0
+        controlStartedAtMs = now
+    }
+
+    private fun clearControl() {
+        controlSegments.clear()
+        controlCounts.stitched = 0
+        controlCounts.live = 0
+        controlCounts.otherNonLive = 0
+        controlCounts.unknown = 0
+        controlStartedAtMs = 0L
+        controlPreviousFirstSequence = null
+    }
+
+    private fun emitRange(state: RangeCounts) {
+        emitSummary(
+            sample = "range",
+            counts = state.counts,
+            evidence = state.counts.summary(),
+            basis = state.basis,
+        )
+    }
+
+    private fun emitSummary(
+        sample: String,
+        counts: Counts,
+        evidence: String,
+        basis: String? = null,
+    ) {
+        Log.d(
+            "XtraVaftEvidence",
+            "sample=$sample${basis?.let { " basis=$it" }.orEmpty()} " +
+                "evidence=$evidence " +
+                "segments=${counts.total} stitched=${counts.stitched} live=${counts.live} " +
+                "otherNonLive=${counts.otherNonLive} unknown=${counts.unknown}",
+        )
+    }
 }

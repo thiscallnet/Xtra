@@ -14,6 +14,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.drm.DrmSessionManagerProvider
@@ -26,6 +27,7 @@ import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.hls.ProbedPlaylistDataSource
+import com.github.andreyasadchy.xtra.player.hls.ControlledVaftPlaylist
 import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
@@ -37,8 +39,10 @@ import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfigurat
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
+import com.github.andreyasadchy.xtra.util.m3u8.VaftSegmentEvidenceRecorder
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import okhttp3.Credentials
 import org.chromium.net.CronetEngine
 import org.chromium.net.CronetProvider
@@ -63,6 +67,9 @@ class StreamProxyState {
     private var primaryPlayback = false
 
     @Volatile
+    private var vaftAlternateEvidenceSource = false
+
+    @Volatile
     var proxyMediaPlaylist: Boolean = false
 
     @Volatile
@@ -74,6 +81,9 @@ class StreamProxyState {
     @Volatile
     var lastMediaPlaylistClean: Boolean? = null
 
+    @Volatile
+    var controlledPlaylist: ControlledVaftPlaylist? = null
+
     fun recordRequestObservation(observation: StreamRequestObservation) {
         if (!primaryPlayback) return
         if (observation.requestType.endsWith("playlist", ignoreCase = true)) {
@@ -83,6 +93,20 @@ class StreamProxyState {
 
     fun setPrimaryPlayback(isPrimary: Boolean) {
         primaryPlayback = isPrimary
+    }
+
+    fun setVaftAlternateEvidenceSource(isAlternate: Boolean) {
+        vaftAlternateEvidenceSource = isAlternate
+    }
+
+    fun recordVaftSegmentEvidence(
+        playlist: HlsMediaPlaylist,
+        sourceIdentity: String,
+        isLiveSource: Boolean,
+    ) {
+        if (primaryPlayback && isLiveSource && !vaftAlternateEvidenceSource) {
+            VaftSegmentEvidenceRecorder.record(playlist, sourceIdentity)
+        }
     }
 
 }
@@ -103,6 +127,7 @@ class StreamHlsMediaSourceFactory(
     private var drmSessionManagerProvider: DrmSessionManagerProvider? = null
     private var loadErrorHandlingPolicy: LoadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(6)
     private val sourceDataSourceFactories = ConcurrentHashMap<String, DataSource.Factory>()
+    private val renditionFormats = ConcurrentHashMap<String, androidx.media3.common.Format>()
     private val defaultMediaSourceFactory = DefaultMediaSourceFactory(
         DefaultDataSource.Factory(context, dataSourceFactory(StreamProxyState(), streamSource = false))
     )
@@ -120,6 +145,11 @@ class StreamHlsMediaSourceFactory(
         }
         val streamSource = mediaItem.liveConfiguration.targetOffsetMs != androidx.media3.common.C.TIME_UNSET
         val networkFactory = dataSourceFactory(state, streamSource)
+        val channel = mediaItem.mediaId.takeIf { it.startsWith("xtra-live:") }?.split(':')?.getOrNull(2)
+        val controlled = if (streamSource && context.prefs().isVaftEnabled() && !channel.isNullOrBlank()) {
+            ControlledVaftPlaylist(context, xtraModule, networkFactory, channel, renditionFormats, configuration.lowLatency)
+        } else null
+        state.controlledPlaylist = controlled
         val handoffFactory = if (mediaItem.mediaId.startsWith("vaft-source:")) {
             DataSource.Factory { ProbedPlaylistDataSource(networkFactory.createDataSource()) }
         } else networkFactory
@@ -133,8 +163,16 @@ class StreamHlsMediaSourceFactory(
             setPlaylistParserFactory(
                 TwitchHlsPlaylistParserFactory(
                     lowLatencyEnabled = lowLatencyEnabled,
+                    transform = { uri, parsed -> controlled?.transform(uri, parsed) ?: parsed },
                     diagnostics = TwitchHlsDiagnosticsSink { diagnostics, parsed ->
                         if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
+                            if (BuildConfig.DEBUG) {
+                                state.recordVaftSegmentEvidence(
+                                    playlist = parsed,
+                                    sourceIdentity = mediaItem.mediaId,
+                                    isLiveSource = streamSource,
+                                )
+                            }
                             state.twitchHlsDiagnostics = diagnostics
                             state.lastMediaPlaylistBaseUri = parsed.baseUri
                             state.lastMediaPlaylistClean = !TwitchVaftDetector.requiresVaft(parsed)
@@ -158,7 +196,14 @@ class StreamHlsMediaSourceFactory(
                     },
                 ),
             )
-            setLoadErrorHandlingPolicy(loadErrorHandlingPolicy)
+            setLoadErrorHandlingPolicy(if (controlled == null) loadErrorHandlingPolicy else object : LoadErrorHandlingPolicy by loadErrorHandlingPolicy {
+                override fun getMinimumLoadableRetryCount(dataType: Int): Int = maxOf(100, loadErrorHandlingPolicy.getMinimumLoadableRetryCount(dataType))
+
+                override fun getRetryDelayMsFor(info: LoadErrorHandlingPolicy.LoadErrorInfo): Long =
+                    if (info.exception is ControlledVaftPlaylist.WaitingForVerifiedMediaException) 200L
+                    else if (info.errorCount > loadErrorHandlingPolicy.getMinimumLoadableRetryCount(info.mediaLoadData.dataType)) androidx.media3.common.C.TIME_UNSET
+                    else loadErrorHandlingPolicy.getRetryDelayMsFor(info)
+            })
             drmSessionManagerProvider?.let(::setDrmSessionManagerProvider)
         }.createMediaSource(mediaItem)
     }
@@ -236,7 +281,7 @@ class StreamHlsMediaSourceFactory(
 
     fun releaseMediaItem(mediaId: String) {
         sourceDataSourceFactories.remove(mediaId)
-        proxyStates.remove(mediaId)
+        proxyStates.remove(mediaId)?.controlledPlaylist?.close()
     }
 
     fun hlsDiagnosticsFor(mediaId: String): TwitchHlsPlaylistDiagnostics? =
