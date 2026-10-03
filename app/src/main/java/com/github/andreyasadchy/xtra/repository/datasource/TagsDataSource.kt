@@ -1,5 +1,7 @@
 package com.github.andreyasadchy.xtra.repository.datasource
 
+import kotlinx.coroutines.CancellationException
+
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.model.ui.Tag
@@ -19,9 +21,11 @@ class TagsDataSource(
             try {
                 gqlQueryLoad()
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 try {
                     gqlLoad()
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     LoadResult.Error(e)
                 }
             }

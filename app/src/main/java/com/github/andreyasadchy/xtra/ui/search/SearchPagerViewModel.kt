@@ -19,8 +19,12 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -32,7 +36,18 @@ class SearchPagerViewModel(
     private val recommendationsRepository: RecommendationsRepository,
 ) : ViewModel() {
 
-    val userResult = MutableStateFlow<Pair<String?, String?>?>(null)
+    data class UserLookupRequest(val byId: Boolean, val input: String)
+
+    sealed interface UserLookupState {
+        data object Idle : UserLookupState
+        data class Loading(val request: UserLookupRequest) : UserLookupState
+        data class Success(val request: UserLookupRequest, val type: String?, val reason: String?) : UserLookupState
+        data class Failed(val request: UserLookupRequest) : UserLookupState
+    }
+
+    private val _userLookup = MutableStateFlow<UserLookupState>(UserLookupState.Idle)
+    val userLookup = _userLookup.asStateFlow()
+    private var userLookupJob: Job? = null
     val cachedSuggestions = MutableStateFlow<List<Stream>>(emptyList())
     val recentSearches = combine(
         recentSearchesRepository.getAll(RecentSearch.TYPE_STREAM),
@@ -44,7 +59,6 @@ class SearchPagerViewModel(
             .sortedByDescending(RecentSearch::lastSearched)
             .take(8)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
-    private var isLoading = false
     private var cachedSuggestionRequest = 0L
 
     fun refreshCachedSuggestions() {
@@ -71,39 +85,46 @@ class SearchPagerViewModel(
         viewModelScope.launch { recentSearchesRepository.delete(item) }
     }
 
-    fun loadUserResult(checkedId: Int, result: String, networkLibrary: String?, gqlHeaders: Map<String, String>) {
-        if (userResult.value == null && !isLoading) {
-            isLoading = true
-            viewModelScope.launch {
-                try {
-                    userResult.value = if (checkedId == 0) {
-                        val response = graphQLRepository.loadQueryUserResultID(networkLibrary, gqlHeaders, result)
-                        response.data!!.userResultByID?.let {
-                            when {
-                                it.onUser != null -> Pair(null, null)
-                                it.onUserDoesNotExist != null -> Pair(it.__typename, it.onUserDoesNotExist.reason)
-                                it.onUserError != null -> Pair(it.__typename, null)
-                                else -> null
-                            }
-                        }
-                    } else {
-                        val response = graphQLRepository.loadQueryUserResultLogin(networkLibrary, gqlHeaders, result)
-                        response.data!!.userResultByLogin?.let {
-                            when {
-                                it.onUser != null -> Pair(null, null)
-                                it.onUserDoesNotExist != null -> Pair(it.__typename, it.onUserDoesNotExist.reason)
-                                it.onUserError != null -> Pair(it.__typename, null)
-                                else -> null
-                            }
-                        }
+    fun loadUserResult(request: UserLookupRequest, networkLibrary: String?, gqlHeaders: Map<String, String>) {
+        userLookupJob?.cancel()
+        _userLookup.value = UserLookupState.Loading(request)
+        userLookupJob = viewModelScope.launch {
+            try {
+                val result = if (request.byId) {
+                    val data = graphQLRepository.loadQueryUserResultID(networkLibrary, gqlHeaders, request.input)
+                        .data?.userResultByID ?: error("Missing user lookup result")
+                    when {
+                        data.onUser != null -> UserLookupState.Success(request, null, null)
+                        data.onUserDoesNotExist != null -> UserLookupState.Success(request, data.__typename, data.onUserDoesNotExist.reason)
+                        data.onUserError != null -> UserLookupState.Success(request, data.__typename, null)
+                        else -> UserLookupState.Failed(request)
                     }
-                } catch (e: Exception) {
-
-                } finally {
-                    isLoading = false
+                } else {
+                    val data = graphQLRepository.loadQueryUserResultLogin(networkLibrary, gqlHeaders, request.input)
+                        .data?.userResultByLogin ?: error("Missing user lookup result")
+                    when {
+                        data.onUser != null -> UserLookupState.Success(request, null, null)
+                        data.onUserDoesNotExist != null -> UserLookupState.Success(request, data.__typename, data.onUserDoesNotExist.reason)
+                        data.onUserError != null -> UserLookupState.Success(request, data.__typename, null)
+                        else -> UserLookupState.Failed(request)
+                    }
                 }
+                // A cancelled/replaced request must never publish over a newer one.
+                currentCoroutineContext().ensureActive()
+                _userLookup.value = result
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                currentCoroutineContext().ensureActive()
+                _userLookup.value = UserLookupState.Failed(request)
             }
         }
+    }
+
+    fun clearUserLookup() {
+        userLookupJob?.cancel()
+        userLookupJob = null
+        _userLookup.value = UserLookupState.Idle
     }
 
     companion object {

@@ -34,6 +34,8 @@ import kotlinx.coroutines.launch
 
 class GameSearchFragment : PagedListFragment(), Searchable {
 
+    override val initializeWithoutNetwork = true
+
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
     private val viewModel: GameSearchViewModel by viewModels { GameSearchViewModelFactory }

@@ -62,6 +62,7 @@ internal class ClipsPlayerOverlayAvoidance(
     private val originalAutoplayMaxWidth = autoplay.maxWidth
     private val originalCompactLabelMaxWidth = autoplayCompactLabel.maxWidth
     private val originalAutoplayText = autoplay.text?.toString().orEmpty()
+    private val originalAutoplayHorizontalPadding = autoplay.compoundPaddingLeft + autoplay.compoundPaddingRight
     private val originalAutoplayContentDescription = autoplay.contentDescription
     private val originalClipCountTextSize = clipCount.textSize
     private val originalSummaryTextSize = autoplaySummary.textSize
@@ -78,6 +79,9 @@ internal class ClipsPlayerOverlayAvoidance(
     private var naturalSwitchWidth = 0
     private var naturalSwitchHeight = 0
     private var naturalControlsHostHeight = 0
+    private var normalControlsStacked = false
+    private var normalControlsWidth = -1
+    private var normalClipCount: CharSequence? = null
     private var cachedBaseParentWidth = -1
     private var cachedBaseParentHeight = -1
     private var cachedBaseNaturalWidth = 0
@@ -138,6 +142,7 @@ internal class ClipsPlayerOverlayAvoidance(
 
     private fun updateLayout() {
         if (isClosed) return
+        updateNormalControlsLayout()
         val overlay = playerContainer.findViewById<View>(com.github.andreyasadchy.xtra.R.id.playerLayout)
         if (!root.isShown || overlay == null || !overlay.isShown || !isScaledOverlay(overlay)) {
             restoreControlsHostPosition()
@@ -191,6 +196,25 @@ internal class ClipsPlayerOverlayAvoidance(
         }
     }
 
+    private fun updateNormalControlsLayout() {
+        val availableWidth = root.width - root.paddingLeft - root.paddingRight -
+            controlsContent.paddingLeft - controlsContent.paddingRight
+        if (availableWidth <= 0 || (normalControlsWidth == availableWidth && normalClipCount == clipCount.text)) return
+        normalControlsWidth = availableWidth
+        normalClipCount = clipCount.text
+        val switchWidth = autoplay.paint.measureText(originalAutoplayText).roundToInt() + originalAutoplayHorizontalPadding
+        val infoWidth = max(
+            clipCount.paint.measureText(clipCount.text.toString()).roundToInt(),
+            (140f * density * root.resources.configuration.fontScale).roundToInt(),
+        )
+        val stacked = availableWidth < switchWidth + infoWidth + gapPx
+        if (stacked != normalControlsStacked) {
+            normalControlsStacked = stacked
+            naturalControlsHostHeight = 0
+            restoreControls()
+        }
+    }
+
     private fun updateControls(hostBounds: Rect, playerBounds: Rect) {
         val rtl = controlsHost.layoutDirection == View.LAYOUT_DIRECTION_RTL
         val physicalStartPadding = if (rtl) controlsContent.paddingEnd else controlsContent.paddingStart
@@ -205,7 +229,12 @@ internal class ClipsPlayerOverlayAvoidance(
         } else {
             Rect(baseContentRight - switchWidth, hostBounds.top, baseContentRight, hostBounds.bottom)
         }
-        val baseInfoBounds = if (rtl) {
+        if (normalControlsStacked) {
+            baseSwitchBounds.top = hostBounds.bottom - naturalSwitchHeight.coerceAtLeast(autoplay.measuredHeight)
+        }
+        val baseInfoBounds = if (normalControlsStacked) {
+            Rect(baseContentLeft, hostBounds.top, baseContentRight, baseSwitchBounds.top - gapPx)
+        } else if (rtl) {
             Rect(baseSwitchBounds.right, hostBounds.top, baseContentRight, hostBounds.bottom)
         } else {
             Rect(baseContentLeft, hostBounds.top, baseSwitchBounds.left, hostBounds.bottom)
@@ -227,7 +256,7 @@ internal class ClipsPlayerOverlayAvoidance(
             }
             val baseTrackLeft = if (rtl) baseTrackBounds.left else baseTrackBounds.right - trackWidth
             val baseTouchLeft = if (rtl) baseTrackLeft else baseTrackLeft + trackWidth - switchTouchWidth
-            val baseTouchTop = hostBounds.top + (hostBounds.height() - switchTouchHeight) / 2
+            val baseTouchTop = baseSwitchBounds.top + (baseSwitchBounds.height() - switchTouchHeight) / 2
             val baseTouchBounds = Rect(
                 baseTouchLeft,
                 baseTouchTop,
@@ -675,17 +704,23 @@ internal class ClipsPlayerOverlayAvoidance(
         if (!sameFrameLayoutParams(params, controlsBaseParams)) {
             controlsContent.layoutParams = FrameLayout.LayoutParams(controlsBaseParams)
         }
-        if (controlsContent.orientation != originalControlsOrientation) {
-            controlsContent.orientation = originalControlsOrientation
+        val orientation = if (normalControlsStacked) LinearLayout.VERTICAL else originalControlsOrientation
+        if (controlsContent.orientation != orientation) {
+            controlsContent.orientation = orientation
         }
         if (controlsContent.gravity != originalControlsGravity) controlsContent.gravity = originalControlsGravity
     }
 
     private fun restoreInfo() {
-        val params = (clipsInfo.layoutParams as? LinearLayout.LayoutParams)
-            ?.let { LinearLayout.LayoutParams(it) } ?: return
-        if (!sameLinearLayoutParams(params, infoBaseParams, includeGravity = true)) {
-            clipsInfo.layoutParams = LinearLayout.LayoutParams(infoBaseParams)
+        val params = LinearLayout.LayoutParams(infoBaseParams).apply {
+            if (normalControlsStacked) {
+                width = ViewGroup.LayoutParams.MATCH_PARENT
+                weight = 0f
+            }
+        }
+        val current = clipsInfo.layoutParams as? LinearLayout.LayoutParams ?: return
+        if (!sameLinearLayoutParams(current, params, includeGravity = true)) {
+            clipsInfo.layoutParams = params
         }
         if (clipsInfo.translationX != 0f) clipsInfo.translationX = 0f
         if (clipsInfo.translationY != 0f) clipsInfo.translationY = 0f
@@ -710,10 +745,15 @@ internal class ClipsPlayerOverlayAvoidance(
         if (autoplay.contentDescription != originalAutoplayContentDescription) {
             autoplay.contentDescription = originalAutoplayContentDescription
         }
-        val params = (autoplay.layoutParams as? LinearLayout.LayoutParams)
-            ?.let { LinearLayout.LayoutParams(it) } ?: return
-        if (!sameLinearLayoutParams(params, autoplayBaseParams, includeGravity = true)) {
-            autoplay.layoutParams = LinearLayout.LayoutParams(autoplayBaseParams)
+        val params = LinearLayout.LayoutParams(autoplayBaseParams).apply {
+            if (normalControlsStacked) {
+                gravity = Gravity.END
+                topMargin = gapPx
+            }
+        }
+        val current = autoplay.layoutParams as? LinearLayout.LayoutParams ?: return
+        if (!sameLinearLayoutParams(current, params, includeGravity = true)) {
+            autoplay.layoutParams = params
         }
         if (autoplay.maxWidth != originalAutoplayMaxWidth) autoplay.maxWidth = originalAutoplayMaxWidth
         if (autoplay.translationX != 0f) autoplay.translationX = 0f

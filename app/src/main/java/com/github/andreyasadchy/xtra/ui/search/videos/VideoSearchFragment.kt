@@ -37,6 +37,8 @@ import kotlinx.coroutines.launch
 
 class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchable {
 
+    override val initializeWithoutNetwork = true
+
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
     private val viewModel: VideoSearchViewModel by viewModels { VideoSearchViewModelFactory }
