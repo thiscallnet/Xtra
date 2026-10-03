@@ -48,6 +48,9 @@ class SleepTimerDialog : DialogFragment() {
                 maxValue = 59
             }
             val positiveListener: (dialog: DialogInterface, which: Int) -> Unit = { _, _ ->
+                // NumberPicker commits keyboard edits when its input loses focus.
+                hours.clearFocus()
+                minutes.clearFocus()
                 (parentFragment as? Media3PlayerFragment)?.onSleepTimerChanged(hours.value * 3600_000L + minutes.value * 60_000L,  hours.value, minutes.value, lockCheckbox.isChecked)
                 requireContext().prefs().edit {
                     putInt(C.SLEEP_TIMER_MINUTES, hours.value * 60 + minutes.value)
@@ -62,9 +65,11 @@ class SleepTimerDialog : DialogFragment() {
                 builder.setPositiveButton(getString(R.string.start), positiveListener)
                 builder.setNegativeButton(android.R.string.cancel) { _, _ -> dismiss() }
             } else {
-                val hours = timeLeft / 3600_000L
-                binding.hours.value = hours.toInt()
-                minutes.value = ((timeLeft - hours * 3600_000L) / 60_000L).toInt()
+                // Round up so reopening a running timer never turns its last
+                // partial minute into the zero-duration cancellation value.
+                val minutesLeft = ((timeLeft + 59_999L) / 60_000L).coerceIn(0L, 23 * 60 + 59L)
+                hours.value = (minutesLeft / 60).toInt()
+                minutes.value = (minutesLeft % 60).toInt()
                 builder.setPositiveButton(getString(R.string.set), positiveListener)
                 builder.setNegativeButton(getString(R.string.stop)) { _, _ ->
                     (parentFragment as? Media3PlayerFragment)?.onSleepTimerChanged(-1L, 0, 0, lockCheckbox.isChecked)

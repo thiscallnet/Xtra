@@ -2,7 +2,7 @@ package com.github.andreyasadchy.xtra.ui.player.captions
 
 import android.content.Context
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.DefaultRenderersFactory
+import com.github.andreyasadchy.xtra.ui.player.PlaybackRenderersFactory
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.DefaultAudioSink
@@ -13,7 +13,7 @@ class LiveCaptionRenderersFactory(
     context: Context,
     private val audioBufferSink: TeeAudioProcessor.AudioBufferSink,
     private val presentationDelayMs: () -> Int,
-) : DefaultRenderersFactory(context) {
+) : PlaybackRenderersFactory(context) {
 
     override fun buildAudioSink(
         context: Context,

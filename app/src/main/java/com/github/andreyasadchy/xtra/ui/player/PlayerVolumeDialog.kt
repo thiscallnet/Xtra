@@ -44,14 +44,22 @@ class PlayerVolumeDialog : BottomSheetDialogFragment() {
             val volume = (requireArguments().getFloat(VOLUME, 1f) * 100)
             setVolume(volume)
             volumeBar.value = volume
-            volumeBar.addOnChangeListener { _, value, _ ->
+            var trackingTouch = false
+            volumeBar.addOnChangeListener { _, value, fromUser ->
                 (parentFragment as? Media3PlayerFragment)?.changeVolume((value / 100f))
                 setVolume(value)
+                // Keyboard and accessibility adjustments do not dispatch touch callbacks.
+                if (fromUser && !trackingTouch) {
+                    requireContext().prefs().edit { putInt(C.PLAYER_VOLUME, value.toInt()) }
+                }
             }
             volumeBar.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
-                override fun onStartTrackingTouch(slider: Slider) {}
+                override fun onStartTrackingTouch(slider: Slider) {
+                    trackingTouch = true
+                }
 
                 override fun onStopTrackingTouch(slider: Slider) {
+                    trackingTouch = false
                     requireContext().prefs().edit { putInt(C.PLAYER_VOLUME, slider.value.toInt()) }
                 }
             })
