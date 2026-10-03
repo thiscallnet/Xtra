@@ -329,6 +329,8 @@ object C {
     const val CHAT_TIMESTAMP_FORMAT = "chat_timestamp_format"
     const val CHAT_RECENT = "chat_recent"
     const val CHAT_RECENT_DEFAULT = true
+    const val CHAT_REMEMBER_DISMISSED_PINNED_MESSAGES = "chat_remember_dismissed_pinned_messages"
+    const val CHAT_REMEMBER_DISMISSED_PINNED_MESSAGES_DEFAULT = true
     const val CHAT_TRANSLATE = "chat_translate"
     const val CHAT_TRANSLATE_TARGET = "chat_translate_target"
     const val CHAT_SHOW_USER_NOTICE = "chat_show_usernotice"

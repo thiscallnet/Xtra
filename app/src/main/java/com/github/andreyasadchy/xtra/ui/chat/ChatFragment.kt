@@ -137,6 +137,7 @@ import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.chat.PinnedMessageDismissalCache
 import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.chat.legacyThreadParentId
@@ -707,6 +708,17 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val pinnedBinding = pinnedMessageBinding ?: return
         pinnedBinding.pinnedMessageSeen.setOnClickListener {
             seenPinnedMessageId = displayedPinnedMessageId
+            val preferences = requireContext().prefs()
+            val channelId = requireArguments().getString(KEY_CHANNEL_ID)
+            if (preferences.getBoolean(
+                    C.CHAT_REMEMBER_DISMISSED_PINNED_MESSAGES,
+                    C.CHAT_REMEMBER_DISMISSED_PINNED_MESSAGES_DEFAULT,
+                ) && !channelId.isNullOrBlank()
+            ) {
+                displayedPinnedMessageId?.let { messageId ->
+                    PinnedMessageDismissalCache.dismiss(preferences, channelId, messageId)
+                }
+            }
             pinnedMessageTimerJob?.cancel()
             pinnedBinding.pinnedMessageOverlay.isGone = true
         }
@@ -1845,7 +1857,16 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val currentBinding = _binding ?: return
         val pinnedBinding = pinnedMessageBinding ?: return
         val overlay = pinnedBinding.pinnedMessageOverlay
-        if (message == null || message.id == seenPinnedMessageId) {
+        val preferences = requireContext().prefs()
+        val channelId = requireArguments().getString(KEY_CHANNEL_ID)
+        val isPersistentlyDismissed = message != null &&
+            preferences.getBoolean(
+                C.CHAT_REMEMBER_DISMISSED_PINNED_MESSAGES,
+                C.CHAT_REMEMBER_DISMISSED_PINNED_MESSAGES_DEFAULT,
+            ) &&
+            !channelId.isNullOrBlank() &&
+            PinnedMessageDismissalCache.isDismissed(preferences, channelId, message.id)
+        if (message == null || message.id == seenPinnedMessageId || isPersistentlyDismissed) {
             pinnedMessageTimerJob?.cancel()
             disposePinnedBadgeRequests()
             pinnedBinding.pinnedMessageProgress.isGone = true
