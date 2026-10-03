@@ -31,6 +31,7 @@ class RecommendationsRepository(
     private val context: Context,
     private val graphQLRepository: GraphQLRepository,
     private val localChannelFollowsRepository: LocalChannelFollowsRepository,
+    private val streamCreatedAtHydrator: StreamCreatedAtHydrator,
 ) {
 
     private val cacheMutex = Mutex()
@@ -283,10 +284,11 @@ class RecommendationsRepository(
             limit = (limit * 3).coerceAtMost(30),
             cursor = null,
         )
-        return response.data?.streams?.edges.orEmpty().mapNotNull { it.node.toStream() }
+        val streams = response.data?.streams?.edges.orEmpty().mapNotNull { it.node.toStream() }
             .filterNot { it.channelId in followedIds }
             .filter(::hasRenderableFeedImages)
             .take(limit)
+        return streamCreatedAtHydrator.hydrateMissingCreatedAt(streams, networkLibrary, headers)
     }
 
     private fun StreamsResponse.Stream.toStream(): Stream? {

@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.repository.streamfeed
 
 import android.content.Context
+import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.graphql.type.Language
 import com.github.andreyasadchy.xtra.graphql.type.StreamSort
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
@@ -30,6 +31,7 @@ object StreamFeedSpecs {
         return StreamFeedSpec(
             key = StreamFeedKey.top(sort, apiTags, apiLanguages),
             loader = TopStreamsPageLoader(
+                streamCreatedAtHydrator = (context.applicationContext as XtraApp).xtraModule.streamCreatedAtHydrator,
                 gqlQueryLanguages = apiLanguages.takeIf { it.isNotEmpty() }?.mapNotNull { value -> Language.entries.find { it.rawValue == value } },
                 gqlQuerySort = querySort(sort),
                 gqlLanguages = apiLanguages.takeIf { it.isNotEmpty() },

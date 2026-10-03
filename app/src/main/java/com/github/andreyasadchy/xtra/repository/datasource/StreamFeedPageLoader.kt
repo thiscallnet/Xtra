@@ -4,6 +4,7 @@ import com.github.andreyasadchy.xtra.graphql.type.Language
 import com.github.andreyasadchy.xtra.graphql.type.StreamSort
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.gql.Error
+import com.github.andreyasadchy.xtra.repository.StreamCreatedAtHydrator
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
@@ -137,6 +138,7 @@ class TopStreamsPageLoader(
     private val helixHeaders: () -> Map<String, String>,
     private val helixRepository: HelixRepository,
     private val networkLibrary: String?,
+    private val streamCreatedAtHydrator: StreamCreatedAtHydrator,
     private val pageSize: Int = 30,
 ) : StreamFeedPageLoader {
     private var api: String? = null
@@ -231,9 +233,10 @@ class TopStreamsPageLoader(
     }
 
     private suspend fun gqlLoad(cursor: String?): StreamFeedPage {
+        val headers = gqlHeaders()
         val response = graphQLRepository.loadTopStreams(
             networkLibrary,
-            gqlHeaders(),
+            headers,
             gqlSort,
             tags,
             gqlLanguages,
@@ -243,26 +246,27 @@ class TopStreamsPageLoader(
         val data = response.data?.streams
             ?: throw persistedStreamDataError("TopStreams persisted query", response.errors)
         val edges = data.edges
+        val items = edges.mapNotNull { edge ->
+            edge.node.let { node ->
+                Stream(
+                    id = node.id,
+                    channelId = node.broadcaster?.id,
+                    channelLogin = node.broadcaster?.login,
+                    channelName = node.broadcaster?.displayName,
+                    channelImageURL = node.broadcaster?.profileImageURL,
+                    gameId = node.game?.id,
+                    gameSlug = node.game?.slug,
+                    gameName = node.game?.displayName,
+                    title = node.title,
+                    thumbnailURL = node.previewImageURL,
+                    createdAt = node.createdAt,
+                    viewerCount = node.viewersCount,
+                    tags = node.freeformTags?.mapNotNull { tag -> tag.name },
+                ).takeIf { it.channelId != null || it.channelLogin != null }
+            }
+        }
         return StreamFeedPage(
-            items = edges.mapNotNull { edge ->
-                edge.node.let { node ->
-                    Stream(
-                        id = node.id,
-                        channelId = node.broadcaster?.id,
-                        channelLogin = node.broadcaster?.login,
-                        channelName = node.broadcaster?.displayName,
-                        channelImageURL = node.broadcaster?.profileImageURL,
-                        gameId = node.game?.id,
-                        gameSlug = node.game?.slug,
-                        gameName = node.game?.displayName,
-                        title = node.title,
-                        thumbnailURL = node.previewImageURL,
-                        createdAt = node.createdAt,
-                        viewerCount = node.viewersCount,
-                        tags = node.freeformTags?.mapNotNull { tag -> tag.name },
-                    ).takeIf { it.channelId != null || it.channelLogin != null }
-                }
-            },
+            items = streamCreatedAtHydrator.hydrateMissingCreatedAt(items, networkLibrary, headers),
             nextCursor = nextStreamFeedCursor(
                 api = C.GQL_PERSISTED_QUERY,
                 currentCursor = cursor,

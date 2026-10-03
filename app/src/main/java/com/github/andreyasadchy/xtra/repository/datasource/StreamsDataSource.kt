@@ -5,6 +5,7 @@ import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.graphql.type.Language
 import com.github.andreyasadchy.xtra.graphql.type.StreamSort
 import com.github.andreyasadchy.xtra.model.ui.Stream
+import com.github.andreyasadchy.xtra.repository.StreamCreatedAtHydrator
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 
@@ -20,8 +21,10 @@ class StreamsDataSource(
     helixHeaders: Map<String, String>,
     helixRepository: HelixRepository,
     networkLibrary: String?,
+    streamCreatedAtHydrator: StreamCreatedAtHydrator,
 ) : PagingSource<Int, Stream>() {
     private val loader = TopStreamsPageLoader(
+        streamCreatedAtHydrator = streamCreatedAtHydrator,
         gqlQueryLanguages = gqlQueryLanguages,
         gqlQuerySort = gqlQuerySort,
         gqlLanguages = gqlLanguages,

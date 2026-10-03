@@ -40,6 +40,7 @@ import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
 import com.github.andreyasadchy.xtra.repository.preload.StreamMedia3Runtime
 import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfigurationStore
 import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
+import com.github.andreyasadchy.xtra.repository.StreamCreatedAtHydrator
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
 import com.github.andreyasadchy.xtra.repository.ViewingStatsRepository
@@ -681,8 +682,12 @@ class XtraModule(application: Application) {
         LocalGameFollowsRepository(database.localGameFollows())
     }
 
+    val streamCreatedAtHydrator by lazy {
+        StreamCreatedAtHydrator(graphQLRepository, (application as XtraApp).applicationScope)
+    }
+
     val recommendationsRepository by lazy {
-        RecommendationsRepository(application, graphQLRepository, localChannelFollowsRepository)
+        RecommendationsRepository(application, graphQLRepository, localChannelFollowsRepository, streamCreatedAtHydrator)
     }
 
     val notificationsRepository by lazy {
