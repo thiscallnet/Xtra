@@ -119,9 +119,9 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
                 deleteSavedSort.visibility = View.GONE
             }
             sort.check(originalSortId)
-            selectedTags = originalTags.toMutableList()
-            selectedLanguages = originalLanguages
-            originalTags.forEach { name ->
+            selectedTags = (savedInstanceState?.getStringArray(TAGS) ?: originalTags).toMutableList()
+            selectedLanguages = savedInstanceState?.getStringArray(LANGUAGES) ?: originalLanguages
+            selectedTags.forEach { name ->
                 tagGroup.addView(
                     Chip(requireContext()).apply {
                         text = name
@@ -211,5 +211,11 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putStringArray(TAGS, selectedTags.toTypedArray())
+        outState.putStringArray(LANGUAGES, selectedLanguages)
+        super.onSaveInstanceState(outState)
     }
 }

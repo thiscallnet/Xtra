@@ -2129,20 +2129,22 @@ class SettingsActivity : AppCompatActivity() {
                                 inputType = InputType.TYPE_CLASS_NUMBER
                                 hint = "1–600 seconds"
                             }
-                            requireActivity().getAlertDialogBuilder()
+                            val dialog = requireActivity().getAlertDialogBuilder()
                                 .setTitle(title)
                                 .setView(input)
-                                .setPositiveButton(android.R.string.ok) { _, _ ->
-                                    val seconds = input.text.toString().toIntOrNull()
-                                    if (seconds == null || seconds !in 1..600) {
-                                        Toast.makeText(requireContext(), "Enter a value from 1 to 600 seconds.", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        seekPreference.value = seconds.toString()
-                                        seekPreference.summary = "${seconds} sec"
-                                    }
-                                }
+                                .setPositiveButton(android.R.string.ok, null)
                                 .setNegativeButton(android.R.string.cancel, null)
                                 .show()
+                            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                                val seconds = input.text.toString().toIntOrNull()
+                                if (seconds == null || seconds !in 1..600) {
+                                    input.error = "Enter a value from 1 to 600 seconds."
+                                } else {
+                                    seekPreference.value = seconds.toString()
+                                    seekPreference.summary = "${seconds} sec"
+                                    dialog.dismiss()
+                                }
+                            }
                             false
                         } else {
                             preference.summary = "${newValue} sec"
@@ -3557,22 +3559,47 @@ class SettingsActivity : AppCompatActivity() {
                 val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10F, resources.displayMetrics).toInt()
                 setPadding(0, padding, 0, 0)
             }
-            val listContainer = android.widget.FrameLayout(requireContext()).apply {
+            lateinit var dialog: AlertDialog
+            val listContainer = LinearLayout(requireContext()).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(TextView(context).apply {
+                    setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
+                    text = "Drag to reorder. Uncheck to hide."
+                    // Leave room for the editable list on short landscape screens.
+                    isVisible = resources.configuration.screenHeightDp >= 400
+                    val padding = (24 * resources.displayMetrics.density).toInt()
+                    setPadding(padding, 0, padding, padding / 2)
+                })
                 addView(
                     recyclerView,
-                    android.widget.FrameLayout.LayoutParams(
+                    LinearLayout.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         (resources.displayMetrics.heightPixels * 0.42f).toInt(),
+                        1f,
                     ),
+                )
+                addView(
+                    com.google.android.material.button.MaterialButton(
+                        context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle,
+                    ).apply {
+                        text = "Add custom speed"
+                        setOnClickListener {
+                            dialog.dismiss()
+                            showCustomSpeedDialog(items)
+                        }
+                    },
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        val margin = (24 * resources.displayMetrics.density).toInt()
+                        marginStart = margin
+                        marginEnd = margin
+                    },
                 )
             }
             itemTouchHelper.attachToRecyclerView(recyclerView)
             listAdapter.submitList(items)
-            requireActivity().getAlertDialogBuilder()
+            dialog = requireActivity().getAlertDialogBuilder()
                 .setTitle(R.string.settings_playback_speed_options)
-                .setMessage("Drag to reorder. Uncheck values you do not want to show.")
                 .setView(listContainer)
-                .setNeutralButton("Add custom speed") { _, _ -> showCustomSpeedDialog(items) }
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     saveSpeeds(items)
                 }
@@ -3581,36 +3608,40 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         private fun showCustomSpeedDialog(items: MutableList<SettingsDragListItem>) {
-            // The neutral button dismisses the editor. Keep its current in-memory state
+            // Opening the custom-speed dialog dismisses the editor. Keep its current in-memory state
             // before opening the second dialog.
             saveSpeeds(items)
             val input = android.widget.EditText(requireContext()).apply {
                 inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
                 hint = "> 0 and ≤ 16"
             }
-            requireActivity().getAlertDialogBuilder()
+            val dialog = requireActivity().getAlertDialogBuilder()
                 .setTitle("Add custom speed")
                 .setView(input)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    val value = input.text.toString().toDoubleOrNull()
-                    if (value == null || value <= 0.0 || value > 16.0) {
-                        Toast.makeText(requireContext(), "Enter a speed between 0.25 and 16.", Toast.LENGTH_SHORT).show()
-                    } else {
-                        if (items.none { it.key.toDoubleOrNull() == value }) {
-                            items.add(SettingsDragListItem(value.toString(), "${value}×", default = false, enabled = true))
-                            saveSpeeds(items)
-                        }
-                    }
-                }
+                .setPositiveButton(android.R.string.ok, null)
                 .setNegativeButton(android.R.string.cancel, null)
                 .show()
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val value = input.text.toString().toFloatOrNull()
+                if (value == null || !value.isFinite() || value <= 0f || value > 16f) {
+                    input.error = "Enter a speed greater than 0 and at most 16."
+                } else {
+                    if (items.none { it.key.toFloatOrNull() == value }) {
+                        items.add(SettingsDragListItem(value.toString(), "${value}×", default = false, enabled = true))
+                        saveSpeeds(items)
+                    }
+                    dialog.dismiss()
+                }
+            }
         }
 
         private fun readSpeedItems(): MutableList<SettingsDragListItem> {
             val serialized = requireContext().prefs().getString(C.SETTINGS_PLAYER_SPEED_OPTIONS, null)
             val values = serialized?.split(',')?.mapNotNull { item ->
                 val parts = item.split(':')
-                val speed = parts.firstOrNull()?.toDoubleOrNull()?.takeIf { it > 0.0 && it <= 16.0 }
+                val speed = parts.firstOrNull()?.toDoubleOrNull()?.takeIf {
+                    it.toFloat().isFinite() && it.toFloat() > 0f && it <= 16.0
+                }
                 speed?.let {
                     SettingsDragListItem(
                         key = it.toString(),

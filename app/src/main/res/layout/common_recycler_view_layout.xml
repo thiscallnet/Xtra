@@ -50,8 +50,12 @@
 
     <TextView
         android:id="@+id/nothingHere"
-        android:layout_width="wrap_content"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginStart="24dp"
+        android:layout_marginEnd="24dp"
+        android:gravity="center"
+        app:layout_constraintWidth_max="480dp"
         android:text="@string/nothing_here"
         android:textAppearance="?attr/textAppearanceBodyMedium"
         android:textSize="20sp"

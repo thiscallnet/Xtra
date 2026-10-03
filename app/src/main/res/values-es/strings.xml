@@ -1485,4 +1485,6 @@
     <string name="playback_notification_channel">Reproducción multimedia</string>
     <string name="playback_notification_channel_description">Controles de reproducción multimedia y estado de inicio.</string>
     <string name="resuming_playback">Reanudando la reproducción</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages">Recordar los mensajes fijados ocultos</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages_summary">Mantener ocultos los mensajes fijados que marques como vistos al volver a abrir la transmisión.</string>
 </resources>

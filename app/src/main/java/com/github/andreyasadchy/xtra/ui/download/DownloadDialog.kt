@@ -75,6 +75,7 @@ class DownloadDialog : DialogFragment() {
         private const val KEY_QUALITY_CODECS = "quality_codecs"
         private const val KEY_QUALITY_BITRATES = "quality_bitrates"
         private const val KEY_QUALITY_URLS = "quality_urls"
+        private const val KEY_DRAFT = "download_draft"
 
         fun newStreamInstance(id: String?, channelId: String?, channelLogin: String?, channelName: String?, channelImage: String?, gameId: String?, gameSlug: String?, gameName: String?, title: String?, thumbnail: String?, createdAt: String?, qualityNames: Array<String>? = null, qualityCodecs: Array<String>? = null, qualityBitrates: Array<String>? = null, qualityUrls: Array<String>? = null): DownloadDialog {
             return DownloadDialog().apply {
@@ -160,9 +161,25 @@ class DownloadDialog : DialogFragment() {
     private val viewModel: DownloadViewModel by viewModels { DownloadViewModelFactory }
     private var sharedPath: String? = null
     private var directoryResultLauncher: ActivityResultLauncher<Intent>? = null
+    private var draft: Bundle? = null
+    private var initialized = false
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         _binding = DialogVideoDownloadBinding.inflate(layoutInflater)
+        draft = savedInstanceState?.getBundle(KEY_DRAFT)
+        sharedPath = draft?.getString("path")
+        initialized = false
+        binding.loadingCancel.setOnClickListener { dismiss() }
+        binding.retryLoad.setOnClickListener { viewModel.retry() }
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.loadFailed.collectLatest { failed ->
+                    binding.loadError.isVisible = failed
+                    binding.retryLoad.isVisible = failed
+                    binding.progressBar.isVisible = !failed
+                }
+            }
+        }
         val builder = requireContext().getAlertDialogBuilder()
             .setView(binding.root)
         directoryResultLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -292,10 +309,13 @@ class DownloadDialog : DialogFragment() {
     }
 
     private fun init(qualities: List<VideoQuality>, totalDuration: Long = 0, currentPosition: Long = 0) {
+        if (initialized) return
+        initialized = true
         val type = requireArguments().getString(KEY_TYPE)
         binding.layout.children.forEach {
-            it.isVisible = it.id != R.id.progressBar && it.id != R.id.timeLayout && it.id != R.id.sharedStorageLayout && it.id != R.id.appStorageLayout
+            it.isVisible = it.id != R.id.loadState && it.id != R.id.timeLayout && it.id != R.id.sharedStorageLayout && it.id != R.id.appStorageLayout
         }
+        binding.downloadActions.isVisible = true
         val storageLocations = resources.getStringArray(R.array.spinnerStorage)
         val storage = requireContext().getExternalFilesDirs(".downloads").mapIndexedNotNull { index, file ->
             file?.absolutePath?.let { path ->
@@ -343,7 +363,8 @@ class DownloadDialog : DialogFragment() {
             }
             (spinner.editText as? MaterialAutoCompleteTextView)?.apply {
                 val array = qualityMap.map { it.first }.toTypedArray()
-                val selectedQuality = viewModel.selectedQuality ?: array.first()
+                val selectedQuality = (draft?.getString("quality") ?: viewModel.selectedQuality)
+                    ?.takeIf { it in array } ?: array.first()
                 setSimpleItems(array)
                 setText(selectedQuality, false)
             }
@@ -353,15 +374,18 @@ class DownloadDialog : DialogFragment() {
                 val totalTime = DateUtils.formatElapsedTime(totalDuration / 1000L)
                 val defaultTo = totalTime.let { if (it.length != 5) it else "00:$it" }
                 duration.text = getString(R.string.duration, totalTime)
-                timeTo.editText?.hint = defaultTo
-                timeFrom.editText?.hint = defaultFrom
+                timeTo.placeholderText = defaultTo
+                timeFrom.placeholderText = defaultFrom
+                timeFrom.editText?.setText(draft?.getString("from"))
+                timeTo.editText?.setText(draft?.getString("to"))
                 timeFrom.editText?.doOnTextChanged { text, _, _, _ -> if (text?.length == 8) timeTo.requestFocus() }
                 addTextChangeListener(timeFrom.editText)
                 addTextChangeListener(timeTo.editText)
             }
             with(storageSelectionContainer) {
                 if (Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED) {
-                    val location = requireContext().prefs().getInt(C.DOWNLOAD_LOCATION, 0)
+                    val location = (draft?.getInt("location") ?: requireContext().prefs().getInt(C.DOWNLOAD_LOCATION, 0))
+                        .coerceIn(storageLocations.indices)
                     (storageSpinner.editText as? MaterialAutoCompleteTextView)?.apply {
                         setSimpleItems(storageLocations)
                         setOnItemClickListener { _, _, position, _ ->
@@ -435,7 +459,7 @@ class DownloadDialog : DialogFragment() {
                                 }
                             )
                         }
-                        radioGroup.check(requireContext().prefs().getInt(C.DOWNLOAD_STORAGE, 0))
+                        radioGroup.check(draft?.getInt("storage") ?: requireContext().prefs().getInt(C.DOWNLOAD_STORAGE, 0))
                     }
                 } else {
                     noStorageDetected.visibility = View.VISIBLE
@@ -446,13 +470,13 @@ class DownloadDialog : DialogFragment() {
                 }
             }
             downloadChat.apply {
-                isChecked = requireContext().prefs().getBoolean(C.DOWNLOAD_CHAT, false)
+                isChecked = draft?.getBoolean("chat") ?: requireContext().prefs().getBoolean(C.DOWNLOAD_CHAT, false)
                 setOnCheckedChangeListener { _, isChecked ->
                     downloadChatEmotes.isEnabled = isChecked
                 }
             }
             downloadChatEmotes.apply {
-                isChecked = requireContext().prefs().getBoolean(C.DOWNLOAD_CHAT_EMOTES, false)
+                isChecked = draft?.getBoolean("emotes") ?: requireContext().prefs().getBoolean(C.DOWNLOAD_CHAT_EMOTES, false)
                 isEnabled = downloadChat.isChecked
             }
             cancel.setOnClickListener { dismiss() }
@@ -671,6 +695,24 @@ class DownloadDialog : DialogFragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (initialized) {
+            draft = Bundle().apply {
+                putString("quality", binding.spinner.editText?.text?.toString())
+                putString("from", binding.timeFrom.editText?.text?.toString())
+                putString("to", binding.timeTo.editText?.text?.toString())
+                putInt("location", resources.getStringArray(R.array.spinnerStorage)
+                    .indexOf(binding.storageSelectionContainer.storageSpinner.editText?.text?.toString()))
+                putInt("storage", binding.storageSelectionContainer.radioGroup.checkedRadioButtonId)
+                putString("path", sharedPath)
+                putBoolean("chat", binding.downloadChat.isChecked)
+                putBoolean("emotes", binding.downloadChatEmotes.isChecked)
+            }
+        }
+        outState.putBundle(KEY_DRAFT, draft)
+        super.onSaveInstanceState(outState)
     }
 }
 

@@ -1,10 +1,12 @@
 package com.github.andreyasadchy.xtra.ui.search
 
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SearchView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -13,6 +15,7 @@ import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.FragmentManager
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
@@ -39,6 +42,8 @@ import com.github.andreyasadchy.xtra.ui.common.Sortable
 import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel.Companion.SearchPagerViewModelFactory
+import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel.UserLookupRequest
+import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel.UserLookupState
 import com.github.andreyasadchy.xtra.ui.search.streams.StreamSearchFragment
 import com.github.andreyasadchy.xtra.ui.search.streams.SearchStreamSuggestionsHeaderAdapter
 import com.github.andreyasadchy.xtra.ui.settings.setTabCustomizationLongPress
@@ -73,6 +78,8 @@ internal fun shouldShowDropsFilter(
 
 class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
 
+    override val initializeWithoutNetwork = true
+
     private var _binding: FragmentSearchBinding? = null
     private val binding get() = _binding!!
     private val viewModel: SearchPagerViewModel by viewModels { SearchPagerViewModelFactory }
@@ -88,6 +95,16 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     private var searchTabKeys: List<String> = emptyList()
     private lateinit var streamSuggestionsAdapter: SearchStreamSuggestionsHeaderAdapter
     private lateinit var recentSearchesAdapter: SearchRecentQueryAdapter
+    private var lookupDialog: AlertDialog? = null
+    private var lookupBinding: DialogUserResultBinding? = null
+    private var restoredLookup: UserLookupRequest? = null
+    private val searchPageCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+        override fun onFragmentResumed(fm: FragmentManager, fragment: Fragment) {
+            if (_binding != null && fragment === currentFragment) {
+                searchCurrent(binding.searchView.query.toString().trim())
+            }
+        }
+    }
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -95,6 +112,9 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         firstLaunch = savedInstanceState == null
+        restoredLookup = savedInstanceState?.getString("lookupInput")?.let {
+            UserLookupRequest(savedInstanceState.getBoolean("lookupById"), it)
+        }
         initialQuery = if (savedInstanceState == null) arguments?.getString(INITIAL_QUERY) else null
         initialTab = if (savedInstanceState == null) arguments?.getInt(INITIAL_TAB, -1) ?: -1 else -1
         queryBeforeDropsFilters = savedInstanceState?.getString(DROPS_QUERY_BEFORE)
@@ -124,6 +144,14 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        childFragmentManager.registerFragmentLifecycleCallbacks(searchPageCallbacks, false)
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                restoredLookup?.let { showUserLookupDialog(it) }
+                restoredLookup = null
+                viewModel.userLookup.collectLatest(::renderUserLookup)
+            }
+        }
         liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
         ViewCompat.setOnApplyWindowInsetsListener(binding.searchLandingScrollView) { scrollView, windowInsets ->
             val navigationRailIsVisible =
@@ -269,51 +297,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             toolbar.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     R.id.searchUser -> {
-                        val binding = DialogUserResultBinding.inflate(layoutInflater)
-                        requireContext().getAlertDialogBuilder().apply {
-                            setView(binding.root)
-                            setNegativeButton(getString(android.R.string.cancel), null)
-                            setPositiveButton(getString(android.R.string.ok)) { _, _ ->
-                                val result = binding.editText.editText?.text?.toString()
-                                val checkedId = if (binding.radioButton.isChecked) 0 else 1
-                                if (!result.isNullOrBlank()) {
-                                    userResult = Pair(checkedId, result)
-                                    viewModel.loadUserResult(
-                                        checkedId = checkedId,
-                                        result = result,
-                                        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                        gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-                                    )
-                                    viewLifecycleOwner.lifecycleScope.launch {
-                                        repeatOnLifecycle(Lifecycle.State.STARTED) {
-                                            viewModel.userResult.collectLatest {
-                                                if (it != null) {
-                                                    if (!it.first.isNullOrBlank()) {
-                                                        requireContext().getAlertDialogBuilder().apply {
-                                                            setTitle(it.first)
-                                                            setMessage(it.second)
-                                                            setNegativeButton(getString(android.R.string.cancel), null)
-                                                            setPositiveButton(getString(R.string.view_profile)) { _, _ -> viewUserResult() }
-                                                        }.show()
-                                                    } else {
-                                                        viewUserResult()
-                                                    }
-                                                    viewModel.userResult.value = null
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            setNeutralButton(getString(R.string.view_profile)) { _, _ ->
-                                val result = binding.editText.editText?.text?.toString()
-                                val checkedId = if (binding.radioButton.isChecked) 0 else 1
-                                if (!result.isNullOrBlank()) {
-                                    userResult = Pair(checkedId, result)
-                                    viewUserResult()
-                                }
-                            }
-                        }.show()
+                        showUserLookupDialog()
                         true
                     }
                     else -> false
@@ -348,7 +332,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 }
                 updateSearchLandingVisibility()
                 if (query.isNotEmpty()) {
-                    job = lifecycleScope.launch {
+                    job = viewLifecycleOwner.lifecycleScope.launch {
                         delay(350L)
                         withResumed {
                             searchCurrent(query)
@@ -362,19 +346,11 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         })
         initialQuery?.takeIf { it.isNotBlank() }?.let { query ->
             binding.searchView.setQuery(query, false)
-            lifecycleScope.launch {
-                repeat(5) {
-                    if (!initialQueryPending) return@launch
-                    delay(100L)
-                    withResumed {
-                        if (initialQueryPending && currentFragment != null) {
-                            searchCurrent(query)
-                        }
-                    }
-                }
-            }
         }
         updateSearchLandingVisibility()
+        binding.viewPager.post {
+            if (_binding != null) searchCurrent(binding.searchView.query.toString().trim())
+        }
     }
 
     override fun onResume() {
@@ -536,30 +512,130 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         )
     }
 
-    private var userResult: Pair<Int?, String?>? = null
+    private fun showUserLookupDialog(request: UserLookupRequest? = null) {
+        if (lookupDialog != null) return
+        val input = DialogUserResultBinding.inflate(layoutInflater)
+        lookupBinding = input
+        request?.let {
+            input.radioButton.isChecked = it.byId
+            input.radioButton2.isChecked = !it.byId
+            input.editText.editText?.setText(it.input)
+        }
+        val dialog = requireContext().getAlertDialogBuilder()
+            .setView(input.root)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(android.R.string.ok, null)
+            .setNeutralButton(R.string.view_profile, null)
+            .create()
+        lookupDialog = dialog
+        dialog.setOnDismissListener {
+            lookupDialog = null
+            lookupBinding = null
+            viewModel.clearUserLookup()
+        }
+        dialog.setOnShowListener {
+            fun currentRequest(): UserLookupRequest? = input.editText.editText?.text?.toString()
+                ?.trim()?.takeIf(String::isNotEmpty)?.let { UserLookupRequest(input.radioButton.isChecked, it) }
 
-    private fun viewUserResult() {
-        userResult?.let {
-            when (it.first) {
-                0 -> findNavController().navigate(
-                    ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                        channelId = it.second
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                currentRequest()?.let {
+                    viewModel.loadUserResult(
+                        request = it,
+                        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                        gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
                     )
-                )
-                1 -> findNavController().navigate(
-                    ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                        channelLogin = it.second
-                    )
-                )
-                else -> {}
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                currentRequest()?.let {
+                    dialog.dismiss()
+                    viewUserResult(it)
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun renderUserLookup(state: UserLookupState) {
+        when (state) {
+            UserLookupState.Idle -> return
+            is UserLookupState.Success -> {
+                viewModel.clearUserLookup()
+                lookupDialog?.dismiss()
+                if (state.type.isNullOrBlank()) {
+                    viewUserResult(state.request)
+                } else {
+                    requireContext().getAlertDialogBuilder()
+                        .setTitle(state.type)
+                        .setMessage(state.reason)
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .setPositiveButton(R.string.view_profile) { _, _ -> viewUserResult(state.request) }
+                        .show()
+                }
+                return
+            }
+            is UserLookupState.Loading -> showUserLookupDialog(state.request)
+            is UserLookupState.Failed -> showUserLookupDialog(state.request)
+        }
+        val loading = state is UserLookupState.Loading
+        lookupBinding?.apply {
+            editText.error = if (state is UserLookupState.Failed) getString(R.string.error_loading_user) else null
+            editText.helperText = if (loading) getString(R.string.loading) else null
+            editText.editText?.isEnabled = !loading
+            radioButton.isEnabled = !loading
+            radioButton2.isEnabled = !loading
+        }
+        lookupDialog?.apply {
+            getButton(AlertDialog.BUTTON_POSITIVE).apply {
+                isEnabled = !loading
+                setText(if (state is UserLookupState.Failed) R.string.retry else android.R.string.ok)
+            }
+            getButton(AlertDialog.BUTTON_NEUTRAL).isEnabled = !loading
+        }
+    }
+
+    private fun viewUserResult(request: UserLookupRequest) {
+        findNavController().navigate(
+            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+                channelId = request.input.takeIf { request.byId },
+                channelLogin = request.input.takeUnless { request.byId },
+            )
+        )
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val input = lookupBinding ?: return
+        val request = UserLookupRequest(input.radioButton.isChecked, input.editText.editText?.text?.toString().orEmpty())
+        val wasDraft = viewModel.userLookup.value == UserLookupState.Idle
+        // MainActivity handles rotation itself; floating dialogs retain their old
+        // window constraints unless rebuilt for the new configuration.
+        dismissLookupForRecreation()
+        binding.root.post {
+            if (_binding == null || !isResumed || lookupDialog != null) return@post
+            val state = viewModel.userLookup.value
+            if (state == UserLookupState.Idle) {
+                if (wasDraft) showUserLookupDialog(request)
+            } else {
+                renderUserLookup(state)
             }
         }
     }
 
+    private fun dismissLookupForRecreation() {
+        lookupDialog?.setOnDismissListener(null)
+        lookupDialog?.dismiss()
+        lookupDialog = null
+        lookupBinding = null
+    }
+
     override fun onNetworkRestored() {
+        searchCurrent(binding.searchView.query.toString().trim())
     }
 
     override fun onDestroyView() {
+        childFragmentManager.unregisterFragmentLifecycleCallbacks(searchPageCallbacks)
+        dismissLookupForRecreation()
         dispatchPagerScrollState(false)
         liftTargetConnector?.disconnect()
         liftTargetConnector = null
@@ -568,6 +644,10 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        lookupBinding?.let {
+            outState.putString("lookupInput", it.editText.editText?.text?.toString())
+            outState.putBoolean("lookupById", it.radioButton.isChecked)
+        }
         outState.putBoolean(DROPS_FILTER_ENABLED, dropsFilters.isNotEmpty())
         outState.putParcelableArrayList(DROPS_FILTERS, ArrayList(dropsFilters))
         queryBeforeDropsFilters?.let { outState.putString(DROPS_QUERY_BEFORE, it) }

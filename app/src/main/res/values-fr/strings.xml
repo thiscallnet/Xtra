@@ -1480,4 +1480,6 @@
     <string name="playback_notification_channel">Lecture multimédia</string>
     <string name="playback_notification_channel_description">Commandes et état de démarrage pour la lecture multimédia.</string>
     <string name="resuming_playback">Reprise de la lecture</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages">Mémoriser les messages épinglés masqués</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages_summary">Garder masqués les messages épinglés marqués comme vus lorsque vous rouvrez cette diffusion.</string>
 </resources>

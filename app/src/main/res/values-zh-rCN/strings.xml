@@ -1480,4 +1480,6 @@
     <string name="playback_notification_channel">媒体播放</string>
     <string name="playback_notification_channel_description">媒体播放控件和播放启动状态。</string>
     <string name="resuming_playback">正在恢复播放</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages">记住已隐藏的置顶消息</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages_summary">重新打开该直播时，仍隐藏已标记为已读的置顶消息。</string>
 </resources>

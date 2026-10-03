@@ -1,5 +1,7 @@
 package com.github.andreyasadchy.xtra.repository.datasource
 
+import kotlinx.coroutines.CancellationException
+
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.graphql.type.ClipsPeriod
@@ -30,6 +32,7 @@ class ChannelClipsDataSource(
             try {
                 loadFromApi(params)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 LoadResult.Error(e)
             }
         } else {
@@ -37,14 +40,17 @@ class ChannelClipsDataSource(
                 api = C.GQL
                 loadFromApi(params)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 try {
                     api = C.HELIX
                     loadFromApi(params)
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     try {
                         api = C.GQL_PERSISTED_QUERY
                         loadFromApi(params)
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         LoadResult.Error(e)
                     }
                 }
