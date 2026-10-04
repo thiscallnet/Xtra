@@ -1480,4 +1480,6 @@
     <string name="playback_notification_channel">メディア再生</string>
     <string name="playback_notification_channel_description">メディア再生の操作と再生開始の状態。</string>
     <string name="resuming_playback">再生を再開しています</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages">非表示にした固定メッセージを記憶する</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages_summary">既読にした固定メッセージを、その配信を再度開いたときも非表示にします。</string>
 </resources>

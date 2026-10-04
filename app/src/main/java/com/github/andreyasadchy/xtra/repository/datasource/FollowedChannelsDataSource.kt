@@ -1,5 +1,7 @@
 package com.github.andreyasadchy.xtra.repository.datasource
 
+import kotlinx.coroutines.CancellationException
+
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.model.ui.User
@@ -33,6 +35,7 @@ class FollowedChannelsDataSource(
             val result = try {
                 loadFromApi(params)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 return LoadResult.Error(e)
             }
             if (result !is LoadResult.Page) {
@@ -86,6 +89,7 @@ class FollowedChannelsDataSource(
                             return response
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         remoteError = e
                     }
                 }

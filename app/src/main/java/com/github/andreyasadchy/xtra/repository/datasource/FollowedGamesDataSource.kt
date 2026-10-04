@@ -1,5 +1,7 @@
 package com.github.andreyasadchy.xtra.repository.datasource
 
+import kotlinx.coroutines.CancellationException
+
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.model.ui.Game
@@ -34,6 +36,7 @@ class FollowedGamesDataSource(
                     throw Exception()
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 try {
                     if (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         gqlLoad()
@@ -41,6 +44,7 @@ class FollowedGamesDataSource(
                         throw Exception()
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     null
                 }
             }?.let {

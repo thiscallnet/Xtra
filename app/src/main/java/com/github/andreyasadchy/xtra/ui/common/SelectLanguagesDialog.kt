@@ -44,18 +44,19 @@ class SelectLanguagesDialog : BottomSheetDialogFragment() {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = DialogSelectLanguagesBinding.inflate(inflater, container, false)
-        requireArguments().getStringArray(SELECTED_LANGUAGES)?.let { selectedLanguages = it.toMutableList() }
+        selectedLanguages = (savedInstanceState?.getStringArray(SELECTED_LANGUAGES)
+            ?: requireArguments().getStringArray(SELECTED_LANGUAGES)).orEmpty().toMutableList()
         val languageEntries = resources.getStringArray(R.array.gqlUserLanguageEntries)
         resources.getStringArray(R.array.gqlUserLanguageValues).forEachIndexed { index, language ->
             binding.languageLayout.addView(AppCompatCheckBox(requireContext()).apply {
                 id = index
                 text = languageEntries[index]
                 isChecked = selectedLanguages.contains(language)
-                setOnClickListener {
-                    if (selectedLanguages.contains(language)) {
-                        selectedLanguages.remove(language)
-                    } else {
+                setOnCheckedChangeListener { _, checked ->
+                    if (checked && !selectedLanguages.contains(language)) {
                         selectedLanguages.add(language)
+                    } else if (!checked) {
+                        selectedLanguages.remove(language)
                     }
                 }
             })
@@ -87,5 +88,10 @@ class SelectLanguagesDialog : BottomSheetDialogFragment() {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putStringArray(SELECTED_LANGUAGES, selectedLanguages.toTypedArray())
+        super.onSaveInstanceState(outState)
     }
 }

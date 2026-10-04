@@ -1,5 +1,7 @@
 package com.github.andreyasadchy.xtra.repository.datasource
 
+import kotlinx.coroutines.CancellationException
+
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
 import com.github.andreyasadchy.xtra.model.ui.Stream
@@ -41,6 +43,7 @@ class FollowedStreamsDataSource(
                 nextKey = page.nextCursor?.let { (params.key ?: 1) + 1 },
             )
         } catch (error: Exception) {
+            if (error is CancellationException) throw error
             LoadResult.Error(error)
         }
     }

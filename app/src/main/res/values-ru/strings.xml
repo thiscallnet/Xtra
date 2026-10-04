@@ -1480,4 +1480,6 @@
     <string name="playback_notification_channel">Воспроизведение мультимедиа</string>
     <string name="playback_notification_channel_description">Элементы управления воспроизведением мультимедиа и состояние запуска.</string>
     <string name="resuming_playback">Возобновление воспроизведения</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages">Запоминать скрытые закреплённые сообщения</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages_summary">Оставлять скрытыми закреплённые сообщения, отмеченные как просмотренные, при повторном открытии трансляции.</string>
 </resources>

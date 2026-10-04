@@ -17,6 +17,8 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +46,13 @@ class DownloadViewModel(
     val dismiss = MutableStateFlow(false)
     var backupQualities: List<String>? = null
     var selectedQuality: String? = null
+    val loadFailed = MutableStateFlow(false)
+    private var loadJob: Job? = null
+    private var retryLoad: (() -> Unit)? = null
+
+    fun retry() {
+        if (loadJob?.isActive != true) retryLoad?.invoke()
+    }
 
     fun setStream(networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String?, qualities: List<VideoQuality>?, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?) {
         if (_qualities.value == null) {
@@ -145,6 +154,7 @@ class DownloadViewModel(
                                 }
                             }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         _qualities.value = default.map {
                             VideoQuality(it, url = "")
                         }
@@ -155,11 +165,13 @@ class DownloadViewModel(
     }
 
     fun setVideo(networkLibrary: String?, gqlHeaders: Map<String, String>, videoId: String?, animatedPreviewUrl: String?, videoType: String?, qualities: List<VideoQuality>?, playerType: String?, supportedCodecs: String?) {
-        if (_qualities.value == null) {
+        if (_qualities.value.isNullOrEmpty() && loadJob?.isActive != true) {
+            retryLoad = { setVideo(networkLibrary, gqlHeaders, videoId, animatedPreviewUrl, videoType, qualities, playerType, supportedCodecs) }
+            loadFailed.value = false
             if (!qualities.isNullOrEmpty()) {
                 _qualities.value = qualities
             } else {
-                viewModelScope.launch {
+                loadJob = viewModelScope.launch {
                     try {
                         val result = playerRepository.loadVideoPlaylistUrl(networkLibrary, gqlHeaders, videoId, playerType, supportedCodecs)
                         val url = result.first
@@ -344,21 +356,25 @@ class DownloadViewModel(
                             }
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         if (e is IllegalAccessException) {
                             dismiss.value = true
                         }
                     }
+                    loadFailed.value = _qualities.value.isNullOrEmpty() && !dismiss.value
                 }
             }
         }
     }
 
     fun setClip(networkLibrary: String?, gqlHeaders: Map<String, String>, clipId: String?, qualities: List<VideoQuality>?) {
-        if (_qualities.value == null) {
+        if (_qualities.value.isNullOrEmpty() && loadJob?.isActive != true) {
+            retryLoad = { setClip(networkLibrary, gqlHeaders, clipId, qualities) }
+            loadFailed.value = false
             if (!qualities.isNullOrEmpty()) {
                 _qualities.value = qualities
             } else {
-                viewModelScope.launch {
+                loadJob = viewModelScope.launch {
                     try {
                         val list = playerRepository.loadClipQualities(networkLibrary, gqlHeaders, clipId)
                         if (list != null) {
@@ -374,7 +390,9 @@ class DownloadViewModel(
                                 }
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                     }
+                    loadFailed.value = _qualities.value.isNullOrEmpty()
                 }
             }
         }

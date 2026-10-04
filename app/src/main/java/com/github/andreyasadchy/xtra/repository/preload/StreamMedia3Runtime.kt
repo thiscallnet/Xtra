@@ -29,6 +29,7 @@ import com.github.andreyasadchy.xtra.ui.player.SmoothHlsTrackSelector
 import com.github.andreyasadchy.xtra.ui.player.DesiredHlsQuality
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
+import com.github.andreyasadchy.xtra.ui.player.PlaybackRenderersFactory
 import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
 import com.github.andreyasadchy.xtra.util.C
@@ -638,6 +639,7 @@ class StreamMedia3Runtime(
         check(Looper.myLooper() == Looper.getMainLooper()) { "Preview player creation must run on the main looper" }
         val generation = ensureGeneration()
         return ExoPlayer.Builder(playerContext, generation.hlsFactory).apply {
+            setRenderersFactory(PlaybackRenderersFactory(playerContext))
             setLoadControl(
                 LivePlaybackPolicies.LOW_LATENCY.buffers.buildLoadControl {
                     setTargetBufferBytes(4 * 1024 * 1024)

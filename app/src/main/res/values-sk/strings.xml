@@ -1503,4 +1503,6 @@
     <string name="playback_notification_channel">Prehrávanie médií</string>
     <string name="playback_notification_channel_description">Ovládacie prvky prehrávania médií a jeho stav pri spustení.</string>
     <string name="resuming_playback">Obnovuje sa prehrávanie</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages">Zapamätať skryté pripnuté správy</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages_summary">Ponechať skryté pripnuté správy označené ako videné aj po opätovnom otvorení streamu.</string>
 </resources>

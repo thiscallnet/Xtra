@@ -1480,4 +1480,6 @@
     <string name="playback_notification_channel">Riproduzione multimediale</string>
     <string name="playback_notification_channel_description">Comandi e stato di avvio della riproduzione multimediale.</string>
     <string name="resuming_playback">Ripresa della riproduzione</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages">Ricorda i messaggi fissati nascosti</string>
+    <string name="settings_chat_remember_dismissed_pinned_messages_summary">Mantieni nascosti i messaggi fissati che contrassegni come visti quando riapri la trasmissione.</string>
 </resources>

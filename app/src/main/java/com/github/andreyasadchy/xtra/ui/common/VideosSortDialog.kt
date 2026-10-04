@@ -139,7 +139,7 @@ class VideosSortDialog : BottomSheetDialogFragment(), SelectLanguagesDialog.OnSe
             sort.check(originalSortId)
             period.check(originalPeriodId)
             sortType.check(originalTypeId)
-            selectedLanguages = originalLanguages
+            selectedLanguages = savedInstanceState?.getStringArray(LANGUAGES) ?: originalLanguages
             saveSort.setOnClickListener {
                 applyFilters(originalPeriodId, originalSortId, originalTypeId, originalLanguages, saveSort = true, saveDefault = false)
                 dismiss()
@@ -211,5 +211,10 @@ class VideosSortDialog : BottomSheetDialogFragment(), SelectLanguagesDialog.OnSe
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putStringArray(LANGUAGES, selectedLanguages)
+        super.onSaveInstanceState(outState)
     }
 }
