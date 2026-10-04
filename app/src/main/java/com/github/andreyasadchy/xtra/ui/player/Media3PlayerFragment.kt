@@ -35,7 +35,6 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.ViewPropertyAnimator
-import android.view.ViewTreeObserver
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.FrameLayout
@@ -109,7 +108,6 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
-import com.github.andreyasadchy.xtra.util.isKeyboardShown
 import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.ui.player.hud.HudElementId
 import com.github.andreyasadchy.xtra.ui.player.hud.HudOrientation
@@ -157,7 +155,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     var isMaximized = true
     private var isChatOpen = true
     private var isKeyboardShown = false
-    private var keyboardLayoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
     private var resizeMode = 0
     private var chatWidthLandscape = 0
     private var phoneChatOverlayGesture: PhoneChatOverlayGestureController? = null
@@ -660,6 +657,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             val ignoreCutouts = requireContext().prefs().getBoolean(C.UI_DRAW_BEHIND_CUTOUTS, false)
             val cornerPadding = requireContext().prefs().getBoolean(C.PLAYER_ROUNDED_CORNER_PADDING, false)
             ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
+                updateKeyboardState(windowInsets)
                 val insets = if (!isPortrait && ignoreCutouts) {
                     windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.ime())
                 } else {
@@ -1417,32 +1415,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                 toggleChatBar()
                             }
                         }
-                        keyboardLayoutListener?.let(slidingLayout.viewTreeObserver::removeOnGlobalLayoutListener)
-                        keyboardLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
-                            val currentBinding = _binding ?: return@OnGlobalLayoutListener
-                            val currentContext = context ?: return@OnGlobalLayoutListener
-                            if (currentBinding.slidingLayout.isKeyboardShown) {
-                                if (!isKeyboardShown) {
-                                    isKeyboardShown = true
-                                    if (!isPortrait && !currentContext.isTelevision() && !phoneChatOverlayEnabled(currentContext)) {
-                                        currentBinding.chatLayout.updateLayoutParams { width = (currentBinding.slidingLayout.width / 1.8f).toInt() }
-                                        showStatusBar()
-                                    }
-                                }
-                            } else {
-                                if (isKeyboardShown) {
-                                    isKeyboardShown = false
-                                    currentBinding.chatLayout.clearFocus()
-                                    if (!isPortrait && !currentContext.isTelevision() && !phoneChatOverlayEnabled(currentContext)) {
-                                        currentBinding.chatLayout.updateLayoutParams { width = effectiveLandscapeChatWidth() }
-                                        if (isMaximized) {
-                                            hideStatusBar()
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        slidingLayout.viewTreeObserver.addOnGlobalLayoutListener(keyboardLayoutListener)
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -2506,6 +2478,38 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (availableWidth <= 0) return chatWidthLandscape
         val percentage = requireContext().prefs().getInt(C.CHAT_WIDTH_PERCENT, 30)
         return landscapeChatWidthForAvailableWidth(availableWidth, percentage)
+    }
+
+    private fun updateKeyboardState(windowInsets: WindowInsetsCompat) {
+        val currentBinding = _binding ?: return
+        val currentContext = context ?: return
+        val chatImeVisible = videoType == STREAM && windowInsets.isVisible(WindowInsetsCompat.Type.ime())
+        val visibilityChanged = isKeyboardShown != chatImeVisible
+        isKeyboardShown = chatImeVisible
+
+        if (!chatImeVisible && visibilityChanged) {
+            currentBinding.chatLayout.clearFocus()
+        }
+        val canResizeChat = videoType == STREAM && !isPortrait && !currentContext.isTelevision() &&
+            !phoneChatOverlayEnabled(currentContext) && (chatImeVisible || visibilityChanged)
+        if (!canResizeChat) return
+
+        val layoutWidth = currentBinding.slidingLayout.width
+        if (layoutWidth > 0) {
+            val chatWidth = if (chatImeVisible) (layoutWidth / 1.8f).toInt() else effectiveLandscapeChatWidth()
+            currentBinding.playerLayout.updateLayoutParams<FrameLayout.LayoutParams> {
+                marginEnd = chatWidth
+            }
+            if (currentBinding.chatLayout.layoutParams.width != chatWidth) {
+                currentBinding.chatLayout.updateLayoutParams { width = chatWidth }
+            }
+        }
+
+        if (chatImeVisible && !windowInsets.isVisible(WindowInsetsCompat.Type.statusBars())) {
+            showStatusBar()
+        } else if (!chatImeVisible && visibilityChanged && isMaximized) {
+            hideStatusBar()
+        }
     }
 
     protected fun setQualityButtonColor(color: Int) {
@@ -4983,10 +4987,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         phoneChatOverlayGesture?.detach()
         phoneChatOverlayGesture = null
         _binding?.let { cancelLiveTapSeek() }
-        _binding?.let { binding ->
-            keyboardLayoutListener?.let(binding.slidingLayout.viewTreeObserver::removeOnGlobalLayoutListener)
-        }
-        keyboardLayoutListener = null
         _binding?.playerControls?.root?.let { root ->
             pendingTvFocusRequest?.let(root::removeCallbacks)
             root.removeCallbacks(controllerHideAction)

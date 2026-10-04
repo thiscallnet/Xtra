@@ -1,6 +1,5 @@
 package com.github.andreyasadchy.xtra.util
 
-import android.graphics.Rect
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.view.ViewCompat
@@ -8,18 +7,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
-
-val View.isKeyboardShown: Boolean
-    get() {
-        val rect = Rect()
-        getWindowVisibleDisplayFrame(rect)
-        val screenHeight = rootView.height
-
-        // rect.bottom is the position above soft keypad or device button.
-        // if keypad is shown, the r.bottom is smaller than that before.
-        val keypadHeight = screenHeight - rect.bottom
-        return keypadHeight > screenHeight * 0.15
-    }
 
 fun ViewPager2.reduceDragSensitivity() {
     try {
