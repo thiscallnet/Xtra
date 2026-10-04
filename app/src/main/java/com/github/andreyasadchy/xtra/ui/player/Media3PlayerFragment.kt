@@ -2242,21 +2242,21 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private fun resolveQualityPickerSelection(
         qualities: List<Pair<String, VideoQuality>>,
     ): QualityPickerSelection? {
-        for (candidate in qualityPickerSelectionCandidates()) {
+        val candidates = qualityPickerSelectionCandidates()
+        for (candidate in candidates) {
             val selected = candidate.quality
             val name = selected.name?.takeIf { it.isNotBlank() } ?: continue
-            val exactMatch = qualities.indexOfFirst { (_, option) ->
-                option.name.equals(name, ignoreCase = true) && option.url == selected.url
+            val identity = SourceSwitchQualityIdentity(name, selected.codecs, selected.bitrate)
+            val identityMatches = qualities.withIndex().filter { (_, entry) ->
+                identity.matchesExact(entry.second)
             }
-            if (exactMatch >= 0) return QualityPickerSelection(exactMatch, qualities[exactMatch].first)
-
-            val sameName = qualities.withIndex().filter { (_, entry) ->
-                entry.second.name.equals(name, ignoreCase = true)
+            val urlMatch = selected.url?.let { selectedUrl ->
+                identityMatches.singleOrNull { (_, entry) -> entry.second.url == selectedUrl }
             }
-            if (sameName.size == 1) {
-                val selectedIndex = sameName.single().index
-                return QualityPickerSelection(selectedIndex, qualities[selectedIndex].first)
-            }
+            // URLs change across source switches. Use quality identity first, and keep an
+            // incomplete identity unchecked when more than one catalog row still matches.
+            val match = urlMatch ?: identityMatches.singleOrNull() ?: continue
+            return QualityPickerSelection(match.index, qualities[match.index].first)
         }
         return null
     }
