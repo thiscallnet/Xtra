@@ -2567,13 +2567,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (view != null) {
             val vaftActive = isVaftActive()
             binding.playerControls.quality.apply {
+                isSingleLine = !vaftActive
+                maxLines = if (vaftActive && confirmedQuality != null) 2 else 1
                 text = if (vaftActive) {
-                    getString(R.string.avoid_twitch_ads).substringBefore(' ')
+                    getString(R.string.avoid_twitch_ads).substringBefore(' ') +
+                        (confirmedQuality?.let { "\n${compactQualityLabel(qualityLabel(it))}" } ?: "")
                 } else {
                     compactQualityLabel(label)
                 }
                 contentDescription = if (vaftActive) {
-                    getString(R.string.waiting_vaft)
+                    getString(R.string.waiting_vaft) + (label?.let { ": $it" } ?: "")
                 } else {
                     label ?: getString(R.string.player_quality)
                 }

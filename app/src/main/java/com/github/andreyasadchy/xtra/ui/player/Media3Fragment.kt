@@ -185,6 +185,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 if (controlledFeed) {
                     viewModel.updateQualities = true
                     requestQualities()
+                    requestCurrentVideoQuality(controller)
                 }
                 val windowActive = args.getBoolean(PlaybackService.VAFT_WINDOW_ACTIVE) && !controlledFeed
                 val alternateActive = args.getBoolean(PlaybackService.VAFT_ALTERNATE_ACTIVE) && !controlledFeed
@@ -251,6 +252,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 setQualityText()
             }
             if (command.customAction == PlaybackService.VIDEO_INPUT_FORMAT_CHANGED) {
+                if (viewModel.controlledVaftFeed) {
+                    // Decoder input can be ahead of the segment currently being presented.
+                    requestCurrentVideoQuality(controller)
+                    return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+                }
                 val qualityUri = args.getString(PlaybackService.VIDEO_QUALITY_URI)
                 val currentUri = controller.currentMediaItem?.localConfiguration?.uri?.toString()
                 val qualityName = args.getString(PlaybackService.VIDEO_QUALITY_NAME)
@@ -346,7 +352,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     protected override fun qualityPickerSelectionCandidates(): List<QualityPickerCandidate> {
-        if (viewModel.controlledVaftActive && viewModel.quality?.name != AUTO_QUALITY &&
+        if (viewModel.controlledVaftFeed && viewModel.quality?.name != AUTO_QUALITY &&
+            viewModel.quality?.name != AUDIO_ONLY_QUALITY && viewModel.quality?.name != CHAT_ONLY_QUALITY &&
             confirmedVideoQualityForCurrentSource() != null) {
             viewModel.confirmedVideoQuality?.let { return listOf(QualityPickerCandidate(it)) }
         }
@@ -391,6 +398,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var renderedDurationMs = Long.MIN_VALUE
     private var renderedPlaybackChrome: PlaybackChromeState? = null
     private val liveBufferHealthTrend = LiveBufferHealthTrend()
+    private var lastLiveBufferHealthDiagnosticMs = 0L
     private var hasEstablishedLiveBufferHealth = false
     private var lastLiveBufferHealthOffsetMs: Long? = null
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
@@ -3080,9 +3088,18 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             liveBufferHealthTrend.update(null, null, nowMs)
         }
         val state = currentPlayer?.playbackState
-        val currentOffsetMs = currentPlayer?.currentLiveOffset?.takeIf { it != Media3C.TIME_UNSET && it >= 0L }
+        // MediaController extrapolates position, but returns cached buffer duration and live offset.
+        // Use endpoints in the same current window so the HUD counts down between session updates.
+        val bufferMs = currentPlayer?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0L) }
+        val currentOffsetMs = currentPlayer?.let { playback ->
+            val timeline = playback.currentTimeline
+            val window = if (!timeline.isEmpty) timeline.getWindow(playback.currentMediaItemIndex, Timeline.Window()) else null
+            if (window != null && window.windowStartTimeMs != Media3C.TIME_UNSET) {
+                (window.currentUnixTimeMs - window.windowStartTimeMs - playback.currentPosition).coerceAtLeast(0L)
+            } else playback.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET && it >= 0L }
+        }
         if (isLiveVideo && state == Player.STATE_READY) {
-            if (currentPlayer.totalBufferedDuration >= 0L && currentOffsetMs != null) {
+            if (bufferMs != null && currentOffsetMs != null) {
                 hasEstablishedLiveBufferHealth = true
                 lastLiveBufferHealthOffsetMs = currentOffsetMs
             } else {
@@ -3093,9 +3110,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val allowBuffering = isLiveVideo && hasEstablishedLiveBufferHealth && state == Player.STATE_BUFFERING
         val reading = if (isLiveVideo && (state == Player.STATE_READY || allowBuffering)) {
             val offsetMs = currentOffsetMs ?: lastLiveBufferHealthOffsetMs.takeIf { allowBuffering }
-            if (offsetMs != null && currentPlayer.totalBufferedDuration >= 0L) {
+            if (offsetMs != null && bufferMs != null) {
                 lastLiveBufferHealthOffsetMs = currentOffsetMs ?: lastLiveBufferHealthOffsetMs
-                liveBufferHealthTrend.update(currentPlayer.totalBufferedDuration, offsetMs, nowMs)
+                liveBufferHealthTrend.update(bufferMs, offsetMs, nowMs)
             } else {
                 liveBufferHealthTrend.update(null, null, nowMs)
             }
@@ -3110,6 +3127,13 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             healthView.visibility = View.GONE
         } else {
             healthView.visibility = View.VISIBLE
+            if (BuildConfig.DEBUG && nowMs - lastLiveBufferHealthDiagnosticMs >= 1_000L) {
+                lastLiveBufferHealthDiagnosticMs = nowMs
+                Log.d("XtraBufferHealth", "alternate=${viewModel.controlledVaftActive} " +
+                    "positionMs=${currentPlayer?.currentPosition} bufferedPositionMs=${currentPlayer?.bufferedPosition} " +
+                    "bufferMs=$bufferMs cachedBufferMs=${currentPlayer?.totalBufferedDuration} " +
+                    "offsetMs=$currentOffsetMs display=${reading.bufferSeconds}/${reading.liveOffsetSeconds}")
+            }
             val trendSuffix = if (reading.isDecreasing) "↓" else ""
             healthView.text = "${reading.bufferSeconds}s$trendSuffix / ${reading.liveOffsetSeconds}s"
             val buffered = resources.getQuantityString(
@@ -3741,6 +3765,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 codecs = result.extras.getString(PlaybackService.VIDEO_QUALITY_CODECS),
                 bitrate = result.extras.getInt(PlaybackService.VIDEO_QUALITY_BITRATE)
                     .takeIf { result.extras.containsKey(PlaybackService.VIDEO_QUALITY_BITRATE) },
+                frameRate = result.extras.getFloat(PlaybackService.VIDEO_QUALITY_FRAME_RATE)
+                    .takeIf { result.extras.containsKey(PlaybackService.VIDEO_QUALITY_FRAME_RATE) },
             )
             val sourceConfirmed = requestedMediaId != null && qualityUri != null && qualityUri == currentUri
             updateConfirmedVideoQuality(
@@ -3793,7 +3819,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
         }
         setQualityText()
-        if (viewModel.controlledVaftActive) refreshOpenQualityDialog()
+        if (viewModel.controlledVaftFeed) refreshOpenQualityDialog()
     }
 
     private fun hasConfirmedCurrentLiveQuality(
@@ -4416,10 +4442,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     private fun applyRecordingQuality(controller: Player, quality: VideoQuality) {
         val selectionQuality = if (viewModel.controlledVaftFeed) controlledQualitySelections[quality.url] ?: quality else quality
+        if (viewModel.controlledVaftFeed) {
+            xtraModule.streamMedia3Runtime.controlledPlaylistFor(controller.currentMediaItem?.mediaId)
+                ?.setAlternateQualityLimit(quality.name?.substringBefore('p')?.toIntOrNull(), quality.frameRate)
+        }
         val audioOnly = quality.name == AUDIO_ONLY_QUALITY
         val chatOnly = quality.name == CHAT_ONLY_QUALITY
         val override = if (!audioOnly && !chatOnly && quality.name != AUTO_QUALITY) {
-            videoQualityTrackOverride(controller.currentTracks, selectionQuality)
+            videoQualityTrackOverride(controller.currentTracks, selectionQuality, allowExceedsCapabilities = videoType == STREAM)
         } else null
         if (!audioOnly && !chatOnly && quality.name != AUTO_QUALITY && override == null) {
             viewModel.pendingVideoQuality = quality

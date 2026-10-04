@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CHANNEL = "vaft_fixture"
 HOST = "https://vaft-fixture.invalid"
 START = time.time() - 60
-STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "range_age_seconds": None, "ladder": False, "primary_max": 720, "unavailable": False, "real_backup": False}
+STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
 LOCK = threading.Lock()
 ROOT = pathlib.Path(tempfile.mkdtemp(prefix="xtra-vaft-fixture-"))
 DEVICE_ID = uuid.uuid4().hex
@@ -136,6 +136,7 @@ class Handler(BaseHTTPRequestHandler):
                 ("users(", "UsersStream"), ("videos(", "UserVideos"),
                 ("streamPlaybackAccessToken(", "PlaybackAccessToken"),
                 ("videoPlaybackAccessToken(", "PlaybackAccessToken"),
+                ("user(", "UserChannelPage"),
             ] if field in query), "")
         print(f"fixture operation={operation!r} variable_names={list(variables)}", flush=True)
         created = timestamp(START)
@@ -151,6 +152,15 @@ class Handler(BaseHTTPRequestHandler):
                     "viewersCount": 1, "previewImageURL": None, "game": None, "freeformTags": [],
                     "broadcaster": {"__typename": "User", "broadcastSettings": {
                         "__typename": "BroadcastSettings", "title": "Controlled VAFT and replay verification"}}}}]}}
+        elif operation == "UserChannelPage":
+            result = {"data": {"user": {"__typename": "User", "id": CHANNEL, "login": CHANNEL,
+                "displayName": "VAFT fixture", "profileImageURL": None, "bannerImageURL": None,
+                "createdAt": created, "lastBroadcast": None,
+                "followers": {"__typename": "FollowerConnection", "totalCount": 0},
+                "roles": {"__typename": "UserRoles", "isAffiliate": False, "isPartner": False, "isStaff": False},
+                "stream": {"__typename": "Stream", "id": "fixture-live", "createdAt": created,
+                    "viewersCount": 1, "previewImageURL": None, "game": None,
+                    "title": "Controlled VAFT and replay verification"}}}}
         elif operation == "UserVideos":
             result = {"data": {"user": {"__typename": "User", "login": CHANNEL, "displayName": "VAFT fixture",
                 "profileImageURL": None, "videos": {"__typename": "VideoConnection", "edges": [{
@@ -196,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
                         STATE[key] = max(0.0, float(values[0]))
                     elif key == "prefetch":
                         STATE[key] = max(0, min(2, int(values[0])))
-                    elif key == "primary_max":
+                    elif key in ("primary_max", "backup_max"):
                         STATE[key] = int(values[0])
                     elif key == "fail":
                         STATE[key] = values[0]
@@ -226,7 +236,7 @@ class Handler(BaseHTTPRequestHandler):
                 elif player_type == "site":
                     heights = [1080, 720, 360] if state["primary_max"] == 1080 else [720, 360]
                 else:
-                    heights = [360, 160]
+                    heights = [height for height in [360, 160] if height <= state["backup_max"]]
                 lines = ["#EXTM3U"]
                 if state["unavailable"] and player_type != "site" and route != "vod":
                     unavailable = [{"IVS_NAME": "160p60", "STABLE-VARIANT-ID": "160p60", "RESOLUTION": "284x160", "BANDWIDTH": 480000,
@@ -279,16 +289,21 @@ class Handler(BaseHTTPRequestHandler):
                 if i > 0 and i % segment_count == 0:
                     lines.append("#EXT-X-DISCONTINUITY")
                 lines += [f"#EXT-X-PROGRAM-DATE-TIME:{timestamp(START + i * 2)}",
-                    f"#EXTINF:2.0,{'Amazon' if vaft_required and not state['vaft_attributes_only'] and VAFT_RANGE_TEMPLATE is None else 'live'}", f"{HOST}/segments/{lane}/{i % segment_count:04d}.ts"]
+                    f"#EXTINF:2.0,{'Amazon' if vaft_required and not state['vaft_attributes_only'] and VAFT_RANGE_TEMPLATE is None else 'live'}", f"{HOST}/segments/{lane}/{i:08d}.ts"]
             if not replay:
                 for i in range(last + 1, last + 1 + state["prefetch"]):
-                    lines.append(f"#EXT-X-TWITCH-PREFETCH:{HOST}/segments/{lane}/{i % segment_count:04d}.ts")
+                    lines.append(f"#EXT-X-TWITCH-PREFETCH:{HOST}/segments/{lane}/{i:08d}.ts")
             self.respond("\n".join(lines) + "\n")
             return
         if len(parts) == 3 and parts[0] == "segments":
             if parts[1].startswith("backup"):
                 time.sleep(state["segment_delay"])
-            path = (ROOT / parts[1] / parts[2]).resolve()
+            lane_dir = ROOT / parts[1]
+            segment_count = len(list(lane_dir.glob("*.ts")))
+            if not segment_count or not re.fullmatch(r"\d+\.ts", parts[2]):
+                self.respond("unknown segment", "text/plain", 404)
+                return
+            path = (lane_dir / f"{int(parts[2][:-3]) % segment_count:04d}.ts").resolve()
             if path.is_relative_to(ROOT) and path.is_file():
                 body = path.read_bytes()
                 match = re.fullmatch(r"bytes=(\d+)-(\d*)", self.headers.get("Range", ""))

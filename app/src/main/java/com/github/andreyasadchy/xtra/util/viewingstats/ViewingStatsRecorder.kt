@@ -94,14 +94,7 @@ class ViewingStatsRecorder(
                         schedulerWake.receive()
                     }
                 }
-                val wakeTime = clock.elapsedRealtime()
-                val currentDeadline = nextCheckpointAt.get()
-                if (currentDeadline != NO_DEADLINE && wakeTime >= currentDeadline) {
-                    val nextDeadline = safeAdd(wakeTime, checkpointIntervalMs)
-                    if (nextCheckpointAt.compareAndSet(currentDeadline, nextDeadline)) {
-                        timerWork.trySend(currentDeadline)
-                    }
-                }
+                claimDueCheckpointDeadline(clock.elapsedRealtime())?.let(timerWork::trySend)
             }
         }
     }
@@ -274,6 +267,10 @@ class ViewingStatsRecorder(
                         finishAll(reading())
                         return true
                     }
+                }
+                val timerReading = reading()
+                claimDueCheckpointDeadline(timerReading.elapsedRealtime)?.let { deadline ->
+                    runCheckpoint(timerReading, timerDeadline = deadline)
                 }
                 return false
             } catch (cancelled: CancellationException) {
@@ -487,6 +484,17 @@ class ViewingStatsRecorder(
     internal fun nextCheckpointAtForTest(): Long? =
         nextCheckpointAt.get().takeUnless { it == NO_DEADLINE }
 
+    /** Claims an overdue shared deadline; ticker and worker may race, but only one wins. */
+    private fun claimDueCheckpointDeadline(now: Long): Long? {
+        while (true) {
+            val deadline = nextCheckpointAt.get()
+            if (deadline == NO_DEADLINE || now < deadline) return null
+            if (nextCheckpointAt.compareAndSet(deadline, safeAdd(now, checkpointIntervalMs))) {
+                return deadline
+            }
+        }
+    }
+
     private fun setActualPlaying(
         state: SourceState,
         actualPlaying: Boolean,
@@ -500,6 +508,9 @@ class ViewingStatsRecorder(
         } else if (activeSourceCount.decrementAndGet() == 0) {
             nextCheckpointAt.set(NO_DEADLINE)
         }
+        // Keep the ticker responsive to source transitions. The worker also
+        // claims an overdue deadline after processing each command, so a wake
+        // at the deadline does not depend on ticker scheduling latency.
         schedulerWake.trySend(Unit)
     }
 
