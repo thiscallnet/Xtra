@@ -80,6 +80,10 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "watch_streak_notification_title",
     "notification_watch_streak_channel_title",
     "notification_watch_streak_channel_description",
+    # Pinned-message settings use the default English wording until the new
+    # preference is translated across supported locales.
+    "settings_chat_remember_dismissed_pinned_messages",
+    "settings_chat_remember_dismissed_pinned_messages_summary",
     # Emoji picker labels currently use the default English wording until
     # the picker is translated consistently across locales.
     "emoji",

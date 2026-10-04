@@ -292,6 +292,8 @@
             android:minHeight="0dp"
             android:paddingStart="2dp"
             android:paddingEnd="2dp"
+            android:paddingTop="0dp"
+            android:paddingBottom="0dp"
             android:textAllCaps="false"
             android:text="@string/auto"
             android:textColor="@android:color/white"

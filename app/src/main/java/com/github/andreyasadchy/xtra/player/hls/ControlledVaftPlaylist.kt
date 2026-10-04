@@ -80,6 +80,9 @@ class ControlledVaftPlaylist(
         var recoveryEpochUs: Long? = null
         var resolved: Resolution? = null
         var generation = 0L
+        var qualityRefresh: Job? = null
+        var lastQualityRefreshMs = Long.MIN_VALUE
+        var improved: Resolution? = null
         @Volatile var visible: List<Published> = emptyList()
     }
 
@@ -108,11 +111,29 @@ class ControlledVaftPlaylist(
     private val deviceId = UUID.randomUUID().toString().replace("-", "")
     private val subtitleRoutes = ConcurrentHashMap.newKeySet<String>()
     private val feeds = ConcurrentHashMap<String, Feed>()
-    private val candidateMasters = ConcurrentHashMap<String, HlsMultivariantPlaylist>()
+    private data class CachedMaster(val playlist: HlsMultivariantPlaylist, val fetchedMs: Long)
+    private val candidateMasters = ConcurrentHashMap<String, CachedMaster>()
     private val replacementCatalogs = ConcurrentHashMap<String, List<Format>>()
     private val initializationClocks = ConcurrentHashMap<String, Map<Long, FragmentedMp4Clock.Track>>()
     @Volatile private var currentFeed: Feed? = null
     @Volatile private var lastSelectedFormat: Format? = null
+    @Volatile private var alternateQualityLimit: Pair<Int, Float?>? = null
+
+    fun setAlternateQualityLimit(height: Int?, frameRate: Float?) {
+        val next = height?.takeIf { it > 0 }?.let { it to frameRate }
+        if (next == alternateQualityLimit) return
+        alternateQualityLimit = next
+        feeds.values.forEach { feed -> synchronized(feed) {
+            feed.generation++
+            feed.resolving?.cancel()
+            feed.qualityRefresh?.cancel()
+            feed.resolved = null
+            feed.improved = null
+            feed.candidate = null
+            feed.lastSearchMs = Long.MIN_VALUE
+            feed.lastQualityRefreshMs = Long.MIN_VALUE
+        } }
+    }
 
     fun selectFormat(format: Format?) {
         if (format == null) return
@@ -139,7 +160,10 @@ class ControlledVaftPlaylist(
             epochUs >= it.epochUs && epochUs < it.epochUs + it.segment.durationUs
         } ?: return null
         if (item.playerType == primaryType) return null
-        return item.availableFormats
+        // Catalog probes can finish while this segment is already queued.
+        return (replacementCatalogs[item.playerType] ?: item.availableFormats)?.let { catalog ->
+            (catalog + listOfNotNull(item.format)).distinctBy { Triple(it.height, it.frameRate, it.codecs) }
+        }
     }
 
     fun formatAt(epochUs: Long): Format? = currentFeed?.visible?.lastOrNull {
@@ -184,8 +208,27 @@ class ControlledVaftPlaylist(
                 append(feed, playlist, primaryType, blocked, anchor, format)
             } else append(feed, playlist, primaryType, blocked, format = format)
             val primaryExtended = feed.published.lastOrNull()?.let { it.sequence != before && it.playerType == primaryType } == true
-            if (primaryExtended && !tailBlocked) feed.candidate = null
-            if (resolved != null && !resolved.primary && !primaryExtended) {
+            if (primaryExtended && !tailBlocked) {
+                feed.candidate = null
+                feed.qualityRefresh?.cancel()
+                feed.improved = null
+            }
+            val improved = feed.improved.also { feed.improved = null }
+            var improvedApplied = false
+            if (!primaryExtended && improved != null) {
+                improved.candidate?.let { candidate ->
+                    val previous = feed.published.lastOrNull()?.sequence
+                    append(feed, candidate.playlist, candidate.playerType, marked(candidate.playlist), improved.anchor, candidate.format)
+                    if (feed.published.lastOrNull()?.sequence != previous) {
+                        feed.candidate = candidate
+                        improvedApplied = true
+                        feed.generation++
+                        feed.resolving?.cancel()
+                        feed.resolved = null
+                    }
+                }
+            }
+            if (resolved != null && !resolved.primary && !primaryExtended && !improvedApplied && feed.candidate == null) {
                 feed.candidate = resolved.candidate
                 resolved.candidate?.let { append(feed, it.playlist, it.playerType, marked(it.playlist), resolved.anchor, it.format)
                     recoverExpiredWindow(feed, it.playlist, marked(it.playlist), SystemClock.elapsedRealtime(), it.playerType, it.format)
@@ -216,6 +259,7 @@ class ControlledVaftPlaylist(
             val publishedLast = feed.published.last()
             val result = snapshot(playlist, feed.published, feed.candidate)
             if (needsResolution) resolveAsync(feed, format, uri, playlist, blocked, now)
+            if (publishedLast.playerType != primaryType) refreshAlternateQuality(feed, format, now)
             if (VaftPlaylistCapture.isEnabled) {
                 VaftPlaylistCapture.record(uri.toString(), buildString {
                     appendLine("#EXTM3U")
@@ -251,7 +295,8 @@ class ControlledVaftPlaylist(
             it.published.addAll(feed.published)
             it.lastProgressMs = feed.lastProgressMs
         }
-        val known = feed.candidate
+        val wanted = wantedFormat(format)
+        val known = feed.candidate?.takeIf { it.format == null || it.format.height <= wanted.height }
         val generation = feed.generation
         // Retain committed segments, but never publish cached prefetch while its refresh is pending.
         feed.candidate = null
@@ -263,7 +308,7 @@ class ControlledVaftPlaylist(
                 if (probe.published.lastOrNull()?.sequence != before) {
                     Resolution(Candidate(primaryType, uri, primary), primaryAnchor, true)
                 } else {
-                    resolveReplacement(format, probe, known) ?: Resolution(null, null, false)
+                    resolveReplacement(wanted, probe, known) ?: Resolution(null, null, false)
                 }
             }
             synchronized(feed) {
@@ -271,6 +316,82 @@ class ControlledVaftPlaylist(
             }
             if (BuildConfig.DEBUG) Log.d("XtraVaftFeed", "event=resolve_complete channel=$channel elapsedMs=${SystemClock.elapsedRealtime() - now} ready=${result?.candidate != null}")
         }
+    }
+
+    private fun wantedFormat(format: Format): Format {
+        val limit = alternateQualityLimit ?: return format
+        return if (format.height > 0 && limit.first <= format.height) {
+            format.buildUpon().setHeight(limit.first).setFrameRate(limit.second ?: format.frameRate).build()
+        } else format
+    }
+
+    /** A fast healthy fallback must not cancel the search for a better rendition. */
+    private fun refreshAlternateQuality(feed: Feed, format: Format, now: Long) {
+        if (closed || feed.qualityRefresh?.isActive == true ||
+            (feed.lastQualityRefreshMs != Long.MIN_VALUE && now - feed.lastQualityRefreshMs < 5_000L)) return
+        val current = feed.published.lastOrNull() ?: return
+        val currentFormat = current.format ?: return
+        val wanted = wantedFormat(format)
+        val generation = feed.generation
+        val probe = Feed(feed.fingerprints).also {
+            it.published.addAll(feed.published)
+            it.lastProgressMs = feed.lastProgressMs
+        }
+        feed.lastQualityRefreshMs = now
+        feed.qualityRefresh = scope.launch {
+            withTimeoutOrNull(8_000L) {
+                val master = candidateMaster(current.playerType)
+                if (master != null) {
+                    // Only offer renditions whose current media playlist was inspected.
+                    val inspected = coroutineScope {
+                        master.variants.filter { compatible(it.format, format) }.map { variant -> async {
+                            val playable = try {
+                                withTimeoutOrNull(1_500L) { fetch(variant.url) as? HlsMediaPlaylist }
+                                    ?.let { it.segments.isNotEmpty() && marked(it).lastOrNull() == false }
+                            } catch (error: CancellationException) { throw error } catch (_: IOException) { null }
+                            variant.format to playable
+                        } }.awaitAll()
+                    }
+                    val previous = replacementCatalogs[current.playerType].orEmpty()
+                    replacementCatalogs[current.playerType] = inspected.mapNotNull { (format, playable) ->
+                        format.takeIf { playable == true || (playable == null && format in previous) }
+                    }.distinct()
+                }
+                val belowTarget = currentFormat.height < wanted.height ||
+                    (currentFormat.height == wanted.height && currentFormat.frameRate < wanted.frameRate)
+                val result = if (belowTarget) {
+                    findCandidate(wanted, probe, currentFormat)?.let { usableReplacement(probe, it) }
+                } else null
+                synchronized(feed) {
+                    if (!closed && generation == feed.generation) feed.improved = result
+                }
+                if (BuildConfig.DEBUG && result != null) Log.d("XtraVaftFeed",
+                    "event=quality_upgrade_ready channel=$channel height=${result.candidate?.format?.height}")
+            }
+        }
+    }
+
+    private fun compatible(candidate: Format, wanted: Format): Boolean =
+        ((wanted.height <= 0 && candidate.height <= 0) || (wanted.height > 0 && candidate.height > 0)) &&
+            candidate.codecs?.substringBefore(',')?.take(4) == wanted.codecs?.substringBefore(',')?.take(4)
+
+    private suspend fun candidateMaster(type: String): HlsMultivariantPlaylist? {
+        val cached = candidateMasters[type]
+        val now = SystemClock.elapsedRealtime()
+        if (cached != null && now - cached.fetchedMs < 10_000L) return cached.playlist
+        return try {
+            val prefs = context.prefs()
+            val url = module.playerRepository.loadStreamPlaylistUrl(
+                context, prefs.getString(Settings.NETWORK_LIBRARY, Settings.OKHTTP),
+                TwitchApiHelper.getGQLHeaders(context, prefs.getBoolean(Settings.TOKEN_INCLUDE_TOKEN_STREAM, true)),
+                channel, false, deviceId, type, prefs.getString(Settings.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
+                prefs.getBoolean(Settings.PROXY_PLAYBACK_ACCESS_TOKEN, false), prefs.httpProxyHost(), prefs.httpProxyPort(),
+                prefs.getString(Settings.PROXY_USER, null), prefs.getString(Settings.PROXY_PASSWORD, null), lowLatency = lowLatency,
+            )
+            (fetch(Uri.parse(url)) as? HlsMultivariantPlaylist)?.also {
+                candidateMasters[type] = CachedMaster(it, now)
+            } ?: cached?.playlist
+        } catch (error: CancellationException) { throw error } catch (_: Exception) { cached?.playlist }
     }
 
     private suspend fun resolveReplacement(format: Format, feed: Feed, known: Candidate?): Resolution? = coroutineScope {
@@ -532,27 +653,19 @@ class ControlledVaftPlaylist(
         )
     }
 
-    private suspend fun findCandidate(wanted: Format, feed: Feed): Candidate? = withTimeoutOrNull(8_000L) {
+    private suspend fun findCandidate(wanted: Format, feed: Feed, betterThan: Format? = null): Candidate? = withTimeoutOrNull(8_000L) {
         coroutineScope {
             val results = Channel<Candidate?>(Channel.UNLIMITED)
             val types = TwitchVaftController.PLAYER_TYPES.filter { it != primaryType }
             val jobs = types.map { type -> launch {
                 val candidate = try {
-                    val prefs = context.prefs()
-                    val master = candidateMasters[type] ?: run {
-                    val url = module.playerRepository.loadStreamPlaylistUrl(
-                        context, prefs.getString(Settings.NETWORK_LIBRARY, Settings.OKHTTP),
-                        TwitchApiHelper.getGQLHeaders(context, prefs.getBoolean(Settings.TOKEN_INCLUDE_TOKEN_STREAM, true)),
-                        channel, false, deviceId, type, prefs.getString(Settings.TOKEN_SUPPORTED_CODECS, "av1,h265,h264"),
-                        prefs.getBoolean(Settings.PROXY_PLAYBACK_ACCESS_TOKEN, false), prefs.httpProxyHost(), prefs.httpProxyPort(),
-                        prefs.getString(Settings.PROXY_USER, null), prefs.getString(Settings.PROXY_PASSWORD, null), lowLatency = lowLatency,
-                    )
-                    (fetch(Uri.parse(url)) as? HlsMultivariantPlaylist)?.also { candidateMasters[type] = it }
-                    }
+                    val master = candidateMaster(type)
                     val variants = master?.variants?.filter {
                         // Keep codec compatibility and media kind; a lower temporary rung is usable.
-                        (wanted.height <= 0 && it.format.height <= 0 || wanted.height > 0 && it.format.height in 1..wanted.height) &&
-                            it.format.codecs?.substringBefore(',')?.take(4) == wanted.codecs?.substringBefore(',')?.take(4)
+                        compatible(it.format, wanted) &&
+                            (wanted.height <= 0 || it.format.height <= wanted.height) &&
+                            (betterThan == null || it.format.height > betterThan.height ||
+                                (it.format.height == betterThan.height && it.format.frameRate > betterThan.frameRate))
                     }?.sortedWith(compareBy(
                         { abs(it.format.height - wanted.height) },
                         { abs(it.format.frameRate - wanted.frameRate) },
@@ -573,14 +686,14 @@ class ControlledVaftPlaylist(
                             append(probe, source, type, blocked, contentAnchor(feed, source, blocked))
                             recoverExpiredWindow(probe, source, blocked, SystemClock.elapsedRealtime(), type, selected.format)
                             if (probe.published.lastOrNull()?.sequence != before) {
-                                replacementCatalogs[type] = master?.variants.orEmpty().map { it.format }.distinct()
+                                replacementCatalogs[type] = (replacementCatalogs[type].orEmpty() + selected.format).distinct()
                                 selectedCandidate = Candidate(type, selected.url, source, selected.format)
                                 break
                             }
                         }
                     }
                     selectedCandidate
-                } catch (error: CancellationException) { throw error } catch (_: Exception) { candidateMasters.remove(type); null }
+                } catch (error: CancellationException) { throw error } catch (_: Exception) { null }
                 results.trySend(candidate)
             } }
             try {

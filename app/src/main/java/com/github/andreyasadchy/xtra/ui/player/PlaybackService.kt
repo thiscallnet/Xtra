@@ -1691,9 +1691,10 @@ class PlaybackService : MediaSessionService() {
                                 // Keep primary rendition URLs for in-place track selection, but show the temporary ladder's metadata.
                                 val catalog = alternateFormats?.mapNotNull { format ->
                                     val primary = playlist?.variants?.filter {
-                                        it.format.height == format.height &&
+                                        (format.height > 0 && it.format.height >= format.height || format.height <= 0 && it.format.height <= 0) &&
                                             it.format.codecs?.substringBefore(',')?.take(4) == format.codecs?.substringBefore(',')?.take(4)
-                                    }?.minByOrNull { kotlin.math.abs(it.format.frameRate - format.frameRate) } ?: return@mapNotNull null
+                                    }?.minWithOrNull(compareBy({ it.format.height },
+                                        { kotlin.math.abs(it.format.frameRate - format.frameRate) })) ?: return@mapNotNull null
                                     VideoQuality(
                                         name = if (format.height > 0) "${format.height}p${format.frameRate.toInt().takeIf { it > 30 } ?: ""}" else PlaybackContract.AUDIO_ONLY_QUALITY,
                                         codecs = format.codecs, bitrate = format.bitrate, url = primary.url.toString(), frameRate = format.frameRate,
@@ -3202,7 +3203,7 @@ class PlaybackService : MediaSessionService() {
                 }
                 val epochUs = window.windowStartTimeMs * 1_000L + player.currentPosition * 1_000L
                 val alternate = controlled.isAlternateAt(epochUs)
-                val catalogKey = "${player.currentMediaItem?.mediaId}:${controlled.availableFormatsAt(epochUs)}"
+                val catalogKey = "${player.currentMediaItem?.mediaId}:${controlled.availableFormatsAt(epochUs)}:${controlled.formatAt(epochUs)}"
                 if (alternate != vaftAlternateActive || catalogKey != controlledQualityCatalogKey) {
                     controlledQualityCatalogKey = catalogKey
                     vaftAlternateActive = alternate

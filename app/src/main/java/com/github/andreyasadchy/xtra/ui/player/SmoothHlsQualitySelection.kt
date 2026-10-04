@@ -175,6 +175,7 @@ internal fun resumptionHlsQuality(quality: VideoQuality?): DesiredHlsQuality {
 internal fun videoQualityTrackOverride(
     tracks: Tracks,
     quality: VideoQuality,
+    allowExceedsCapabilities: Boolean = false,
 ): TrackSelectionOverride? {
     val desired = DesiredHlsQuality(
         name = quality.name ?: return null,
@@ -191,7 +192,7 @@ internal fun videoQualityTrackOverride(
         .filter { it.type == C.TRACK_TYPE_VIDEO }
         .flatMap { group ->
             (0 until group.length).asSequence()
-                .filter { group.isTrackSupported(it) }
+                .filter { group.isTrackSupported(it, allowExceedsCapabilities) }
                 .map { index -> Triple(group, index, group.getTrackFormat(index)) }
         }
         .filter { (_, _, format) -> desired.matches(format) }
