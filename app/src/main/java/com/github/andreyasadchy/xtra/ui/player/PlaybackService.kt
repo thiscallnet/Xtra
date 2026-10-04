@@ -7,6 +7,8 @@ import android.app.PendingIntent
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.media.audiofx.DynamicsProcessing
 import android.os.Build
 import android.os.Bundle
@@ -141,6 +143,7 @@ class PlaybackService : MediaSessionService() {
     private var backgroundVideoSuppressed = false
     private var backgroundRecoveryTimer: Timer? = null
     private var backgroundRecoveryAttempt = 0
+    private var backgroundPlaybackStartedAtMs: Long? = null
     private var proxyMediaPlaylist = false
     private var videoId: Long? = null
     private var offlineVideoId: Int? = null
@@ -454,7 +457,7 @@ class PlaybackService : MediaSessionService() {
                     if (isPlaying) {
                         backgroundRecoveryTimer?.cancel()
                         backgroundRecoveryTimer = null
-                        backgroundRecoveryAttempt = 0
+                        backgroundPlaybackStartedAtMs = SystemClock.elapsedRealtime()
                         val seekablePlaybackType = resumptionState?.type
                         if (savePositionTimer == null &&
                             (seekablePlaybackType == PlaybackContract.VIDEO ||
@@ -488,8 +491,7 @@ class PlaybackService : MediaSessionService() {
                     }
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFailed() }
                     if (backgroundPlayback && vaftCoordinatorJob?.isActive != true
-                        && prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
-                        && player.playWhenReady
+                        && player.playWhenReady && viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
                     ) {
                         scheduleBackgroundRecovery()
                     }
@@ -518,7 +520,10 @@ class PlaybackService : MediaSessionService() {
                         streamStartupTrace?.markReady()
                         backgroundRecoveryTimer?.cancel()
                         backgroundRecoveryTimer = null
-                        backgroundRecoveryAttempt = 0
+                    } else if (playbackState == Player.STATE_BUFFERING && backgroundPlayback &&
+                        player.playWhenReady && viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
+                    ) {
+                        scheduleBackgroundRecovery(delayOverrideMs = BACKGROUND_STALL_RECOVERY_DELAY_MS)
                     }
                 }
 
@@ -536,6 +541,12 @@ class PlaybackService : MediaSessionService() {
                         saveResumptionState(
                             state.copy(position = player.currentPosition, paused = !playWhenReady),
                         )
+                    }
+                    if (!playWhenReady) {
+                        backgroundRecoveryTimer?.cancel()
+                        backgroundRecoveryTimer = null
+                        backgroundRecoveryAttempt = 0
+                        backgroundPlaybackStartedAtMs = null
                     }
                     updateVaft(player)
                 }
@@ -4896,8 +4907,9 @@ class PlaybackService : MediaSessionService() {
         player: ExoPlayer,
         extras: Bundle,
         beginNewPlayback: Boolean = true,
+        keepBackgroundPlayback: Boolean = false,
     ): ListenableFuture<SessionResult> {
-        backgroundPlayback = false
+        backgroundPlayback = keepBackgroundPlayback
         val uri = extras.getString(URI)?.takeIf { it.isNotBlank() }
         val channelLogin = extras.getString(CHANNEL_LOGIN)?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
         val title = extras.getString(TITLE)
@@ -4905,6 +4917,8 @@ class PlaybackService : MediaSessionService() {
         val channelLogo = extras.getString(CHANNEL_LOGO)
         if (beginNewPlayback) {
             livePlaybackSessionGeneration++
+            backgroundRecoveryAttempt = 0
+            backgroundPlaybackStartedAtMs = null
             vaftPrimaryFirstFrameMediaId = null
             vaftPrimaryFirstFrameSourceUri = null
             vaftPrimaryFirstFrameElapsedMs = null
@@ -5370,29 +5384,187 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun scheduleBackgroundRecovery() {
-        if (vaftCoordinatorJob?.isActive == true || vaftSourceSwitching) return
-        if (!prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)) {
-            return
-        }
+    private fun scheduleBackgroundRecovery(delayOverrideMs: Long? = null) {
+        val currentPlayer = mediaSession?.player as? ExoPlayer ?: return
+        if (vaftCoordinatorJob?.isActive == true || vaftSourceSwitching ||
+            !backgroundPlayback || currentPlayer?.playWhenReady != true ||
+            viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
+        ) return
         backgroundRecoveryTimer?.cancel()
-        val delay = (500L shl backgroundRecoveryAttempt.coerceAtMost(4)).coerceAtMost(8000L)
-        backgroundRecoveryAttempt = (backgroundRecoveryAttempt + 1).coerceAtMost(4)
+        backgroundPlaybackStartedAtMs?.let { startedAtMs ->
+            if (SystemClock.elapsedRealtime() - startedAtMs >= BACKGROUND_STABLE_PLAYBACK_RESET_MS) {
+                backgroundRecoveryAttempt = 0
+            }
+            backgroundPlaybackStartedAtMs = null
+        }
+        val delay = delayOverrideMs ?: (1500L * (1L shl backgroundRecoveryAttempt.coerceAtMost(5))).coerceAtMost(30_000L)
+        backgroundRecoveryAttempt = (backgroundRecoveryAttempt + 1).coerceAtMost(5)
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackRecovery",
+                "event=background_recovery_queued attempt=$backgroundRecoveryAttempt delayMs=$delay " +
+                    "networkValidated=${hasValidatedInternet()} " +
+                    "itemToken=${diagnosticToken(currentPlayer.currentMediaItem?.mediaId)}",
+            )
+        }
         backgroundRecoveryTimer = Timer().apply {
             schedule(delay) {
                 Handler(Looper.getMainLooper()).post {
                     backgroundRecoveryTimer = null
-                    val player = mediaSession?.player
+                    val player = mediaSession?.player as? ExoPlayer ?: return@post
                     if (backgroundPlayback && vaftCoordinatorJob?.isActive != true && !vaftSourceSwitching
-                        && prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
                         && player?.playWhenReady == true
-                        && player.playerError != null
+                        && viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
                     ) {
-                        player.prepare()
+                        if (!hasValidatedInternet()) {
+                            if (BuildConfig.DEBUG) {
+                                Log.d("PlaybackRecovery", "event=background_recovery_waiting_for_network")
+                            }
+                            scheduleBackgroundRecovery()
+                            return@post
+                        }
+                        lifecycleScope.launch {
+                            val state = resumptionState?.takeIf { it.type == PlaybackContract.STREAM }
+                            val extras = liveStreamExtras?.let(::Bundle)
+                            if (state == null || extras == null || player.playWhenReady != true || !backgroundPlayback) {
+                                return@launch
+                            }
+                            val freshUrl = try {
+                                resolveResumptionStreamUri(state)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Exception) {
+                                if (BuildConfig.DEBUG) {
+                                    Log.w("PlaybackRecovery", "event=background_fresh_url_failed", error)
+                                }
+                                null
+                            }
+                            if (player.playWhenReady != true || !backgroundPlayback) return@launch
+                            if (freshUrl.isNullOrBlank()) {
+                                val offline = isLiveStreamConfirmedOffline(state)
+                                if (BuildConfig.DEBUG) {
+                                    Log.w(
+                                        "PlaybackRecovery",
+                                        "event=background_fresh_url_unavailable confirmedOffline=$offline " +
+                                            "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)}",
+                                    )
+                                }
+                                if (offline && resumptionState?.channelLogin == state.channelLogin &&
+                                    backgroundPlayback && player.playWhenReady
+                                ) {
+                                    backgroundPlayback = false
+                                    player.pause()
+                                    resumptionState?.let { saveResumptionState(it.copy(paused = true)) }
+                                    return@launch
+                                }
+                                scheduleBackgroundRecovery()
+                                return@launch
+                            }
+                            extras.putString(URI, freshUrl)
+                            extras.putBoolean(PLAY_WHEN_READY, true)
+                            val result = try {
+                                startLiveStream(
+                                    player = player,
+                                    extras = extras,
+                                    beginNewPlayback = false,
+                                    keepBackgroundPlayback = true,
+                                )
+                            } catch (error: Exception) {
+                                if (BuildConfig.DEBUG) {
+                                    Log.w("PlaybackRecovery", "event=background_source_start_failed", error)
+                                }
+                                scheduleBackgroundRecovery()
+                                return@launch
+                            }
+                            result.addListener({
+                                val started = runCatching {
+                                    result.get().resultCode == SessionResult.RESULT_SUCCESS
+                                }.getOrDefault(false)
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                        "PlaybackRecovery",
+                                        "event=background_source_start result=${if (started) "started" else "failed"} " +
+                                            "playWhenReady=${player.playWhenReady} " +
+                                            "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)}",
+                                    )
+                                }
+                                if (!started) scheduleBackgroundRecovery()
+                            }, MoreExecutors.directExecutor())
+                        }
                     }
                 }
             }
         }
+    }
+
+    private fun hasValidatedInternet(): Boolean {
+        val connectivityManager = getSystemService(ConnectivityManager::class.java) ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+        return capabilities != null &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private suspend fun isLiveStreamConfirmedOffline(state: PlaybackState): Boolean {
+        val channelId = state.channelId?.takeIf { it.isNotBlank() }
+        val channelLogin = state.channelLogin?.takeIf { it.isNotBlank() }
+        if (channelId == null && channelLogin == null) return false
+        val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        val gqlHeaders = TwitchApiHelper.getGQLHeaders(this)
+        val ids = channelId?.let(::listOf)
+        val logins = if (channelId == null) channelLogin?.let(::listOf) else null
+        try {
+            val response = xtraModule.graphQLRepository.loadQueryUsersStream(
+                networkLibrary = networkLibrary,
+                headers = gqlHeaders,
+                ids = ids,
+                logins = logins,
+            )
+            if (response.errors.isNullOrEmpty()) {
+                val user = response.data?.users?.firstOrNull()
+                if (user != null) return user.stream == null
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Use the same Helix and lightweight GraphQL fallbacks as foreground status checks.
+        }
+
+        val helixHeaders = TwitchApiHelper.getHelixHeaders(this)
+        if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
+            try {
+                val response = xtraModule.helixRepository.getStreams(
+                    networkLibrary = networkLibrary,
+                    headers = helixHeaders,
+                    ids = ids,
+                    logins = logins,
+                )
+                return response.data.isEmpty()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Keep retrying unless a provider confirms that the channel is offline.
+            }
+        }
+
+        if (channelLogin != null) {
+            try {
+                val response = xtraModule.graphQLRepository.loadViewerCount(
+                    networkLibrary = networkLibrary,
+                    headers = gqlHeaders,
+                    channelLogin = channelLogin,
+                )
+                if (response.errors.isNullOrEmpty()) {
+                    val user = response.data?.user
+                    if (user != null) return user.stream == null
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // No authoritative status was available.
+            }
+        }
+        return false
     }
 
     internal fun handleViewingMetadataCommand(extras: Bundle, player: Player) {
@@ -5797,6 +5969,8 @@ class PlaybackService : MediaSessionService() {
         private const val PLAYBACK_NOTIFICATION_ID = 5201
         private const val PLAYBACK_BOOTSTRAP_NOTIFICATION_ID = 5202
         private const val RESUMPTION_STREAM_URL_TIMEOUT_MS = 8_000L
+        private const val BACKGROUND_STALL_RECOVERY_DELAY_MS = 30_000L
+        private const val BACKGROUND_STABLE_PLAYBACK_RESET_MS = 120_000L
         const val START_STREAM = "startStream"
         const val START_LIVE_REWIND = "startLiveRewind"
         const val GET_LIVE_REWIND_STATE = "getLiveRewindState"

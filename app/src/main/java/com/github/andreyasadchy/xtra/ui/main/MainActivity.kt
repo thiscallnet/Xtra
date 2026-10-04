@@ -1088,9 +1088,7 @@ class MainActivity : AppCompatActivity() {
                 networkSnackbar = makeNavigationSnackbar(
                     R.string.no_connection,
                     Snackbar.LENGTH_INDEFINITE,
-                ).setAction(R.string.retry) {
-                    viewModel.checkNetworkStatus.value = true
-                }
+                )
             }
             networkSnackbar?.show()
         } else {
