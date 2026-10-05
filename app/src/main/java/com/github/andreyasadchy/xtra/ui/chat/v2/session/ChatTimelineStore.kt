@@ -315,6 +315,9 @@ class ChatTimelineStore(
 
     /** Hermes and chat.message can describe the same redemption without sharing an ID. */
     private fun isDuplicateReward(message: ChatMessage, existing: Collection<ChatMessage>): Boolean {
+        val redemptionId = message.rewardRedemptionId
+        if (redemptionId != null && existing.any { it.rewardRedemptionId == redemptionId }) return true
+
         val rewardId = message.rewardId ?: return false
         val userId = message.user?.id ?: return false
         return existing.any { other ->
@@ -325,10 +328,11 @@ class ChatTimelineStore(
                 when {
                     other.rewardRedemptionId != null && message.rewardRedemptionId != null ->
                         other.rewardRedemptionId == message.rewardRedemptionId
-                    // Only correlate in the normal delivery direction: chat.message first,
-                    // followed by the Hermes redemption event. If Hermes arrives first, keep a
-                    // later ID-less reward because it may be a separate rapid redemption.
                     other.rewardRedemptionId == null && message.rewardRedemptionId != null -> true
+                    // A later chat row can mirror an earlier redemption event. Require actual
+                    // user text here so a rapid no-input redemption is not mistaken for a copy.
+                    other.rewardRedemptionId != null && message.rewardRedemptionId == null ->
+                        !message.rawText.isNullOrBlank()
                     else -> false
                 }
         }
