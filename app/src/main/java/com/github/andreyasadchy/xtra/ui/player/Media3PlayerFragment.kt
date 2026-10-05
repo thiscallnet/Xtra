@@ -2563,7 +2563,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     fun setQualityText() {
         val selectedLabel = qualityPickerSelectedLabel()
-        val selectedQuality = viewModel.quality
+        val selectedQuality = viewModel.quality ?: qualityPickerSelectionCandidates().firstOrNull()?.quality
         val confirmedQuality = confirmedVideoQualityForCurrentSource()
         val activeQuality = selectedQuality?.takeIf {
             it.name == AUDIO_ONLY_QUALITY || it.name == CHAT_ONLY_QUALITY

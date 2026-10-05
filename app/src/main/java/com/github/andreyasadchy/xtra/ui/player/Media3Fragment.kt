@@ -353,10 +353,15 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     protected override fun qualityPickerSelectionCandidates(): List<QualityPickerCandidate> {
-        if (viewModel.controlledVaftFeed && viewModel.quality?.name != AUTO_QUALITY &&
-            viewModel.quality?.name != AUDIO_ONLY_QUALITY && viewModel.quality?.name != CHAT_ONLY_QUALITY &&
-            confirmedVideoQualityForCurrentSource() != null) {
-            viewModel.confirmedVideoQuality?.let { return listOf(QualityPickerCandidate(it)) }
+        if (viewModel.controlledVaftFeed) {
+            // The primary ladder represents requested qualities. A temporary VAFT
+            // fallback must not replace the checked choice; the HUD reports its
+            // decoded rendition. Use that rendition only if the request has no row.
+            val requestedQuality = viewModel.quality ?: pendingSourceSwitchQuality.peek()?.let {
+                VideoQuality(name = it.name, codecs = it.codecs, bitrate = it.bitrate)
+            }
+            return listOfNotNull(requestedQuality, confirmedVideoQualityForCurrentSource())
+                .map(::QualityPickerCandidate)
         }
         val identity = viewModel.vaftQualityState.identityForPrimaryReturn?.let {
             VideoQuality(name = it.name, codecs = it.codecs, bitrate = it.bitrate)
@@ -2219,7 +2224,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         preserveQuality: Boolean = false,
         automaticRecovery: Boolean = false,
     ): ListenableFuture<SessionResult>? {
-        val startupQuality = if (preserveQuality) viewModel.quality else if (requireArguments().getBoolean(KEY_RESTORED_PLAYBACK)) {
+        val startupQuality = if (preserveQuality) {
+            viewModel.quality ?: pendingSourceSwitchQuality.peek()?.let {
+                VideoQuality(name = it.name, codecs = it.codecs, bitrate = it.bitrate)
+            }
+        } else if (requireArguments().getBoolean(KEY_RESTORED_PLAYBACK)) {
             decodePlaybackQuality(xtraModule.json, requireArguments().getString(KEY_RESTORED_QUALITY))
         } else null
         viewModel.vaftQualityState.clear()
@@ -2243,7 +2252,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         clearPlayerError()
         resetProgressRenderState()
         if (preserveQuality) {
-            pendingSourceSwitchQuality.capture(viewModel.quality)
+            // Another recovery can start before a catalog restores the selection.
+            // Keep its pending request across every failed source attempt.
+            pendingSourceSwitchQuality.capture(startupQuality)
         } else {
             pendingSourceSwitchQuality.clear()
         }
