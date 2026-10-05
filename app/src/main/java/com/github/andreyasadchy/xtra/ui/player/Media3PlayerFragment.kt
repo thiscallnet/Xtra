@@ -198,6 +198,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var livePlaybackMode: LivePlaybackMode = LivePlaybackMode.Live
     private var liveRewindStateSyncPending = false
     private var liveRewindScrubPositionMs: Long? = null
+    private var liveRewindTransitionPositionMs: Long? = null
     private var liveRewindDiscoveryJob: Job? = null
     private var liveRewindTickerJob: Job? = null
     private var streamUptimeTickerJob: Job? = null
@@ -440,6 +441,18 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     protected open fun onLiveRewindReturningToLive() {}
 
     protected fun isLiveRewindStateSyncPending(): Boolean = liveRewindStateSyncPending
+
+    protected fun onLiveRewindPlaybackReady() {
+        if (!liveRewindSwitching && livePlaybackMode is LivePlaybackMode.Rewound) {
+            liveRewindTransitionPositionMs = null
+            updateLiveRewindProgress()
+        }
+    }
+
+    protected fun updateLiveRewindTransitionPosition(positionMs: Long) {
+        liveRewindTransitionPositionMs = positionMs
+        updateLiveRewindProgress()
+    }
 
     protected fun beginLiveRewindStateSync() {
         liveRewindStateSyncPending = true
@@ -3631,8 +3644,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             playbackRequested = playbackRequested,
             existingPositionMs = pausedLivePositionMs,
         )
-        val progressPositionMs = if (liveRewindScrubPositionMs == null) {
-            liveRewindTimelinePositionMs(
+        val previewPositionMs = liveRewindScrubPositionMs ?: liveRewindTransitionPositionMs
+        val progressPositionMs = when {
+            liveRewindScrubPositionMs != null -> null
+            liveRewindTransitionPositionMs != null -> liveRewindTransitionPositionMs
+            else -> liveRewindTimelinePositionMs(
                 mode = livePlaybackMode,
                 edgeMs = edgeMs,
                 playerPositionMs = playerPositionMs,
@@ -3640,22 +3656,20 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 playbackRequested = playbackRequested,
                 pausedLivePositionMs = pausedLivePositionMs,
             )
-        } else {
-            null
         }
         val displayedPositionMs = liveRewindTimelinePositionMs(
             mode = livePlaybackMode,
             edgeMs = edgeMs,
             playerPositionMs = playerPositionMs,
-            scrubPositionMs = liveRewindScrubPositionMs,
+            scrubPositionMs = previewPositionMs,
             playbackRequested = playbackRequested,
             pausedLivePositionMs = pausedLivePositionMs,
         )
         val isRewound = livePlaybackMode is LivePlaybackMode.Rewound
         val isLivePaused = livePlaybackMode is LivePlaybackMode.Live &&
             !playbackRequested &&
-            liveRewindScrubPositionMs == null
-        val isBehindLive = isRewound || isLivePaused || liveRewindScrubPositionMs != null
+            previewPositionMs == null
+        val isBehindLive = isRewound || isLivePaused || previewPositionMs != null
         val isAtLiveEdge = !isBehindLive &&
             !liveRewindStreamOffline &&
             !liveRewindSwitching &&
@@ -3911,7 +3925,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             mode = livePlaybackMode,
             edgeMs = edgeMs,
             playerPositionMs = playerPositionMs,
-            scrubPositionMs = null,
+            scrubPositionMs = liveRewindTransitionPositionMs,
             playbackRequested = playbackRequested,
             pausedLivePositionMs = pausedLivePositionMs,
         )
@@ -4032,6 +4046,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (!liveRewindSwitching && livePlaybackMode is LivePlaybackMode.Rewound &&
             (livePlaybackMode as LivePlaybackMode.Rewound).vodId == vod.id
         ) {
+            if (liveRewindTransitionPositionMs != null) liveRewindTransitionPositionMs = targetMs
             seek(targetMs)
             chatFragment?.updatePosition(targetMs)
             updateLiveRewindProgress()
@@ -4040,10 +4055,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (liveRewindSwitchJob?.isActive == true && !liveRewindReturningLive) {
             liveRewindPendingVodId = vod.id
             liveRewindPendingTargetMs = targetMs
+            liveRewindTransitionPositionMs = targetMs
+            updateLiveRewindProgress()
             return
         }
         liveRewindPendingVodId = null
         liveRewindPendingTargetMs = null
+        liveRewindTransitionPositionMs = targetMs
+        updateLiveRewindProgress()
         val previousPlaybackMode = livePlaybackMode
         liveRewindDiscoveryJob?.cancel()
         startLiveRewindSwitch(
@@ -4066,6 +4085,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         liveRewindSwitchJob?.cancel()
         liveRewindReturningLive = false
         liveRewindSwitching = true
+        liveRewindTransitionPositionMs = targetMs
+        updateLiveRewindProgress()
         liveRewindSwitchJob = viewLifecycleOwner.lifecycleScope.launch {
             val success = try {
                 startSource()
@@ -4077,6 +4098,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             if (generation != liveRewindSwitchGeneration) return@launch
             liveRewindSwitching = false
             if (!success) {
+                liveRewindTransitionPositionMs = null
                 livePlaybackMode = previousPlaybackMode
                 updateLiveRewindUi()
                 onFailure?.invoke()
@@ -4092,7 +4114,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             if (refreshReplayChat) {
                 startLiveRewindChat(targetMs)
             } else {
-                chatFragment?.updatePosition(targetMs)
+                chatFragment?.updatePosition(getCurrentPosition() ?: targetMs)
             }
             pendingTarget?.let {
                 seek(it)
@@ -4131,6 +4153,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             liveRewindSwitching = false
             liveRewindReturningLive = false
             if (success) {
+                liveRewindTransitionPositionMs = null
                 livePlaybackMode = LivePlaybackMode.Live
                 onLiveRewindSourceSettled()
                 pausedLivePositionMs = null
@@ -5011,6 +5034,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         stopStreamUptimeTicker()
         streamUptimeWasLive = false
         liveRewindScrubPositionMs = null
+        liveRewindTransitionPositionMs = null
         pausedLivePositionMs = null
         liveRewindSwitchGeneration++
         liveRewindSwitchJob?.cancel()
