@@ -1456,6 +1456,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
                     override fun onPlayerError(error: PlaybackException) {
                         Log.e(tag, "Player error", error)
+                        val decoderFailure = error.errorCode == PlaybackException.ERROR_CODE_DECODING_FAILED
                         if (BuildConfig.DEBUG) {
                             val controller = player
                             val videoSize = controller?.videoSize
@@ -1519,13 +1520,16 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                     Bundle.EMPTY
                                 )
                                 if (result == null) {
-                                    scheduleStreamRecovery(trigger = "player_error")
+                                    scheduleStreamRecovery(trigger = "player_error", decoderFailure = decoderFailure)
                                 } else {
                                     result.addListener({
                                         if (!isAdded || view == null) return@addListener
                                         val response = runCatching { result.get() }.getOrNull()
                                         if (response?.resultCode != SessionResult.RESULT_SUCCESS) {
-                                            scheduleStreamRecovery(trigger = "player_error_status_unavailable")
+                                            scheduleStreamRecovery(
+                                                trigger = "player_error_status_unavailable",
+                                                decoderFailure = decoderFailure,
+                                            )
                                             return@addListener
                                         }
                                         val responseCode = response.extras.getInt(PlaybackService.RESULT)
@@ -1535,7 +1539,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                         if (responseCode == 404 && hasValidatedInternet()) {
                                             verifyEndedLivePlayback(trigger = "player_error_404")
                                         } else {
-                                            scheduleStreamRecovery(trigger = "player_error")
+                                            scheduleStreamRecovery(
+                                                trigger = "player_error",
+                                                decoderFailure = decoderFailure,
+                                            )
                                         }
                                     }, ContextCompat.getMainExecutor(requireContext()))
                                 }
@@ -1726,29 +1733,33 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }, ContextCompat.getMainExecutor(requireContext()))
     }
 
-    private fun scheduleStreamRecovery(trigger: String) {
+    private fun scheduleStreamRecovery(trigger: String, decoderFailure: Boolean = false) {
         if (!isStreamRecoveryWanted() || streamRecoveryJob?.isActive == true) return
         clearPlayerError()
         val attempt = liveRecoveryState.claimErrorRecovery(
             nowMs = SystemClock.elapsedRealtime(),
         ) ?: return
-        queueStreamRecovery(attempt, trigger)
+        queueStreamRecovery(attempt, trigger, decoderFailure)
     }
 
-    private fun queueStreamRecovery(attempt: Int, trigger: String) {
+    private fun queueStreamRecovery(attempt: Int, trigger: String, decoderFailure: Boolean = false) {
         if (!isStreamRecoveryWanted() || streamRecoveryJob?.isActive == true) return
         liveStallWatchdogJob?.cancel()
         liveStallWatchdogJob = null
         val requestId = streamRecoveryRequestId
         streamRecoveryJob = viewLifecycleOwner.lifecycleScope.launch {
             var nextAttempt = attempt
+            var useDecoderFailureDelay = decoderFailure
             try {
                 while (isStreamRecoveryWanted(requestId)) {
-                    val delayMs = recoveryDelayMs(nextAttempt)
+                    val delayMs = LivePlaybackStallRecoveryState.recoveryDelayMs(
+                        nextAttempt,
+                        decoderFailure = useDecoderFailureDelay,
+                    )
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "PlaybackRecovery",
-                            "event=queued cause=$trigger attempt=$nextAttempt delayMs=$delayMs " +
+                            "event=queued cause=$trigger attempt=$nextAttempt decoderFailure=$useDecoderFailureDelay delayMs=$delayMs " +
                                 "networkValidated=${hasValidatedInternet()} " +
                                 "state=${player?.playbackState} playWhenReady=${player?.playWhenReady} " +
                                 "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
@@ -1793,6 +1804,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         }
                         AutomaticLiveRecoveryResult.RETRY -> {
                             liveRecoveryState.finishRecoveryAttempt(sourceStarted = false)
+                            useDecoderFailureDelay = false
                             nextAttempt = liveRecoveryState.claimErrorRecovery(
                                 nowMs = SystemClock.elapsedRealtime(),
                             ) ?: return@launch
@@ -1808,9 +1820,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
         }
     }
-
-    private fun recoveryDelayMs(attempt: Int): Long =
-        (1500L * (1L shl (attempt - 1).coerceAtMost(5))).coerceAtMost(MAX_STREAM_RECOVERY_DELAY_MS)
 
     private fun hasValidatedInternet(): Boolean {
         val context = context ?: return false
@@ -5982,7 +5991,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         private const val MAX_QUALITY_RETRY_ATTEMPTS = 10
         private const val NETWORK_RECOVERY_POLL_MS = 3_000L
         private const val NETWORK_RECOVERY_LOG_INTERVAL_MS = 15_000L
-        private const val MAX_STREAM_RECOVERY_DELAY_MS = 30_000L
 
         fun newInstance(item: Stream, tapElapsedMs: Long? = null): Media3Fragment {
             return Media3Fragment().apply {
