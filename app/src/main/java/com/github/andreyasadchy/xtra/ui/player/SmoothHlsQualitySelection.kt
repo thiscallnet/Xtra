@@ -48,6 +48,9 @@ data class DesiredHlsQuality(
     @OptIn(UnstableApi::class)
     // A quality label stays meaningful across streams; its bitrate does not.
     fun matches(format: Format): Boolean {
+        if (format.height <= 0 && !MimeTypes.isVideo(format.sampleMimeType) &&
+            format.codecs?.split(',')?.any { MimeTypes.getTrackTypeOfCodec(it.trim()) == C.TRACK_TYPE_VIDEO } != true
+        ) return false
         val codecsMatch = videoCodecsMatch(codecs, format.codecs)
         if (!codecsMatch) return false
         if (format.label.equals(name, ignoreCase = true)) return true

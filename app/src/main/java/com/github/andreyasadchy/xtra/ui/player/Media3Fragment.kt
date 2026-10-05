@@ -287,7 +287,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var liveRewindStateSyncJob: Job? = null
     private var liveRewindStateSyncGeneration = 0L
     private val liveRecoveryState = LivePlaybackStallRecoveryState()
-    private var strictAutomaticQualityRestore = false
     private var recoveringBehindLiveWindow = false
     private var vaftHandoffInProgress = false
 
@@ -2035,7 +2034,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private fun supersedeAutomaticRecoveryForSourceTransition() {
         cancelEndedLiveRecovery(reason = "source_transition")
         cancelLiveStallRecovery(resetBudget = true)
-        strictAutomaticQualityRestore = false
         pendingSourceSwitchQuality.clear()
     }
 
@@ -2127,7 +2125,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun startStream(url: String?) {
-        startStreamInternal(url, null)
+        startStreamInternal(
+            url, null,
+            preserveQuality = viewModel.quality != null || pendingSourceSwitchQuality.peek() != null,
+        )
     }
 
     override fun onStreamBecameLive(eventSequence: Long?) {
@@ -2214,7 +2215,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     override fun onStreamQualityReset() {
         invalidateResumeQualityConfirmation("stream_quality_reset")
         clearResumeAppliedQualityTarget()
-        pendingSourceSwitchQuality.clear()
+        viewModel.quality = viewModel.vaftQualityState.identityForPrimaryReturn?.toQuality()
+            ?: viewModel.quality ?: pendingSourceSwitchQuality.peek()?.toQuality()
+        pendingSourceSwitchQuality.capture(viewModel.quality)
         viewModel.vaftQualityState.clear()
     }
 
@@ -2225,9 +2228,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         automaticRecovery: Boolean = false,
     ): ListenableFuture<SessionResult>? {
         val startupQuality = if (preserveQuality) {
-            viewModel.quality ?: pendingSourceSwitchQuality.peek()?.let {
-                VideoQuality(name = it.name, codecs = it.codecs, bitrate = it.bitrate)
-            }
+            viewModel.vaftQualityState.identityForPrimaryReturn?.toQuality()
+                ?: viewModel.quality ?: pendingSourceSwitchQuality.peek()?.toQuality()
         } else if (requireArguments().getBoolean(KEY_RESTORED_PLAYBACK)) {
             decodePlaybackQuality(xtraModule.json, requireArguments().getString(KEY_RESTORED_QUALITY))
         } else null
@@ -2241,12 +2243,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
             if (automaticRecovery) {
                 liveRecoveryState.beginRecoveryGeneration()
-                strictAutomaticQualityRestore = true
             } else {
                 streamRecoveryRequestId++
                 cancelEndedLiveRecovery(reason = "user_source_start")
                 liveRecoveryState.beginUserGeneration()
-                strictAutomaticQualityRestore = false
             }
         }
         clearPlayerError()
@@ -4161,7 +4161,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         if (videoType == STREAM && persistSavedQuality && qualityChanged) {
             cancelLiveStallRecovery(resetBudget = true)
             pendingSourceSwitchQuality.clear()
-            strictAutomaticQualityRestore = false
         }
         if (qualityChanged) viewModel.previousQuality = previousQuality
         when {
@@ -4604,7 +4603,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
         if (!audioOnly && !chatOnly && quality.name != AUTO_QUALITY && override == null) {
             viewModel.pendingVideoQuality = quality
-            return
         }
         controller.trackSelectionParameters = controller.trackSelectionParameters.buildUpon().apply {
             setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, audioOnly || chatOnly)
@@ -4731,7 +4729,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         if (videoType == STREAM && viewModel.quality?.name != AUDIO_ONLY_QUALITY) {
             cancelLiveStallRecovery(resetBudget = true)
             pendingSourceSwitchQuality.clear()
-            strictAutomaticQualityRestore = false
         }
         player?.let { player ->
             if (player.isConnected) {
@@ -5057,25 +5054,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         viewModel.streamQualityCatalogIdentity = null
                     }
                     val currentSelection = viewModel.quality
-                    val displayQualities = list.asSequence()
-                        .sortedByDescending { it.bitrate }
-                        .sortedByDescending {
-                            it.name?.substringAfter("p", "")?.takeWhile { value -> value.isDigit() }?.toIntOrNull()
-                        }
-                        .sortedByDescending {
-                            it.name?.substringBefore("p", "")?.takeWhile { value -> value.isDigit() }?.toIntOrNull()
-                        }
-                        .toMutableList()
-                        .apply {
-                            add(0, VideoQuality(AUTO_QUALITY))
-                            find { it.name.equals("source", true) }?.let { source ->
-                                remove(source)
-                                add(1, VideoQuality(SOURCE_QUALITY, source.codecs, source.bitrate, source.url))
-                            }
-                            val audio = find { it.name?.startsWith("audio", true) == true }
-                            audio?.let { remove(it) }
-                            add(VideoQuality(AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
-                        }
+                    val displayQualities = playerQualityOptions(list)
                     viewModel.qualities = displayQualities
                     if (BuildConfig.DEBUG) {
                         Log.d(
@@ -5095,28 +5074,19 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     } else {
                         pendingQualityToRestore
                     }
-                    val strictRestore = strictAutomaticQualityRestore
-                    strictAutomaticQualityRestore = false
                     val primaryDefaults = extras.getString(PlaybackService.CONTROLLED_PRIMARY_QUALITIES)?.let {
                         decodePlaybackQualities(xtraModule.json, it)
                     }
                     val selectionQualities = if (viewModel.controlledVaftFeed && !primaryDefaults.isNullOrEmpty()) {
-                        mutableListOf(VideoQuality(AUTO_QUALITY)).apply {
-                            addAll(primaryDefaults)
-                            add(VideoQuality(AUDIO_ONLY_QUALITY))
-                        }
+                        playerQualityOptions(primaryDefaults)
                     } else displayQualities
                     val restoredQuality = when {
-                        viewModel.controlledVaftFeed && currentSelection != null -> currentSelection
+                        qualityToRestore != null ->
+                            qualityToRestore.resolveExact(selectionQualities) ?: qualityToRestore.toQuality()
+                        viewModel.controlledVaftFeed && currentSelection != null ->
+                            resolvePlaybackQuality(selectionQualities, currentSelection) ?: currentSelection
                         viewModel.usingAlternateStream ->
                             resolvePlaybackQuality(viewModel.qualities, currentSelection) ?: viewModel.vaftVerifiedRendition
-                        qualityToRestore != null -> {
-                            if (strictRestore) {
-                                qualityToRestore.resolveExact(selectionQualities)
-                            } else {
-                                qualityToRestore.resolve(selectionQualities, ::findQuality)
-                            }
-                        }
                         currentSelection != null ->
                             resolvePlaybackQuality(viewModel.qualities, currentSelection) ?: currentSelection
                         else -> {
@@ -5151,20 +5121,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         viewModel.vaftQualityState.clear()
                     }
                     changePlayerMode()
-                    if (strictRestore && qualityToRestore != null && restoredQuality == null) {
-                        val fallbackQuality = selectionQualities.firstOrNull { it.name == AUTO_QUALITY }
-                            ?: VideoQuality(AUTO_QUALITY)
-                        if (BuildConfig.DEBUG) {
-                            Log.i(
-                                "PlaybackRecovery",
-                                "event=strict_quality_restore action=fallback_auto reason=target_unavailable " +
-                                    "targetName=${qualityToRestore.name} fallback=${fallbackQuality.name} " +
-                                    "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
-                            )
-                        }
-                        viewModel.quality = fallbackQuality
-                        reapplyQualityAutomatically(fallbackQuality, source = "strict_restore_fallback")
-                    } else if (!viewModel.controlledVaftFeed || initialQualityRequest) {
+                    if (!viewModel.controlledVaftFeed || initialQualityRequest) {
                         (restoredQuality ?: viewModel.quality)?.let {
                             reapplyQualityAutomatically(it, source = "qualities")
                         }

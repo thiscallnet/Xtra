@@ -8,6 +8,36 @@ import org.junit.Test
 class SourceSwitchQualityStateTest {
 
     @Test
+    fun refreshedRenditionKeepsQualityDespiteBitrateAndCodecLevelChanges() {
+        val state = SourceSwitchQualityState()
+        state.capture(VideoQuality("1440p60", "avc1.640032", 12_000_000, "expired.m3u8", 60f))
+        state.capture(null)
+        val fresh = VideoQuality("1440p60", "avc1.640033", 10_000_000, "fresh.m3u8", 60f)
+        val identity = state.consume()!!
+
+        assertEquals(fresh, identity.resolveExact(listOf(fresh)))
+        assertNull(identity.resolveExact(listOf(VideoQuality("160p", "avc1.4D401F"))))
+        assertEquals("1440p60", identity.toQuality().name)
+        assertEquals(60f, identity.toQuality().frameRate)
+        assertNull(identity.toQuality().url)
+    }
+
+    @Test
+    fun audioFirstCraftedCatalogStillOffersHighestVideoFirstAndOneAudioOption() {
+        val catalog = listOf(
+            VideoQuality("audio_only", "mp4a.40.2", 160_000, "audio.m3u8"),
+            VideoQuality("160p", "avc1.4D401F", 230_000, "160.m3u8"),
+            VideoQuality("1080p60", "avc1.64002A", 6_800_000, "1080.m3u8", 60f),
+            VideoQuality("720p60", "avc1.4D401F", 3_400_000, "720.m3u8", 60f),
+        )
+
+        val options = playerQualityOptions(catalog)
+        assertEquals(listOf("auto", "1080p60", "720p60", "160p", "audio_only"), options.map { it.name })
+        assertEquals("1080.m3u8", options[1].url)
+        assertEquals("audio.m3u8", options.last().url)
+    }
+
+    @Test
     fun reverseTransitionKeepsSelectionWhenClearedSourceHasNoQuality() {
         val state = SourceSwitchQualityState()
 

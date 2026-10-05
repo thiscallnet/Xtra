@@ -5,6 +5,28 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+internal fun playerQualityOptions(catalog: List<VideoQuality>): List<VideoQuality> {
+    val audio = catalog.firstOrNull { it.name?.startsWith("audio", ignoreCase = true) == true }
+    val videos = catalog.filter {
+        it.name != PlaybackContract.AUTO_QUALITY && it.name != PlaybackContract.CHAT_ONLY_QUALITY &&
+            it.name?.startsWith("audio", ignoreCase = true) != true
+    }.sortedWith(
+        compareByDescending<VideoQuality> { it.name.equals("source", ignoreCase = true) }
+            .thenByDescending { it.name?.substringBefore('p')?.toIntOrNull() }
+            .thenByDescending { it.frameRate ?: it.name?.substringAfter('p', "")?.toFloatOrNull() ?: 30f }
+            .thenByDescending { it.bitrate },
+    )
+    return buildList {
+        add(VideoQuality(PlaybackContract.AUTO_QUALITY))
+        addAll(videos.map {
+            if (it.name.equals("source", ignoreCase = true)) {
+                VideoQuality(PlaybackContract.SOURCE_QUALITY, it.codecs, it.bitrate, it.url, it.frameRate)
+            } else it
+        })
+        add(VideoQuality(PlaybackContract.AUDIO_ONLY_QUALITY, audio?.codecs, audio?.bitrate, audio?.url))
+    }
+}
+
 internal fun encodePlaybackQualities(json: Json, qualities: List<VideoQuality>?): String? =
     qualities?.takeIf { it.isNotEmpty() }?.let { json.encodeToString(it) }
 
