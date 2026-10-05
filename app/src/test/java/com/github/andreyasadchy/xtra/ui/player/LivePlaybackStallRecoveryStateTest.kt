@@ -8,6 +8,14 @@ import org.junit.Test
 
 class LivePlaybackStallRecoveryStateTest {
     @Test
+    fun decoderFailuresKeepRecoveryDelayShortWhileOtherFailuresBackOff() {
+        assertEquals(1_500L, LivePlaybackStallRecoveryState.recoveryDelayMs(attempt = 1, decoderFailure = false))
+        assertEquals(24_000L, LivePlaybackStallRecoveryState.recoveryDelayMs(attempt = 5, decoderFailure = false))
+        assertEquals(30_000L, LivePlaybackStallRecoveryState.recoveryDelayMs(attempt = 6, decoderFailure = false))
+        assertEquals(1_500L, LivePlaybackStallRecoveryState.recoveryDelayMs(attempt = 5, decoderFailure = true))
+    }
+
+    @Test
     fun startupAndPostStartBufferingRecoverAfterTimeout() {
         val state = LivePlaybackStallRecoveryState(stallTimeoutMs = 30_000L)
         var generation = state.currentGeneration()

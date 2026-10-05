@@ -135,5 +135,15 @@ internal class LivePlaybackStallRecoveryState(
         const val DEFAULT_STALL_TIMEOUT_MS = 30_000L
         const val ENDED_RECOVERY_STABILITY_MS = 120_000L
         const val STABLE_PLAYBACK_RESET_MS = 120_000L
+
+        fun recoveryDelayMs(attempt: Int, decoderFailure: Boolean): Long {
+            if (decoderFailure) return DECODER_FAILURE_RECOVERY_DELAY_MS
+            return (INITIAL_RECOVERY_DELAY_MS * (1L shl (attempt - 1).coerceIn(0, 5)))
+                .coerceAtMost(MAX_RECOVERY_DELAY_MS)
+        }
+
+        private const val INITIAL_RECOVERY_DELAY_MS = 1_500L
+        private const val DECODER_FAILURE_RECOVERY_DELAY_MS = 1_500L
+        private const val MAX_RECOVERY_DELAY_MS = 30_000L
     }
 }
