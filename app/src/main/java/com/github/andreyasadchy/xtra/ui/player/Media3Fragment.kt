@@ -4091,7 +4091,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
         val serviceOwnsVaftSource = videoType == STREAM &&
             player?.currentMediaItem?.mediaId?.startsWith(PlaybackService.VAFT_SOURCE_MEDIA_ID_PREFIX) == true
-        val vaftOwnsPrimarySource = videoType == STREAM && requestedQuality?.name != CHAT_ONLY_QUALITY && (
+        val vaftOwnsPrimarySource = videoType == STREAM && !viewModel.controlledVaftFeed &&
+            requestedQuality?.name != CHAT_ONLY_QUALITY && (
             (vaftOwnsPlayback() && !viewModel.usingAlternateStream) ||
                 (!persistSavedQuality && serviceOwnsVaftSource)
             )
@@ -4580,18 +4581,31 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
         val audioOnly = quality.name == AUDIO_ONLY_QUALITY
         val chatOnly = quality.name == CHAT_ONLY_QUALITY
-        val override = if (!audioOnly && !chatOnly && quality.name != AUTO_QUALITY) {
-            videoQualityTrackOverride(controller.currentTracks, selectionQuality, allowExceedsCapabilities = videoType == STREAM)
-        } else null
-        if (!audioOnly && !chatOnly && quality.name != AUTO_QUALITY && override == null) {
-            viewModel.pendingVideoQuality = quality
-            return
-        }
         xtraModule.streamMedia3Runtime.qualitySelectionPolicy.set(
             selectionQuality.name.takeUnless { audioOnly || chatOnly },
             selectionQuality.bitrate,
             selectionQuality.codecs,
         )
+        val override = if (!audioOnly && !chatOnly && quality.name != AUTO_QUALITY) {
+            videoQualityTrackOverride(controller.currentTracks, selectionQuality, allowExceedsCapabilities = videoType == STREAM)
+        } else null
+        if (BuildConfig.DEBUG && viewModel.controlledVaftFeed) {
+            val tracks = controller.currentTracks.groups.asSequence()
+                .filter { it.type == Media3C.TRACK_TYPE_VIDEO }
+                .flatMap { group -> (0 until group.length).asSequence().map { group.getTrackFormat(it) } }
+                .joinToString(prefix = "[", postfix = "]") { format ->
+                    "${format.height}p${format.frameRate.toInt()}:${format.codecs?.substringBefore(',') ?: "?"}"
+                }
+            Log.d(
+                "XtraQuality",
+                "event=controlled_quality_apply requested=${quality.name} mapped=${selectionQuality.name} " +
+                    "trackOverride=${override != null} tracks=$tracks",
+            )
+        }
+        if (!audioOnly && !chatOnly && quality.name != AUTO_QUALITY && override == null) {
+            viewModel.pendingVideoQuality = quality
+            return
+        }
         controller.trackSelectionParameters = controller.trackSelectionParameters.buildUpon().apply {
             setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO, audioOnly || chatOnly)
             clearOverridesOfType(Media3C.TRACK_TYPE_VIDEO)
