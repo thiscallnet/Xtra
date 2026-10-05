@@ -1,6 +1,33 @@
 package com.github.andreyasadchy.xtra.ui.player
 
 import com.github.andreyasadchy.xtra.model.VideoQuality
+import java.util.Locale
+
+private val videoCodecPrefixes = listOf(
+    "avc1.", "hvc1.", "hev1.", "av01.", "vp09.", "vp08.", "dvh1.", "dvhe.",
+)
+
+private fun codecTokens(codecs: String): List<String> = codecs.split(',')
+    .map { it.trim().lowercase(Locale.ROOT) }
+    .filter(String::isNotEmpty)
+
+private fun videoCodecTokens(codecs: String): List<String> = codecTokens(codecs)
+    .filter { token -> videoCodecPrefixes.any(token::startsWith) }
+
+private fun codecIdentityMatches(identityCodecs: String?, candidateCodecs: String?): Boolean {
+    if (identityCodecs.isNullOrBlank() || candidateCodecs.isNullOrBlank()) return true
+
+    val identityTokens = codecTokens(identityCodecs)
+    val candidateTokens = codecTokens(candidateCodecs)
+    val identityVideo = videoCodecTokens(identityCodecs)
+    val candidateVideo = videoCodecTokens(candidateCodecs)
+
+    return when {
+        identityVideo.isNotEmpty() && candidateVideo.isNotEmpty() -> identityVideo.any(candidateVideo::contains)
+        identityVideo.isNotEmpty() || candidateVideo.isNotEmpty() -> false
+        else -> identityTokens.any(candidateTokens::contains)
+    }
+}
 
 internal data class SourceSwitchQualityIdentity(
     val name: String,
@@ -13,16 +40,19 @@ internal data class SourceSwitchQualityIdentity(
     ): VideoQuality? = qualities?.firstOrNull { quality ->
         quality.name.equals(name, ignoreCase = true) &&
             (name.equals("Source", ignoreCase = true) ||
-                ((codecs == null || quality.codecs.equals(codecs, ignoreCase = true)) &&
+                (codecIdentityMatches(codecs, quality.codecs) &&
                     (bitrate == null || quality.bitrate == bitrate)))
     } ?: fallback(name)
 
     /** Automatic recovery must not replace a missing manual rendition with another quality. */
     fun resolveExact(qualities: List<VideoQuality>?): VideoQuality? = qualities?.firstOrNull { quality ->
-        quality.name.equals(name, ignoreCase = true) &&
-            (codecs == null || quality.codecs.equals(codecs, ignoreCase = true)) &&
-            (bitrate == null || quality.bitrate == bitrate)
+        matchesExact(quality)
     }
+
+    fun matchesExact(quality: VideoQuality): Boolean =
+        quality.name.equals(name, ignoreCase = true) &&
+            codecIdentityMatches(codecs, quality.codecs) &&
+            (bitrate == null || quality.bitrate == bitrate)
 }
 
 /**
