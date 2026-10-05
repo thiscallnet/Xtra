@@ -72,16 +72,18 @@ enum class ChatEventVisualStyle {
 data class ChatEventPresentation(
     val kind: ChatEventKind,
     val visualStyle: ChatEventVisualStyle,
-    /** Usually an Icon, or a RewardIcon when a custom Channel Points image is available. */
-    val icon: ChatPiece,
+    /** Optional semantic icon; generic notices do not need a leading marker. */
+    val icon: ChatPiece? = null,
     val titlePieces: List<ChatPiece>,
     val metadataPieces: List<ChatPiece> = emptyList(),
     val bodyPieces: List<ChatPiece> = emptyList(),
     val accessibilityText: String,
 ) {
     fun flatten(): List<ChatPiece> = buildList {
-        add(icon)
-        add(ChatPiece.Text(" "))
+        icon?.let {
+            add(it)
+            add(ChatPiece.Text(" "))
+        }
         addAll(titlePieces)
         if (metadataPieces.isNotEmpty()) {
             add(ChatPiece.Text("\n"))

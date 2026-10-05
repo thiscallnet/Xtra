@@ -611,15 +611,15 @@ class ChatRowCompiler(
                 ChatEventPresentation(
                     kind = eventKind,
                     visualStyle = ChatEventVisualStyle.NOTICE,
-                    icon = ChatPiece.Icon(
-                        drawableRes = if (eventKind == ChatEventKind.MODERATION) {
-                            R.drawable.ic_chat_moderation
-                        } else {
-                            R.drawable.ic_chat_speaker_muted
-                        },
-                        tint = headingColor,
-                        sizeDp = ChatEventVisualTokens.iconSizeDp,
-                    ),
+                    icon = if (eventKind == ChatEventKind.MODERATION) {
+                        ChatPiece.Icon(
+                            drawableRes = R.drawable.ic_chat_moderation,
+                            tint = headingColor,
+                            sizeDp = ChatEventVisualTokens.iconSizeDp,
+                        )
+                    } else {
+                        null
+                    },
                     titlePieces = listOf(ChatPiece.Text(title, color = headingColor, bold = true)),
                     metadataPieces = withSource(systemDetail),
                     bodyPieces = bodyPieces,

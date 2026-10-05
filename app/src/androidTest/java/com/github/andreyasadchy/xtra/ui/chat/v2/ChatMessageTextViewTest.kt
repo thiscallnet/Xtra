@@ -2089,7 +2089,7 @@ class ChatMessageTextViewTest {
         val event = ChatEventPresentation(
             kind = ChatEventKind.NOTICE,
             visualStyle = style,
-            icon = ChatPiece.Icon(com.github.andreyasadchy.xtra.R.drawable.ic_chat_speaker_muted, sizeDp = ChatEventVisualTokens.iconSizeDp),
+            icon = null,
             titlePieces = listOf(ChatPiece.Text(title, bold = true)),
             accessibilityText = title,
         )
