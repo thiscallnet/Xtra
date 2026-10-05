@@ -2253,9 +2253,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             val urlMatch = selected.url?.let { selectedUrl ->
                 identityMatches.singleOrNull { (_, entry) -> entry.second.url == selectedUrl }
             }
-            // URLs change across source switches. Use quality identity first, and keep an
-            // incomplete identity unchecked when more than one catalog row still matches.
-            val match = urlMatch ?: identityMatches.singleOrNull() ?: continue
+            val uniqueNameMatch = qualities.withIndex().singleOrNull { (_, entry) ->
+                entry.second.name.equals(name, ignoreCase = true)
+            }
+            // Prefer codec and bitrate identity, but still match a unique quality name if
+            // playback metadata changed across source switches. Leave duplicate rungs unchecked.
+            val match = urlMatch ?: identityMatches.singleOrNull() ?: uniqueNameMatch ?: continue
             return QualityPickerSelection(match.index, qualities[match.index].first)
         }
         return null

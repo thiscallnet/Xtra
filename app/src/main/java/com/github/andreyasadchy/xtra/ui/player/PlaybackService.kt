@@ -1699,8 +1699,10 @@ class PlaybackService : MediaSessionService() {
                                         session.player.currentPosition * 1_000L
                                 } else Media3C.TIME_UNSET
                                 val alternateFormats = controlledPlaylist?.availableFormatsAt(epochUs)
-                                // Keep primary rendition URLs for in-place track selection, but show the temporary ladder's metadata.
-                                val catalog = alternateFormats?.mapNotNull { format ->
+                                // Keep the full primary ladder visible while a controlled VAFT feed
+                                // resolves the selected quality. Its temporary catalog can be partial
+                                // while rendition probes are still completing or recovering.
+                                val alternateCatalog = alternateFormats?.mapNotNull { format ->
                                     val primary = playlist?.variants?.filter {
                                         (format.height > 0 && it.format.height >= format.height || format.height <= 0 && it.format.height <= 0) &&
                                             it.format.codecs?.substringBefore(',')?.take(4) == format.codecs?.substringBefore(',')?.take(4)
@@ -1710,7 +1712,15 @@ class PlaybackService : MediaSessionService() {
                                         name = if (format.height > 0) "${format.height}p${format.frameRate.toInt().takeIf { it > 30 } ?: ""}" else PlaybackContract.AUDIO_ONLY_QUALITY,
                                         codecs = format.codecs, bitrate = format.bitrate, url = primary.url.toString(), frameRate = format.frameRate,
                                     )
-                                } ?: primaryCatalog
+                                }
+                                val useControlledPrimaryCatalog = controlledQualitySource && !primaryCatalog.isNullOrEmpty()
+                                val usableAlternateCatalog = alternateCatalog?.takeIf { it.isNotEmpty() }
+                                val useAlternateCatalog = !useControlledPrimaryCatalog && !usableAlternateCatalog.isNullOrEmpty()
+                                val catalog = when {
+                                    useControlledPrimaryCatalog -> primaryCatalog
+                                    useAlternateCatalog -> usableAlternateCatalog
+                                    else -> primaryCatalog
+                                }
                                 val catalogMasterUri = if (sourceMatchesCachedPrimaryCatalog && isPrimaryQualitySource) {
                                     primaryQualityCatalogMasterUri
                                 } else if (isPrimaryQualitySource && sourceUri == liveStreamUri && currentCatalog != null) {
@@ -1719,10 +1729,11 @@ class PlaybackService : MediaSessionService() {
                                     null
                                 }
                                 if (BuildConfig.DEBUG) {
-                                    val catalogOrigin = if (sourceMatchesCachedPrimaryCatalog && isPrimaryQualitySource) {
-                                        "primary_cache"
-                                    } else {
-                                        "current_manifest"
+                                    val catalogOrigin = when {
+                                        sourceMatchesCachedPrimaryCatalog && isPrimaryQualitySource -> "primary_cache"
+                                        useControlledPrimaryCatalog -> "controlled_primary"
+                                        useAlternateCatalog -> "alternate_fallback"
+                                        else -> "current_manifest"
                                     }
                                     Log.d(
                                         "XtraQuality",
@@ -1742,13 +1753,15 @@ class PlaybackService : MediaSessionService() {
                                     if (BuildConfig.DEBUG) {
                                         putString(QUALITIES_ROWS_TOKEN, qualityCatalogRowsToken(catalog))
                                     }
-                                    if (alternateFormats != null) {
+                                    if (controlledQualitySource) {
                                         primaryCatalog?.let { putString(CONTROLLED_PRIMARY_QUALITIES, xtraModule.json.encodeToString(it)) }
-                                        val selectionFormats = catalog?.map { quality -> playlist?.variants?.find { it.url.toString() == quality.url }?.format }
-                                        putStringArray(CONTROLLED_SELECTION_NAMES, selectionFormats?.map { format ->
-                                            format?.let { if (it.height > 0) "${it.height}p${it.frameRate.toInt().takeIf { fps -> fps > 30 } ?: ""}" else PlaybackContract.AUDIO_ONLY_QUALITY }.toString()
-                                        }?.toTypedArray())
-                                        putStringArray(CONTROLLED_SELECTION_CODECS, selectionFormats?.map { it?.codecs.toString() }?.toTypedArray())
+                                        if (useAlternateCatalog) {
+                                            val selectionFormats = catalog?.map { quality -> playlist?.variants?.find { it.url.toString() == quality.url }?.format }
+                                            putStringArray(CONTROLLED_SELECTION_NAMES, selectionFormats?.map { format ->
+                                                format?.let { if (it.height > 0) "${it.height}p${it.frameRate.toInt().takeIf { fps -> fps > 30 } ?: ""}" else PlaybackContract.AUDIO_ONLY_QUALITY }.toString()
+                                            }?.toTypedArray())
+                                            putStringArray(CONTROLLED_SELECTION_CODECS, selectionFormats?.map { it?.codecs.toString() }?.toTypedArray())
+                                        }
                                     }
                                     putStringArray(NAMES, catalog?.map { it.name.toString() }?.toTypedArray())
                                     putStringArray(CODECS, catalog?.map { it.codecs.toString() }?.toTypedArray())

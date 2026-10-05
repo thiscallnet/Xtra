@@ -15,6 +15,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.util.concurrent.atomic.AtomicInteger
 
 class ChatClipPreviewRepositoryTest {
 
@@ -178,22 +179,34 @@ class ChatClipPreviewRepositoryTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
             val gate = CompletableDeferred<ChatClipPreview?>()
-            var attempts = 0
+            val attempts = AtomicInteger()
             val repository = ChatClipPreviewRepository(scope) {
-                attempts++
+                attempts.incrementAndGet()
                 gate.await()
             }
-            var firstCalls = 0
-            var secondCalls = 0
-            repository.observe("slug") { firstCalls++ }
-            repository.observe("slug") { secondCalls++ }
-            withTimeout(5_000) { while (attempts < 1) delay(1) }
-            assertEquals(1, attempts)
+            val firstCallback = CompletableDeferred<Unit>()
+            val secondCallback = CompletableDeferred<Unit>()
+            val firstCalls = AtomicInteger()
+            val secondCalls = AtomicInteger()
+            repository.observe("slug") {
+                firstCalls.incrementAndGet()
+                firstCallback.complete(Unit)
+            }
+            repository.observe("slug") {
+                secondCalls.incrementAndGet()
+                secondCallback.complete(Unit)
+            }
+            withTimeout(5_000) { while (attempts.get() < 1) delay(1) }
+            assertEquals(1, attempts.get())
             assertEquals(ChatClipPreviewState.Loading, repository.peekState("slug"))
             gate.complete(preview)
             withTimeout(5_000) { while (repository.peek("slug") == null) delay(1) }
-            assertEquals(1, firstCalls)
-            assertEquals(1, secondCalls)
+            withTimeout(5_000) {
+                firstCallback.await()
+                secondCallback.await()
+            }
+            assertEquals(1, firstCalls.get())
+            assertEquals(1, secondCalls.get())
         } finally {
             scope.cancel()
         }
