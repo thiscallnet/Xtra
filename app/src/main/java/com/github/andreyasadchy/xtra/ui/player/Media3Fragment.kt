@@ -127,11 +127,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var vodClipSegmentDurationsUs = IntArray(0)
     private var vodClipSegmentByteRanges = LongArray(0)
     private var vodClipBitrate: Int? = null
+    private enum class LiveRewindFallbackStage { NONE, DIRECT_SOURCE, USHER }
     private var liveRewindFallbackVod: LiveRewindVod? = null
-    private var liveRewindFallbackPrimaryUrl: String? = null
+    private var liveRewindPrimaryUrl: String? = null
     private var liveRewindFallbackPositionMs = 0L
     private var liveRewindPrimaryReady = false
-    private var liveRewindFallbackAttempted = false
+    private var liveRewindFallbackStage = LiveRewindFallbackStage.NONE
     private var liveRewindFallbackSourceStarted = false
     private var liveRewindDirectPlaylistMode = false
     private var liveRewindDirectQualityGeneration = 0L
@@ -1221,11 +1222,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         }
                         if (playbackState == Player.STATE_READY) {
                             if (
-                                liveRewindFallbackVod != null && !liveRewindFallbackAttempted &&
+                                liveRewindFallbackVod != null &&
                                 player?.currentMediaItem?.localConfiguration?.uri?.toString() ==
-                                    liveRewindFallbackPrimaryUrl
+                                    liveRewindPrimaryUrl
                             ) {
                                 liveRewindPrimaryReady = true
+                                onLiveRewindPlaybackReady()
                             }
                             if (isLiveRewindStateSyncPending() && videoType == STREAM) {
                                 requestLiveRewindStateSync(controller, "playback_ready")
@@ -2685,6 +2687,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun seek(position: Long) {
+        if (isLiveRewindSourceOwned()) liveRewindFallbackPositionMs = position
         player?.seekTo(position)
     }
 
@@ -2728,33 +2731,100 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         } ?: pendingSourceSwitchQuality.peek()
         val qualityMetadata = viewModel.qualities?.toList()
         clearLiveRewindFallbackState()
+        liveRewindFallbackVod = vod
+        liveRewindFallbackPositionMs = positionMs
         liveRewindFallbackPreferredQuality = preferredQuality
         liveRewindFallbackQualityMetadata = qualityMetadata
+
+        val directRendition = liveRewindFallbackRendition()
+        val directUrl = liveRewindDirectPlaylistUrl(vod.animatedPreviewUrl, directRendition)
+        if (directUrl != null) {
+            liveRewindPrimaryUrl = directUrl
+            liveRewindPrimaryReady = false
+            liveRewindFallbackStage = LiveRewindFallbackStage.NONE
+            liveRewindFallbackSourceStarted = false
+            val started = startLiveRewindDirectSource(
+                vod = vod,
+                url = directUrl,
+                positionMs = positionMs,
+                preferredQualityName = liveRewindDirectQualityName(directUrl),
+            )
+            if (started) {
+                val qualityName = parseTwitchDirectVideoUrl(directUrl)?.qualityName ?: "unknown"
+                Log.i("LiveRewind", "Started preview-derived direct VOD playlist quality=$qualityName")
+                return true
+            }
+            Log.i("LiveRewind", "Direct VOD source could not start; trying the Usher playlist")
+        }
+
+        val started = startLiveRewindUsherSource(vod, positionMs)
+        if (!started) clearLiveRewindFallbackState()
+        return started
+    }
+
+    private suspend fun startLiveRewindDirectSource(
+        vod: LiveRewindVod,
+        url: String,
+        positionMs: Long,
+        preferredQualityName: String?,
+    ): Boolean = startLiveRewindSource(vod.id, url, positionMs) {
+        liveRewindFallbackSourceStarted = true
+        configureLiveRewindDirectSource(url, preferredQualityName)
+    }
+
+    private fun configureLiveRewindDirectSource(url: String, preferredQualityName: String?) {
+        liveRewindDirectPlaylistMode = true
+        configureDirectVideoQualities(
+            videoUrl = url,
+            currentUri = url,
+            preserveCurrentQuality = true,
+            qualityMetadata = liveRewindFallbackQualityMetadata,
+            preferredQualityName = preferredQualityName,
+        )
+        pendingSourceSwitchQuality.clear()
+    }
+
+    private suspend fun startLiveRewindUsherSource(
+        vod: LiveRewindVod,
+        positionMs: Long,
+    ): Boolean {
+        liveRewindFallbackStage = LiveRewindFallbackStage.USHER
+        liveRewindPrimaryReady = false
+        liveRewindFallbackSourceStarted = false
         val url = try {
             viewModel.loadRewindVideoPlaylistUrl(vod.id)
         } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
             null
-        } ?: return false
-        liveRewindFallbackVod = vod
-        liveRewindFallbackPrimaryUrl = url
-        liveRewindFallbackPositionMs = positionMs
-        liveRewindPrimaryReady = false
-        liveRewindFallbackAttempted = false
-        liveRewindFallbackSourceStarted = false
-        val success = startLiveRewindSource(vod.id, url, positionMs)
-        if (!success) clearLiveRewindFallbackState()
-        return success
+        }?.takeIf { it.isNotBlank() } ?: return false
+
+        if (!isAdded || view == null || liveRewindFallbackVod?.id != vod.id) return false
+        liveRewindPrimaryUrl = url
+        return startLiveRewindSource(vod.id, url, positionMs) {
+            liveRewindFallbackSourceStarted = true
+            liveRewindDirectPlaylistMode = false
+        }
     }
 
     private suspend fun startLiveRewindSource(
         vodId: String,
         url: String,
         positionMs: Long,
+        fallbackStage: LiveRewindFallbackStage = liveRewindFallbackStage,
         onSourceStarted: (() -> Unit)? = null,
     ): Boolean {
         val controller = player ?: return false
+        val oldPrimaryUrl = liveRewindPrimaryUrl
+        val oldPositionMs = liveRewindFallbackPositionMs
+        val oldPrimaryReady = liveRewindPrimaryReady
+        val oldFallbackStage = liveRewindFallbackStage
+        val oldSourceStarted = liveRewindFallbackSourceStarted
+        liveRewindPrimaryUrl = url
+        liveRewindFallbackPositionMs = positionMs
+        liveRewindPrimaryReady = false
+        liveRewindFallbackStage = fallbackStage
+        liveRewindFallbackSourceStarted = false
         supersedeAutomaticRecoveryForSourceTransition()
         invalidateQualityRequest()
         val oldQualities = viewModel.qualities
@@ -2795,10 +2865,16 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             false
         }
         if (success) {
+            liveRewindFallbackSourceStarted = true
             onSourceStarted?.invoke()
             vaftHandoffInProgress = false
             restoreVaftPlayback(oldQuality)
         } else {
+            liveRewindPrimaryUrl = oldPrimaryUrl
+            liveRewindFallbackPositionMs = oldPositionMs
+            liveRewindPrimaryReady = oldPrimaryReady
+            liveRewindFallbackStage = oldFallbackStage
+            liveRewindFallbackSourceStarted = oldSourceStarted
             invalidateQualityRequest()
             restoreQualityAfterSourceSwitchFailure(
                 qualities = oldQualities,
@@ -2812,79 +2888,96 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     override fun onLiveRewindPlaybackError(error: PlaybackException?): Boolean {
         val vod = liveRewindFallbackVod
-        val primaryUrl = liveRewindFallbackPrimaryUrl
+        val primaryUrl = liveRewindPrimaryUrl
         if (
-            error != null && vod != null && primaryUrl != null &&
+            error != null && vod != null &&
             isLiveRewindActiveOrSwitching()
         ) {
-            if (liveRewindFallbackAttempted) {
-                if (!liveRewindFallbackSourceStarted && isLiveRewindSourceTransitioning()) return true
+            if (
+                !liveRewindFallbackSourceStarted && isLiveRewindSourceTransitioning() &&
+                player?.currentMediaItem?.localConfiguration?.uri?.toString() != primaryUrl
+            ) return true
+            if (liveRewindFallbackStage == LiveRewindFallbackStage.USHER) {
                 returnToLiveAfterRewindFailure()
                 return true
             }
-            if (
-                !liveRewindPrimaryReady &&
-                isFailedLiveRewindPrimaryManifest(error, primaryUrl)
-            ) {
-                liveRewindFallbackAttempted = true
-                val rendition = liveRewindFallbackRendition()
-                val renditionUrl = liveRewindDirectPlaylistUrl(vod.animatedPreviewUrl, rendition)
-                val sourceUrl = liveRewindDirectPlaylistUrl(vod.animatedPreviewUrl, "chunked")
-                if (sourceUrl == null) {
-                    returnToLiveAfterRewindFailure()
+            if (liveRewindFallbackStage == LiveRewindFallbackStage.DIRECT_SOURCE) {
+                if (
+                    !liveRewindPrimaryReady && primaryUrl != null &&
+                    isFailedLiveRewindPrimaryManifest(error, primaryUrl)
+                ) {
+                    val targetPositionMs = liveRewindFallbackPositionMs
+                    liveRewindFallbackStage = LiveRewindFallbackStage.USHER
+                    liveRewindPrimaryReady = false
+                    liveRewindFallbackSourceStarted = false
+                    retryLiveRewindSource(
+                        vod = vod,
+                        positionMs = targetPositionMs,
+                        startSource = {
+                            isAdded && view != null && liveRewindFallbackVod?.id == vod.id &&
+                                startLiveRewindUsherSource(vod, targetPositionMs)
+                        },
+                        onFailure = { returnToLiveAfterRewindFailure() },
+                    )
                     return true
                 }
+                returnToLiveAfterRewindFailure()
+                return true
+            }
+
+            if (
+                !liveRewindPrimaryReady && primaryUrl != null &&
+                isFailedLiveRewindPrimaryManifest(error, primaryUrl)
+            ) {
+                val sourceUrl = liveRewindDirectPlaylistUrl(vod.animatedPreviewUrl, "chunked")
                 val targetPositionMs = liveRewindFallbackPositionMs
-                retryLiveRewindSource(
-                    vod = vod,
-                    positionMs = targetPositionMs,
-                    startSource = {
-                        val networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-                        val validRendition = renditionUrl != null &&
-                            viewModel.isPlayableMediaPlaylist(networkLibrary, renditionUrl)
-                        val directUrl = if (validRendition) requireNotNull(renditionUrl) else sourceUrl
-                        val validPlaylist = validRendition ||
-                            (renditionUrl != sourceUrl && viewModel.isPlayableMediaPlaylist(networkLibrary, sourceUrl))
-                        if (!isAdded || view == null || liveRewindFallbackVod?.id != vod.id || !validPlaylist) {
-                            false
-                        } else {
-                            val fallbackQualityName = when {
-                                validRendition -> liveRewindFallbackPreferredQuality?.name
-                                liveRewindFallbackQualityMetadata?.any {
-                                    it.name.equals(AUTO_QUALITY, ignoreCase = true)
-                                } == true -> AUTO_QUALITY
-                                liveRewindFallbackQualityMetadata?.any {
-                                    it.name.equals(SOURCE_QUALITY, ignoreCase = true)
-                                } == true -> SOURCE_QUALITY
-                                else -> null
-                            }
-                            val started = startLiveRewindSource(vod.id, directUrl, targetPositionMs) {
-                                liveRewindFallbackSourceStarted = true
-                                liveRewindDirectPlaylistMode = true
-                                configureDirectVideoQualities(
-                                    videoUrl = directUrl,
-                                    currentUri = directUrl,
-                                    preserveCurrentQuality = true,
-                                    qualityMetadata = liveRewindFallbackQualityMetadata,
-                                    preferredQualityName = fallbackQualityName,
+                if (sourceUrl != null && sourceUrl != primaryUrl) {
+                    liveRewindFallbackStage = LiveRewindFallbackStage.DIRECT_SOURCE
+                    liveRewindPrimaryUrl = sourceUrl
+                    liveRewindPrimaryReady = false
+                    liveRewindFallbackSourceStarted = false
+                    retryLiveRewindSource(
+                        vod = vod,
+                        positionMs = targetPositionMs,
+                        startSource = {
+                            if (!isAdded || view == null || liveRewindFallbackVod?.id != vod.id) {
+                                false
+                            } else {
+                                val started = startLiveRewindDirectSource(
+                                    vod = vod,
+                                    url = sourceUrl,
+                                    positionMs = targetPositionMs,
+                                    preferredQualityName = liveRewindDirectQualityName(sourceUrl),
                                 )
-                                pendingSourceSwitchQuality.clear()
-                                if (!validRendition && renditionUrl != null && renditionUrl != directUrl) {
-                                    removeUnavailableDirectQuality(renditionUrl)
+                                if (started) {
+                                    if (sourceUrl != primaryUrl) {
+                                        removeUnavailableDirectQuality(primaryUrl)
+                                    }
+                                    val qualityName = parseTwitchDirectVideoUrl(sourceUrl)?.qualityName ?: "unknown"
+                                    Log.i(
+                                        "LiveRewind",
+                                        "Direct VOD rendition failed; started source playlist quality=$qualityName",
+                                    )
                                 }
+                                started
                             }
-                            if (started) {
-                                val qualityName = parseTwitchDirectVideoUrl(directUrl)?.qualityName ?: "unknown"
-                                Log.i(
-                                    "LiveRewind",
-                                    "Usher manifest failed; started the validated direct VOD playlist quality=$qualityName",
-                                )
-                            }
-                            started
-                        }
-                    },
-                    onFailure = { returnToLiveAfterRewindFailure() },
-                )
+                        },
+                        onFailure = { returnToLiveAfterRewindFailure() },
+                    )
+                } else {
+                    liveRewindFallbackStage = LiveRewindFallbackStage.USHER
+                    liveRewindPrimaryReady = false
+                    liveRewindFallbackSourceStarted = false
+                    retryLiveRewindSource(
+                        vod = vod,
+                        positionMs = targetPositionMs,
+                        startSource = {
+                            isAdded && view != null && liveRewindFallbackVod?.id == vod.id &&
+                                startLiveRewindUsherSource(vod, targetPositionMs)
+                        },
+                        onFailure = { returnToLiveAfterRewindFailure() },
+                    )
+                }
                 return true
             }
         }
@@ -2910,6 +3003,27 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
             ?.takeIf { parseTwitchDirectVideoUrl(it) != null }
 
+    private fun liveRewindDirectQualityName(url: String): String? {
+        val rendition = parseTwitchDirectVideoUrl(url)?.rendition ?: return null
+        val preferredName = liveRewindFallbackPreferredQuality?.name
+        if (rendition == "chunked" && preferredName.equals(AUTO_QUALITY, ignoreCase = true)) {
+            return preferredName
+        }
+        if (rendition == "chunked" && preferredName.equals(SOURCE_QUALITY, ignoreCase = true)) {
+            return preferredName
+        }
+        if (rendition != "chunked" && rendition == liveRewindFallbackRendition()) return preferredName
+        return when {
+            liveRewindFallbackQualityMetadata?.any {
+                it.name.equals(AUTO_QUALITY, ignoreCase = true)
+            } == true -> AUTO_QUALITY
+            liveRewindFallbackQualityMetadata?.any {
+                it.name.equals(SOURCE_QUALITY, ignoreCase = true)
+            } == true -> SOURCE_QUALITY
+            else -> null
+        }
+    }
+
     private fun removeUnavailableDirectQuality(url: String) {
         viewModel.qualities = viewModel.qualities?.filterNot { it.url == url }
         refreshOpenQualityDialog()
@@ -2929,7 +3043,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             .take(12)
             .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
             .any { cause ->
-                cause.responseCode == 404 &&
+                (cause.responseCode == 403 || cause.responseCode == 404 || cause.responseCode == 410) &&
                     cause.dataSpec.uri.host.equals(expected.host, ignoreCase = true) &&
                     cause.dataSpec.uri.path == expected.path
             }
@@ -2996,10 +3110,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private fun clearLiveRewindFallbackState() {
         invalidateLiveRewindDirectQualitySwitch()
         liveRewindFallbackVod = null
-        liveRewindFallbackPrimaryUrl = null
+        liveRewindPrimaryUrl = null
         liveRewindFallbackPositionMs = 0L
         liveRewindPrimaryReady = false
-        liveRewindFallbackAttempted = false
+        liveRewindFallbackStage = LiveRewindFallbackStage.NONE
         liveRewindFallbackSourceStarted = false
         liveRewindDirectPlaylistMode = false
         liveRewindFallbackPreferredQuality = null
@@ -4508,6 +4622,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val positionMs = controller.currentPosition.coerceAtLeast(0L)
         val previousQuality = viewModel.quality
         val generation = ++liveRewindDirectQualityGeneration
+        var sourceSwitchAttempted = false
 
         retryLiveRewindSource(
             vod = vod,
@@ -4521,10 +4636,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 ) {
                     false
                 } else if (!validPlaylist) {
-                    removeUnavailableDirectQuality(targetUrl)
                     false
                 } else {
-                    startLiveRewindSource(vod.id, targetUrl, positionMs) {
+                    val switchPositionMs = controller.currentPosition.coerceAtLeast(0L)
+                    updateLiveRewindTransitionPosition(switchPositionMs)
+                    sourceSwitchAttempted = true
+                    startLiveRewindSource(vod.id, targetUrl, switchPositionMs, LiveRewindFallbackStage.NONE) {
                         if (generation == liveRewindDirectQualityGeneration && liveRewindFallbackVod?.id == vod.id) {
                             liveRewindFallbackSourceStarted = true
                             configureDirectVideoQualities(
@@ -4548,12 +4665,18 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             },
             onFailure = {
                 if (generation == liveRewindDirectQualityGeneration) {
+                    if (sourceSwitchAttempted) {
+                        // The service cannot roll back a failed replacement of an active rewind.
+                        returnToLiveAfterRewindFailure()
+                        return@retryLiveRewindSource
+                    }
                     viewModel.quality = previousQuality
                     viewModel.pendingVideoQuality = previousQuality?.takeUnless {
                         it.name == AUDIO_ONLY_QUALITY || it.name == CHAT_ONLY_QUALITY
                     }
                     setQualityText()
                     refreshOpenQualityDialog()
+                    Snackbar.make(binding.playerBackground, R.string.connection_error, Snackbar.LENGTH_LONG).show()
                 }
             },
             refreshReplayChat = false,
@@ -4873,6 +4996,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     override fun onLiveRewindSourceSettled() {
         qualityRequestDeferred = false
+        if (liveRewindPrimaryReady) onLiveRewindPlaybackReady()
         if (liveRewindDirectPlaylistMode) {
             val controller = player
             viewModel.quality?.let { quality -> controller?.let { applyRecordingQuality(it, quality) } }

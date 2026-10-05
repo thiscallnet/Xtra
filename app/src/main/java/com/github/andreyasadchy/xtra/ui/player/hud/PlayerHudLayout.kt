@@ -44,6 +44,8 @@ class PlayerHudLayout @JvmOverloads constructor(
     private var safeInsetsOverride: Rect? = null
     private var availability: Set<HudElementId> = emptySet()
     private var resolved = emptyMap<HudElementId, ResolvedHudElement>()
+    private var measuredSafeRect: HudRect? = null
+    private val refreshViewportLayout = Runnable { requestLayout() }
     private var canonicalMeasuredSizes = emptyMap<HudElementId, HudSize>()
     private var measuredPresentations = emptyMap<HudElementId, HudMeasuredPresentation>()
     private val frames = linkedMapOf<HudElementId, HudElementFrame>()
@@ -1252,6 +1254,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         val measuredWidth = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(1)
         val measuredHeight = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(1)
         val safe = safeRect(measuredWidth.toFloat(), measuredHeight.toFloat())
+        measuredSafeRect = safe
         val compact = safe.height < 260f * density
         findViewById<HudTimelineContent>(R.id.timelineContent)?.measure(
             MeasureSpec.makeMeasureSpec(safe.width.roundToInt().coerceAtLeast(1), MeasureSpec.EXACTLY),
@@ -1357,6 +1360,12 @@ class PlayerHudLayout @JvmOverloads constructor(
             }
         }
         updateEdgeMarker()
+        // Measurement can precede the video's new layout during rotation.
+        // Paused playback must also resolve geometry against its final viewport.
+        if (safe != measuredSafeRect) {
+            removeCallbacks(refreshViewportLayout)
+            postOnAnimation(refreshViewportLayout)
+        }
     }
 
     private fun updateEdgeMarker() {
