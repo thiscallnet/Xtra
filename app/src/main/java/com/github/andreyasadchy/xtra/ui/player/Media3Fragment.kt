@@ -279,6 +279,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
     }
     private var streamRecoveryJob: Job? = null
+    private var streamRecoveryRequestId = 0L
     private var endedLiveRecoveryJob: Job? = null
     private var endedLiveRecoveryGeneration = 0L
     private var liveStatusEventGeneration = 0L
@@ -1089,7 +1090,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 if (foregroundTransition?.resultCode != SessionResult.RESULT_SUCCESS) {
                     clearForegroundVideoRestore()
                     Log.e("PlaybackResumption", "Foreground playback restore command failed")
-                    showPlayerError(R.string.player_error) { restartPlayer() }
+                    if (videoType == STREAM) {
+                        clearPlayerError()
+                        scheduleStreamRecovery(trigger = "foreground_restore_failed")
+                    } else {
+                        showPlayerError(R.string.player_error) { restartPlayer() }
+                    }
                     return@launch
                 }
                 if (reconnectingStreamSession) {
@@ -1227,7 +1233,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                             updateLiveStallWatchdog(isBuffering = true)
                         }
                         renderPlaybackChrome()
-                        val showPlayButton = Util.shouldShowPlayButton(player)
+                        val showPlayButton = shouldShowPlaybackPlayButton(player)
                         setPipActions(!showPlayButton)
                         updateProgress()
                         controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
@@ -1248,11 +1254,15 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         }
                         if (!playWhenReady) {
                             cancelLiveStallRecovery(resetBudget = true)
+                        } else if (videoType == STREAM && player?.currentMediaItem != null &&
+                            (player?.playbackState == Player.STATE_IDLE || player?.playerError != null)
+                        ) {
+                            scheduleStreamRecovery(trigger = "play_resumed")
                         } else if (player?.playbackState == Player.STATE_BUFFERING) {
                             updateLiveStallWatchdog(isBuffering = true)
                         }
                         renderPlaybackChrome()
-                        val showPlayButton = Util.shouldShowPlayButton(player)
+                        val showPlayButton = shouldShowPlaybackPlayButton(player)
                         setPipActions(!showPlayButton)
                         updateProgress()
                         controllerAutoHide = !BuildConfig.DEBUG && !requireContext().isTelevision() && !showPlayButton
@@ -1471,11 +1481,22 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                     "msSinceMediaItemTransition=${elapsedSince(lastMediaItemTransitionAtMs)} " +
                                     "msSincePrepareStarted=${elapsedSince(lastPrepareStartedAtMs)}",
                             )
+                            if (videoType == STREAM) {
+                                Log.d(
+                                    "PlaybackRecovery",
+                                    "event=player_error_recovery_gate vaftWindowActive=${viewModel.vaftWindowActive} " +
+                                        "vaftRequired=${viewModel.vaftRequired} " +
+                                        "usingAlternateStream=${viewModel.usingAlternateStream} " +
+                                        "vaftHandoffInProgress=$vaftHandoffInProgress " +
+                                        "liveRewindActive=${isLiveRewindActiveOrSwitching()} " +
+                                        "playWhenReady=${controller?.playWhenReady} " +
+                                        "itemToken=${diagnosticToken(controller?.currentMediaItem?.mediaId)}",
+                                )
+                            }
                         }
                         viewModel.pendingVideoQuality = null
                         if (onLiveRewindPlaybackError(error)) return
                         if (isLiveRewindActiveOrSwitching()) return
-                        if (vaftOwnsPlayback()) return
                         if (
                             videoType == STREAM
                             && error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
@@ -1492,40 +1513,29 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         }
                         when (videoType) {
                             STREAM -> {
-                                player?.sendCustomCommand(
+                                clearPlayerError()
+                                val result = player?.sendCustomCommand(
                                     SessionCommand(PlaybackService.GET_ERROR_CODE, Bundle.EMPTY),
                                     Bundle.EMPTY
-                                )?.let { result ->
+                                )
+                                if (result == null) {
+                                    scheduleStreamRecovery(trigger = "player_error")
+                                } else {
                                     result.addListener({
-                                        if (!isAdded || view == null) {
+                                        if (!isAdded || view == null) return@addListener
+                                        val response = runCatching { result.get() }.getOrNull()
+                                        if (response?.resultCode != SessionResult.RESULT_SUCCESS) {
+                                            scheduleStreamRecovery(trigger = "player_error_status_unavailable")
                                             return@addListener
                                         }
-                                        if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
-                                            val responseCode = result.get().extras.getInt(PlaybackService.RESULT)
-                                            val connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-                                            val networkCapabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
-                                            val isNetworkAvailable = networkCapabilities != null
-                                                    && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-                                                    && networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                                            if (isNetworkAvailable) {
-                                                when {
-                                                    responseCode == 404 -> {
-                                                        showPlayerError(R.string.stream_ended) { restartPlayer() }
-                                                    }
-                                                    viewModel.useCustomProxy && responseCode >= 400 -> {
-                                                        showPlayerError(R.string.proxy_error) { restartPlayer() }
-                                                        viewModel.useCustomProxy = false
-                                                        scheduleStreamRecovery(trigger = "player_error")
-                                                    }
-                                                    else -> {
-                                                        showPlayerError(R.string.player_error) { restartPlayer() }
-                                                        scheduleStreamRecovery(trigger = "player_error")
-                                                    }
-                                                }
-                                            } else {
-                                                showPlayerError(R.string.connection_error) { restartPlayer() }
-                                                scheduleStreamRecovery(trigger = "player_error")
-                                            }
+                                        val responseCode = response.extras.getInt(PlaybackService.RESULT)
+                                        if (viewModel.useCustomProxy && responseCode >= 400 && hasValidatedInternet()) {
+                                            viewModel.useCustomProxy = false
+                                        }
+                                        if (responseCode == 404 && hasValidatedInternet()) {
+                                            verifyEndedLivePlayback(trigger = "player_error_404")
+                                        } else {
+                                            scheduleStreamRecovery(trigger = "player_error")
                                         }
                                     }, ContextCompat.getMainExecutor(requireContext()))
                                 }
@@ -1589,6 +1599,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
 
                     override fun onRenderedFirstFrame() {
+                        if (videoType == STREAM && !viewModel.liveFirstFrameRendered) {
+                            viewModel.liveFirstFrameRendered = true
+                            renderPlaybackChrome()
+                        }
                         logVideoSurfaceBinding("first_frame", controller, videoOutputView)
                         sampleRenderedSurfaceFrame(controller, videoOutputView)
                         if (liveSurfaceRestoreListener != null) finishLiveSurfaceRestore(controller)
@@ -1713,58 +1727,113 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     private fun scheduleStreamRecovery(trigger: String) {
-        val context = context ?: return
-        if (!isAdded || view == null
-            || !context.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
-            || videoType != STREAM
-            || isLiveRewindActiveOrSwitching()
-            || vaftOwnsPlayback()
-            || player?.playWhenReady != true
-        ) {
-            return
-        }
-        val recoveryPending = streamRecoveryJob?.isActive == true
-        val attempt = liveRecoveryState.claimErrorRecovery(recoveryPending = recoveryPending)
-        if (attempt == null) {
-            if (!recoveryPending && liveRecoveryState.isRecoveryExhausted()) {
-                showPlayerError(R.string.player_error) { restartPlayer() }
-            }
-            return
-        }
+        if (!isStreamRecoveryWanted() || streamRecoveryJob?.isActive == true) return
+        clearPlayerError()
+        val attempt = liveRecoveryState.claimErrorRecovery(
+            nowMs = SystemClock.elapsedRealtime(),
+        ) ?: return
         queueStreamRecovery(attempt, trigger)
     }
 
     private fun queueStreamRecovery(attempt: Int, trigger: String) {
-        if (vaftOwnsPlayback()) return
-        val currentContext = context ?: return
-        streamRecoveryJob?.cancel()
+        if (!isStreamRecoveryWanted() || streamRecoveryJob?.isActive == true) return
         liveStallWatchdogJob?.cancel()
         liveStallWatchdogJob = null
-        val delayMs = (1500L shl (attempt - 1).coerceAtMost(3)).coerceAtMost(12000L)
-        val recoveryGeneration = liveRecoveryState.beginRecoveryGeneration()
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                "PlaybackRecovery",
-                "event=queued cause=$trigger attempt=$attempt delayMs=$delayMs " +
-                    "state=${player?.playbackState} playWhenReady=${player?.playWhenReady} " +
-                    "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
-            )
-        }
+        val requestId = streamRecoveryRequestId
         streamRecoveryJob = viewLifecycleOwner.lifecycleScope.launch {
-            delay(delayMs)
-            if (currentContext.prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true)
-                && player?.playWhenReady == true
-                && isAdded
-                && view != null
-                && liveRecoveryState.currentGeneration() == recoveryGeneration
-                && !vaftOwnsPlayback()
-            ) {
-                try {
-                    recoverLiveStreamAutomatically(trigger, attempt)
-                } catch (_: Exception) {
+            var nextAttempt = attempt
+            try {
+                while (isStreamRecoveryWanted(requestId)) {
+                    val delayMs = recoveryDelayMs(nextAttempt)
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "PlaybackRecovery",
+                            "event=queued cause=$trigger attempt=$nextAttempt delayMs=$delayMs " +
+                                "networkValidated=${hasValidatedInternet()} " +
+                                "state=${player?.playbackState} playWhenReady=${player?.playWhenReady} " +
+                                "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
+                        )
+                    }
+                    delay(delayMs)
+                    var lastOfflineLogAtMs = 0L
+                    while (isStreamRecoveryWanted(requestId) && !hasValidatedInternet()) {
+                        val nowMs = SystemClock.elapsedRealtime()
+                        if (BuildConfig.DEBUG && nowMs - lastOfflineLogAtMs >= NETWORK_RECOVERY_LOG_INTERVAL_MS) {
+                            Log.d(
+                                "PlaybackRecovery",
+                                "event=waiting_for_network attempt=$nextAttempt " +
+                                    "state=${player?.playbackState} playWhenReady=${player?.playWhenReady} " +
+                                    "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
+                            )
+                            lastOfflineLogAtMs = nowMs
+                        }
+                        delay(NETWORK_RECOVERY_POLL_MS)
+                    }
+                    if (!isStreamRecoveryWanted(requestId)) break
+
+                    val result = try {
+                        recoverLiveStreamAutomatically(trigger, nextAttempt, requestId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        if (BuildConfig.DEBUG) {
+                            Log.w("PlaybackRecovery", "event=attempt_failed attempt=$nextAttempt", error)
+                        }
+                        AutomaticLiveRecoveryResult.RETRY
+                    }
+                    when (result) {
+                        AutomaticLiveRecoveryResult.SOURCE_STARTED -> {
+                            liveRecoveryState.finishRecoveryAttempt(sourceStarted = true)
+                            updateLiveStallWatchdog(isBuffering = player?.playbackState == Player.STATE_BUFFERING)
+                            return@launch
+                        }
+                        AutomaticLiveRecoveryResult.STREAM_ENDED -> {
+                            liveRecoveryState.finishRecoveryAttempt(sourceStarted = false)
+                            return@launch
+                        }
+                        AutomaticLiveRecoveryResult.RETRY -> {
+                            liveRecoveryState.finishRecoveryAttempt(sourceStarted = false)
+                            nextAttempt = liveRecoveryState.claimErrorRecovery(
+                                nowMs = SystemClock.elapsedRealtime(),
+                            ) ?: return@launch
+                        }
+                        AutomaticLiveRecoveryResult.CANCELLED -> {
+                            liveRecoveryState.finishRecoveryAttempt(sourceStarted = false)
+                            return@launch
+                        }
+                    }
                 }
+            } finally {
+                if (streamRecoveryRequestId == requestId) streamRecoveryJob = null
             }
         }
+    }
+
+    private fun recoveryDelayMs(attempt: Int): Long =
+        (1500L * (1L shl (attempt - 1).coerceAtMost(5))).coerceAtMost(MAX_STREAM_RECOVERY_DELAY_MS)
+
+    private fun hasValidatedInternet(): Boolean {
+        val context = context ?: return false
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val capabilities = connectivityManager.getNetworkCapabilities(connectivityManager.activeNetwork)
+        return capabilities != null &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+    }
+
+    private fun isStreamRecoveryWanted(requestId: Long = streamRecoveryRequestId): Boolean =
+        requestId == streamRecoveryRequestId &&
+            isAdded && view != null && videoType == STREAM &&
+            player?.currentMediaItem != null && player?.playWhenReady == true &&
+            // VAFT may own the active source during normal playback; it must not disable recovery.
+            !isLiveRewindActiveOrSwitching()
+
+    private enum class AutomaticLiveRecoveryResult {
+        SOURCE_STARTED,
+        RETRY,
+        STREAM_ENDED,
+        CANCELLED,
     }
 
     private fun logPlaybackTimeline(event: String, controller: Player, reason: Int = -1) {
@@ -1794,8 +1863,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val controller = player ?: return
         val mediaItem = controller.currentMediaItem ?: return
         if (!isAdded || view == null || videoType != STREAM ||
-            isLiveRewindActiveOrSwitching() || vaftOwnsPlayback() || !controller.playWhenReady ||
-            controller.playbackState != Player.STATE_ENDED ||
+            isLiveRewindActiveOrSwitching() || !controller.playWhenReady ||
+            (controller.playbackState != Player.STATE_ENDED && controller.playerError == null) ||
             endedLiveRecoveryJob?.isActive == true || streamRecoveryJob?.isActive == true
         ) {
             return
@@ -1815,18 +1884,24 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             )
         }
         endedLiveRecoveryJob = viewLifecycleOwner.lifecycleScope.launch {
-            val status = viewModel.refreshLiveStatusNow(
-                channelId = requireArguments().getString(KEY_CHANNEL_ID),
-                channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
-                networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
-                gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-            )
+            val status = try {
+                viewModel.refreshLiveStatusNow(
+                    channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                    channelLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
+                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
+                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                FreshLiveStatus.Unknown
+            }
             if (requestGeneration != endedLiveRecoveryGeneration ||
                 sourceGeneration != liveRecoveryState.currentGeneration() ||
                 player !== controller ||
                 controller.currentMediaItem?.mediaId != mediaId ||
-                controller.playbackState != Player.STATE_ENDED ||
+                (controller.playbackState != Player.STATE_ENDED && controller.playerError == null) ||
                 !controller.playWhenReady || !isAdded || view == null
             ) {
                 if (BuildConfig.DEBUG) {
@@ -1862,7 +1937,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         )
                     }
                     if (attempt == null) {
-                        showPlayerError(R.string.player_error) { restartPlayer() }
+                        scheduleStreamRecovery(trigger = "ended_live_retry")
                     } else {
                         queueStreamRecovery(attempt, trigger = "ended_live")
                     }
@@ -1875,7 +1950,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                 "generation=$requestGeneration itemToken=${diagnosticToken(mediaId)}",
                         )
                     }
-                    showPlayerError(R.string.stream_ended) { restartPlayer() }
+                    clearPlayerError()
+                    showPlayerError(R.string.stream_ended)
                 }
                 FreshLiveStatus.Unknown -> {
                     if (BuildConfig.DEBUG) {
@@ -1885,9 +1961,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                 "generation=$requestGeneration itemToken=${diagnosticToken(mediaId)}",
                         )
                     }
-                    showPlayerError(R.string.connection_error) {
-                        verifyEndedLivePlayback(trigger = "user_retry")
-                    }
+                    scheduleStreamRecovery(trigger = "ended_live_status_unknown")
                 }
             }
         }
@@ -1906,9 +1980,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val sourceGeneration = liveRecoveryState.currentGeneration()
         val shouldWatch = liveRecoveryState.onBufferingChanged(
             sourceGeneration,
-            isBuffering = isBuffering && requireContext().prefs().getBoolean(C.PLAYER_AUTO_RECOVER_STREAMS, true) &&
-                videoType == STREAM && player?.playWhenReady == true &&
-                !isLiveRewindActiveOrSwitching() && !vaftOwnsPlayback(),
+            isBuffering = isBuffering && videoType == STREAM && player?.playWhenReady == true &&
+                !isLiveRewindActiveOrSwitching(),
             nowMs = SystemClock.elapsedRealtime(),
         )
         if (!shouldWatch) {
@@ -1923,12 +1996,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             val attempt = liveRecoveryState.claimStalledRecovery(
                 sourceGeneration,
                 SystemClock.elapsedRealtime(),
-            ) ?: run {
-                if (liveRecoveryState.isRecoveryExhausted()) {
-                    showPlayerError(R.string.player_error) { restartPlayer() }
-                }
-                return@launch
-            }
+            ) ?: return@launch
             queueStreamRecovery(attempt, trigger = "stall_watchdog")
         }
     }
@@ -1939,6 +2007,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         streamRecoveryJob?.cancel()
         streamRecoveryJob = null
         if (resetBudget) {
+            streamRecoveryRequestId++
             liveRecoveryState.beginUserGeneration()
         } else {
             liveRecoveryState.onBufferingChanged(
@@ -2049,6 +2118,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     override fun onStreamBecameLive(eventSequence: Long?) {
         liveStatusEventGeneration++
+        if (videoType == STREAM) clearPlayerError()
         val controller = player
         val state = controller?.playbackState
         val playWhenReady = controller?.playWhenReady == true
@@ -2103,6 +2173,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     player?.currentMediaItem?.mediaId != mediaId -> "stale"
                 status === FreshLiveStatus.Offline -> {
                     onLiveStreamWentOffline()
+                    if (player?.playWhenReady == true) {
+                        clearPlayerError()
+                        showPlayerError(R.string.stream_ended)
+                    }
                     "confirm_offline"
                 }
                 status is FreshLiveStatus.Live -> "retain_live"
@@ -2151,6 +2225,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 liveRecoveryState.beginRecoveryGeneration()
                 strictAutomaticQualityRestore = true
             } else {
+                streamRecoveryRequestId++
                 cancelEndedLiveRecovery(reason = "user_source_start")
                 liveRecoveryState.beginUserGeneration()
                 strictAutomaticQualityRestore = false
@@ -2180,19 +2255,24 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         return sendStreamToService(url, playWhenReady, startupQuality ?: VideoQuality(startupQualityName()))
     }
 
-    private suspend fun recoverLiveStreamAutomatically(trigger: String, attempt: Int) {
-        if (vaftOwnsPlayback()) return
-        val controller = player ?: return
-        if (!controller.playWhenReady) return
+    private suspend fun recoverLiveStreamAutomatically(
+        trigger: String,
+        attempt: Int,
+        requestId: Long,
+    ): AutomaticLiveRecoveryResult {
+        if (!isStreamRecoveryWanted(requestId)) return AutomaticLiveRecoveryResult.CANCELLED
+        val controller = player ?: return AutomaticLiveRecoveryResult.CANCELLED
         if (BuildConfig.DEBUG) {
             Log.d(
                 "PlaybackRecovery",
                 "event=begin cause=$trigger attempt=$attempt state=${controller.playbackState} " +
                     "playerErrorCode=${controller.playerError?.errorCode ?: "none"} " +
+                    "networkValidated=${hasValidatedInternet()} " +
                     "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
             )
         }
-        val login = requireArguments().getString(KEY_CHANNEL_LOGIN) ?: return
+        val login = requireArguments().getString(KEY_CHANNEL_LOGIN)
+            ?: return AutomaticLiveRecoveryResult.RETRY
         val oldQualities = viewModel.qualities
         val oldQualityCatalogIdentity = viewModel.streamQualityCatalogIdentity
         val oldQuality = viewModel.quality
@@ -2209,17 +2289,41 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 null
             }
         }
+        if (!isStreamRecoveryWanted(requestId)) return AutomaticLiveRecoveryResult.CANCELLED
         if (url.isNullOrBlank()) {
+            val status = try {
+                viewModel.refreshLiveStatusNow(
+                    channelId = requireArguments().getString(KEY_CHANNEL_ID),
+                    channelLogin = login,
+                    networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                    helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
+                    gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                FreshLiveStatus.Unknown
+            }
             if (BuildConfig.DEBUG) {
                 Log.w(
                     "PlaybackRecovery",
                     "event=finish cause=$trigger attempt=$attempt result=fresh_url_unavailable " +
+                        "liveStatus=${when (status) {
+                            is FreshLiveStatus.Live -> "live"
+                            FreshLiveStatus.Offline -> "offline"
+                            FreshLiveStatus.Unknown -> "unknown"
+                        }} " +
                         "itemToken=${diagnosticToken(controller.currentMediaItem?.mediaId)}",
                 )
             }
-            showPlayerError(R.string.player_error) { restartPlayer() }
-            return
+            if (status === FreshLiveStatus.Offline && isStreamRecoveryWanted(requestId)) {
+                clearPlayerError()
+                showPlayerError(R.string.stream_ended)
+                return AutomaticLiveRecoveryResult.STREAM_ENDED
+            }
+            return AutomaticLiveRecoveryResult.RETRY
         }
+        if (!isStreamRecoveryWanted(requestId)) return AutomaticLiveRecoveryResult.CANCELLED
         if (BuildConfig.DEBUG) {
             Log.d(
                 "PlaybackRecovery",
@@ -2257,8 +2361,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 updateQualities = oldUpdateQualities,
                 identity = oldQualityCatalogIdentity,
             )
-            showPlayerError(R.string.player_error) { restartPlayer() }
+            clearPlayerError()
+            return AutomaticLiveRecoveryResult.RETRY
         }
+        return AutomaticLiveRecoveryResult.SOURCE_STARTED
     }
 
     private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null, startupQuality: VideoQuality): ListenableFuture<SessionResult>? {
@@ -3176,6 +3282,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val canPause: Boolean,
     )
 
+    private fun shouldShowPlaybackPlayButton(player: Player?): Boolean {
+        if (videoType == STREAM && player?.playWhenReady == true && !player.isPlaying) return false
+        return Util.shouldShowPlayButton(player)
+    }
+
     private fun updatePositionTextIfNeeded(positionMs: Long) {
         val positionSecond = positionMs / 1_000L
         if (positionSecond == renderedPositionSecond) {
@@ -3215,8 +3326,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     private fun renderPlaybackChrome() {
         val player = player ?: return
-        val showPlayButton = Util.shouldShowPlayButton(player)
-        val buffering = player.playbackState == Player.STATE_BUFFERING
+        val showPlayButton = shouldShowPlaybackPlayButton(player)
+        val buffering = player.playbackState == Player.STATE_BUFFERING &&
+            (videoType != STREAM || !viewModel.liveFirstFrameRendered)
         val canPause = !(videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true))
         val state = PlaybackChromeState(
             showPlayIcon = showPlayButton,
@@ -5006,21 +5118,18 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
                     changePlayerMode()
                     if (strictRestore && qualityToRestore != null && restoredQuality == null) {
+                        val fallbackQuality = selectionQualities.firstOrNull { it.name == AUTO_QUALITY }
+                            ?: VideoQuality(AUTO_QUALITY)
                         if (BuildConfig.DEBUG) {
-                            Log.w(
+                            Log.i(
                                 "PlaybackRecovery",
-                                "event=strict_quality_restore action=pause reason=target_unavailable " +
-                                    "targetName=${qualityToRestore.name} " +
+                                "event=strict_quality_restore action=fallback_auto reason=target_unavailable " +
+                                    "targetName=${qualityToRestore.name} fallback=${fallbackQuality.name} " +
                                     "itemToken=${diagnosticToken(player?.currentMediaItem?.mediaId)}",
                             )
                         }
-                        viewModel.quality = VideoQuality(
-                            qualityToRestore.name,
-                            qualityToRestore.codecs,
-                            qualityToRestore.bitrate,
-                        )
-                        player?.pause()
-                        showPlayerError(R.string.player_error) { restartPlayer() }
+                        viewModel.quality = fallbackQuality
+                        reapplyQualityAutomatically(fallbackQuality, source = "strict_restore_fallback")
                     } else if (!viewModel.controlledVaftFeed || initialQualityRequest) {
                         (restoredQuality ?: viewModel.quality)?.let {
                             reapplyQualityAutomatically(it, source = "qualities")
@@ -5633,7 +5742,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 return
             }
             val endedNeedsVerification = controller?.playWhenReady == true &&
-                controller.currentMediaItem != null && controller.playbackState == Player.STATE_ENDED
+                controller.currentMediaItem != null &&
+                (controller.playbackState == Player.STATE_ENDED || controller.playerError != null)
             if (endedNeedsVerification) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
@@ -5648,7 +5758,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
             val needsRecovery = controller?.playWhenReady == true &&
                 controller.currentMediaItem != null &&
-                (controller.playbackState == Player.STATE_IDLE || controller.playerError != null)
+                (controller.playbackState == Player.STATE_IDLE || controller.playerError != null ||
+                    (viewModel.liveFirstFrameRendered && !controller.isPlaying))
             if (BuildConfig.DEBUG) {
                 Log.d(
                     "PlaybackRecovery",
@@ -5869,6 +5980,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         private const val RESUME_QUALITY_CONFIRMATION_TIMEOUT_MS = 5_000L
         private const val VOD_START_POSITION_SETTLED_TOLERANCE_MS = 2_000L
         private const val MAX_QUALITY_RETRY_ATTEMPTS = 10
+        private const val NETWORK_RECOVERY_POLL_MS = 3_000L
+        private const val NETWORK_RECOVERY_LOG_INTERVAL_MS = 15_000L
+        private const val MAX_STREAM_RECOVERY_DELAY_MS = 30_000L
 
         fun newInstance(item: Stream, tapElapsedMs: Long? = null): Media3Fragment {
             return Media3Fragment().apply {

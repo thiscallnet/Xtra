@@ -142,6 +142,7 @@ class Media3PlayerViewModel(
     var playlistUrl: Uri? = null
     var updateQualities = false
     var started = false
+    var liveFirstFrameRendered = false
     var restoreQuality = false
     var resume = false
     var hidden = false

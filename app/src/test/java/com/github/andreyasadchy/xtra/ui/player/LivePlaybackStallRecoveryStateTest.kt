@@ -4,28 +4,30 @@ import com.github.andreyasadchy.xtra.model.VideoQuality
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LivePlaybackStallRecoveryStateTest {
     @Test
-    fun startupBufferingDoesNotRecoverButPostStartStallDoes() {
+    fun startupAndPostStartBufferingRecoverAfterTimeout() {
         val state = LivePlaybackStallRecoveryState(stallTimeoutMs = 30_000L)
-        val generation = state.currentGeneration()
+        var generation = state.currentGeneration()
 
         state.onBufferingChanged(generation, isBuffering = true, nowMs = 0L)
-        assertNull(state.claimStalledRecovery(generation, nowMs = 30_000L))
+        assertNull(state.claimStalledRecovery(generation, nowMs = 29_999L))
+        assertEquals(1, state.claimStalledRecovery(generation, nowMs = 30_000L))
 
+        generation = state.beginRecoveryGeneration()
+        state.finishRecoveryAttempt(sourceStarted = true)
         state.onPlaybackStarted(generation)
         state.onBufferingChanged(generation, isBuffering = true, nowMs = 40_000L)
         assertNull(state.claimStalledRecovery(generation, nowMs = 69_999L))
-        assertEquals(1, state.claimStalledRecovery(generation, nowMs = 70_000L))
+        assertEquals(2, state.claimStalledRecovery(generation, nowMs = 70_000L))
         assertNull(state.claimStalledRecovery(generation, nowMs = 80_000L))
     }
 
     @Test
     fun readyCancelsContinuousBufferingWithoutResettingRecoveryBudget() {
-        val state = LivePlaybackStallRecoveryState(stallTimeoutMs = 1L, maxAttempts = 2)
+        val state = LivePlaybackStallRecoveryState(stallTimeoutMs = 1L)
         var generation = state.currentGeneration()
         state.onPlaybackStarted(generation)
         state.onBufferingChanged(generation, isBuffering = true, nowMs = 1L)
@@ -33,12 +35,11 @@ class LivePlaybackStallRecoveryStateTest {
         generation = state.beginRecoveryGeneration()
         state.onBufferingChanged(generation, isBuffering = false, nowMs = 4L)
         assertEquals(1, state.recoveryAttempts())
+        state.finishRecoveryAttempt(sourceStarted = true)
         state.onPlaybackStarted(generation)
-        assertEquals(0, state.recoveryAttempts())
         state.onBufferingChanged(generation, isBuffering = true, nowMs = 5L)
-        assertEquals(1, state.claimStalledRecovery(generation, nowMs = 6L))
+        assertEquals(2, state.claimStalledRecovery(generation, nowMs = 6L))
         assertNull(state.claimStalledRecovery(generation, nowMs = 7L))
-        assertFalse(state.isRecoveryExhausted())
     }
 
     @Test
@@ -55,20 +56,19 @@ class LivePlaybackStallRecoveryStateTest {
     }
 
     @Test
-    fun recoveryBudgetIsSharedWithTerminalErrorsAndResetsAfterPlaybackResumes() {
-        val state = LivePlaybackStallRecoveryState(maxAttempts = 1)
+    fun retriesContinueAfterPlaybackResumes() {
+        val state = LivePlaybackStallRecoveryState()
         assertEquals(1, state.claimErrorRecovery())
         assertNull(state.claimErrorRecovery())
 
         val generation = state.beginRecoveryGeneration()
         state.onPlaybackStarted(generation)
-        assertFalse(state.isRecoveryExhausted())
-        assertEquals(1, state.claimErrorRecovery())
+        assertEquals(2, state.claimErrorRecovery())
     }
 
     @Test
     fun duplicateRecoveryEventsDoNotConsumeBudgetWhileRecoveryIsPending() {
-        val state = LivePlaybackStallRecoveryState(maxAttempts = 3)
+        val state = LivePlaybackStallRecoveryState()
 
         assertEquals(1, state.claimErrorRecovery())
         assertNull(state.claimErrorRecovery(recoveryPending = true))
@@ -77,13 +77,13 @@ class LivePlaybackStallRecoveryStateTest {
 
         val generation = state.beginRecoveryGeneration()
         state.onPlaybackStarted(generation)
-        assertEquals(1, state.claimErrorRecovery())
-        assertEquals(1, state.recoveryAttempts())
+        assertEquals(2, state.claimErrorRecovery())
+        assertEquals(2, state.recoveryAttempts())
     }
 
     @Test
     fun endedRecoveryBudgetSurvivesPlaybackAndResetsAfterStablePlayback() {
-        val state = LivePlaybackStallRecoveryState(maxAttempts = 3)
+        val state = LivePlaybackStallRecoveryState()
         var generation = state.currentGeneration()
 
         state.onPlaybackStarted(generation, nowMs = 0L)
@@ -96,7 +96,7 @@ class LivePlaybackStallRecoveryStateTest {
         generation = state.beginRecoveryGeneration()
         state.onPlaybackStarted(generation, nowMs = 60_000L)
         assertEquals(3, state.claimEndedRecovery(generation, nowMs = 88_000L))
-        assertTrue(state.isEndedRecoveryExhausted())
+        assertEquals(3, state.endedRecoveryAttempts())
 
         generation = state.beginRecoveryGeneration()
         state.onPlaybackStarted(generation, nowMs = 90_000L)
@@ -106,7 +106,7 @@ class LivePlaybackStallRecoveryStateTest {
 
     @Test
     fun endedRecoveryBudgetResetsForNewUserPlaybackGeneration() {
-        val state = LivePlaybackStallRecoveryState(maxAttempts = 1)
+        val state = LivePlaybackStallRecoveryState()
         val oldGeneration = state.currentGeneration()
 
         state.onPlaybackStarted(oldGeneration, nowMs = 0L)
