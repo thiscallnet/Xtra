@@ -123,6 +123,9 @@ class ControlledVaftPlaylist(
         val next = height?.takeIf { it > 0 }?.let { it to frameRate }
         if (next == alternateQualityLimit) return
         alternateQualityLimit = next
+        if (BuildConfig.DEBUG) {
+            Log.d("XtraVaftFeed", "event=quality_limit channel=$channel height=${next?.first ?: "auto"} frameRate=${next?.second ?: "auto"}")
+        }
         feeds.values.forEach { feed -> synchronized(feed) {
             feed.generation++
             feed.resolving?.cancel()
@@ -320,7 +323,10 @@ class ControlledVaftPlaylist(
 
     private fun wantedFormat(format: Format): Format {
         val limit = alternateQualityLimit ?: return format
-        return if (format.height > 0 && limit.first <= format.height) {
+        // The selected primary track can still be at the previous, lower rung while
+        // a manual quality change is taking effect. Keep the user's requested target
+        // independent of that transient track selection so VAFT can probe upward.
+        return if (format.height > 0) {
             format.buildUpon().setHeight(limit.first).setFrameRate(limit.second ?: format.frameRate).build()
         } else format
     }
@@ -359,14 +365,26 @@ class ControlledVaftPlaylist(
                 }
                 val belowTarget = currentFormat.height < wanted.height ||
                     (currentFormat.height == wanted.height && currentFormat.frameRate < wanted.frameRate)
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "XtraVaftFeed",
+                        "event=quality_upgrade_probe channel=$channel current=${currentFormat.height}p${currentFormat.frameRate.toInt()} " +
+                            "target=${wanted.height}p${wanted.frameRate.toInt()} eligible=$belowTarget",
+                    )
+                }
                 val result = if (belowTarget) {
                     findCandidate(wanted, probe, currentFormat)?.let { usableReplacement(probe, it) }
                 } else null
                 synchronized(feed) {
                     if (!closed && generation == feed.generation) feed.improved = result
                 }
-                if (BuildConfig.DEBUG && result != null) Log.d("XtraVaftFeed",
-                    "event=quality_upgrade_ready channel=$channel height=${result.candidate?.format?.height}")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "XtraVaftFeed",
+                        "event=quality_upgrade_result channel=$channel current=${currentFormat.height}p${currentFormat.frameRate.toInt()} " +
+                            "target=${wanted.height}p${wanted.frameRate.toInt()} candidate=${result?.candidate?.format?.let { "${it.height}p${it.frameRate.toInt()}" } ?: "none"}",
+                    )
+                }
             }
         }
     }
