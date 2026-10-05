@@ -4977,7 +4977,13 @@ class PlaybackService : MediaSessionService() {
             .setTrackTypeDisabled(Media3C.TRACK_TYPE_VIDEO,
                 startupQuality?.name == PlaybackContract.AUDIO_ONLY_QUALITY || startupQuality?.name == PlaybackContract.CHAT_ONLY_QUALITY)
             .build()
-        if (BuildConfig.DEBUG) Log.d("SmoothHlsQuality", "stream_start_quality name=${desired.name}")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "SmoothHlsQuality",
+                "stream_start_quality name=${desired.name} requested=${startupQuality?.name} " +
+                    "videoDisabled=${Media3C.TRACK_TYPE_VIDEO in player.trackSelectionParameters.disabledTrackTypes}",
+            )
+        }
         val previewAlreadyPlaying = channelLogin?.let { xtraModule.streamPreviewCoordinator.isPreviewing(it) } == true
         val mediaItem = runtime.createLiveMediaItem(login, uri, title, channelName, channelLogo)
             .buildUpon()

@@ -2752,8 +2752,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (viewModel.quality?.name != CHAT_ONLY_QUALITY) {
             if (videoType == STREAM) {
                 onStreamQualityReset()
-                viewModel.quality = null
-                viewModel.previousQuality = null
                 clearQualityCatalog()
                 viewModel.updateQualities = true
                 viewModel.playlistUrl = null
@@ -2945,14 +2943,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 val savedQuality = requireContext().prefs().getString(C.PLAYER_QUALITY, "720p60")?.substringBefore(" ")
                 when (savedQuality) {
                     AUTO_QUALITY -> viewModel.qualities?.find { it.name == AUTO_QUALITY }
-                    SOURCE_QUALITY -> viewModel.qualities?.firstOrNull { it.name != AUTO_QUALITY }
+                    SOURCE_QUALITY -> firstVideoQuality()
                     AUDIO_ONLY_QUALITY -> viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY }
                     CHAT_ONLY_QUALITY -> viewModel.qualities?.find { it.name == CHAT_ONLY_QUALITY }
                     else -> findQuality(savedQuality)
                 }
             }
             AUTO_QUALITY -> viewModel.qualities?.find { it.name == AUTO_QUALITY }
-            "Source" -> viewModel.qualities?.find { it.name != AUTO_QUALITY }
+            "Source" -> firstVideoQuality()
             AUDIO_ONLY_QUALITY -> viewModel.qualities?.find { it.name == AUDIO_ONLY_QUALITY }
             CHAT_ONLY_QUALITY -> viewModel.qualities?.find { it.name == CHAT_ONLY_QUALITY }
             else -> findQuality(defaultQuality)
@@ -2982,11 +2980,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         setQualityText()
     }
 
+    private fun firstVideoQuality(): VideoQuality? = viewModel.qualities?.firstOrNull {
+        it.name != AUTO_QUALITY && it.name != CHAT_ONLY_QUALITY &&
+            it.name?.startsWith("audio", ignoreCase = true) != true
+    }
+
     protected fun findQuality(targetQualityString: String?): VideoQuality? {
         val targetQuality = targetQualityString?.split("p")
         return targetQuality?.getOrNull(0)?.takeWhile { it.isDigit() }?.toIntOrNull()?.let { targetResolution ->
             val targetFps = targetQuality.getOrNull(1)?.takeWhile { it.isDigit() }?.toIntOrNull() ?: 30
-            val last = viewModel.qualities?.last { it.name != AUDIO_ONLY_QUALITY && it.name != CHAT_ONLY_QUALITY }
+            val last = viewModel.qualities?.lastOrNull { it.name != AUDIO_ONLY_QUALITY && it.name != CHAT_ONLY_QUALITY }
             viewModel.qualities?.find { qualityString ->
                 val quality = qualityString.name?.split("p")
                 val resolution = quality?.getOrNull(0)?.takeWhile { it.isDigit() }?.toIntOrNull()

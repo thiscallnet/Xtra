@@ -13,6 +13,12 @@ private fun codecTokens(codecs: String): List<String> = codecs.split(',')
 
 private fun videoCodecTokens(codecs: String): List<String> = codecTokens(codecs)
     .filter { token -> videoCodecPrefixes.any(token::startsWith) }
+    .map { token ->
+        when (val family = token.substringBefore('.')) {
+            "hvc1", "hev1" -> "hevc"
+            else -> family
+        }
+    }
 
 private fun codecIdentityMatches(identityCodecs: String?, candidateCodecs: String?): Boolean {
     if (identityCodecs.isNullOrBlank() || candidateCodecs.isNullOrBlank()) return true
@@ -33,7 +39,11 @@ internal data class SourceSwitchQualityIdentity(
     val name: String,
     val codecs: String?,
     val bitrate: Int?,
+    val frameRate: Float? = null,
 ) {
+    // Rendition URLs and bitrates can change when the stream is fetched again.
+    fun toQuality(): VideoQuality = VideoQuality(name, codecs, bitrate, frameRate = frameRate)
+
     fun resolve(
         qualities: List<VideoQuality>?,
         fallback: (String) -> VideoQuality?,
@@ -45,14 +55,14 @@ internal data class SourceSwitchQualityIdentity(
     } ?: fallback(name)
 
     /** Automatic recovery must not replace a missing manual rendition with another quality. */
-    fun resolveExact(qualities: List<VideoQuality>?): VideoQuality? = qualities?.firstOrNull { quality ->
-        matchesExact(quality)
-    }
+    fun resolveExact(qualities: List<VideoQuality>?): VideoQuality? = qualities
+        ?.filter(::matchesExact)
+        ?.maxWithOrNull(compareBy<VideoQuality> { it.codecs.equals(codecs, ignoreCase = true) }
+            .thenBy { it.bitrate == bitrate })
 
     fun matchesExact(quality: VideoQuality): Boolean =
         quality.name.equals(name, ignoreCase = true) &&
-            codecIdentityMatches(codecs, quality.codecs) &&
-            (bitrate == null || quality.bitrate == bitrate)
+            codecIdentityMatches(codecs, quality.codecs)
 }
 
 /**
@@ -69,7 +79,7 @@ internal class SourceSwitchQualityState {
 
     fun capture(quality: VideoQuality?) {
         quality?.name?.let { name ->
-            pendingQuality = SourceSwitchQualityIdentity(name, quality.codecs, quality.bitrate)
+            pendingQuality = SourceSwitchQualityIdentity(name, quality.codecs, quality.bitrate, quality.frameRate)
         }
     }
 
@@ -121,5 +131,5 @@ internal class VaftQualityState {
     }
 
     private fun VideoQuality.toIdentity(): SourceSwitchQualityIdentity? =
-        name?.let { SourceSwitchQualityIdentity(it, codecs, bitrate) }
+        name?.let { SourceSwitchQualityIdentity(it, codecs, bitrate, frameRate) }
 }
