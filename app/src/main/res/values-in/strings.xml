@@ -1483,4 +1483,9 @@
     <string name="resuming_playback">Melanjutkan pemutaran</string>
     <string name="settings_chat_remember_dismissed_pinned_messages">Ingat pesan tersemat yang disembunyikan</string>
     <string name="settings_chat_remember_dismissed_pinned_messages_summary">Pesan tersemat yang ditandai telah dilihat akan tetap tersembunyi saat siaran dibuka kembali.</string>
+    <string name="player_rewinding">Memutar ulang</string>
+    <string name="player_cast_to_device">Transmisikan ke perangkat</string>
+    <string name="system_media_replay_30">Putar ulang 30 dtk</string>
+    <string name="system_media_video">Video</string>
+    <string name="system_media_behind_live">%1$s di belakang siaran langsung</string>
 </resources>

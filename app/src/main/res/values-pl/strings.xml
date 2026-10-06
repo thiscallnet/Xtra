@@ -1480,4 +1480,9 @@
     <string name="resuming_playback">Wznawianie odtwarzania</string>
     <string name="settings_chat_remember_dismissed_pinned_messages">Pamiętaj ukryte przypięte wiadomości</string>
     <string name="settings_chat_remember_dismissed_pinned_messages_summary">Pozostaw ukryte przypięte wiadomości oznaczone jako przeczytane po ponownym otwarciu transmisji.</string>
+    <string name="player_rewinding">Odtwarzanie z opóźnieniem</string>
+    <string name="player_cast_to_device">Przesyłaj na urządzenie</string>
+    <string name="system_media_replay_30">Powtórz 30 s</string>
+    <string name="system_media_video">Wideo</string>
+    <string name="system_media_behind_live">%1$s za transmisją na żywo</string>
 </resources>

@@ -1482,4 +1482,9 @@
     <string name="resuming_playback">再生を再開しています</string>
     <string name="settings_chat_remember_dismissed_pinned_messages">非表示にした固定メッセージを記憶する</string>
     <string name="settings_chat_remember_dismissed_pinned_messages_summary">既読にした固定メッセージを、その配信を再度開いたときも非表示にします。</string>
+    <string name="player_rewinding">追いかけ再生</string>
+    <string name="player_cast_to_device">デバイスにキャスト</string>
+    <string name="system_media_replay_30">30秒リプレイ</string>
+    <string name="system_media_video">動画</string>
+    <string name="system_media_behind_live">ライブから%1$s遅れ</string>
 </resources>

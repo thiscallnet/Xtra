@@ -1449,7 +1449,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                     // already has a title/category; otherwise
                                     // a category change is never sent to the
                                     // Media3 recorder source.
-                                    updateStreamInfo(stream.title, stream.gameId, stream.gameSlug, stream.gameName)
+                                    updateStreamInfo(
+                                        title = stream.title,
+                                        gameId = stream.gameId,
+                                        gameSlug = stream.gameSlug,
+                                        gameName = stream.gameName,
+                                        thumbnail = stream.thumbnailURL?.let {
+                                            TwitchApiHelper.getStreamThumbnail(it, 720, 405)
+                                        },
+                                        channelName = stream.channelName,
+                                        channelImage = stream.channelImage,
+                                    )
                                     if (isLiveRewindEnabled() &&
                                         videoType == PlaybackContract.STREAM &&
                                         liveRewindStreamCreatedAt.isNullOrBlank() &&
@@ -1511,10 +1521,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     progressBar.visibility = View.GONE
                     duration.visibility = View.GONE
                     updateStreamInfo(
-                        requireArguments().getString(KEY_TITLE),
-                        requireArguments().getString(KEY_GAME_ID),
-                        requireArguments().getString(KEY_GAME_SLUG),
-                        requireArguments().getString(KEY_GAME_NAME)
+                        title = requireArguments().getString(KEY_TITLE),
+                        gameId = requireArguments().getString(KEY_GAME_ID),
+                        gameSlug = requireArguments().getString(KEY_GAME_SLUG),
+                        gameName = requireArguments().getString(KEY_GAME_NAME),
+                        thumbnail = requireArguments().getString(KEY_THUMBNAIL),
+                        channelName = requireArguments().getString(KEY_CHANNEL_NAME),
+                        channelImage = requireArguments().getString(KEY_CHANNEL_IMAGE),
                     )
                     updateViewerCount(requireArguments().getInt(KEY_VIEWER_COUNT).takeIf { it != -1 })
                     startStreamUptimeTicker()
@@ -2711,8 +2724,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         onLiveStreamWentOffline()
     }
 
-    fun updateStreamInfo(title: String?, gameId: String?, gameSlug: String?, gameName: String?) {
-        onViewingMetadataChanged(title, gameId, gameName)
+    fun updateStreamInfo(
+        title: String?,
+        gameId: String?,
+        gameSlug: String?,
+        gameName: String?,
+        thumbnail: String? = null,
+        channelName: String? = null,
+        channelImage: String? = null,
+    ) {
+        onViewingMetadataChanged(title, gameId, gameName, thumbnail, channelName, channelImage)
         binding.playerControls.title.apply {
             if (!title.isNullOrBlank() && requireContext().prefs().getBoolean(C.PLAYER_TITLE, true)) {
                 text = title.trim()
@@ -2758,6 +2779,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         title: String?,
         gameId: String?,
         gameName: String?,
+        thumbnail: String?,
+        channelName: String?,
+        channelImage: String?,
     ) = Unit
 
     fun restartPlayer() {

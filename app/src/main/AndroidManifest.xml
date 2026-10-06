@@ -45,6 +45,10 @@
         android:supportsRtl="true"
         android:theme="@style/DarkTheme"
         tools:ignore="UnusedAttribute">
+        <meta-data
+            android:name="com.google.android.gms.cast.framework.OPTIONS_PROVIDER_CLASS_NAME"
+            android:value="androidx.media3.cast.DefaultCastOptionsProvider" />
+        <receiver android:name="androidx.mediarouter.media.MediaTransferReceiver" />
         <profileable android:shell="${profileableByShell}" />
         <activity
             android:name=".ui.main.MainActivity"

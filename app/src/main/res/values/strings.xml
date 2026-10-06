@@ -293,8 +293,10 @@
     <string name="settings_live_rewind_time_left">Left</string>
     <string name="settings_live_rewind_time_right">Right</string>
     <string name="player_live" translatable="false">LIVE</string>
+    <string name="player_rewinding">Rewinding</string>
     <string name="player_live_position">%1$s · %2$s</string>
     <string name="player_return_to_live">Return to live</string>
+    <string name="player_cast_to_device">Cast to device</string>
     <string name="settings_player_behavior">Player behavior</string>
     <string name="network_filter_warning" translatable="false">Some Twitch requests failed to resolve. A DNS filter, VPN, proxy, or network issue may be blocking Twitch.</string>
     <string name="settings_buffer_limits">Buffer limits</string>
@@ -2395,4 +2397,7 @@ Metadata text</string>
     <string name="settings_hud_editor_drag_hint">Tap a control to select it. Hold and drag to move.</string>
     <string name="settings_hud_editor_save_hint">Changes apply when you save. Close to discard them.</string>
     <string name="settings_hud_editor_choose_control">Choose a control</string>
+    <string name="system_media_replay_30">Replay 30s</string>
+    <string name="system_media_video">Video</string>
+    <string name="system_media_behind_live">%1$s behind live</string>
 </resources>

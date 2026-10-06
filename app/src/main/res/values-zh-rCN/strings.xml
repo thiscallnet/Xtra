@@ -1482,4 +1482,9 @@
     <string name="resuming_playback">正在恢复播放</string>
     <string name="settings_chat_remember_dismissed_pinned_messages">记住已隐藏的置顶消息</string>
     <string name="settings_chat_remember_dismissed_pinned_messages_summary">重新打开该直播时，仍隐藏已标记为已读的置顶消息。</string>
+    <string name="player_rewinding">时移播放</string>
+    <string name="player_cast_to_device">投放到设备</string>
+    <string name="system_media_replay_30">重播30秒</string>
+    <string name="system_media_video">视频</string>
+    <string name="system_media_behind_live">落后直播%1$s</string>
 </resources>
