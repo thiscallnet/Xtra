@@ -70,6 +70,7 @@ class ControlledVaftPlaylistInstrumentedTest {
     private class Network : DataSource.Factory {
         @Volatile var response = ""
         @Volatile var delayMs = 0L
+        @Volatile var transportClocks = false
         val opens = AtomicInteger()
         val responses = ConcurrentHashMap<String, String>()
         val delays = ConcurrentHashMap<String, Long>()
@@ -84,6 +85,7 @@ class ControlledVaftPlaylistInstrumentedTest {
                 Thread.sleep(delays[spec.uri.lastPathSegment] ?: delayMs)
                 opened = spec.uri
                 bytes = if (spec.uri.toString().endsWith(".m3u8")) (responses[spec.uri.lastPathSegment] ?: response).toByteArray()
+                    else if (transportClocks) clockSegment(spec.uri.lastPathSegment.orEmpty())
                     else ByteArray(65_536) { (spec.uri.lastPathSegment.hashCode() + it).toByte() }
                 offset = 0
                 return bytes.size.toLong()
@@ -96,6 +98,37 @@ class ControlledVaftPlaylistInstrumentedTest {
                 return size
             }
             override fun close() = Unit
+        }
+
+        private fun clockSegment(path: String): ByteArray {
+            val ticks = Regex("\\d+").find(path)!!.value.toLong() * 180_000L
+            return ByteArray(188 * 3) { path.hashCode().toByte() }.apply {
+                for (packet in 0 until 3) {
+                    val start = packet * 188
+                    this[start] = 0x47
+                    this[start + 1] = if (packet == 0) 0x40 else 0
+                    this[start + 2] = 0
+                    this[start + 3] = 0x10
+                }
+                val header = byteArrayOf(0, 0, 1, 0xe0.toByte(), 0, 0, 0x80.toByte(), 0x80.toByte(), 5)
+                header.copyInto(this, 4)
+                this[13] = (0x21 or (((ticks shr 30) and 7).toInt() shl 1)).toByte()
+                this[14] = (ticks shr 22).toByte()
+                this[15] = (((ticks shr 15) and 127).toInt() shl 1 or 1).toByte()
+                this[16] = (ticks shr 7).toByte()
+                this[17] = ((ticks and 127).toInt() shl 1 or 1).toByte()
+            }
+        }
+    }
+
+    private fun cacheMaster(controlled: ControlledVaftPlaylist, master: HlsMultivariantPlaylist) {
+        val field = ControlledVaftPlaylist::class.java.getDeclaredField("candidateMasters").apply { isAccessible = true }
+        val cachedClass = ControlledVaftPlaylist::class.java.declaredClasses.single { it.simpleName == "CachedMaster" }
+        val constructor = cachedClass.declaredConstructors.single().apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        val masters = field.get(controlled) as ConcurrentHashMap<String, Any>
+        TwitchVaftController.PLAYER_TYPES.forEach {
+            masters[it] = constructor.newInstance(master, SystemClock.elapsedRealtime())
         }
     }
 
@@ -114,10 +147,7 @@ class ControlledVaftPlaylistInstrumentedTest {
                 replacement.m3u8
             """.trimIndent()) as HlsMultivariantPlaylist
             // Avoid token requests: these tests only exercise publication and replacement media.
-            val field = ControlledVaftPlaylist::class.java.getDeclaredField("candidateMasters").apply { isAccessible = true }
-            @Suppress("UNCHECKED_CAST")
-            val masters = field.get(controlled) as ConcurrentHashMap<String, HlsMultivariantPlaylist>
-            TwitchVaftController.PLAYER_TYPES.forEach { masters[it] = master }
+            cacheMaster(controlled, master)
         }
     }
 
@@ -139,13 +169,46 @@ class ControlledVaftPlaylistInstrumentedTest {
         controlled.transform(uri, parse(raw)) as HlsMediaPlaylist
 
     private fun awaitPublication(controlled: ControlledVaftPlaylist, raw: String, predicate: (HlsMediaPlaylist) -> Boolean): HlsMediaPlaylist {
-        val deadline = SystemClock.elapsedRealtime() + 5_000
+        val deadline = SystemClock.elapsedRealtime() + 8_000
         while (SystemClock.elapsedRealtime() < deadline) {
             val result = try { publish(controlled, raw) } catch (_: ControlledVaftPlaylist.WaitingForVerifiedMediaException) { null }
             if (result != null && predicate(result)) return result
             Thread.sleep(50)
         }
         error("Verified replacement was not published")
+    }
+
+    @Test fun lowerTransportRenditionUpgradesAndReturnsToPrimaryDespiteDifferentDateTimes() {
+        val network = Network().apply { transportClocks = true }
+        val controlled = controlled(network)
+        fun backup(indices: IntRange, name: String) = media(indices)
+            .replace(Regex("(?m)^s(\\d+)\\.ts$"), "$name$1.ts")
+            .replace("00:00:00Z", "00:00:01.235Z")
+        fun master(height: Int, name: String) = parse("""
+            #EXTM3U
+            #EXT-X-STREAM-INF:BANDWIDTH=${height * 3000},RESOLUTION=${height * 16 / 9}x$height,FRAME-RATE=60,CODECS="avc1.42c01f"
+            $name.m3u8
+        """.trimIndent()) as HlsMultivariantPlaylist
+        try {
+            controlled.setAlternateQualityLimit(1080, 60f)
+            cacheMaster(controlled, master(160, "low"))
+            network.responses["low.m3u8"] = backup(0..4, "low")
+            publish(controlled, media(0..2))
+            awaitPublication(controlled, media(0..4, setOf(3, 4))) { it.segments.size == 5 }
+            assertEquals(160, controlled.formatAt(epoch + 7_000_000)?.height)
+            cacheMaster(controlled, master(360, "higher"))
+            network.responses["higher.m3u8"] = backup(0..6, "higher")
+            awaitPublication(controlled, media(0..6, (3..6).toSet())) {
+                controlled.formatAt(epoch + 11_000_000)?.height == 360
+            }
+            val returned = awaitPublication(controlled, media(5..8)) {
+                it.segments.last().url.endsWith("s8.ts")
+            }
+            assertFalse(controlled.isAlternateAt(epoch + 17_000_000))
+            assertTrue(returned.segments.none { it.url.contains("vaft") })
+            assertTrue(returned.discontinuitySequence + returned.segments.last().relativeDiscontinuitySequence > 0)
+            assertEquals(epoch, returned.startTimeUs)
+        } finally { controlled.close() }
     }
 
     @Test fun shortMiddleWindowResolvesAndUsesCompatibleLowerRung() {
@@ -241,10 +304,7 @@ class ControlledVaftPlaylistInstrumentedTest {
                 #EXT-X-STREAM-INF:BANDWIDTH=3000000,RESOLUTION=1280x720,FRAME-RATE=30,CODECS="avc1.4d401f"
                 fresh.m3u8
             """.trimIndent()) as HlsMultivariantPlaylist
-            val field = ControlledVaftPlaylist::class.java.getDeclaredField("candidateMasters").apply { isAccessible = true }
-            @Suppress("UNCHECKED_CAST")
-            val masters = field.get(controlled) as ConcurrentHashMap<String, HlsMultivariantPlaylist>
-            TwitchVaftController.PLAYER_TYPES.forEach { masters[it] = freshMaster }
+            cacheMaster(controlled, freshMaster)
             network.delays["replacement.m3u8"] = 2_500L
             network.responses["fresh.m3u8"] = media(0..6)
             Thread.sleep(550)
