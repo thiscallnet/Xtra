@@ -688,8 +688,18 @@ class ControlledVaftPlaylist(
                     ))
                     var selectedCandidate: Candidate? = null
                     for (selected in variants.orEmpty()) {
-                        val source = withTimeoutOrNull(1_500L) { fetch(selected.url) as? HlsMediaPlaylist }?.takeIf {
-                            it.segments.isNotEmpty() && marked(it).lastOrNull() == false
+                        val source = try {
+                            withTimeoutOrNull(1_500L) { fetch(selected.url) as? HlsMediaPlaylist }?.takeIf {
+                                it.segments.isNotEmpty() && marked(it).lastOrNull() == false
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (_: IOException) {
+                            // One failed rendition must not hide the healthy rungs
+                            // below it, including during a background upgrade.
+                            if (BuildConfig.DEBUG) Log.d("XtraVaftFeed",
+                                "event=rendition_probe_failed channel=$channel playerType=$type height=${selected.format.height}")
+                            null
                         }
                         if (source != null) {
                             val blocked = marked(source)

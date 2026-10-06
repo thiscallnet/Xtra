@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CHANNEL = "vaft_fixture"
 HOST = "https://vaft-fixture.invalid"
 START = time.time() - 60
-STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "backup_date_offset": 0.0, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
+STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "backup_date_offset": 0.0, "backup_failed_top": False, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
 LOCK = threading.Lock()
 ROOT = pathlib.Path(tempfile.mkdtemp(prefix="xtra-vaft-fixture-"))
 DEVICE_ID = uuid.uuid4().hex
@@ -198,7 +198,7 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/control":
             with LOCK:
                 for key, values in query.items():
-                    if key in ("primary_vaft", "backup_vaft", "vaft_attributes_only", "ladder", "unavailable", "real_backup"):
+                    if key in ("primary_vaft", "backup_vaft", "vaft_attributes_only", "ladder", "unavailable", "real_backup", "backup_failed_top"):
                         STATE[key] = values[0].lower() == "true"
                     elif key in ("delay", "segment_delay", "backup_date_offset"):
                         STATE[key] = float(values[0])
@@ -237,6 +237,8 @@ class Handler(BaseHTTPRequestHandler):
                     heights = [1080, 720, 360] if state["primary_max"] == 1080 else [720, 360]
                 else:
                     heights = [height for height in [360, 160] if height <= state["backup_max"]]
+                    if state["backup_failed_top"]:
+                        heights = [160] if player_type == "embed" else [720] + heights
                 lines = ["#EXTM3U"]
                 if state["unavailable"] and player_type != "site" and route != "vod":
                     unavailable = [{"IVS_NAME": "160p60", "STABLE-VARIANT-ID": "160p60", "RESOLUTION": "284x160", "BANDWIDTH": 480000,
@@ -259,6 +261,9 @@ class Handler(BaseHTTPRequestHandler):
         if parts[-1].endswith(".m3u8"):
             replay = parts[0] == "vod"
             primary = not replay and parts[1] == "site"
+            if state["backup_failed_top"] and not primary and not replay and parts[-2] == "720p60":
+                self.respond("fixture rendition failure", "text/plain", 503)
+                return
             lane = "replay" if replay else "primary" if primary else "backup"
             if parts[-1] != "video.m3u8":
                 lane += "160" if parts[-2] == "chunked" else parts[-2].removesuffix("p60")
