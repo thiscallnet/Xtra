@@ -74,6 +74,7 @@ class ControlledVaftPlaylistInstrumentedTest {
         val opens = AtomicInteger()
         val responses = ConcurrentHashMap<String, String>()
         val delays = ConcurrentHashMap<String, Long>()
+        val failures = ConcurrentHashMap.newKeySet<String>()
         override fun createDataSource(): DataSource = object : DataSource {
             private var opened: Uri? = null
             private var bytes = byteArrayOf()
@@ -82,6 +83,7 @@ class ControlledVaftPlaylistInstrumentedTest {
             override fun getUri(): Uri? = opened
             override fun open(spec: DataSpec): Long {
                 opens.incrementAndGet()
+                if (spec.uri.lastPathSegment?.let(failures::contains) == true) throw java.io.IOException("Fixture rendition unavailable")
                 Thread.sleep(delays[spec.uri.lastPathSegment] ?: delayMs)
                 opened = spec.uri
                 bytes = if (spec.uri.toString().endsWith(".m3u8")) (responses[spec.uri.lastPathSegment] ?: response).toByteArray()
@@ -178,6 +180,20 @@ class ControlledVaftPlaylistInstrumentedTest {
         error("Verified replacement was not published")
     }
 
+    @Test fun failedRequestedRungDoesNotHideCleanLowerRung() {
+        val network = Network().apply {
+            response = media(0..4)
+            failures += "requested.m3u8"
+        }
+        val controlled = controlled(network, includeRequestedRung = true)
+        try {
+            publish(controlled, media(0..2))
+            val result = awaitPublication(controlled, media(0..4, setOf(3, 4))) { it.segments.size == 5 }
+            assertTrue(result.segments.none { it.url.contains("vaft") })
+            assertEquals(720, controlled.formatAt(epoch + 7_000_000)?.height)
+        } finally { controlled.close() }
+    }
+
     @Test fun lowerTransportRenditionUpgradesAndReturnsToPrimaryDespiteDifferentDateTimes() {
         val network = Network().apply { transportClocks = true }
         val controlled = controlled(network)
@@ -196,7 +212,15 @@ class ControlledVaftPlaylistInstrumentedTest {
             publish(controlled, media(0..2))
             awaitPublication(controlled, media(0..4, setOf(3, 4))) { it.segments.size == 5 }
             assertEquals(160, controlled.formatAt(epoch + 7_000_000)?.height)
-            cacheMaster(controlled, master(360, "higher"))
+            val higherMaster = parse("""
+                #EXTM3U
+                #EXT-X-STREAM-INF:BANDWIDTH=6000000,RESOLUTION=1920x1080,FRAME-RATE=60,CODECS="avc1.640028"
+                broken.m3u8
+                #EXT-X-STREAM-INF:BANDWIDTH=1080000,RESOLUTION=640x360,FRAME-RATE=60,CODECS="avc1.42c01f"
+                higher.m3u8
+            """.trimIndent()) as HlsMultivariantPlaylist
+            network.failures += "broken.m3u8"
+            cacheMaster(controlled, higherMaster)
             network.responses["higher.m3u8"] = backup(0..6, "higher")
             awaitPublication(controlled, media(0..6, (3..6).toSet())) {
                 controlled.formatAt(epoch + 11_000_000)?.height == 360
