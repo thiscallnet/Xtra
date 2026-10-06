@@ -25,7 +25,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CHANNEL = "vaft_fixture"
 HOST = "https://vaft-fixture.invalid"
 START = time.time() - 60
-STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
+STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "backup_date_offset": 0.0, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
 LOCK = threading.Lock()
 ROOT = pathlib.Path(tempfile.mkdtemp(prefix="xtra-vaft-fixture-"))
 DEVICE_ID = uuid.uuid4().hex
@@ -200,7 +200,7 @@ class Handler(BaseHTTPRequestHandler):
                 for key, values in query.items():
                     if key in ("primary_vaft", "backup_vaft", "vaft_attributes_only", "ladder", "unavailable", "real_backup"):
                         STATE[key] = values[0].lower() == "true"
-                    elif key in ("delay", "segment_delay"):
+                    elif key in ("delay", "segment_delay", "backup_date_offset"):
                         STATE[key] = float(values[0])
                     elif key == "range_age_seconds":
                         STATE[key] = max(0.0, float(values[0]))
@@ -288,7 +288,8 @@ class Handler(BaseHTTPRequestHandler):
             for i in range(first, last + 1):
                 if i > 0 and i % segment_count == 0:
                     lines.append("#EXT-X-DISCONTINUITY")
-                lines += [f"#EXT-X-PROGRAM-DATE-TIME:{timestamp(START + i * 2)}",
+                date_offset = state["backup_date_offset"] if not primary and not replay else 0.0
+                lines += [f"#EXT-X-PROGRAM-DATE-TIME:{timestamp(START + i * 2 + date_offset)}",
                     f"#EXTINF:2.0,{'Amazon' if vaft_required and not state['vaft_attributes_only'] and VAFT_RANGE_TEMPLATE is None else 'live'}", f"{HOST}/segments/{lane}/{i:08d}.ts"]
             if not replay:
                 for i in range(last + 1, last + 1 + state["prefetch"]):

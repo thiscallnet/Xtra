@@ -346,6 +346,22 @@ class ControlledVaftPlaylist(
         feed.lastQualityRefreshMs = now
         feed.qualityRefresh = scope.launch {
             withTimeoutOrNull(8_000L) {
+                val belowTarget = currentFormat.height < wanted.height ||
+                    (currentFormat.height == wanted.height && currentFormat.frameRate < wanted.frameRate)
+                if (BuildConfig.DEBUG) Log.d("XtraVaftFeed",
+                    "event=quality_upgrade_probe channel=$channel current=${currentFormat.height}p${currentFormat.frameRate.toInt()} " +
+                        "target=${wanted.height}p${wanted.frameRate.toInt()} eligible=$belowTarget")
+                // Playback recovery takes priority over populating the menu. Save a
+                // usable result before slower catalog inspection can exhaust this job.
+                val result = if (belowTarget) {
+                    findCandidate(wanted, probe, currentFormat)?.let { usableReplacement(probe, it) }
+                } else null
+                synchronized(feed) {
+                    if (!closed && generation == feed.generation) feed.improved = result
+                }
+                if (BuildConfig.DEBUG) Log.d("XtraVaftFeed",
+                    "event=quality_upgrade_result channel=$channel current=${currentFormat.height}p${currentFormat.frameRate.toInt()} " +
+                        "target=${wanted.height}p${wanted.frameRate.toInt()} candidate=${result?.candidate?.format?.let { "${it.height}p${it.frameRate.toInt()}" } ?: "none"}")
                 val master = candidateMaster(current.playerType)
                 if (master != null) {
                     // Only offer renditions whose current media playlist was inspected.
@@ -362,28 +378,6 @@ class ControlledVaftPlaylist(
                     replacementCatalogs[current.playerType] = inspected.mapNotNull { (format, playable) ->
                         format.takeIf { playable == true || (playable == null && format in previous) }
                     }.distinct()
-                }
-                val belowTarget = currentFormat.height < wanted.height ||
-                    (currentFormat.height == wanted.height && currentFormat.frameRate < wanted.frameRate)
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "XtraVaftFeed",
-                        "event=quality_upgrade_probe channel=$channel current=${currentFormat.height}p${currentFormat.frameRate.toInt()} " +
-                            "target=${wanted.height}p${wanted.frameRate.toInt()} eligible=$belowTarget",
-                    )
-                }
-                val result = if (belowTarget) {
-                    findCandidate(wanted, probe, currentFormat)?.let { usableReplacement(probe, it) }
-                } else null
-                synchronized(feed) {
-                    if (!closed && generation == feed.generation) feed.improved = result
-                }
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "XtraVaftFeed",
-                        "event=quality_upgrade_result channel=$channel current=${currentFormat.height}p${currentFormat.frameRate.toInt()} " +
-                            "target=${wanted.height}p${wanted.frameRate.toInt()} candidate=${result?.candidate?.format?.let { "${it.height}p${it.frameRate.toInt()}" } ?: "none"}",
-                    )
                 }
             }
         }
@@ -532,7 +526,9 @@ class ControlledVaftPlaylist(
             val discontinuity = (previous?.discontinuity ?: 0) + if (previous != null &&
                 ((previous.playerType == type && previous.sourceDiscontinuity != sourceDiscontinuity) ||
                     (previous.playerType != type && overlap == null) ||
-                    (previous.format != null && format != null && previous.format.height != format.height))) 1 else 0
+                    (previous.format != null && format != null &&
+                        (previous.format.height != format.height || previous.format.frameRate != format.frameRate ||
+                            previous.format.codecs != format.codecs)))) 1 else 0
             feed.published += Published(key, nextEpoch, previous?.sequence?.plus(1) ?: playlist.mediaSequence + index,
                 discontinuity, sourceDiscontinuity, type, absolute(playlist.baseUri, segment), format,
                 if (type != primaryType) replacementCatalogs[type] else null)
@@ -595,7 +591,7 @@ class ControlledVaftPlaylist(
                             if (initializationClocks.size > 120) initializationClocks.clear()
                             initializationClocks[initKey] ?: readInitializationClocks(init).also { initializationClocks[initKey] = it }
                         }.orEmpty()
-                        FragmentedMp4Clock.signature(prefix, clocks) ?: "$count:" + MessageDigest.getInstance("SHA-256")
+                        FragmentedMp4Clock.signature(prefix, clocks) ?: TransportStreamClock.signature(prefix) ?: "$count:" + MessageDigest.getInstance("SHA-256")
                             .digest(prefix).joinToString("") { "%02x".format(it) }
                     }
                 } finally { runCatching { source.close() } }
@@ -671,8 +667,9 @@ class ControlledVaftPlaylist(
         )
     }
 
-    private suspend fun findCandidate(wanted: Format, feed: Feed, betterThan: Format? = null): Candidate? = withTimeoutOrNull(8_000L) {
-        coroutineScope {
+    private suspend fun findCandidate(wanted: Format, feed: Feed, betterThan: Format? = null): Candidate? {
+        val deadline = SystemClock.elapsedRealtime() + 7_000L
+        return coroutineScope {
             val results = Channel<Candidate?>(Channel.UNLIMITED)
             val types = TwitchVaftController.PLAYER_TYPES.filter { it != primaryType }
             val jobs = types.map { type -> launch {
@@ -714,14 +711,30 @@ class ControlledVaftPlaylist(
                 } catch (error: CancellationException) { throw error } catch (_: Exception) { null }
                 results.trySend(candidate)
             } }
+            var best: Candidate? = null
+            var settleDeadline = deadline
             try {
                 repeat(types.size) {
-                    results.receive()?.let { candidate ->
+                    val remaining = settleDeadline - SystemClock.elapsedRealtime()
+                    if (remaining <= 0) return@coroutineScope best
+                    // Retain a healthy result when slower player types time out.
+                    val response = withTimeoutOrNull(remaining) { results.receive() }
+                    response?.let { candidate ->
                         if (BuildConfig.DEBUG) Log.d("XtraVaftFeed", "event=candidate_ready channel=$channel playerType=${candidate.playerType} height=${candidate.format?.height}")
-                        return@coroutineScope candidate
+                        val previous = best?.format
+                        val next = candidate.format
+                        if (best == null || (next != null && previous != null &&
+                            (next.height > previous.height || (next.height == previous.height && next.frameRate > previous.frameRate)))) {
+                            best = candidate
+                        }
+                        if (next != null && next.height == wanted.height &&
+                            (wanted.frameRate <= 0 || next.frameRate >= wanted.frameRate)) return@coroutineScope best
+                        // A short grace chooses a higher healthy rung without
+                        // holding playback for a slow or failing player type.
+                        settleDeadline = minOf(settleDeadline, SystemClock.elapsedRealtime() + 200L)
                     }
                 }
-                null
+                best
             } finally { jobs.forEach { it.cancel() }; results.close() }
         }
     }
