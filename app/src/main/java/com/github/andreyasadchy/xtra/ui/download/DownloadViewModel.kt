@@ -19,7 +19,6 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -27,7 +26,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.chromium.net.CronetEngine
 import org.json.JSONArray
 import org.json.JSONException
 import java.util.concurrent.ExecutorService
@@ -35,8 +33,7 @@ import java.util.concurrent.ExecutorService
 class DownloadViewModel(
     private val applicationContext: Context,
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val playerRepository: PlayerRepository,
 ) : ViewModel() {
@@ -71,27 +68,8 @@ class DownloadViewModel(
                                             val timeout = NetworkUtils.HttpEngineTimeout()
                                             val request = httpEngine.value!!.newUrlRequestBuilder(
                                                 url,
-                                                cronetExecutor.value,
+                                                httpExecutor.value,
                                                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                            ).build()
-                                            timeout.start(request, continuation)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        if (response.info.httpStatusCode in 200..299) {
-                                            response.body.decodeToString()
-                                        } else null
-                                    }
-                                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
-                                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                                url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                                cronetExecutor.value
                                             ).build()
                                             timeout.start(request, continuation)
                                             request.start()
@@ -183,27 +161,8 @@ class DownloadViewModel(
                                         val timeout = NetworkUtils.HttpEngineTimeout()
                                         val request = httpEngine.value!!.newUrlRequestBuilder(
                                             url,
-                                            cronetExecutor.value,
+                                            httpExecutor.value,
                                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                        ).build()
-                                        timeout.start(request, continuation)
-                                        request.start()
-                                        continuation.invokeOnCancellation {
-                                            request.cancel()
-                                            timeout.stop()
-                                        }
-                                    }
-                                    if (response.info.httpStatusCode in 200..299) {
-                                        response.body.decodeToString()
-                                    } else null
-                                }
-                                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                    val response = suspendCancellableCoroutine { continuation ->
-                                        val timeout = NetworkUtils.CronetTimeout()
-                                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                            url,
-                                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                            cronetExecutor.value
                                         ).build()
                                         timeout.start(request, continuation)
                                         request.start()
@@ -403,7 +362,7 @@ class DownloadViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                DownloadViewModel(application.applicationContext, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.playerRepository)
+                DownloadViewModel(application.applicationContext, xtraModule.httpEngine, xtraModule.httpExecutor, xtraModule.okHttpClient, xtraModule.playerRepository)
             }
         }
     }

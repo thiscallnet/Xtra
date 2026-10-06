@@ -83,7 +83,6 @@ class PlayerRepositoryEmoteParserTest {
 
         val parsed = parseFFZEmotes(
             listOf(emote),
-            useWebp = true,
             source = Emote.GLOBAL_FFZ,
         ).single()
 

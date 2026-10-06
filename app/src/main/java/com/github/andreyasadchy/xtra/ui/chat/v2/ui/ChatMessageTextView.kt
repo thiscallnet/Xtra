@@ -76,6 +76,14 @@ private const val REPLY_ICON_SIZE_DP = 15
 private const val CUSTOM_BACKGROUND_ROW_ALPHA = 0x80
 private const val INLINE_OBJECT_CHAR = '\uFFFC'
 
+private data class ChatRowBindAssets(
+    val assetKeys: Set<ChatAssetKey>,
+    val animatedPieceAssetKeys: Set<ChatAssetKey>,
+    val initialAssetSpecs: List<ChatAssetSpec>,
+    val geometryChangingCompositionKeys: Set<String>,
+    val initialDirectAssetKeys: Set<ChatAssetKey>,
+)
+
 open class ChatMessageTextView private constructor(
     context: Context,
     private val assets: ChatAssetRepository,
@@ -148,11 +156,13 @@ open class ChatMessageTextView private constructor(
     private var onGifClick: ((ChatGifInteraction) -> Unit)? = null
     private var onClipPreviewClick: ((String) -> Unit)? = null
     private var boundRow: ChatRowUiModel? = null
+    private var boundTextSizePx = Float.NaN
     private var bindingRow = false
     private var touchMoved = false
     private var clipPreviewSlugs = emptySet<String>()
     private var clipPreviewAssetKeys = emptySet<ChatAssetKey>()
     private var stagedRow: ChatRowUiModel? = null
+    private var stagedBindAssets: ChatRowBindAssets? = null
     private var stagedBindGeneration = 0L
     private var stagedAssetKeys = emptySet<ChatAssetKey>()
     private var stagedObservedAssetKeys = emptySet<ChatAssetKey>()
@@ -201,16 +211,20 @@ open class ChatMessageTextView private constructor(
     }
 
     fun setMessageTextSizeSp(value: Float) {
+        val sizePx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
+        if (textSize == sizePx) return
         setTextSize(TypedValue.COMPLEX_UNIT_SP, value)
         invalidateClipDrawCache()
     }
 
     fun setAnimateGifs(value: Boolean) {
+        if (animateGifs == value) return
         animateGifs = value
         updateDrawableAnimations()
     }
 
     fun bind(row: ChatRowUiModel) {
+        if (boundRow === row && stagedRow == null && boundTextSizePx == textSize) return
         externalBindGeneration++
         reboundDimensionKeys.clear()
         clearStagedRow()
@@ -224,9 +238,10 @@ open class ChatMessageTextView private constructor(
             Trace.beginSection("Xtra.ChatV2.bind")
         }
         try {
-            if (stagePendingCandidate && shouldStageRow(row)) stageRow(row) else {
+            val bindAssets = collectRowBindAssets(row)
+            if (stagePendingCandidate && shouldStageRow(row, bindAssets)) stageRow(row, bindAssets) else {
                 if (stagePendingCandidate && boundRow != row) clearStagedRow()
-                bindRow(row)
+                bindRow(row, bindAssets)
             }
         } finally {
             if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
@@ -234,12 +249,12 @@ open class ChatMessageTextView private constructor(
         }
     }
 
-    private fun shouldStageRow(row: ChatRowUiModel): Boolean =
+    private fun shouldStageRow(row: ChatRowUiModel, bindAssets: ChatRowBindAssets): Boolean =
         boundMessageId == row.id &&
-            hasPendingAssets(row.assetKeys())
+            hasPendingAssets(bindAssets.assetKeys)
 
-    private fun stageRow(row: ChatRowUiModel) {
-        val nextKeys = row.assetKeys()
+    private fun stageRow(row: ChatRowUiModel, bindAssets: ChatRowBindAssets) {
+        val nextKeys = bindAssets.assetKeys
         val previousObservedKeys = stagedObservedAssetKeys
         previousObservedKeys
             .filterNot(nextKeys::contains)
@@ -247,6 +262,7 @@ open class ChatMessageTextView private constructor(
             .forEach(::removeStagedAssetObserver)
 
         stagedRow = row
+        stagedBindAssets = bindAssets
         stagedBindGeneration = externalBindGeneration
         stagedAssetKeys = nextKeys
         stagedObservedAssetKeys = nextKeys - keys
@@ -266,8 +282,9 @@ open class ChatMessageTextView private constructor(
             return false
         }
         if (hasPendingAssets(stagedAssetKeys)) return false
+        val bindAssets = stagedBindAssets ?: collectRowBindAssets(row)
         clearStagedRow()
-        bindRow(row)
+        bindRow(row, bindAssets)
         return true
     }
 
@@ -277,12 +294,13 @@ open class ChatMessageTextView private constructor(
             .filterNot(activeKeys::contains)
             .forEach(::removeStagedAssetObserver)
         stagedRow = null
+        stagedBindAssets = null
         stagedBindGeneration = 0L
         stagedAssetKeys = emptySet()
         stagedObservedAssetKeys = emptySet()
     }
 
-    private fun bindRow(row: ChatRowUiModel) {
+    private fun bindRow(row: ChatRowUiModel, bindAssets: ChatRowBindAssets) {
         invalidateClipDrawCache()
         if (boundMessageId != row.id) {
             latchedFailedCompositionKeys.clear()
@@ -291,6 +309,7 @@ open class ChatMessageTextView private constructor(
         }
         alpha = 1f
         boundRow = row
+        boundTextSizePx = textSize
         boundMessageId = row.id
         longPressConsumed = false
         touchStartedOnClickableSpan = false
@@ -306,7 +325,7 @@ open class ChatMessageTextView private constructor(
         drawables.values.forEach(Drawable::disconnectAndStopIfNeeded)
         drawables.clear()
         drawableHandles.clear()
-        val newKeys = row.assetKeys()
+        val newKeys = bindAssets.assetKeys
         oldKeys.filterNot(newKeys::contains).forEach(::removeAssetObserver)
         keys = newKeys
         newKeys
@@ -316,39 +335,11 @@ open class ChatMessageTextView private constructor(
                 assetObservers[it]?.rebind(externalBindGeneration)
             }
         newKeys.filterNot(oldKeys::contains).forEach(::observeAsset)
-        animatedPieceAssetKeys = row.pieces.flatMap { piece ->
-            val spec = when (piece) {
-                is ChatPiece.Emote -> piece.asset.takeIf { piece.animated }
-                is ChatPiece.Gif -> piece.asset
-                is ChatPiece.Badge -> piece.asset.takeIf { piece.interaction?.animated == true }
-                is ChatPiece.Cheermote -> piece.asset.takeIf { piece.interaction?.animated == true }
-                else -> null
-            }
-            spec?.allKeys().orEmpty()
-        }.toSet()
+        animatedPieceAssetKeys = bindAssets.animatedPieceAssetKeys
         animatedAssetKeys = animatedPieceAssetKeys + clipPreviewAssetKeys
-        initialAssetSpecs = row.pieces.mapNotNull { piece ->
-            when (piece) {
-                is ChatPiece.Badge -> piece.asset
-                is ChatPiece.RewardIcon -> piece.asset
-                is ChatPiece.Emote -> piece.asset
-                is ChatPiece.Cheermote -> piece.asset
-                is ChatPiece.Gif -> piece.asset
-                else -> null
-            }
-        }
-        geometryChangingCompositionKeys = row.pieces.mapNotNull { piece ->
-            when (piece) {
-                is ChatPiece.Emote -> piece.asset.compositionKey
-                is ChatPiece.Gif -> piece.asset.compositionKey
-                else -> null
-            }
-        }.toSet()
-        initialDirectAssetKeys = row.pieces.mapNotNull { piece ->
-            (piece as? ChatPiece.Username)?.paint?.imageUrl
-                ?.takeIf { it.isNotBlank() }
-                ?.let(::ChatAssetKey)
-        }.toSet()
+        initialAssetSpecs = bindAssets.initialAssetSpecs
+        geometryChangingCompositionKeys = bindAssets.geometryChangingCompositionKeys
+        initialDirectAssetKeys = bindAssets.initialDirectAssetKeys
         val newClipPreviewSlugs = row.clipPreviews.map { it.slug }.toSet()
         clipPreviewSlugs = newClipPreviewSlugs
         oldClipPreviewSlugs.filterNot(newClipPreviewSlugs::contains).forEach { slug ->
@@ -526,6 +517,50 @@ open class ChatMessageTextView private constructor(
             is ChatAssetState.Ready -> false
             is ChatAssetState.Failed -> !state.isPresentationTerminal
         }
+    }
+
+    private fun collectRowBindAssets(row: ChatRowUiModel): ChatRowBindAssets {
+        val assetKeys = linkedSetOf<ChatAssetKey>()
+        val animatedPieceAssetKeys = linkedSetOf<ChatAssetKey>()
+        val initialAssetSpecs = ArrayList<ChatAssetSpec>()
+        val geometryChangingCompositionKeys = linkedSetOf<String>()
+        val initialDirectAssetKeys = linkedSetOf<ChatAssetKey>()
+
+        row.pieces.forEach { piece ->
+            piece.assetSpecOrNull()?.let { spec ->
+                initialAssetSpecs += spec
+                spec.addKeysTo(assetKeys)
+            }
+            val animatedSpec = when (piece) {
+                is ChatPiece.Emote -> piece.asset.takeIf { piece.animated }
+                is ChatPiece.Gif -> piece.asset
+                is ChatPiece.Badge -> piece.asset.takeIf { piece.interaction?.animated == true }
+                is ChatPiece.Cheermote -> piece.asset.takeIf { piece.interaction?.animated == true }
+                else -> null
+            }
+            animatedSpec?.addKeysTo(animatedPieceAssetKeys)
+
+            when (piece) {
+                is ChatPiece.Emote -> geometryChangingCompositionKeys += piece.asset.compositionKey
+                is ChatPiece.Gif -> geometryChangingCompositionKeys += piece.asset.compositionKey
+                is ChatPiece.Username -> piece.paint?.imageUrl
+                    ?.takeIf(String::isNotBlank)
+                    ?.let(::ChatAssetKey)
+                    ?.let { key ->
+                        assetKeys += key
+                        initialDirectAssetKeys += key
+                    }
+                else -> Unit
+            }
+        }
+
+        return ChatRowBindAssets(
+            assetKeys = assetKeys,
+            animatedPieceAssetKeys = animatedPieceAssetKeys,
+            initialAssetSpecs = initialAssetSpecs,
+            geometryChangingCompositionKeys = geometryChangingCompositionKeys,
+            initialDirectAssetKeys = initialDirectAssetKeys,
+        )
     }
 
     private fun latchTerminalAssetFailures(): Boolean {
@@ -1402,6 +1437,7 @@ open class ChatMessageTextView private constructor(
         clipRelativeTimeRefresh = null
         invalidateClipDrawCache()
         stagedRow = null
+        stagedBindAssets = null
         stagedBindGeneration = 0L
         stagedAssetKeys = emptySet()
         stagedObservedAssetKeys = emptySet()
@@ -1634,26 +1670,10 @@ private fun Drawable.disconnectAndStopIfNeeded() {
     }
 }
 
-private fun ChatAssetSpec.allKeys(): List<ChatAssetKey> = buildList {
-    add(key)
-    overlays.forEach { addAll(it.allKeys()) }
+private fun ChatAssetSpec.addKeysTo(destination: MutableSet<ChatAssetKey>) {
+    destination += key
+    overlays.forEach { it.addKeysTo(destination) }
 }
-
-private fun ChatRowUiModel.assetKeys(): Set<ChatAssetKey> = pieces.flatMap { piece ->
-    buildList {
-        when (piece) {
-            is ChatPiece.Badge -> addAll(piece.asset.allKeys())
-            is ChatPiece.RewardIcon -> addAll(piece.asset.allKeys())
-            is ChatPiece.Emote -> addAll(piece.asset.allKeys())
-            is ChatPiece.Cheermote -> addAll(piece.asset.allKeys())
-            is ChatPiece.Gif -> addAll(piece.asset.allKeys())
-            else -> Unit
-        }
-        if (piece is ChatPiece.Username) {
-            piece.paint?.imageUrl?.takeIf { it.isNotBlank() }?.let { add(ChatAssetKey(it)) }
-        }
-    }
-}.toSet()
 
 private fun ChatPiece.assetSpecOrNull(): ChatAssetSpec? = when (this) {
     is ChatPiece.Badge -> asset

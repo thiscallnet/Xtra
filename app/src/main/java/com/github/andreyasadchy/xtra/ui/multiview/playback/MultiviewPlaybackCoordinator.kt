@@ -32,7 +32,6 @@ import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
-import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.common.logVideoSurfaceBinding
@@ -1070,19 +1069,7 @@ class MultiviewPlaybackCoordinator(
             networkLibrary == C.HTTP_ENGINE && module.httpEngine.value != null -> {
                 HttpEngineDataSource.Factory(
                     module.httpEngine.value,
-                    module.cronetExecutor.value,
-                    proxyMultivariant,
-                    proxyMedia,
-                    null,
-                    multivariantProxy,
-                    mediaProxy,
-                ) { !slot.httpProxyDisabled && preferences.getBoolean(C.PROXY_MEDIA_PLAYLIST, true) }
-                    .apply { headers?.let(::setDefaultRequestProperties) }
-            }
-            networkLibrary == C.CRONET && module.cronetEngine.value != null -> {
-                CronetDataSource.Factory(
-                    module.cronetEngine.value,
-                    module.cronetExecutor.value,
+                    module.httpExecutor.value,
                     proxyMultivariant,
                     proxyMedia,
                     null,

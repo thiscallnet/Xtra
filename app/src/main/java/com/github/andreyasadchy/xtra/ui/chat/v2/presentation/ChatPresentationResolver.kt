@@ -2,8 +2,9 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.presentation
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
 import java.util.LinkedHashMap
+import android.os.Trace
+import com.github.andreyasadchy.xtra.BuildConfig
 
 /** Recompiles presentation from immutable message data and the current catalog revision. */
 class ChatPresentationResolver(
@@ -29,13 +30,18 @@ class ChatPresentationResolver(
     }
 
     private data class CacheKey(
-        val id: ChatMessageId,
-        val messageHash: Int,
-        val catalogRevision: Long,
-        val rewardsRevision: Int,
+        val message: ChatMessage,
+        val catalog: CatalogIdentity,
         val compilerGeneration: Long,
         val presentationRevision: Long,
     )
+
+    // Frozen per-message catalogs retain their identity across unrelated provider updates.
+    // Identity also distinguishes two provisional catalogs with the same public revision.
+    private class CatalogIdentity(val value: ChatCatalogSnapshot) {
+        override fun equals(other: Any?): Boolean = other is CatalogIdentity && value === other.value
+        override fun hashCode(): Int = System.identityHashCode(value)
+    }
 
     private var generation = 0L
     private val cache = object : LinkedHashMap<CacheKey, ChatRowUiModel>(maxCachedRows, .75f, true) {
@@ -76,13 +82,17 @@ class ChatPresentationResolver(
         presentationRevision: Long,
     ): ChatRowUiModel {
         val key = CacheKey(
-            id = message.id,
-            messageHash = message.hashCode(),
-            catalogRevision = catalog.revision,
-            rewardsRevision = catalog.channelPointRewardsRevision,
+            message = message,
+            catalog = CatalogIdentity(catalog),
             compilerGeneration = snapshotGeneration,
             presentationRevision = presentationRevision,
         )
-        return cache[key] ?: snapshotCompiler.compile(message, catalog).also { cache[key] = it }
+        cache[key]?.let { return it }
+        if (BuildConfig.PERF_DIAGNOSTICS) Trace.beginSection("Xtra.ChatV2.compileRow")
+        return try {
+            snapshotCompiler.compile(message, catalog).also { cache[key] = it }
+        } finally {
+            if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
+        }
     }
 }

@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.os.Trace
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
@@ -19,6 +20,7 @@ import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.isTelevision
 import kotlin.math.abs
@@ -1251,6 +1253,19 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val traceHudMeasure = BuildConfig.PERF_DIAGNOSTICS
+        if (traceHudMeasure) {
+            val state = if (isShown) "visible" else "hidden"
+            Trace.beginSection("Xtra.PlayerHud.onMeasure.$state")
+        }
+        try {
+            measureHud(widthMeasureSpec, heightMeasureSpec)
+        } finally {
+            if (traceHudMeasure) Trace.endSection()
+        }
+    }
+
+    private fun measureHud(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val measuredWidth = MeasureSpec.getSize(widthMeasureSpec).coerceAtLeast(1)
         val measuredHeight = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(1)
         val safe = safeRect(measuredWidth.toFloat(), measuredHeight.toFloat())

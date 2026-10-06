@@ -47,7 +47,12 @@ class ChatReplayRecoveryTest {
                 .body(body.toResponseBody("application/json".toMediaType())).build()
         }.build()
         val json = Json { ignoreUnknownKeys = true }
-        val repository = GraphQLRepository(lazy { null }, lazy { null }, lazy { error("Unused transport") }, lazy { client }, json)
+        val repository = GraphQLRepository(
+            httpEngine = lazy { null },
+            httpExecutor = lazy { error("Unused transport") },
+            okHttpClient = lazy { client },
+            json = json,
+        )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         val received = CompletableDeferred<ChatMessage>()
         val manager = ChatReplayManager(C.OKHTTP, emptyMap(), repository, json, "local-fixture", null, 0L,

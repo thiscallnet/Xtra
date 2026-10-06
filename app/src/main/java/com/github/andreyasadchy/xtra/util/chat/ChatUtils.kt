@@ -31,13 +31,20 @@ object ChatUtils {
                 val start = index
                 index = next
                 buildMap {
-                    message.substring(start, index).split(';').forEach { tag ->
-                        val split = tag.split('=', limit = 2)
-                        val key = split.getOrNull(0)
-                        val value = split.getOrNull(1)
-                        if (key != null && !value.isNullOrEmpty()) {
+                    // Walk the tag block directly. This runs for every incoming IRC
+                    // message; splitting it creates a list and temporary strings per tag.
+                    var tagStart = start
+                    while (tagStart < index) {
+                        val delimiter = message.indexOf(';', tagStart)
+                        val tagEnd = if (delimiter in tagStart until index) delimiter else index
+                        var equalsIndex = tagStart
+                        while (equalsIndex < tagEnd && message[equalsIndex] != '=') equalsIndex++
+                        if (equalsIndex < tagEnd - 1) {
+                            val key = message.substring(tagStart, equalsIndex)
+                            val value = message.substring(equalsIndex + 1, tagEnd)
                             put(key, value.replace("\\:", ";").replace("\\s", " "))
                         }
+                        tagStart = tagEnd + 1
                     }
                 }
             } else emptyMap()

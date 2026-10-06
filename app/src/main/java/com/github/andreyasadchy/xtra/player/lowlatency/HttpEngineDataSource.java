@@ -367,7 +367,7 @@ public final class HttpEngineDataSource extends BaseDataSource implements HttpDa
   /** The default read timeout, in milliseconds. */
   @UnstableApi public static final int DEFAULT_READ_TIMEOUT_MILLIS = 8 * 1000;
 
-  // The size of read buffer passed to cronet UrlRequest.read().
+  // The size of read buffer passed to HttpEngine UrlRequest.read().
   private static final int READ_BUFFER_SIZE_BYTES = 32 * 1024;
 
   private final HttpEngine httpEngine;

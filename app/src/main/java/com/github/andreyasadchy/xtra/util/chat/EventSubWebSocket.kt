@@ -1,16 +1,17 @@
 package com.github.andreyasadchy.xtra.util.chat
 
+import android.os.SystemClock
 import com.github.andreyasadchy.xtra.util.WebSocket
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.util.Timer
 import javax.net.ssl.X509TrustManager
-import kotlin.concurrent.schedule
 
 internal class EventSubReconnectState {
     fun shouldCreateSubscriptions(isReplacement: Boolean): Boolean = !isReplacement
@@ -126,7 +127,8 @@ class EventSubWebSocket(
     ) {
         val sessionState = EventSubConnectionState(role)
         var job: Job? = null
-        var pongTimer: Timer? = null
+        var pongWatchdogJob: Job? = null
+        var pongDeadlineMs = 0L
         var welcomeWatchdogJob: Job? = null
         val welcomed: Boolean get() = sessionState.welcomed
     }
@@ -171,7 +173,7 @@ class EventSubWebSocket(
         }
         job?.cancel()
         toClose.forEach { connection ->
-            connection.pongTimer?.cancel()
+            connection.pongWatchdogJob?.cancel()
             connection.welcomeWatchdogJob?.cancel()
             connection.job?.cancel()
             connection.socket.disconnect()
@@ -196,17 +198,36 @@ class EventSubWebSocket(
         }
     }
 
-    private suspend fun startPongTimer(connection: Connection) = withContext(Dispatchers.IO) {
-        connection.pongTimer?.cancel()
-        connection.pongTimer = Timer().apply {
-            schedule(timeout) {
-                scope?.launch {
-                    val shouldDisconnect = synchronized(lock) {
-                        !disconnecting && connections.contains(connection)
+    private fun refreshKeepaliveDeadline(connection: Connection) {
+        synchronized(lock) {
+            if (disconnecting || connection !in connections) return
+            connection.pongDeadlineMs = SystemClock.elapsedRealtime() + timeout
+            if (connection.pongWatchdogJob?.isActive == true) return
+            val coroutineScope = scope ?: return
+            // Notifications only extend the deadline. Do not create a Timer thread or
+            // cancel/reschedule a coroutine for every chat message.
+            connection.pongWatchdogJob = coroutineScope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
+                val thisJob = currentCoroutineContext()[Job]
+                try {
+                    while (true) {
+                        val remainingMs = synchronized(lock) {
+                            if (disconnecting || connection !in connections ||
+                                connection.pongWatchdogJob !== thisJob
+                            ) return@launch
+                            connection.pongDeadlineMs - SystemClock.elapsedRealtime()
+                        }
+                        if (remainingMs <= 0L) {
+                            connection.socket.disconnect()
+                            return@launch
+                        }
+                        delay(remainingMs)
                     }
-                    if (shouldDisconnect) connection.socket.disconnect()
+                } finally {
+                    synchronized(lock) {
+                        if (connection.pongWatchdogJob === thisJob) connection.pongWatchdogJob = null
+                    }
                 }
-            }
+            }.also { it.start() }
         }
     }
 
@@ -241,7 +262,7 @@ class EventSubWebSocket(
             }
         }
         toClose.forEach { connection ->
-            connection.pongTimer?.cancel()
+            connection.pongWatchdogJob?.cancel()
             connection.welcomeWatchdogJob?.cancel()
             connection.job?.cancel()
             connection.socket.disconnect()
@@ -269,7 +290,7 @@ class EventSubWebSocket(
             }
             if (shouldFallback) {
                 replacement.job?.cancel()
-                replacement.pongTimer?.cancel()
+                replacement.pongWatchdogJob?.cancel()
                 replacement.socket.disconnect()
                 val oldConnection = synchronized(lock) {
                     if (handoffConnection === replacement) {
@@ -280,7 +301,7 @@ class EventSubWebSocket(
                 }
                 oldConnection?.let {
                     synchronized(lock) { connections.remove(it) }
-                    it.pongTimer?.cancel()
+                    it.pongWatchdogJob?.cancel()
                     it.welcomeWatchdogJob?.cancel()
                     it.job?.cancel()
                     it.socket.disconnect()
@@ -303,7 +324,7 @@ class EventSubWebSocket(
         }
         handoffTimeoutJob?.cancel()
         handoffTimeoutJob = null
-        old?.pongTimer?.cancel()
+        old?.pongWatchdogJob?.cancel()
         old?.welcomeWatchdogJob?.cancel()
         old?.job?.cancel()
         old?.socket?.disconnect()
@@ -346,8 +367,10 @@ class EventSubWebSocket(
         override suspend fun onConnect(webSocket: WebSocket) {
             val connection = connectionFor(webSocket) ?: return
             connection.sessionState.onTransportConnect()
-            connection.pongTimer?.cancel()
-            connection.pongTimer = null
+            synchronized(lock) {
+                connection.pongWatchdogJob?.cancel()
+                connection.pongWatchdogJob = null
+            }
             startWelcomeWatchdog(connection)
         }
 
@@ -372,7 +395,7 @@ class EventSubWebSocket(
                     }
                     when (metadata?.optString("message_type")) {
                         "notification" -> {
-                            startPongTimer(connection)
+                            refreshKeepaliveDeadline(connection)
                             val payload = json.optJSONObject("payload")
                             val event = payload?.optJSONObject("event")
                             if (event != null) {
@@ -390,7 +413,7 @@ class EventSubWebSocket(
                                 }
                             }
                         }
-                        "session_keepalive" -> startPongTimer(connection)
+                        "session_keepalive" -> refreshKeepaliveDeadline(connection)
                         "session_reconnect" -> {
                             val payload = json.optJSONObject("payload")
                             val session = payload?.optJSONObject("session")
@@ -409,7 +432,7 @@ class EventSubWebSocket(
                             session?.optInt("keepalive_timeout_seconds")?.takeIf { it > 0 }?.let {
                                 timeout = it * 1000L
                             }
-                            startPongTimer(connection)
+                            refreshKeepaliveDeadline(connection)
                             val connectionEvent = connection.sessionState.onSessionWelcome()
                             val sessionId = session?.optString("id")?.takeIf { it.isNotBlank() }
                             if (!sessionId.isNullOrBlank()) {

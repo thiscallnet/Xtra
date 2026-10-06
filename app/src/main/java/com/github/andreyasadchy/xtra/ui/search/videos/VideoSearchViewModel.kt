@@ -36,7 +36,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.chromium.net.CronetEngine
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
@@ -49,8 +48,7 @@ class VideoSearchViewModel(
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
 ) : ViewModel() {
 
@@ -116,29 +114,8 @@ class VideoSearchViewModel(
                                             val timeout = NetworkUtils.HttpEngineTimeout()
                                             val request = httpEngine.value!!.newUrlRequestBuilder(
                                                 url,
-                                                cronetExecutor.value,
+                                                httpExecutor.value,
                                                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                            ).build()
-                                            timeout.start(request, continuation)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        if (response.info.httpStatusCode in 200..299) {
-                                            FileOutputStream(path).use {
-                                                it.write(response.body)
-                                            }
-                                        }
-                                    }
-                                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
-                                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                                url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                                cronetExecutor.value
                                             ).build()
                                             timeout.start(request, continuation)
                                             request.start()
@@ -184,29 +161,8 @@ class VideoSearchViewModel(
                                             val timeout = NetworkUtils.HttpEngineTimeout()
                                             val request = httpEngine.value!!.newUrlRequestBuilder(
                                                 url,
-                                                cronetExecutor.value,
+                                                httpExecutor.value,
                                                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                            ).build()
-                                            timeout.start(request, continuation)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        if (response.info.httpStatusCode in 200..299) {
-                                            FileOutputStream(path).use {
-                                                it.write(response.body)
-                                            }
-                                        }
-                                    }
-                                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
-                                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                                url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                                cronetExecutor.value
                                             ).build()
                                             timeout.start(request, continuation)
                                             request.start()
@@ -310,7 +266,7 @@ class VideoSearchViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                VideoSearchViewModel(application.applicationContext, xtraModule.recentSearchesRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient)
+                VideoSearchViewModel(application.applicationContext, xtraModule.recentSearchesRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.httpExecutor, xtraModule.okHttpClient)
             }
         }
     }

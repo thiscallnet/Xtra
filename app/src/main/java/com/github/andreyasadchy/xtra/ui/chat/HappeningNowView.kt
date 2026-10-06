@@ -41,6 +41,15 @@ internal class HappeningNowView @JvmOverloads constructor(
         val dismissedIds: Set<String>,
     )
 
+    private data class RenderActions(
+        val onOpenChannelPoints: () -> Unit,
+        val onOpenHistoricalPrediction: (Prediction) -> Unit,
+        val onOpenGiftProfile: (HappeningNowGift) -> Unit,
+        val onDismiss: (String) -> Unit,
+        val isPredictionTracked: (String) -> Boolean,
+        val onTogglePredictionTracking: (Prediction) -> Unit,
+    )
+
     private val inflater = LayoutInflater.from(context)
     private val title: TextView
     private val chevron: ImageView
@@ -58,6 +67,8 @@ internal class HappeningNowView @JvmOverloads constructor(
     private var activePollStableKey: String? = null
     private var compactMode = false
     private var expansionChangedByUser = false
+    private var latestRenderState: RenderState? = null
+    private var latestRenderActions: RenderActions? = null
 
     init {
         orientation = VERTICAL
@@ -151,40 +162,27 @@ internal class HappeningNowView @JvmOverloads constructor(
     ) {
         val overlayScrollView = parent?.parent as? ChatTopOverlayScrollView
         val previousScrollY = overlayScrollView?.scrollY ?: 0
-        cards.removeAllViews()
-        activePredictionTimer = null
-        activePredictionStableKey = null
-        activePollTimer = null
-        activePollStableKey = null
-
+        latestRenderState = state
+        latestRenderActions = RenderActions(
+            onOpenChannelPoints = onOpenChannelPoints,
+            onOpenHistoricalPrediction = onOpenHistoricalPrediction,
+            onOpenGiftProfile = onOpenGiftProfile,
+            onDismiss = onDismiss,
+            isPredictionTracked = isPredictionTracked,
+            onTogglePredictionTracking = onTogglePredictionTracking,
+        )
         val visibleKeys = mutableListOf<String>()
 
         state.gift?.let { gift ->
             val key = HappeningNowKeys.gift(gift.stableId)
-            if (key !in state.dismissedIds) {
-                addGiftCard(gift, onOpenGiftProfile)
-                visibleKeys += key
-            }
+            if (key !in state.dismissedIds) visibleKeys += key
         }
 
         state.activePrediction?.let { prediction ->
             val id = prediction.id?.takeIf { it.isNotBlank() }
             if (id != null) {
                 val key = HappeningNowKeys.prediction(id)
-                if (key !in state.dismissedIds) {
-                    addPredictionCard(
-                        prediction = prediction,
-                        stableKey = key,
-                        canBet = state.canBetPrediction,
-                        historicalResult = false,
-                        onOpenChannelPoints = onOpenChannelPoints,
-                        onOpenHistoricalPrediction = onOpenHistoricalPrediction,
-                        onDismiss = onDismiss,
-                        isTracked = isPredictionTracked(id),
-                        onToggleTracking = onTogglePredictionTracking,
-                    )
-                    visibleKeys += key
-                }
+                if (key !in state.dismissedIds) visibleKeys += key
             }
         }
 
@@ -192,20 +190,7 @@ internal class HappeningNowView @JvmOverloads constructor(
             val id = prediction.id?.takeIf { it.isNotBlank() }
             if (id != null && id != state.activePrediction?.id) {
                 val key = HappeningNowKeys.predictionResult(id)
-                if (key !in state.dismissedIds) {
-                    addPredictionCard(
-                        prediction = prediction,
-                        stableKey = key,
-                        canBet = false,
-                        historicalResult = true,
-                        onOpenChannelPoints = onOpenChannelPoints,
-                        onOpenHistoricalPrediction = onOpenHistoricalPrediction,
-                        onDismiss = onDismiss,
-                        isTracked = false,
-                        onToggleTracking = {},
-                    )
-                    visibleKeys += key
-                }
+                if (key !in state.dismissedIds) visibleKeys += key
             }
         }
 
@@ -213,16 +198,7 @@ internal class HappeningNowView @JvmOverloads constructor(
             val id = poll.id?.takeIf { it.isNotBlank() }
             if (id != null) {
                 val key = HappeningNowKeys.poll(id)
-                if (key !in state.dismissedIds) {
-                    addPollCard(
-                        poll = poll,
-                        stableKey = key,
-                        canVote = state.canVotePoll,
-                        onOpenChannelPoints = onOpenChannelPoints,
-                        onDismiss = onDismiss,
-                    )
-                    visibleKeys += key
-                }
+                if (key !in state.dismissedIds) visibleKeys += key
             }
         }
 
@@ -233,6 +209,8 @@ internal class HappeningNowView @JvmOverloads constructor(
         isVisible = count > 0
 
         if (count == 0) {
+            visibleNewCount = 0
+            updateExpandedState()
             overlayScrollView?.restoreScrollPosition(previousScrollY)
             return
         }
@@ -248,6 +226,78 @@ internal class HappeningNowView @JvmOverloads constructor(
 
         updateExpandedState()
         overlayScrollView?.restoreScrollPosition(previousScrollY)
+    }
+
+    private fun renderExpandedCards() {
+        cards.removeAllViews()
+        activePredictionTimer = null
+        activePredictionStableKey = null
+        activePollTimer = null
+        activePollStableKey = null
+        if (!expanded) return
+        val state = latestRenderState ?: return
+        val actions = latestRenderActions ?: return
+
+        state.gift?.let { gift ->
+            val key = HappeningNowKeys.gift(gift.stableId)
+            if (key !in state.dismissedIds) addGiftCard(gift, actions.onOpenGiftProfile)
+        }
+
+        state.activePrediction?.let { prediction ->
+            val id = prediction.id?.takeIf { it.isNotBlank() }
+            if (id != null) {
+                val key = HappeningNowKeys.prediction(id)
+                if (key !in state.dismissedIds) {
+                    addPredictionCard(
+                        prediction = prediction,
+                        stableKey = key,
+                        canBet = state.canBetPrediction,
+                        historicalResult = false,
+                        onOpenChannelPoints = actions.onOpenChannelPoints,
+                        onOpenHistoricalPrediction = actions.onOpenHistoricalPrediction,
+                        onDismiss = actions.onDismiss,
+                        isTracked = actions.isPredictionTracked(id),
+                        onToggleTracking = actions.onTogglePredictionTracking,
+                    )
+                }
+            }
+        }
+
+        state.recentPredictionResult?.let { prediction ->
+            val id = prediction.id?.takeIf { it.isNotBlank() }
+            if (id != null && id != state.activePrediction?.id) {
+                val key = HappeningNowKeys.predictionResult(id)
+                if (key !in state.dismissedIds) {
+                    addPredictionCard(
+                        prediction = prediction,
+                        stableKey = key,
+                        canBet = false,
+                        historicalResult = true,
+                        onOpenChannelPoints = actions.onOpenChannelPoints,
+                        onOpenHistoricalPrediction = actions.onOpenHistoricalPrediction,
+                        onDismiss = actions.onDismiss,
+                        isTracked = false,
+                        onToggleTracking = {},
+                    )
+                }
+            }
+        }
+
+        state.activePoll?.let { poll ->
+            val id = poll.id?.takeIf { it.isNotBlank() }
+            if (id != null) {
+                val key = HappeningNowKeys.poll(id)
+                if (key !in state.dismissedIds) {
+                    addPollCard(
+                        poll = poll,
+                        stableKey = key,
+                        canVote = state.canVotePoll,
+                        onOpenChannelPoints = actions.onOpenChannelPoints,
+                        onDismiss = actions.onDismiss,
+                    )
+                }
+            }
+        }
     }
 
     fun updateTimers(
@@ -273,6 +323,7 @@ internal class HappeningNowView @JvmOverloads constructor(
     private fun updateExpandedState() {
         cards.isVisible = expanded
         newBadge.isVisible = expanded && visibleNewCount > 0
+        renderExpandedCards()
 
         chevron.setImageResource(
             if (expanded) {

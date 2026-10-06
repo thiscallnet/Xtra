@@ -51,19 +51,6 @@
     <string-array name="networkLibraryEntries" translatable="false">
         <item>@string/network_library_automatic</item>
         <item>HttpEngine</item>
-        <item>Cronet</item>
-        <item>OkHttp</item>
-    </string-array>
-
-    <string-array name="networkLibraryEntriesNoCronet" translatable="false">
-        <item>@string/network_library_automatic</item>
-        <item>HttpEngine</item>
-        <item>OkHttp</item>
-    </string-array>
-
-    <string-array name="networkLibraryEntriesNoHttpEngine" translatable="false">
-        <item>@string/network_library_automatic</item>
-        <item>Cronet</item>
         <item>OkHttp</item>
     </string-array>
 

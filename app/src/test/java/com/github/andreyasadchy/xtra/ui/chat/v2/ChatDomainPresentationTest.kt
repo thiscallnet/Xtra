@@ -1024,9 +1024,12 @@ class ChatDomainPresentationTest {
     fun presentationResolverCachesUnchangedRows() {
         val resolver = ChatPresentationResolver()
         val message = message(ChatSegment.Text("hello"))
-        val first = resolver.resolve(message, ChatCatalogSnapshot(1))
-        val second = resolver.resolve(message, ChatCatalogSnapshot(1))
+        val catalog = ChatCatalogSnapshot(1)
+        val first = resolver.resolve(message, catalog)
+        val second = resolver.resolve(message, catalog)
         assertSame(first, second)
+        // Separate provisional catalogs may have the same revision but different data.
+        assertTrue(first !== resolver.resolve(message, ChatCatalogSnapshot(1)))
     }
 
     @Test

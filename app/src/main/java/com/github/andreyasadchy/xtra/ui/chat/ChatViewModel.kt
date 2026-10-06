@@ -434,6 +434,11 @@ class ChatViewModel(
         }
     }
 
+    private val pickerCatalogCacheLock = Any()
+    private var cachedPickerSnapshot: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot? = null
+    private var cachedPickerProviders = 0
+    private var cachedPickerCatalog: PickerCatalog? = null
+
     fun pickerCatalogFor(
         expectedChannelId: String?,
         expectedChannelLogin: String?,
@@ -513,13 +518,10 @@ class ChatViewModel(
         refreshFailed: Boolean,
         retry: () -> Unit,
     ): ThirdPartyPickerState {
-        val emotes = snapshot.viewerSendableValues()
-            .filter { it.provider != ChatAssetProvider.TWITCH }
-            .map(::toPickerEmote)
-            .filter { it.name?.isNotBlank() == true && isPickerProviderEnabled(it) }
+        val emotes = pickerCatalogFor(snapshot).thirdParty
         return if (emotes.isEmpty() && refreshFailed) ThirdPartyPickerState.Error(retry)
         else if (emotes.isEmpty()) ThirdPartyPickerState.Empty
-        else ThirdPartyPickerState.Ready(emotes.sortedBy { it.name.orEmpty().lowercase() })
+        else ThirdPartyPickerState.Ready(emotes)
     }
 
     private fun toPickerEmote(emote: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote): Emote {
@@ -893,13 +895,10 @@ class ChatViewModel(
     private val recordedChatUserMessageIds = HashSet<String>()
     private val chatUserAvatarCache = mutableMapOf<String, String?>()
     private val chatUserSuggestionAggregator = ChatUserSuggestionAggregator()
-    private var chatUserSuggestionReconciliationJob: Job? = null
-    private var chatUserSuggestionReconciliationGeneration = 0L
-    private var chatUserSuggestionInputGeneration = 0L
-    private var pendingV2ChatMessages: List<V2ChatMessage>? = null
     private var chatUserAvatarLoadJob: Job? = null
     private var chatUserPresenceRefreshJob: Job? = null
     private var chatUserPresenceAutocompleteActive = false
+    private var requestedChatUserAvatarKeys = emptySet<String>()
     private var chatUserPresence = emptyList<ChatUserSuggestion>()
     private var chatUserPresenceLoadedAtMillis = 0L
     private var latestV2ChatMessages = emptyList<V2ChatMessage>()
@@ -1681,13 +1680,13 @@ class ChatViewModel(
                     val pair = loadCachedOrFetchEmoteResponse("global.ffz", {
                         playerRepository.loadGlobalFFZEmotesResponse(networkLibrary)
                     }) { response ->
-                        playerRepository.loadGlobalFFZEmotes(response, useWebp)
+                        playerRepository.loadGlobalFFZEmotes(response)
                     }
                     val response = pair.first
                     val online = pair.second
                     if (response != null) {
                         try {
-                            val emotes = playerRepository.loadGlobalFFZEmotes(response, useWebp)
+                            val emotes = playerRepository.loadGlobalFFZEmotes(response)
                             if (emotes.isNotEmpty()) {
                                 savedGlobalFFZEmotes = emotes
                                 synchronized(thirdPartyEmotes) {
@@ -1728,13 +1727,13 @@ class ChatViewModel(
                     val pair = loadCachedOrFetchEmoteResponse("${channelId}.ffz", {
                         playerRepository.loadFFZEmotesResponse(networkLibrary, channelId)
                     }) { response ->
-                        playerRepository.loadFFZEmotes(response, useWebp)
+                        playerRepository.loadFFZEmotes(response)
                     }
                     val response = pair.first
                     val online = pair.second
                     if (response != null) {
                         try {
-                            val emotes = playerRepository.loadFFZEmotes(response, useWebp)
+                            val emotes = playerRepository.loadFFZEmotes(response)
                             if (emotes.isNotEmpty()) {
                                 synchronized(thirdPartyEmotes) {
                                     thirdPartyEmotes.addAll(emotes)
@@ -2214,88 +2213,39 @@ class ChatViewModel(
 
     internal fun reconcileV2ChatUsers(
         messages: List<V2ChatMessage>,
+        evictedHeadCount: Int? = null,
+        appendedCount: Int? = null,
     ) {
         // The bounded timeline can be large; its user index is only consumed while typing a mention.
         if (!chatUsernameRecommendationsEnabled || !chatUserPresenceAutocompleteActive) return
         hasV2ChatUserTimeline = true
-        pendingV2ChatMessages = messages
-        chatUserSuggestionInputGeneration++
-        if (chatUserSuggestionReconciliationJob?.isActive == true) return
-
-        val generation = chatUserSuggestionReconciliationGeneration
-        chatUserSuggestionReconciliationJob = viewModelScope.launch {
-            try {
-                while (isCurrentChatUserReconciliation(generation)) {
-                    delay(CHAT_USER_SUGGESTION_RECONCILE_DELAY_MILLIS)
-                    if (!isCurrentChatUserReconciliation(generation)) break
-
-                    // Snapshot the mutable renderer list once after bursts settle, then do the
-                    // full timeline aggregation away from the UI thread.
-                    val inputGeneration = chatUserSuggestionInputGeneration
-                    val timeline = pendingV2ChatMessages?.toList() ?: break
-                    pendingV2ChatMessages = null
-                    latestV2ChatMessages = timeline
-                    val (previous, presence, avatarCache) = synchronized(chatUserRecords) {
-                        Triple(chatUserRecords.toMap(), chatUserPresence, chatUserAvatarCache.toMap())
-                    }
-                    val next = withContext(Dispatchers.Default) {
-                        chatUserSuggestionAggregator.aggregate(
-                            messages = timeline,
-                            previous = previous,
-                            presence = presence,
-                            avatarFor = { userId, login ->
-                                chatUserAvatarKeys(userId, login).asSequence()
-                                    .mapNotNull(avatarCache::get)
-                                    .firstOrNull()
-                            },
-                        )
-                    }
-                    if (!isCurrentChatUserReconciliation(generation)) break
-
-                    var changed = false
-                    if (inputGeneration == chatUserSuggestionInputGeneration) {
-                        synchronized(chatUserRecords) {
-                            if (isCurrentChatUserReconciliation(generation) &&
-                                inputGeneration == chatUserSuggestionInputGeneration
-                            ) {
-                                val currentByLogin = chatUserRecords.toMap()
-                                val reconciled = next.map { user ->
-                                    val current = currentByLogin[user.login.lowercase(Locale.ROOT)]
-                                    if (user.profileImageUrl == null && current?.profileImageUrl != null) {
-                                        user.copy(profileImageUrl = current.profileImageUrl)
-                                    } else {
-                                        user
-                                    }
-                                }
-                                val activeAvatarKeys = reconciled.flatMap(::chatUserAvatarKeys).toSet()
-                                chatUserAvatarCache.keys.retainAll(activeAvatarKeys)
-                                changed = reconciled != chatUserRecords.values.toList()
-                                if (changed) {
-                                    chatUserRecords.clear()
-                                    reconciled.forEach { user ->
-                                        chatUserRecords[user.login.lowercase(Locale.ROOT)] = user
-                                    }
-                                    recordedChatUserMessageIds.clear()
-                                    chatUserAvatarGeneration++
-                                    _chatUserSuggestions.value = reconciled
-                                }
-                            }
-                        }
-                    }
-                    if (changed) scheduleChatUserAvatarLoad()
-                    if (pendingV2ChatMessages == null) break
-                }
-            } finally {
-                if (generation == chatUserSuggestionReconciliationGeneration) {
-                    chatUserSuggestionReconciliationJob = null
-                }
+        latestV2ChatMessages = messages
+        var changed = false
+        synchronized(chatUserRecords) {
+            val next = chatUserSuggestionAggregator.reconcile(
+                messages = messages,
+                previous = chatUserRecords,
+                presence = chatUserPresence,
+                avatarFor = { userId, login -> cachedChatUserAvatar(userId, login) },
+                evictedHeadCount = evictedHeadCount,
+                appendedCount = appendedCount,
+            )
+            if (chatUserAvatarCache.isNotEmpty()) {
+                val activeAvatarKeys = activeChatUserAvatarKeys(next)
+                chatUserAvatarCache.keys.retainAll(activeAvatarKeys)
+            }
+            val previousUsers = chatUserRecords.values.iterator()
+            changed = next.size != chatUserRecords.size || next.any { it != previousUsers.next() }
+            if (changed) {
+                chatUserRecords.clear()
+                next.forEach { user -> chatUserRecords[user.login.lowercase(Locale.ROOT)] = user }
+                recordedChatUserMessageIds.clear()
+                chatUserAvatarGeneration++
+                _chatUserSuggestions.value = next
             }
         }
+        if (changed) scheduleChatUserAvatarLoad()
     }
-
-    private fun isCurrentChatUserReconciliation(generation: Long): Boolean =
-        generation == chatUserSuggestionReconciliationGeneration &&
-                chatUsernameRecommendationsEnabled && chatUserPresenceAutocompleteActive
 
     private fun startChatUserPresenceRefresh() {
         chatUserPresenceRefreshJob?.cancel()
@@ -2395,7 +2345,7 @@ class ChatViewModel(
         chatUserPresence = suggestions
         chatUserPresenceLoadedAtMillis = System.currentTimeMillis()
         if (hasV2ChatUserTimeline) {
-            reconcileV2ChatUsers(pendingV2ChatMessages ?: latestV2ChatMessages)
+            reconcileV2ChatUsers(latestV2ChatMessages)
             return
         }
         val presenceKeys = suggestions.mapTo(HashSet()) { it.login.lowercase(Locale.ROOT) }
@@ -2719,8 +2669,15 @@ class ChatViewModel(
             chatUsernameRecommendationsEnabled
 
     private fun scheduleChatUserAvatarLoad() {
-        if (!chatUsernameRecommendationsEnabled) return
+        if (!chatUsernameRecommendationsEnabled || !chatUserPresenceAutocompleteActive) return
         if (chatUserAvatarLoadJob?.isActive == true) return
+        if (synchronized(chatUserRecords) {
+                chatUserRecords.values.none {
+                    chatUserAvatarKey(it) in requestedChatUserAvatarKeys &&
+                            it.profileImageUrl.isNullOrBlank() &&
+                            !chatUserAvatarCache.containsKey(chatUserAvatarKey(it))
+                }
+            }) return
         val expectedChannelId = activeChannelId ?: return
         val expectedChannelLogin = activeChannelLogin
         val expectedGeneration = synchronized(chatUserRecords) { chatUserAvatarGeneration }
@@ -2729,6 +2686,7 @@ class ChatViewModel(
                 delay(200L)
                 val users = synchronized(chatUserRecords) {
                     chatUserRecords.values
+                        .filter { chatUserAvatarKey(it) in requestedChatUserAvatarKeys }
                         .sortedWith(compareByDescending<ChatUserSuggestion> { it.messageCount }.thenByDescending { it.lastSeenAt })
                         .filterNot {
                             it.profileImageUrl?.isNotBlank() == true ||
@@ -2830,7 +2788,7 @@ class ChatViewModel(
         expectedChannelLogin: String?,
     ): Boolean = activeChannelId == expectedChannelId &&
             activeChannelLogin.equals(expectedChannelLogin, ignoreCase = true) &&
-            chatUsernameRecommendationsEnabled
+            chatUsernameRecommendationsEnabled && chatUserPresenceAutocompleteActive
 
     private fun markMissingChatUserAvatars(
         requested: List<ChatUserSuggestion>,
@@ -2853,7 +2811,7 @@ class ChatViewModel(
     private fun updateChatUserAvatars(users: List<com.github.andreyasadchy.xtra.model.helix.user.User>) {
         var changed = false
         synchronized(chatUserRecords) {
-            val activeAvatarKeys = chatUserRecords.values.flatMap(::chatUserAvatarKeys).toSet()
+            val activeAvatarKeys = activeChatUserAvatarKeys(chatUserRecords.values)
             users.forEach { user ->
                 val loginKey = user.login?.trim()?.lowercase(Locale.ROOT)
                 val imageUrl = user.profileImageURL?.takeIf(String::isNotBlank)
@@ -2879,31 +2837,19 @@ class ChatViewModel(
         user.userId?.takeIf(String::isNotBlank)?.let { "id:$it" }
             ?: "login:${user.login.lowercase(Locale.ROOT)}"
 
-    private fun chatUserAvatarKeys(user: ChatUserSuggestion): List<String> = buildList {
-        user.userId?.takeIf(String::isNotBlank)?.let { add("id:$it") }
-        add("login:${user.login.lowercase(Locale.ROOT)}")
-    }
-
     private fun cachedChatUserAvatar(userId: String?, login: String): String? =
-        chatUserAvatarKeys(userId, login).asSequence()
-            .mapNotNull { chatUserAvatarCache[it] }
-            .firstOrNull()
+        userId?.takeIf(String::isNotBlank)?.let { chatUserAvatarCache["id:$it"] }
+            ?: chatUserAvatarCache["login:${login.lowercase(Locale.ROOT)}"]
 
-    private fun chatUserAvatarKeys(userId: String?, login: String): List<String> = buildList {
-        userId?.takeIf(String::isNotBlank)?.let { add("id:$it") }
-        add("login:${login.lowercase(Locale.ROOT)}")
-    }
-
-    private fun cancelChatUserSuggestionReconciliation() {
-        chatUserSuggestionReconciliationGeneration++
-        chatUserSuggestionInputGeneration++
-        chatUserSuggestionReconciliationJob?.cancel()
-        chatUserSuggestionReconciliationJob = null
-        pendingV2ChatMessages = null
-    }
+    private fun activeChatUserAvatarKeys(users: Collection<ChatUserSuggestion>): Set<String> =
+        buildSet(users.size * 2) {
+            users.forEach { user ->
+                user.userId?.takeIf(String::isNotBlank)?.let { add("id:$it") }
+                add("login:${user.login.lowercase(Locale.ROOT)}")
+            }
+        }
 
     private fun clearChatUserSuggestions() {
-        cancelChatUserSuggestionReconciliation()
         chatUserAvatarLoadJob?.cancel()
         chatUserAvatarLoadJob = null
         if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
@@ -2912,9 +2858,11 @@ class ChatViewModel(
         }
         synchronized(chatUserRecords) {
             chatUserRecords.clear()
+            chatUserSuggestionAggregator.clear()
             recordedChatUserMessageIds.clear()
             chatUserAvatarCache.clear()
             chatUserPresence = emptyList()
+            requestedChatUserAvatarKeys = emptySet()
             chatUserPresenceLoadedAtMillis = 0L
             latestV2ChatMessages = emptyList()
             hasV2ChatUserTimeline = false
@@ -2935,18 +2883,28 @@ class ChatViewModel(
         }
     }
 
-    fun setChatUsernameAutocompleteActive(active: Boolean) {
+    fun setChatUsernameAutocompleteActive(active: Boolean, visibleUsers: List<ChatUserSuggestion> = emptyList()) {
+        val requested = if (active) visibleUsers.mapTo(HashSet(), ::chatUserAvatarKey) else emptySet()
+        synchronized(chatUserRecords) {
+            if (requestedChatUserAvatarKeys != requested) {
+                requestedChatUserAvatarKeys = requested
+                chatUserAvatarGeneration++
+            }
+        }
         if (chatUserPresenceAutocompleteActive == active) {
             if (active && chatUserPresenceRefreshJob?.isActive != true) {
                 startChatUserPresenceRefresh()
             }
+            if (active) scheduleChatUserAvatarLoad()
             return
         }
         chatUserPresenceAutocompleteActive = active
         if (active) {
             startChatUserPresenceRefresh()
+            scheduleChatUserAvatarLoad()
         } else {
-            cancelChatUserSuggestionReconciliation()
+            chatUserAvatarLoadJob?.cancel()
+            chatUserAvatarLoadJob = null
             if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
                 chatUserPresenceRefreshJob?.cancel()
                 chatUserPresenceRefreshJob = null
@@ -4024,17 +3982,34 @@ class ChatViewModel(
 
     private fun pickerCatalogFor(
         snapshot: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,
-    ): PickerCatalog {
+    ): PickerCatalog = synchronized(pickerCatalogCacheLock) {
+        val prefs = applicationContext.prefs()
+        val providers = (if (prefs.getBoolean(C.CHAT_ENABLE_STV, true)) 1 else 0) or
+                (if (prefs.getBoolean(C.CHAT_ENABLE_BTTV, true)) 2 else 0) or
+                (if (prefs.getBoolean(C.CHAT_ENABLE_FFZ, true)) 4 else 0)
+        val cached = cachedPickerSnapshot
+        if (cached != null && cachedPickerProviders == providers &&
+            cached.twitch === snapshot.twitch &&
+            cached.sevenTv.hasSameSendableValuesAs(snapshot.sevenTv) &&
+            cached.bttv.hasSameSendableValuesAs(snapshot.bttv) &&
+            cached.ffz.hasSameSendableValuesAs(snapshot.ffz)
+        ) return@synchronized requireNotNull(cachedPickerCatalog)
         val sendable = snapshot.viewerSendableValues()
         val thirdParty = sendable
             .filter { it.provider != ChatAssetProvider.TWITCH }
             .map(::toPickerEmote)
             .filter { it.name?.isNotBlank() == true && isPickerProviderEnabled(it) }
-            .sortedBy { it.name.orEmpty().lowercase() }
-        return PickerCatalog(
+            .map { it.name.orEmpty().lowercase() to it }
+            .sortedBy { it.first }
+            .map { it.second }
+        PickerCatalog(
             twitch = sendable.filter { it.provider == ChatAssetProvider.TWITCH }.map(::toPickerEmote),
             thirdParty = thirdParty,
-        )
+        ).also {
+            cachedPickerSnapshot = snapshot
+            cachedPickerProviders = providers
+            cachedPickerCatalog = it
+        }
     }
 
     private fun personalPickerEmotes(): List<Emote> {
@@ -8782,7 +8757,6 @@ class ChatViewModel(
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val MAX_CHAT_USER_AVATARS = 100
-        private const val CHAT_USER_SUGGESTION_RECONCILE_DELAY_MILLIS = 250L
         private const val CHAT_USER_PRESENCE_CACHE_TTL_MILLIS = 5 * 60_000L
         private const val CHAT_USER_PRESENCE_REFRESH_INTERVAL_MILLIS = 60_000L
         private const val DEFAULT_REWARD_COLOR = "#9146FF"

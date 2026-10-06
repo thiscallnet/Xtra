@@ -80,10 +80,6 @@ class TwitchHlsPlaylistParserFactory(
                 raw = raw,
                 enabled = lowLatencyEnabled,
             )
-            val fallbackAdaptation = TwitchLowLatencyPlaylistAdapter.adapt(
-                raw = raw,
-                enabled = false,
-            )
             var finalAdaptation: TwitchPlaylistAdaptation
             var parsed: HlsPlaylist
             try {
@@ -93,10 +89,15 @@ class TwitchHlsPlaylistParserFactory(
                     ByteArrayInputStream(adaptation.playlistText.toByteArray(StandardCharsets.UTF_8)),
                 )
             } catch (_: Exception) {
-                finalAdaptation = fallbackAdaptation
+                // Most playlists parse successfully. Build the fallback only when it is used.
+                finalAdaptation = if (lowLatencyEnabled) {
+                    TwitchLowLatencyPlaylistAdapter.adapt(raw = raw, enabled = false)
+                } else {
+                    adaptation
+                }
                 parsed = parser.parse(
                     uri,
-                    ByteArrayInputStream(fallbackAdaptation.playlistText.toByteArray(StandardCharsets.UTF_8)),
+                    ByteArrayInputStream(finalAdaptation.playlistText.toByteArray(StandardCharsets.UTF_8)),
                 )
             }
             if (adaptation.diagnostics.twitchPrefetchTranslated &&

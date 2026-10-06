@@ -4,8 +4,6 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.net.http.HttpEngine
 import android.net.http.ProxyOptions
-import android.os.Build
-import android.util.Base64
 import android.util.Log
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
@@ -28,7 +26,6 @@ import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.hls.ProbedPlaylistDataSource
 import com.github.andreyasadchy.xtra.player.hls.ControlledVaftPlaylist
-import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestObservation
@@ -44,9 +41,6 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import okhttp3.Credentials
-import org.chromium.net.CronetEngine
-import org.chromium.net.CronetProvider
-import org.chromium.net.QuicOptions
 import java.io.IOException
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -289,7 +283,15 @@ class StreamHlsMediaSourceFactory(
 
     @SuppressLint("NewApi")
     private fun dataSourceFactory(state: StreamProxyState, streamSource: Boolean): DataSource.Factory {
-        val observeRequest = java.util.function.Consumer<StreamRequestObservation>(state::recordRequestObservation)
+        val useHttpEngine = configuration.networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null
+        val firstRequest = if (BuildConfig.DEBUG) java.util.concurrent.atomic.AtomicBoolean() else null
+        val observeRequest = java.util.function.Consumer<StreamRequestObservation> { observation ->
+            state.recordRequestObservation(observation)
+            if (firstRequest?.compareAndSet(false, true) == true) {
+                val backend = if (useHttpEngine) C.HTTP_ENGINE else C.OKHTTP
+                Log.i("PlaybackNetwork", "source_backend=$backend stream=$streamSource request_type=${observation.requestType} route=${observation.route}")
+            }
+        }
         val proxyHost = configuration.proxyHost.takeIf { streamSource }
         val proxyPort = configuration.proxyPort.takeIf { streamSource }
         val proxyUser = configuration.proxyUser.takeIf { streamSource }
@@ -299,17 +301,14 @@ class StreamHlsMediaSourceFactory(
         val proxyMediaPlaylist = streamSource && !proxyHost.isNullOrBlank() && proxyPort != null
 
         val upstreamFactory: DataSource.Factory = when {
-            configuration.networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null ->
+            useHttpEngine ->
                 createHttpEngineFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist, observeRequest)
-            configuration.networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null ->
-                createCronetFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist, observeRequest)
             else -> createOkHttpFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist, observeRequest)
         }
         return upstreamFactory.apply {
             if (streamSource && configuration.streamHeaders.isNotEmpty()) {
                 when (this) {
                     is HttpEngineDataSource.Factory -> setDefaultRequestProperties(configuration.streamHeaders)
-                    is CronetDataSource.Factory -> setDefaultRequestProperties(configuration.streamHeaders)
                     is OkHttpDataSource.Factory -> setDefaultRequestProperties(configuration.streamHeaders)
                 }
             }
@@ -333,8 +332,8 @@ class StreamHlsMediaSourceFactory(
             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                 listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)))
             } else emptyList()
-            val builder = HttpEngine.Builder(context)
             try {
+                val builder = HttpEngine.Builder(context)
                 builder.setProxyOptions(
                     ProxyOptions.fromProxyList(
                         listOf(
@@ -342,7 +341,7 @@ class StreamHlsMediaSourceFactory(
                                 android.net.http.Proxy.SCHEME_HTTP,
                                 host,
                                 port,
-                                xtraModule.cronetExecutor.value,
+                                xtraModule.httpExecutor.value,
                                 object : android.net.http.Proxy.HttpConnectCallback {
                                     override fun onBeforeRequest(request: android.net.http.Proxy.HttpConnectCallback.Request) {
                                         request.proceed(proxyHeaders)
@@ -355,10 +354,12 @@ class StreamHlsMediaSourceFactory(
                         ),
                         ProxyOptions.ALL_PROXIES_FAILED_BEHAVIOR_DISALLOW_DIRECT,
                     )
-                )
-            } catch (_: NoClassDefFoundError) {
+                ).build()
+            } catch (_: RuntimeException) {
                 null
-            }?.build()
+            } catch (_: LinkageError) {
+                null
+            }
         } else null
         val multivariantProxy = if (proxyMultivariantPlaylist && proxyClient == null) {
             proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker)
@@ -368,76 +369,7 @@ class StreamHlsMediaSourceFactory(
         } else null
         return HttpEngineDataSource.Factory(
             xtraModule.httpEngine.value,
-            xtraModule.cronetExecutor.value,
-            proxyMultivariantPlaylist,
-            proxyMediaPlaylist,
-            proxyClient,
-            multivariantProxy,
-            mediaProxy,
-            state.requestRouteTracker,
-            observeRequest,
-        ) { state.proxyMediaPlaylist }
-    }
-
-    private fun createCronetFactory(
-        state: StreamProxyState,
-        proxyHost: String?,
-        proxyPort: Int?,
-        proxyUser: String?,
-        proxyPassword: String?,
-        proxyMultivariantPlaylist: Boolean,
-        proxyMediaPlaylist: Boolean,
-        observeRequest: java.util.function.Consumer<StreamRequestObservation>,
-    ): DataSource.Factory {
-        val host = proxyHost.orEmpty()
-        val port = proxyPort ?: 0
-        val proxyClient = if ((proxyMultivariantPlaylist || proxyMediaPlaylist) &&
-            CronetProvider.getAllProviders(context).any { it.isEnabled }
-        ) {
-            val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
-                mapOf("Proxy-Authorization" to Credentials.basic(proxyUser, proxyPassword)).entries.toList()
-            } else emptyList()
-            val builder = CronetEngine.Builder(context).apply {
-                val userAgent = "Cronet/" + androidx.media3.common.util.Util.getUserAgent(context, "Xtra")
-                    .substringAfter("Cronet/", "").substringBefore(')')
-                setUserAgent(userAgent)
-                @Suppress("DEPRECATION")
-                setQuicOptions(QuicOptions.builder().setHandshakeUserAgent(userAgent).build())
-            }
-            try {
-                @Suppress("DEPRECATION")
-                builder.setProxyOptions(
-                    org.chromium.net.ProxyOptions(
-                        listOf(
-                            org.chromium.net.Proxy(
-                                org.chromium.net.Proxy.HTTP,
-                                host,
-                                port,
-                                xtraModule.cronetExecutor.value,
-                                object : org.chromium.net.Proxy.Callback() {
-                                    override fun onBeforeTunnelRequest(request: org.chromium.net.Proxy.Callback.Request) {
-                                        request.proceed(proxyHeaders)
-                                    }
-
-                                    override fun onTunnelHeadersReceived(responseHeaders: List<Map.Entry<String?, String?>?>, statusCode: Int): Boolean = true
-                                },
-                            )
-                        )
-                    )
-                )
-            } catch (_: UnsupportedOperationException) {
-                null
-            }?.build()
-        } else null
-        val multivariantProxy = if (proxyMultivariantPlaylist && proxyClient == null) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker)
-        } else null
-        val mediaProxy = if (proxyMediaPlaylist && proxyClient == null) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX, state.requestRouteTracker)
-        } else null
-        return CronetDataSource.Factory(
-            xtraModule.cronetEngine.value,
-            xtraModule.cronetExecutor.value,
+            xtraModule.httpExecutor.value,
             proxyMultivariantPlaylist,
             proxyMediaPlaylist,
             proxyClient,

@@ -70,6 +70,9 @@ fun interface ChatCatalogSource {
 
     suspend fun load(force: Boolean): ChatCatalogLoadResult = load()
 
+    /** A retry may reuse successful results from this refresh cycle, never a new refresh. */
+    suspend fun load(force: Boolean, previousAttempt: ChatCatalogLoadResult?): ChatCatalogLoadResult = load(force)
+
     /** Changes when provider-related settings or the signed-in emote scope changes. */
     val catalogConfigFingerprint: String
         get() = ""
@@ -551,6 +554,8 @@ class ChatCatalogRepository(
         delayMs: Long,
         force: Boolean,
         forceRefreshRevision: Long?,
+        previousAttempt: ChatCatalogLoadResult? = null,
+        previousAttemptConfig: String? = null,
     ): Job = scope.launch {
         if (delayMs > 0) wait(delayMs)
         if (source.hasIndependentBadgeProvider &&
@@ -567,8 +572,9 @@ class ChatCatalogRepository(
                 forceRefreshRevision = forceRefreshRevision,
             )
         }
+        val attemptConfig = source.catalogConfigFingerprint
         val result = try {
-            source.load(force)
+            source.load(force, previousAttempt.takeIf { previousAttemptConfig == attemptConfig })
         } catch (e: CancellationException) {
             throw e
         } catch (_: Throwable) {
@@ -595,6 +601,8 @@ class ChatCatalogRepository(
                     retryDelay(attempt),
                     force = false,
                     forceRefreshRevision = forceRefreshRevision,
+                    previousAttempt = previousAttempt,
+                    previousAttemptConfig = previousAttemptConfig,
                 )
                 return@synchronized
             }
@@ -641,7 +649,9 @@ class ChatCatalogRepository(
                 forceRefreshRevision = currentState.forceRefreshRevision,
             )
             val nextForceRefreshRevision = currentState.forceRefreshRevision +
-                    if (forceRefreshRevision != null) 1L else 0L
+                    // The explicit refresh and changed retry results may upgrade frozen rows.
+                    // An unchanged retry must not publish another presentation-wide refresh.
+                    if (forceRefreshRevision != null && (force || changed)) 1L else 0L
             val nextStateWithRefresh = nextState.copy(forceRefreshRevision = nextForceRefreshRevision)
             val aggregateFailed = if (source.hasIndependentBadgeProvider) {
                 result.hasFailedProviderIgnoringBadges()
@@ -672,6 +682,8 @@ class ChatCatalogRepository(
                     retryDelay(attempt),
                     force = false,
                     forceRefreshRevision = forceRefreshRevision,
+                    previousAttempt = result,
+                    previousAttemptConfig = attemptConfig,
                 )
             } else {
                 null
@@ -829,8 +841,8 @@ class ChatCatalogRepository(
             when (result) {
                 is ScopeUpdate.Success -> {
                     when (scope) {
-                        ChatEmoteScope.GLOBAL -> global = result.value
-                        ChatEmoteScope.CHANNEL -> channel = result.value
+                        ChatEmoteScope.GLOBAL -> if (global != result.value) global = result.value
+                        ChatEmoteScope.CHANNEL -> if (channel != result.value) channel = result.value
                         ChatEmoteScope.PERSONAL -> Unit
                         ChatEmoteScope.LEGACY_COMBINED -> legacyCombined = result.value
                     }
@@ -844,7 +856,9 @@ class ChatCatalogRepository(
             // Keep sender sets discovered through the live decoration stream; a later account
             // entitlement refresh only knows about the logged-in viewer's sets.
             is ScopeUpdate.Success -> {
-                personal = personal + result.value
+                if (result.value.any { (id, emotes) -> personal[id] != emotes }) {
+                    personal = personal + result.value
+                }
                 viewerPersonalSetIds = update.viewerPersonalSetIds
             }
             ScopeUpdate.Failed, null -> Unit
@@ -852,6 +866,10 @@ class ChatCatalogRepository(
         if (update.global is ScopeUpdate.Success && update.channel is ScopeUpdate.Success) {
             legacyCombined = emptyMap()
         }
+        if (global === current.global && channel === current.channel && personal === current.personal &&
+            pending === current.pending && legacyCombined == current.legacyCombined &&
+            viewerPersonalSetIds == current.viewerPersonalSetIds
+        ) return current
         return ScopedEmoteCatalog(
             global = global,
             channel = channel,

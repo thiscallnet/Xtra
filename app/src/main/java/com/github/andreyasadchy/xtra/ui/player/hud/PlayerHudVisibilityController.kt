@@ -13,6 +13,7 @@ class PlayerHudVisibilityController(
     private val rootProvider: () -> View?,
     private val televisionProvider: () -> Boolean,
     private val autoHideDelayMs: Long = 3_000L,
+    private val onVisibilityChanged: (Boolean) -> Unit = {},
 ) {
     enum class State { HIDDEN, VISIBLE, PINNED, EDITING }
 
@@ -71,16 +72,19 @@ class PlayerHudVisibilityController(
         if (force) {
             root.alpha = 1f
             root.visibility = View.VISIBLE
+            onVisibilityChanged(true)
             scheduleHide()
             return
         }
         if (root.visibility == View.VISIBLE && root.alpha == 1f) {
+            onVisibilityChanged(true)
             scheduleHide()
             return
         }
         val currentGeneration = ++generation
         root.alpha = 0f
         root.visibility = View.VISIBLE
+        onVisibilityChanged(true)
         isAnimating = true
         animation = root.animate().alpha(1f).setDuration(140L).setListener(object : AnimatorListenerAdapter() {
             override fun onAnimationEnd(animation: Animator) {
@@ -101,9 +105,14 @@ class PlayerHudVisibilityController(
         if (force) {
             root.alpha = 0f
             root.visibility = View.GONE
+            onVisibilityChanged(false)
             return
         }
-        if (root.visibility != View.VISIBLE) return
+        if (root.visibility != View.VISIBLE) {
+            onVisibilityChanged(false)
+            return
+        }
+        onVisibilityChanged(false)
         val currentGeneration = ++generation
         isAnimating = true
         animation = root.animate().alpha(0f).setDuration(180L).setListener(object : AnimatorListenerAdapter() {
@@ -167,10 +176,12 @@ class PlayerHudVisibilityController(
         cancelHide()
         cancelAnimation()
         state = State.EDITING
+        onVisibilityChanged(false)
     }
 
     fun leaveEditing() {
         state = State.HIDDEN
+        onVisibilityChanged(false)
     }
 
     fun hideRunnable(): Runnable = hideAction

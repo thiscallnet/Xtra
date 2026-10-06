@@ -775,6 +775,7 @@ class StreamMedia3Runtime(
                     context = context,
                     audioBufferSink = captionAudioSink.sink,
                     presentationDelayMs = xtraModule.liveCaptionManager::presentationDelayMs,
+                    captureAudio = { xtraModule.liveCaptionManager.isAudioBufferSinkCapturing(captionAudioSink) },
                 ),
             )
         val generation = Generation(

@@ -21,7 +21,6 @@ import okio.ForwardingSource
 import okio.Pipe
 import okio.Sink
 import okio.buffer
-import org.chromium.net.CronetException
 import java.io.ByteArrayOutputStream
 import java.io.InputStream
 import java.io.IOException
@@ -34,7 +33,6 @@ import java.util.PriorityQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
-import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -93,11 +91,6 @@ object NetworkUtils {
         val body: BufferedSource,
     )
 
-    class CronetStreamingResponse(
-        val info: org.chromium.net.UrlResponseInfo,
-        val body: BufferedSource,
-    )
-
     /** A bounded handoff from a network callback to a consumer-owned response source. */
     internal class StreamingResponseBody(
         maxBytes: Long,
@@ -140,23 +133,6 @@ object NetworkUtils {
         var onTimeout: (() -> Unit)? = null
 
         fun start(request: UrlRequest) {
-            this.request = request
-            updateTimeout()
-        }
-
-        override fun timeout() {
-            complete {
-                onTimeout?.invoke()
-                request.cancel()
-            }
-        }
-    }
-
-    class CronetStreamingTimeout(timeout: Long = DEFAULT_TIMEOUT_MS): Timeout(timeout) {
-        lateinit var request: org.chromium.net.UrlRequest
-        var onTimeout: (() -> Unit)? = null
-
-        fun start(request: org.chromium.net.UrlRequest) {
             this.request = request
             updateTimeout()
         }
@@ -234,86 +210,6 @@ object NetworkUtils {
         }
 
         override fun onCanceled(request: UrlRequest, info: UrlResponseInfo?) {
-            fail(IOException("Request canceled"))
-        }
-
-        private fun onTimeout() {
-            body?.cancel()
-            if (!responseDelivered) continuation.resumeWithException(IOException("Timed out"))
-        }
-
-        private fun fail(error: Throwable) {
-            timeout.complete {
-                body?.cancel()
-                if (!responseDelivered) continuation.resumeWithException(error)
-            }
-        }
-    }
-
-    /** Cronet counterpart to [StreamingUrlCallback]. */
-    class StreamingCronetCallback(
-        private val continuation: CancellableContinuation<CronetStreamingResponse>,
-        private val timeout: CronetStreamingTimeout,
-        private val maxBodyBytes: Int = DEFAULT_MAX_BODY_BYTES,
-        private val throwOnHttpError: Boolean = false,
-    ): org.chromium.net.UrlRequest.Callback() {
-        private var body: StreamingResponseBody? = null
-
-        @Volatile
-        private var responseDelivered = false
-
-        init {
-            timeout.onTimeout = ::onTimeout
-        }
-
-        override fun onRedirectReceived(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo, newLocationUrl: String) {
-            request.followRedirect()
-        }
-
-        override fun onResponseStarted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
-            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
-                request.cancel()
-                fail(HttpStatusException(info.httpStatusCode))
-                return
-            }
-            val bodyLength = info.allHeaders[CONTENT_LENGTH_HEADER_NAME]
-                ?.singleOrNull()
-                ?.toLongOrNull()
-                ?: -1L
-            if (bodyLength > maxBodyBytes || bodyLength > MAX_ARRAY_SIZE) {
-                request.cancel()
-                fail(IOException("Response body exceeds the $maxBodyBytes byte limit"))
-                return
-            }
-            val responseBody = StreamingResponseBody(maxBodyBytes.toLong(), request::cancel)
-            body = responseBody
-            responseDelivered = true
-            continuation.resume(CronetStreamingResponse(info, responseBody.source))
-            request.read(ByteBuffer.allocateDirect(BYTE_BUFFER_CAPACITY))
-        }
-
-        override fun onReadCompleted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo, byteBuffer: ByteBuffer) {
-            byteBuffer.flip()
-            try {
-                body?.write(byteBuffer) ?: throw IOException("Response body was not initialized")
-                timeout.updateTimeout()
-                byteBuffer.clear()
-                request.read(byteBuffer)
-            } catch (error: Throwable) {
-                request.cancel()
-                fail(error)
-            }
-        }
-
-        override fun onSucceeded(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
-            timeout.complete { body?.complete() }
-        }
-
-        override fun onFailed(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo?, error: CronetException) {
-            fail(error)
-        }
-
-        override fun onCanceled(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo?) {
             fail(IOException("Request canceled"))
         }
 
@@ -503,160 +399,6 @@ object NetworkUtils {
         }
     }
 
-    class CronetResponse(
-        val info: org.chromium.net.UrlResponseInfo,
-        val body: ByteArray,
-    )
-
-    class CronetStreamResponse(
-        val info: org.chromium.net.UrlResponseInfo,
-        val bytes: Long,
-    )
-
-    class ByteArrayCronetCallback(
-        private val continuation: CancellableContinuation<CronetResponse>,
-        private val timeout: CronetTimeout,
-        private val progressListener: ProgressListener? = null,
-        private val maxBodyBytes: Int = DEFAULT_MAX_BODY_BYTES,
-        private val throwOnHttpError: Boolean = false,
-    ): org.chromium.net.UrlRequest.Callback() {
-        private lateinit var mResponseBodyStream: ByteArrayOutputStream
-        private lateinit var mResponseBodyChannel: WritableByteChannel
-
-        override fun onRedirectReceived(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo, newLocationUrl: String) {
-            request.followRedirect()
-        }
-
-        override fun onResponseStarted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
-            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
-                request.cancel()
-                fail(HttpStatusException(info.httpStatusCode))
-                return
-            }
-            val bodyLength = info.allHeaders[CONTENT_LENGTH_HEADER_NAME]?.takeIf { it.size == 1 }?.getOrNull(0)?.toLongOrNull() ?: -1
-            if (bodyLength > maxBodyBytes || bodyLength > MAX_ARRAY_SIZE) {
-                request.cancel()
-                fail(IOException("Response body exceeds the $maxBodyBytes byte limit"))
-                return
-            }
-            mResponseBodyStream = if (bodyLength >= 0) {
-                ByteArrayOutputStream(bodyLength.toInt())
-            } else {
-                ByteArrayOutputStream()
-            }
-            mResponseBodyChannel = Channels.newChannel(mResponseBodyStream)
-            request.read(ByteBuffer.allocateDirect(BYTE_BUFFER_CAPACITY))
-        }
-
-        override fun onReadCompleted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo, byteBuffer: ByteBuffer) {
-            byteBuffer.flip()
-            mResponseBodyChannel.write(byteBuffer)
-            if (mResponseBodyStream.size() > maxBodyBytes) {
-                request.cancel()
-                fail(IOException("Response body exceeds the $maxBodyBytes byte limit"))
-                return
-            }
-            byteBuffer.clear()
-            timeout.updateTimeout()
-            progressListener?.update(mResponseBodyStream.size())
-            request.read(byteBuffer)
-        }
-
-        override fun onSucceeded(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
-            timeout.complete {
-                mResponseBodyChannel.close()
-                continuation.resume(CronetResponse(info, mResponseBodyStream.toByteArray()))
-            }
-        }
-
-        override fun onFailed(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo?, error: CronetException) {
-            fail(error)
-        }
-
-        override fun onCanceled(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo?) {
-            fail(IOException("Request canceled"))
-        }
-
-        private fun fail(error: Throwable) {
-            timeout.complete {
-                if (::mResponseBodyChannel.isInitialized) mResponseBodyChannel.close()
-                continuation.resumeWithException(error)
-            }
-        }
-    }
-
-    /** Cronet counterpart to [OutputStreamUrlCallback]. */
-    class OutputStreamCronetCallback(
-        private val continuation: CancellableContinuation<CronetStreamResponse>,
-        private val timeout: CronetStreamTimeout,
-        private val output: OutputStream,
-        private val progressListener: ProgressListener? = null,
-        private val maxBytes: Long = MAX_STREAM_BYTES,
-        private val throwOnHttpError: Boolean = false,
-    ): org.chromium.net.UrlRequest.Callback() {
-        private lateinit var channel: WritableByteChannel
-        private var bytes = 0L
-
-        override fun onRedirectReceived(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo, newLocationUrl: String) {
-            request.followRedirect()
-        }
-
-        override fun onResponseStarted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
-            if (throwOnHttpError && info.httpStatusCode !in 200..299) {
-                request.cancel()
-                fail(IOException("Request failed with HTTP ${info.httpStatusCode}"))
-                return
-            }
-            val contentLength = info.allHeaders[CONTENT_LENGTH_HEADER_NAME]
-                ?.singleOrNull()?.toLongOrNull()
-            if (contentLength != null && contentLength > maxBytes) {
-                request.cancel()
-                fail(IOException("Response body exceeds the $maxBytes byte limit"))
-                return
-            }
-            channel = Channels.newChannel(output)
-            request.read(ByteBuffer.allocateDirect(BYTE_BUFFER_CAPACITY))
-        }
-
-        override fun onReadCompleted(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo, byteBuffer: ByteBuffer) {
-            byteBuffer.flip()
-            val chunk = byteBuffer.remaining().toLong()
-            bytes += chunk
-            if (bytes > maxBytes) {
-                request.cancel()
-                fail(IOException("Response body exceeds the $maxBytes byte limit"))
-                return
-            }
-            channel.write(byteBuffer)
-            progressListener?.update(bytes.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
-            byteBuffer.clear()
-            timeout.updateTimeout()
-            request.read(byteBuffer)
-        }
-
-        override fun onSucceeded(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo) {
-            timeout.complete {
-                channel.close()
-                continuation.resume(CronetStreamResponse(info, bytes))
-            }
-        }
-
-        override fun onFailed(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo?, error: CronetException) {
-            fail(error)
-        }
-
-        override fun onCanceled(request: org.chromium.net.UrlRequest, info: org.chromium.net.UrlResponseInfo?) {
-            fail(IOException("Request canceled"))
-        }
-
-        private fun fail(error: Throwable) {
-            timeout.complete {
-                if (::channel.isInitialized) channel.close() else output.close()
-                continuation.resumeWithException(error)
-            }
-        }
-    }
-
     @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
     class HttpEngineTimeout(timeout: Long = DEFAULT_TIMEOUT_MS): Timeout(timeout) {
         lateinit var request: UrlRequest
@@ -676,48 +418,12 @@ object NetworkUtils {
         }
     }
 
-    class CronetTimeout(timeout: Long = DEFAULT_TIMEOUT_MS): Timeout(timeout) {
-        lateinit var request: org.chromium.net.UrlRequest
-        lateinit var continuation: CancellableContinuation<CronetResponse>
-
-        fun start(request: org.chromium.net.UrlRequest, continuation: CancellableContinuation<CronetResponse>) {
-            this.request = request
-            this.continuation = continuation
-            updateTimeout()
-        }
-
-        override fun timeout() {
-            complete {
-                request.cancel()
-                continuation.resumeWithException(IOException("Timed out"))
-            }
-        }
-    }
-
     @RequiresExtension(extension = Build.VERSION_CODES.S, version = 7)
     class HttpEngineStreamTimeout(timeout: Long = DEFAULT_TIMEOUT_MS): Timeout(timeout) {
         lateinit var request: UrlRequest
         lateinit var continuation: CancellableContinuation<HttpEngineStreamResponse>
 
         fun start(request: UrlRequest, continuation: CancellableContinuation<HttpEngineStreamResponse>) {
-            this.request = request
-            this.continuation = continuation
-            updateTimeout()
-        }
-
-        override fun timeout() {
-            complete {
-                request.cancel()
-                continuation.resumeWithException(IOException("Timed out"))
-            }
-        }
-    }
-
-    class CronetStreamTimeout(timeout: Long = DEFAULT_TIMEOUT_MS): Timeout(timeout) {
-        lateinit var request: org.chromium.net.UrlRequest
-        lateinit var continuation: CancellableContinuation<CronetStreamResponse>
-
-        fun start(request: org.chromium.net.UrlRequest, continuation: CancellableContinuation<CronetStreamResponse>) {
             this.request = request
             this.continuation = continuation
             updateTimeout()

@@ -77,18 +77,23 @@ object STVEventApiUtils {
                     var sourceWidth: Int? = null
                     var sourceHeight: Int? = null
                     val files = host.optJSONArray("files")
+                    val isAnimated = if (!objectData.isNull("animated")) objectData.optBoolean("animated") else true
+                    var preferredFormat = if (useWebp) "WEBP" else if (isAnimated) "GIF" else "PNG"
+                    if (isAnimated && files != null) {
+                        for (i in 0 until files.length()) {
+                            val file = files.optJSONObject(i)
+                            if (file?.optString("format") == "GIF" && !file.optString("name").isNullOrBlank()) {
+                                preferredFormat = "GIF"
+                                break
+                            }
+                        }
+                    }
                     if (files != null) {
                         for (i in 0 until files.length()) {
                             val fileObject = files.get(i) as? JSONObject
                             val fileName = if (fileObject?.isNull("name") == false) fileObject.optString("name").takeIf { it.isNotBlank() } else null
                             val fileFormat = if (fileObject?.isNull("format") == false) fileObject.optString("format").takeIf { it.isNotBlank() } else null
-                            if (fileName != null &&
-                                if (useWebp) {
-                                    fileFormat == "WEBP"
-                                } else {
-                                    fileFormat == "GIF" || fileFormat == "PNG"
-                                }
-                            ) {
+                            if (fileName != null && fileFormat == preferredFormat) {
                                 urls.add("https:${template}/${fileName}")
                                 if (sourceWidth == null) sourceWidth = fileObject?.optInt("width")?.takeIf { it > 0 }
                                 if (sourceHeight == null) sourceHeight = fileObject?.optInt("height")?.takeIf { it > 0 }
@@ -103,7 +108,7 @@ object STVEventApiUtils {
                         url3x = urls.getOrNull(2) ?: if (urls.isEmpty()) "https:${template}/3x.webp" else null,
                         url4x = urls.getOrNull(3) ?: if (urls.isEmpty()) "https:${template}/4x.webp" else null,
                         format = urls.getOrNull(0)?.substringAfterLast(".") ?: "webp",
-                        isAnimated = if (!objectData.isNull("animated")) objectData.optBoolean("animated") else true,
+                        isAnimated = isAnimated,
                         isOverlayEmote = objectData.optInt("flags") == 1,
                         source = if (channelSet) Emote.CHANNEL_STV else Emote.PERSONAL_STV,
                         width = sourceWidth,

@@ -120,6 +120,9 @@ class LiveCaptionManager(
 
     /** Read from the audio render thread; this is deliberately only an atomic load. */
     fun presentationDelayMs(): Int {
+        // Settings reloads and recognition failures can leave configured offsets behind.
+        // Caption presentation delay has no purpose while recognition is disabled.
+        if (!enabled.get()) return 0
         val baseDelayMs = presentationDelayMs.get()
         val textOffsetMs = captionTextOffsetMs.get()
         // Positive offsets are applied to caption events by the worker. A
@@ -158,6 +161,10 @@ class LiveCaptionManager(
     fun activateAudioBufferSink(session: AudioBufferSinkSession) {
         if (!closed.get()) activeAudioSinkId.set(session.id)
     }
+
+    /** Avoid allocating a PCM view when this renderer cannot feed recognition. */
+    fun isAudioBufferSinkCapturing(session: AudioBufferSinkSession): Boolean =
+        enabled.get() && !closed.get() && activeAudioSinkId.get() == session.id
 
     fun deactivateAudioBufferSink(session: AudioBufferSinkSession) {
         if (!activeAudioSinkId.compareAndSet(session.id, NO_AUDIO_SINK)) return

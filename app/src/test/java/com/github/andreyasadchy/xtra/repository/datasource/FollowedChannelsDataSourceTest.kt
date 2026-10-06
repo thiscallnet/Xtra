@@ -14,7 +14,6 @@ import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
-import org.chromium.net.CronetEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -101,16 +100,14 @@ class FollowedChannelsDataSourceTest {
             gqlHeaders = emptyMap(),
             graphQLRepository = GraphQLRepository(
                 httpEngine = lazy<HttpEngine?> { null },
-                cronetEngine = lazy<CronetEngine?> { null },
-                cronetExecutor = lazy { Executors.newSingleThreadExecutor() },
+                httpExecutor = lazy { Executors.newSingleThreadExecutor() },
                 okHttpClient = lazy { OkHttpClient() },
                 json = testJson,
             ),
             helixHeaders = emptyMap(),
             helixRepository = HelixRepository(
                 httpEngine = lazy<HttpEngine?> { null },
-                cronetEngine = lazy<CronetEngine?> { null },
-                cronetExecutor = lazy { Executors.newSingleThreadExecutor() },
+                httpExecutor = lazy { Executors.newSingleThreadExecutor() },
                 okHttpClient = lazy { OkHttpClient() },
                 json = testJson,
             ),

@@ -182,7 +182,6 @@ internal class ChatPresentationSnapshot {
         private var rewardsSettled: Boolean,
     ) {
         private var resolvedCatalog: ChatCatalogSnapshot? = null
-        private var resolvedRevision: Long? = null
         private var resolvedCurrentBadges: Map<String, ChatCatalogBadge>? = null
 
         fun update(
@@ -198,36 +197,34 @@ internal class ChatPresentationSnapshot {
             }
 
             if (forceUpgrade || !structuralSettled && settlement.structuralSettled) {
-                captureStructural(catalog)
-                changed = true
+                changed = captureStructural(catalog) || changed
             }
             if (captureBadges && (forceUpgrade || !badgesSettled && settlement.badgesSettled)) {
+                changed = badges != catalog.badges || changed
                 badges = catalog.badges
-                changed = true
             }
             if (forceUpgrade || !rewardsSettled && settlement.rewardsSettled) {
-                captureRewards(catalog)
-                changed = true
+                changed = captureRewards(catalog) || changed
             }
 
             val nextStructuralSettled = structuralSettled || settlement.structuralSettled
             val nextBadgesSettled = badgesSettled || settlement.badgesSettled
             val nextRewardsSettled = rewardsSettled || settlement.rewardsSettled
-            changed = changed ||
-                structuralSettled != nextStructuralSettled ||
-                badgesSettled != nextBadgesSettled ||
-                rewardsSettled != nextRewardsSettled
             structuralSettled = nextStructuralSettled
             badgesSettled = nextBadgesSettled
             rewardsSettled = nextRewardsSettled
             if (changed) {
                 resolvedCatalog = null
-                resolvedRevision = null
                 resolvedCurrentBadges = null
             }
         }
 
-        private fun captureStructural(catalog: ChatCatalogSnapshot) {
+        private fun captureStructural(catalog: ChatCatalogSnapshot): Boolean {
+            val changed = twitch != catalog.twitch || sevenTv != catalog.sevenTv ||
+                sevenTvChannelSetId != catalog.sevenTvChannelSetId || bttv != catalog.bttv ||
+                ffz != catalog.ffz || cheermotes != catalog.cheermotes ||
+                userDecorations != catalog.userDecorations || namePaints != catalog.namePaints ||
+                sevenTvBadges != catalog.sevenTvBadges
             twitch = catalog.twitch
             sevenTv = catalog.sevenTv
             sevenTvChannelSetId = catalog.sevenTvChannelSetId
@@ -237,17 +234,22 @@ internal class ChatPresentationSnapshot {
             userDecorations = catalog.userDecorations
             namePaints = catalog.namePaints
             sevenTvBadges = catalog.sevenTvBadges
+            return changed
         }
 
-        private fun captureRewards(catalog: ChatCatalogSnapshot) {
+        private fun captureRewards(catalog: ChatCatalogSnapshot): Boolean {
+            val changed = channelPointRewards != catalog.channelPointRewards ||
+                automaticChannelPointRewards != catalog.automaticChannelPointRewards ||
+                channelPointRewardsRevision != catalog.channelPointRewardsRevision
             channelPointRewards = catalog.channelPointRewards
             automaticChannelPointRewards = catalog.automaticChannelPointRewards
             channelPointRewardsRevision = catalog.channelPointRewardsRevision
+            return changed
         }
 
         fun toCatalog(current: ChatCatalogSnapshot): ChatCatalogSnapshot {
             val cached = resolvedCatalog
-            if (cached != null && resolvedRevision == current.revision &&
+            if (cached != null &&
                 (badges != null || resolvedCurrentBadges === current.badges)
             ) {
                 return cached
@@ -268,7 +270,6 @@ internal class ChatPresentationSnapshot {
                 channelPointRewardsRevision = channelPointRewardsRevision,
             ).also {
                 resolvedCatalog = it
-                resolvedRevision = current.revision
                 resolvedCurrentBadges = current.badges
             }
         }

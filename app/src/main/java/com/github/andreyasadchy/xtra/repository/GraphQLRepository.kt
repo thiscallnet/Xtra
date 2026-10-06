@@ -140,8 +140,6 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.buffer
 import okio.source
-import org.chromium.net.CronetEngine
-import org.chromium.net.apihelpers.UploadDataProviders
 import java.util.concurrent.ExecutorService
 import kotlin.uuid.Uuid
 
@@ -154,8 +152,7 @@ internal fun optionalQueryString(value: String?): Optional<String?> =
 
 class GraphQLRepository(
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
     private val twitchWebSessionManager: TwitchWebSessionManager? = null,
@@ -461,33 +458,12 @@ class GraphQLRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
                     ).apply {
                         headers.forEach { addHeader(it.key, it.value) }
                         addHeader("Content-Type", "application/json")
-                        setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                GqlHttpResponse(response.info.httpStatusCode, response.body.decodeToString())
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
-                    ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
-                        addHeader("Content-Type", "application/json")
-                        setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
+                        setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), httpExecutor.value)
                     }.build()
                     timeout.start(request, continuation)
                     request.start()
@@ -1143,33 +1119,12 @@ class GraphQLRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout(timeout)
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
                     ).apply {
                         headers.forEach { addHeader(it.key, it.value) }
                         addHeader("Content-Type", "application/json")
-                        setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout(timeout)
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
-                    ).apply {
-                        headers.forEach { addHeader(it.key, it.value) }
-                        addHeader("Content-Type", "application/json")
-                        setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
+                        setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), httpExecutor.value)
                     }.build()
                     timeout.start(request, continuation)
                     request.start()

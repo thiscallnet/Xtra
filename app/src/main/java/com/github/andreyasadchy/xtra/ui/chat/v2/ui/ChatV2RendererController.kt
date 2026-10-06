@@ -115,7 +115,7 @@ class ChatV2RendererController(
     private val decorationCatalog: Flow<ChatDecorationSnapshot> = flowOf(ChatDecorationSnapshot()),
     private val onEmoteClick: (ChatEmoteInteraction) -> Unit = {},
     private val onGifClick: (ChatGifInteraction) -> Unit = {},
-    private val onPublicationChanged: (List<ChatMessage>, List<ChatRowUiModel>) -> Unit = { _, _ -> },
+    private val onPublicationChanged: (List<ChatMessage>, List<ChatRowUiModel>, Int?, Int?) -> Unit = { _, _, _, _ -> },
 ) {
     private var renderStyle = ChatRenderStyle(
         textSizeSp = messageTextSizeSp,
@@ -178,6 +178,12 @@ class ChatV2RendererController(
     private var previousTailId: ChatMessageId? = null
     private val latestMessages = ArrayDeque<ChatMessage>()
     private val latestRows = ArrayList<ChatRowUiModel>()
+    private var deferredRows = false
+    private val pendingRowsScrollListener = object : RecyclerView.OnScrollListener() {
+        override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
+            if (newState != RecyclerView.SCROLL_STATE_IDLE) flushDeferredRows()
+        }
+    }
     private var latestPublication: PresentationPublication? = null
     private var committedPublication: PresentationPublication? = null
     private val reuseIndex = ChatPresentationReuseIndex()
@@ -192,10 +198,13 @@ class ChatV2RendererController(
 
     init {
         recyclerView.itemAnimator = null
+        // Its bounds come from the chat viewport, never from the number/height of rows.
+        recyclerView.setHasFixedSize(true)
         recyclerView.layoutManager = LinearLayoutManager(recyclerView.context).apply {
             stackFromEnd = true
         }
         recyclerView.adapter = adapter
+        recyclerView.addOnScrollListener(pendingRowsScrollListener)
     }
 
     val state: ChatViewportState
@@ -326,6 +335,8 @@ class ChatV2RendererController(
     }
 
     fun detach() {
+        deferredRows = false
+        recyclerView.removeOnScrollListener(pendingRowsScrollListener)
         collectionJob?.cancel()
         collectionJob = null
         styleRefreshJob?.cancel()
@@ -352,6 +363,7 @@ class ChatV2RendererController(
     }
 
     fun onUserScroll() {
+        flushDeferredRows()
         viewport.onUserScroll()
         onStateChanged(viewport.state)
     }
@@ -359,6 +371,7 @@ class ChatV2RendererController(
     internal fun refreshStyle(style: ChatRenderStyle) {
         val nextHighlightSettings = resolveChatHighlightSettings(recyclerView.context)
         if (style == renderStyle && nextHighlightSettings == highlightSettings) return
+        flushDeferredRows()
         renderStyle = style
         highlightSettings = nextHighlightSettings
         presentation.replaceCompiler(createPresentationCompiler(style))
@@ -410,14 +423,26 @@ class ChatV2RendererController(
                     uiChanged = uiChanged,
                 )
                 if (uiChanged) {
-                    onPublicationChanged(currentMessages, rows)
+                    onPublicationChanged(currentMessages, rows, null, null)
+                    val anchor = if (deferredRows) viewport.captureAnchor(adapter) else null
+                    val hadDeferredRows = deferredRows
+                    deferredRows = false
                     adapter.replaceAll(rows)
+                    if (hadDeferredRows) {
+                        viewport.onSnapshotCommitted(anchor, rows, 0)
+                        onStateChanged(viewport.state)
+                    }
                 }
             }
         }
     }
 
     fun jumpToNewest() {
+        if (recyclerView.isComputingLayout) {
+            recyclerView.post { jumpToNewest() }
+            return
+        }
+        flushDeferredRows()
         viewport.jumpToNewest(latestRows)
         onStateChanged(viewport.state)
     }
@@ -567,8 +592,25 @@ class ChatV2RendererController(
                 uiChanged = uiChanged,
             )
             if (uiChanged) {
-                onPublicationChanged(latestMessages, latestRows)
-                val appliedIncrementally = if (delta != null) {
+                onPublicationChanged(latestMessages, latestRows, delta?.evictedCount, delta?.messages?.size)
+                // Keep canonical ingestion/compilation current, but do not invalidate an idle
+                // viewport for append-only changes outside it. Any full edit/presentation
+                // change, expired anchor, gesture or accessibility scroll flushes the adapter.
+                if (delta != null && viewport.state.followMode == FollowMode.USER_SCROLLED_UP &&
+                    recyclerView.scrollState == RecyclerView.SCROLL_STATE_IDLE &&
+                    !recyclerView.hasPendingAdapterUpdates() &&
+                    previousAnchor != null && previousAnchor.messageId in previousIds
+                ) {
+                    deferredRows = true
+                    viewport.onSnapshotDeferred(previousAnchor, appendedCount)
+                    onStateChanged(viewport.state)
+                    return@withContext
+                }
+                val hadDeferredRows = deferredRows
+                deferredRows = false
+                val appliedIncrementally = if (hadDeferredRows) {
+                    false
+                } else if (delta != null) {
                     adapter.appendDelta(
                         appendedRows = rows,
                         evictedHeadCount = delta.evictedCount,
@@ -584,7 +626,7 @@ class ChatV2RendererController(
                     } == true
                 }
                 if (appliedIncrementally) {
-                    viewport.onSnapshotCommitted(previousAnchor, latestRows, appendedCount)
+                    viewport.onSnapshotCommitted(previousAnchor, latestRows, appendedCount, retainedGeometryUnchanged = true)
                     onStateChanged(viewport.state)
                 } else {
                     adapter.replaceAll(latestRows) {
@@ -593,6 +635,20 @@ class ChatV2RendererController(
                     }
                 }
             }
+        }
+    }
+
+    private fun flushDeferredRows() {
+        if (!deferredRows) return
+        if (recyclerView.isComputingLayout) {
+            recyclerView.post { flushDeferredRows() }
+            return
+        }
+        val anchor = viewport.captureAnchor(adapter)
+        deferredRows = false
+        adapter.replaceAll(latestRows) {
+            viewport.onSnapshotCommitted(anchor, latestRows, 0)
+            onStateChanged(viewport.state)
         }
     }
 

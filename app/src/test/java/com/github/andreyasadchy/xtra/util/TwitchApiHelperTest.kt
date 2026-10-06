@@ -96,7 +96,7 @@ class TwitchApiHelperTest {
 
     @Test
     fun `developer overrides use production values while disabled`() {
-        assertEquals(C.OKHTTP, developerStringValue(C.NETWORK_LIBRARY, C.CRONET, null, false))
+        assertEquals(C.HTTP_ENGINE, developerStringValue(C.NETWORK_LIBRARY, "Cronet", null, false))
         assertNull(developerStringValue(C.PLAYER_STREAM_HEADERS, "secret", null, false))
         assertEquals(C.DEFAULT_TOKEN_X_DEVICE_ID, developerStringValue(C.TOKEN_X_DEVICE_ID, "custom", null, false))
         assertEquals(C.DEFAULT_TOKEN_PLAYER_TYPE, developerStringValue(C.TOKEN_PLAYER_TYPE, "custom", null, false))
@@ -111,6 +111,6 @@ class TwitchApiHelperTest {
         assertEquals(C.DEFAULT_GQL_CLIENT_ID_WEB, developerStringValue(C.GQL_CLIENT_ID_WEB, "custom", null, enabled = true))
         assertEquals(true, developerBooleanValue(C.DEBUG_EVENT_SUB_CHAT, true, enabled = true))
         assertEquals(false, developerBooleanValue(C.TOKEN_RANDOM_DEVICE_ID, false, enabled = true))
-        assertEquals(C.OKHTTP, developerStringValue(C.NETWORK_LIBRARY, C.AUTOMATIC, null, enabled = true))
+        assertEquals(C.HTTP_ENGINE, developerStringValue(C.NETWORK_LIBRARY, C.AUTOMATIC, null, enabled = true))
     }
 }

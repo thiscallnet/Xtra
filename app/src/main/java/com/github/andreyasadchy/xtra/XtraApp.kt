@@ -39,7 +39,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import okio.Buffer
-import org.chromium.net.apihelpers.UploadDataProviders
 import org.conscrypt.Conscrypt
 import java.security.Security
 
@@ -266,7 +265,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                             val timeout = NetworkUtils.HttpEngineStreamingTimeout()
                                             val request = xtraModule.httpEngine.value!!.newUrlRequestBuilder(
                                                 request.url,
-                                                xtraModule.cronetExecutor.value,
+                                                xtraModule.httpExecutor.value,
                                                 NetworkUtils.StreamingUrlCallback(continuation, timeout)
                                             ).apply {
                                                 request.headers.asMap().forEach { entry ->
@@ -275,7 +274,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                                     }
                                                 }
                                                 requestBody?.let {
-                                                    setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(requestBody), xtraModule.cronetExecutor.value)
+                                                    setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(requestBody), xtraModule.httpExecutor.value)
                                                 }
                                                 setHttpMethod(request.method)
                                             }.build()
@@ -294,61 +293,6 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                                 responseMillis = responseMillis,
                                                 headers = NetworkHeaders.Builder().apply {
                                                     response.info.headers.asList.forEach {
-                                                        add(it.key, it.value)
-                                                    }
-                                                }.build(),
-                                                body = response.body.let(::NetworkResponseBody),
-                                            )
-                                        )
-                                    }
-                                }
-                            },
-                            cacheStrategy = { CacheControlCacheStrategy() }
-                        ))
-                    }
-                    networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                        add(NetworkFetcher.Factory(
-                            networkClient = {
-                                object : NetworkClient {
-                                    override suspend fun <T> executeRequest(request: NetworkRequest, block: suspend (NetworkResponse) -> T): T {
-                                        val requestBody = request.body?.let {
-                                            val buffer = Buffer()
-                                            it.writeTo(buffer)
-                                            buffer.readByteArray()
-                                        }
-                                        val requestMillis = System.currentTimeMillis()
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetStreamingTimeout()
-                                            val request = xtraModule.cronetEngine.value!!.newUrlRequestBuilder(
-                                                request.url,
-                                                NetworkUtils.StreamingCronetCallback(continuation, timeout),
-                                                xtraModule.cronetExecutor.value
-                                            ).apply {
-                                                request.headers.asMap().forEach { entry ->
-                                                    entry.value.forEach {
-                                                        addHeader(entry.key, it)
-                                                    }
-                                                }
-                                                requestBody?.let {
-                                                    setUploadDataProvider(UploadDataProviders.create(requestBody), xtraModule.cronetExecutor.value)
-                                                }
-                                                setHttpMethod(request.method)
-                                            }.build()
-                                            timeout.start(request)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        val responseMillis = System.currentTimeMillis()
-                                        return block(
-                                            NetworkResponse(
-                                                code = response.info.httpStatusCode,
-                                                requestMillis = requestMillis,
-                                                responseMillis = responseMillis,
-                                                headers = NetworkHeaders.Builder().apply {
-                                                    response.info.allHeadersAsList.forEach {
                                                         add(it.key, it.value)
                                                     }
                                                 }.build(),

@@ -197,11 +197,15 @@ internal fun developerStringValue(
     enabled: Boolean,
 ): String? {
     if (key == C.GQL_CLIENT_ID_WEB) return C.DEFAULT_GQL_CLIENT_ID_WEB
+    if (key == C.NETWORK_LIBRARY) {
+        // Old Cronet selections and Automatic use the platform engine, with callers
+        // falling back to OkHttp when it is unavailable. Keep the diagnostic override.
+        return if (enabled && storedValue == C.OKHTTP) C.OKHTTP else C.HTTP_ENGINE
+    }
     if (enabled) {
-        return if (key == C.NETWORK_LIBRARY && storedValue == C.AUTOMATIC) C.OKHTTP else storedValue ?: defaultValue
+        return storedValue ?: defaultValue
     }
     return when (key) {
-        C.NETWORK_LIBRARY -> C.OKHTTP
         C.PLAYER_STREAM_HEADERS -> null
         C.TOKEN_X_DEVICE_ID -> C.DEFAULT_TOKEN_X_DEVICE_ID
         C.TOKEN_PLAYER_TYPE -> C.DEFAULT_TOKEN_PLAYER_TYPE

@@ -37,7 +37,7 @@ internal object HlsClipSnapshotMapper {
         )
     }
 
-    private fun HlsMediaPlaylist.Segment.toClipSegmentRef(
+    internal fun HlsMediaPlaylist.Segment.toClipSegmentRef(
         playlist: HlsMediaPlaylist,
         generation: Long,
         renditionId: String,

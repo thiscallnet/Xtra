@@ -16,7 +16,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
-import org.chromium.net.CronetEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -207,16 +206,14 @@ class LiveNotificationDeduplicatorTest {
 
     private fun emptyGraphQlRepository() = GraphQLRepository(
         httpEngine = lazyOf<HttpEngine?>(null),
-        cronetEngine = lazyOf<CronetEngine?>(null),
-        cronetExecutor = lazyOf(Executors.newSingleThreadExecutor()),
+        httpExecutor = lazyOf(Executors.newSingleThreadExecutor()),
         okHttpClient = lazyOf(OkHttpClient()),
         json = Json.Default,
     )
 
     private fun emptyHelixRepository() = HelixRepository(
         httpEngine = lazyOf<HttpEngine?>(null),
-        cronetEngine = lazyOf<CronetEngine?>(null),
-        cronetExecutor = lazyOf(Executors.newSingleThreadExecutor()),
+        httpExecutor = lazyOf(Executors.newSingleThreadExecutor()),
         okHttpClient = lazyOf(OkHttpClient()),
         json = Json.Default,
     )

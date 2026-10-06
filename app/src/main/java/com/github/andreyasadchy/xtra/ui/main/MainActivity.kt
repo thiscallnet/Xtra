@@ -26,15 +26,10 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.os.ext.SdkExtensions
 import android.util.Log
-import android.util.TypedValue
-import android.view.Gravity
 import android.view.Menu
 import android.view.View
 import android.view.ViewGroup
 import android.view.KeyEvent
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -130,7 +125,6 @@ import com.google.android.material.snackbar.Snackbar
 import java.util.Locale
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import org.chromium.net.CronetProvider
 import java.util.Timer
 import kotlin.concurrent.schedule
 import kotlin.math.roundToInt
@@ -1361,7 +1355,6 @@ class MainActivity : AppCompatActivity() {
             (host == "twitch.tv" || host?.endsWith(".twitch.tv") == true)
     }
 
-
 //Navigation listeners
 
     fun startStream(stream: Stream, openChat: Boolean = false, audioOnly: Boolean = false) {
@@ -2181,13 +2174,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (version < 13) {
             prefs.edit {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= 7) {
-                    putString(C.NETWORK_LIBRARY, C.HTTP_ENGINE)
-                } else {
-                    if (CronetProvider.getAllProviders(this@MainActivity).any { it.isEnabled }) {
-                        putString(C.NETWORK_LIBRARY, C.CRONET)
-                    }
-                }
+                putString(C.NETWORK_LIBRARY, C.AUTOMATIC)
                 prefs.getString("playerRewind", null)?.toLongOrNull()?.let {
                     putString(C.PLAYER_REWIND, (it / 1000).toString())
                 }
@@ -2232,4 +2219,3 @@ class MainActivity : AppCompatActivity() {
         SettingsMigration.migrate(this, freshInstall = freshInstall)
     }
 }
-

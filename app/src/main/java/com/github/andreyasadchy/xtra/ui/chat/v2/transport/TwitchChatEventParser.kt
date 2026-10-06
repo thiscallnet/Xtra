@@ -52,6 +52,9 @@ internal data class TwitchModeratorActionNotice(
  * current-catalog presentation resolution.
  */
 object TwitchChatEventParser {
+    private val HEX_COLOR = Regex("#[0-9a-fA-F]{6}")
+    private val CHEER_AMOUNT = Regex("\\d+")
+
     fun fromIrc(message: ChatUtils.IRCMessage, channelId: String): ChatEvent? = when (message.command) {
         "PRIVMSG" -> {
             val legacy = ChatUtils.parseChatMessage(message)
@@ -712,11 +715,11 @@ object TwitchChatEventParser {
     }
 
     private fun parseColor(raw: String?): Int? {
-        val value = raw?.trim()?.takeIf { it.matches(Regex("#[0-9a-fA-F]{6}")) } ?: return null
+        val value = raw?.trim()?.takeIf { it.matches(HEX_COLOR) } ?: return null
         return runCatching { (value.substring(1).toLong(16).toInt() or 0xFF000000.toInt()) }.getOrNull()
     }
 
-    private fun parseCheerAmount(text: String): Int = Regex("\\d+").find(text)?.value?.toIntOrNull() ?: 0
+    private fun parseCheerAmount(text: String): Int = CHEER_AMOUNT.find(text)?.value?.toIntOrNull() ?: 0
     private fun parseTimestamp(raw: String?): Long = raw?.let { runCatching { Instant.parse(it).toEpochMilliseconds() }.getOrNull() }
         ?: System.currentTimeMillis()
     private fun timestamp(raw: String?): Long = raw?.toLongOrNull() ?: System.currentTimeMillis()

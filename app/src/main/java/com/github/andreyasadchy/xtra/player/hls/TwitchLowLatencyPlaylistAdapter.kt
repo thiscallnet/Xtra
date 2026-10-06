@@ -71,11 +71,15 @@ object TwitchLowLatencyPlaylistAdapter {
         val normalizedText = if (lines == rawLines) raw else lines.joinToString("\n")
 
         val targetDurationMs = lines.firstNotNullOfOrNull { line ->
-            targetDurationPattern.matchEntire(line)?.groupValues?.get(1)?.toLongOrNull()?.times(1000L)
+            if (line.startsWith("#EXT-X-TARGETDURATION:")) {
+                targetDurationPattern.matchEntire(line)?.groupValues?.get(1)?.toLongOrNull()?.times(1000L)
+            } else null
         }
         val durations = lines.mapNotNull { line ->
-            extInfPattern.matchEntire(line)?.groupValues?.get(1)?.toDoubleOrNull()
+            if (line.startsWith(EXTINF_PREFIX)) {
+                extInfPattern.matchEntire(line)?.groupValues?.get(1)?.toDoubleOrNull()
                 ?.takeIf { it.isFinite() && it > 0.0 }
+            } else null
         }
         val recentDurations = durations.takeLast(6)
         val averageDurationMs = recentDurations.averageOrNull()?.times(1000.0)?.toLong()
@@ -188,7 +192,7 @@ object TwitchLowLatencyPlaylistAdapter {
         val output = ArrayList<String>(lines.size + 2)
         var prefetchAdded = false
         lines.forEach { line ->
-            if (targetDurationPattern.matches(line)) {
+            if (line.startsWith("#EXT-X-TARGETDURATION:") && targetDurationPattern.matches(line)) {
                 output += "#EXT-X-TARGETDURATION:$effectiveTargetDurationSeconds"
                 return@forEach
             }
@@ -306,8 +310,10 @@ object TwitchLowLatencyPlaylistAdapter {
     }
 
     private fun looksLikeTsUri(uri: String): Boolean {
-        val path = uri.substringBefore('?').substringBefore('#')
-        return path.endsWith(".ts", ignoreCase = true)
+        val query = uri.indexOf('?').takeIf { it >= 0 } ?: uri.length
+        val fragment = uri.indexOf('#').takeIf { it >= 0 } ?: uri.length
+        val end = minOf(query, fragment)
+        return end >= 3 && uri.regionMatches(end - 3, ".ts", 0, 3, ignoreCase = true)
     }
 
     private fun splitLines(raw: String): List<String> =

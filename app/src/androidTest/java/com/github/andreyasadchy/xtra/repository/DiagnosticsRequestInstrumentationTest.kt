@@ -12,7 +12,6 @@ import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
-import org.chromium.net.CronetEngine
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -42,8 +41,7 @@ class DiagnosticsRequestInstrumentationTest {
     fun apolloDecodeFailureRetainsHttpStatusAndUsesDecodeCode() = runBlocking {
         val repository = GraphQLRepository(
             httpEngine = lazyOf<HttpEngine?>(null),
-            cronetEngine = lazyOf<CronetEngine?>(null),
-            cronetExecutor = lazyOf(Executors.newSingleThreadExecutor()),
+            httpExecutor = lazyOf(Executors.newSingleThreadExecutor()),
             okHttpClient = lazyOf(
                 OkHttpClient.Builder()
                     .addInterceptor { chain ->
@@ -84,8 +82,7 @@ class DiagnosticsRequestInstrumentationTest {
     fun twitchHttpFailureIsLoggedAsHttpError() = runBlocking {
         val repository = HelixRepository(
             httpEngine = lazyOf<HttpEngine?>(null),
-            cronetEngine = lazyOf<CronetEngine?>(null),
-            cronetExecutor = lazyOf(Executors.newSingleThreadExecutor()),
+            httpExecutor = lazyOf(Executors.newSingleThreadExecutor()),
             okHttpClient = lazyOf(
                 OkHttpClient.Builder()
                     .addInterceptor { chain ->
