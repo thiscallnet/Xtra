@@ -170,6 +170,21 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             command: SessionCommand,
             args: Bundle,
         ): ListenableFuture<SessionResult> {
+            if (command.customAction == PlaybackService.SYSTEM_QUALITY_CHANGED && isAdded && view != null) {
+                viewModel.restoredQualityBootstrapConsumed = true
+                invalidateResumeQualityConfirmation("system_audio_mode")
+                clearResumeAppliedQualityTarget()
+                invalidateQualityRequest()
+                pendingSourceSwitchQuality.clear()
+                viewModel.quality = decodePlaybackQuality(xtraModule.json, args.getString(PlaybackService.PLAYBACK_QUALITY))
+                viewModel.previousQuality = decodePlaybackQuality(xtraModule.json, args.getString(PlaybackService.PLAYBACK_PREVIOUS_QUALITY))
+                viewModel.restoreQuality = args.getBoolean(PlaybackService.PLAYBACK_RESTORE_QUALITY)
+                args.getString(PlaybackService.SYSTEM_AUDIO_PRIMARY_SOURCE_URI)?.let { uri ->
+                    viewModel.playlistUrl = uri.toUri()
+                }
+                setVideoOutputVisible(viewModel.quality?.name != AUDIO_ONLY_QUALITY && !viewModel.hidden)
+                return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+            }
             // A pending rewind-state query also happens during ordinary live
             // source changes. It must not discard the handoff completion event.
             if (command.customAction == PlaybackService.VAFT_PLAYBACK_STATE_CHANGED && videoType == STREAM && isAdded && view != null &&
@@ -951,13 +966,21 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         logVideoSurfaceBinding("on_view_created", player, videoOutputView)
     }
 
-    override fun onViewingMetadataChanged(title: String?, gameId: String?, gameName: String?) {
+    override fun onViewingMetadataChanged(
+        title: String?,
+        gameId: String?,
+        gameName: String?,
+        thumbnail: String?,
+        channelName: String?,
+        channelImage: String?,
+    ) {
         if (videoType != STREAM) return
         player?.sendCustomCommand(
             SessionCommand(
                 PlaybackService.UPDATE_VIEWING_METADATA,
                 Bundle().apply {
                     putString(PlaybackService.STREAM_ID, requireArguments().getString(KEY_STREAM_ID))
+                    putString(PlaybackService.CHANNEL_LOGIN, requireArguments().getString(KEY_CHANNEL_LOGIN))
                     // Category identity is a pair. Keep an incomplete refresh
                     // from combining a new name with an old ID (or vice versa).
                     if (gameId != null && gameName != null) {
@@ -965,6 +988,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         putString(PlaybackService.GAME_NAME, gameName)
                     }
                     title?.let { putString(PlaybackService.TITLE, it) }
+                    thumbnail?.let { putString(PlaybackService.THUMBNAIL, it) }
+                    channelName?.let { putString(PlaybackService.CHANNEL_NAME, it) }
+                    channelImage?.let { putString(PlaybackService.CHANNEL_LOGO, it) }
                 },
             ),
             Bundle.EMPTY,
@@ -979,6 +1005,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         ).awaitFuture()
         if (state.resultCode != SessionResult.RESULT_SUCCESS) return false
         val extras = state.extras
+        extras.getString(PlaybackService.SYSTEM_AUDIO_PRIMARY_SOURCE_URI)?.let { uri ->
+            viewModel.playlistUrl = uri.toUri()
+        }
         val wasAlternate = viewModel.usingAlternateStream
         val wasWindowActive = viewModel.vaftWindowActive
         val controlledFeed = extras.getBoolean(PlaybackService.VAFT_CONTROLLED_FEED)

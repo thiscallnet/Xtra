@@ -1505,4 +1505,9 @@
     <string name="resuming_playback">Obnovuje se přehrávání</string>
     <string name="settings_chat_remember_dismissed_pinned_messages">Pamatovat skryté připnuté zprávy</string>
     <string name="settings_chat_remember_dismissed_pinned_messages_summary">Zprávy označené jako zobrazené zůstanou skryté i po opětovném otevření streamu.</string>
+    <string name="player_rewinding">Zpožděné přehrávání</string>
+    <string name="player_cast_to_device">Odeslat do zařízení</string>
+    <string name="system_media_replay_30">Přehrát posledních 30 s</string>
+    <string name="system_media_video">Video</string>
+    <string name="system_media_behind_live">%1$s za živým vysíláním</string>
 </resources>

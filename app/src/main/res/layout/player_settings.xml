@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
@@ -49,6 +50,34 @@
             android:textAppearance="?attr/textAppearanceBodyMedium"
             android:visibility="gone"
             tools:visibility="visible" />
+
+        <LinearLayout
+            android:id="@+id/menuCast"
+            android:background="?attr/selectableItemBackground"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="4dp"
+            android:visibility="gone"
+            tools:visibility="visible">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/player_cast_to_device"
+                android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+            <androidx.mediarouter.app.MediaRouteButton
+                android:id="@+id/castButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="@string/player_cast_to_device"
+                app:mediaRouteButtonTint="?attr/colorOnSurface" />
+
+        </LinearLayout>
 
         <LinearLayout
             android:id="@+id/menuSpeed"

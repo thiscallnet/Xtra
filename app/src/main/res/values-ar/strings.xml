@@ -1482,4 +1482,9 @@
     <string name="resuming_playback">جارٍ استئناف التشغيل</string>
     <string name="settings_chat_remember_dismissed_pinned_messages">تذكّر الرسائل المثبتة التي أخفيتها</string>
     <string name="settings_chat_remember_dismissed_pinned_messages_summary">أبقِ الرسائل المثبتة التي تحددها كمقروءة مخفية عند إعادة فتح ذلك البث.</string>
+    <string name="player_rewinding">مشاهدة وقت سابق</string>
+    <string name="player_cast_to_device">البث إلى جهاز</string>
+    <string name="system_media_replay_30">إعادة 30 ثانية</string>
+    <string name="system_media_video">فيديو</string>
+    <string name="system_media_behind_live">%1$s خلف البث المباشر</string>
 </resources>

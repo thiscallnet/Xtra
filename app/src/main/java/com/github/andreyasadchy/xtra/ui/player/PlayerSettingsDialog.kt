@@ -9,10 +9,12 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
+import androidx.media3.cast.MediaRouteButtonFactory
 import androidx.media3.common.Tracks
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.PlayerSettingsBinding
@@ -87,6 +89,23 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         val type = arguments.getString(TYPE)
         val isTv = requireContext().isTelevision()
         with(binding) {
+            if (type != null && type != PlaybackContract.OFFLINE_VIDEO) {
+                menuCast.isVisible = true
+                menuCast.setOnClickListener { castButton.performClick() }
+                val castContext = requireContext()
+                val castSetup = runCatching {
+                    MediaRouteButtonFactory.setUpMediaRouteButton(castContext, castButton)
+                }.getOrNull()
+                if (castSetup == null) {
+                    menuCast.isVisible = false
+                } else {
+                    castSetup.addListener({
+                        if (runCatching { castSetup.get() }.isFailure) {
+                            _binding?.menuCast?.isVisible = false
+                        }
+                    }, ContextCompat.getMainExecutor(castContext))
+                }
+            }
             menuCustomizeHud.isVisible = !isTv
             if (menuCustomizeHud.isVisible) {
                 menuCustomizeHud.setOnClickListener {

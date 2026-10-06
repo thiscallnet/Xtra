@@ -1487,4 +1487,9 @@
     <string name="resuming_playback">Reanudando la reproducción</string>
     <string name="settings_chat_remember_dismissed_pinned_messages">Recordar los mensajes fijados ocultos</string>
     <string name="settings_chat_remember_dismissed_pinned_messages_summary">Mantener ocultos los mensajes fijados que marques como vistos al volver a abrir la transmisión.</string>
+    <string name="player_rewinding">Reproducción diferida</string>
+    <string name="player_cast_to_device">Transmitir a un dispositivo</string>
+    <string name="system_media_replay_30">Repetir 30 s</string>
+    <string name="system_media_video">Vídeo</string>
+    <string name="system_media_behind_live">%1$s detrás del directo</string>
 </resources>
