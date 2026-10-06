@@ -3521,6 +3521,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         viewModel.stream.value?.createdAt
             ?: requireArguments().getString(KEY_STARTED_AT)
 
+    private fun currentStreamUptime(): String? {
+        if (!requireContext().prefs().getBoolean(C.UI_UPTIME, true)) return null
+        val startedAtMs = parseStreamStartedAtMs(streamStartedAt()) ?: return null
+        return formatStreamUptime(startedAtMs, System.currentTimeMillis())
+    }
+
     private fun hideStreamUptime() {
         val timeView = binding.playerControls.liveTimeGroup
         val wasVisible = timeView.isVisible
@@ -3553,12 +3559,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     private fun updateStreamUptime() {
         if (videoType != PlaybackContract.STREAM || isLiveRewindAvailable()) return
-        if (!requireContext().prefs().getBoolean(C.UI_UPTIME, true)) {
-            hideStreamUptime()
-            return
-        }
-        val startedAtMs = parseStreamStartedAtMs(streamStartedAt())
-        val uptime = startedAtMs?.let { formatStreamUptime(it, System.currentTimeMillis()) }
+        val uptime = currentStreamUptime()
         if (uptime == null) {
             hideStreamUptime()
             return
@@ -3674,6 +3675,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             !liveRewindStreamOffline &&
             !liveRewindSwitching &&
             !liveRewindReturningLive
+        val liveUptime = if (isAtLiveEdge) currentStreamUptime() else null
         val positionTimeText = if (isBehindLive) {
             DateUtils.formatElapsedTime(displayedPositionMs / 1000L)
         } else {
@@ -3685,6 +3687,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 positionTimeText,
                 getString(R.string.player_live),
             )
+        } else if (liveUptime != null) {
+            getString(R.string.player_live_position, liveUptime, getString(R.string.player_live))
         } else {
             getString(R.string.player_live)
         }
@@ -3693,6 +3697,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             getString(R.string.player_return_to_live)
         } else if (isBehindLive) {
             getString(R.string.player_position, timeText)
+        } else if (liveUptime != null) {
+            getString(R.string.player_uptime, timeText)
         } else {
             getString(R.string.player_live)
         }
