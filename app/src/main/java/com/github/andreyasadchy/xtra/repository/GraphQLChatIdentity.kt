@@ -287,7 +287,9 @@ suspend fun GraphQLRepository.loadChatIdentity(
         availableGlobalBadges = availableGlobalBadges,
         selectedGlobalBadge = selectedGlobalBadge?.takeUnless { it.isSubscriptionSlotBadge() },
         subscriberBadge = subscriptionBadge,
-        channelBadges = (availableChannelBadges + listOfNotNull(selectedChannelBadge) + earned)
+        // earnedBadges also contains display-only role badges such as moderator. Only badges
+        // returned as available by the channel-self connection can be selected here.
+        channelBadges = (availableChannelBadges + listOfNotNull(selectedChannelBadge))
             .filterNot { it.isSubscriptionSlotBadge() }
             .distinctBy { it.key },
         selectedChannelBadge = selectedChannelBadge?.takeUnless { it.isSubscriptionSlotBadge() },
