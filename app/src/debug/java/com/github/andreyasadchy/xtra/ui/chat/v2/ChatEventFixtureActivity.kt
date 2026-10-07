@@ -38,6 +38,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatTransportCon
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatMessageTextView
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatEventProcessor
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineStore
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ModerationNoticeCoalescer
 import com.google.android.material.color.MaterialColors
 import androidx.core.view.WindowCompat
@@ -64,6 +65,7 @@ class ChatEventFixtureActivity : AppCompatActivity() {
 
         val scale = intent.getFloatExtra(EXTRA_SCALE, 1f).coerceIn(0.75f, 1.75f)
         val moderationFixture = intent.getBooleanExtra(EXTRA_MODERATION_FIXTURE, false)
+        val duplicateRewardFixture = intent.getBooleanExtra(EXTRA_DUPLICATE_REWARD_FIXTURE, false)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -135,13 +137,15 @@ class ChatEventFixtureActivity : AppCompatActivity() {
             pinnedMessageProgress.progress = 620
             pinnedMessageProgress.isVisible = true
         }
-        if (!moderationFixture) {
+        if (!moderationFixture && !duplicateRewardFixture) {
             root.addView(pinnedMessage.root)
             root.addView(happeningNow)
         }
 
         if (moderationFixture) {
             lifecycleScope.launch { renderRows(moderationActionFixtureMessages(), ChatCatalogSnapshot(revision = 1)) }
+        } else if (duplicateRewardFixture) {
+            lifecycleScope.launch { renderRows(duplicateRewardFixtureMessages(), catalog) }
         } else {
             renderRows(fixtureMessages(), catalog)
         }
@@ -274,6 +278,42 @@ class ChatEventFixtureActivity : AppCompatActivity() {
             "fixture-channel",
         ) as ChatEvent.Message
         return event.message
+    }
+
+    /** Renders an ID-less redemption notice followed by its matching IRC chat row. */
+    private suspend fun duplicateRewardFixtureMessages(): List<ChatMessage> {
+        val userId = "fixture-viewer"
+        val messageText = "A local duplicate redemption fixture."
+        val timestamp = 1_000L
+        val rewardId = "fixture-peach-reward"
+        val chatColor = Color.rgb(232, 113, 42)
+        val synthetic = message(
+            id = "synthetic-redemption",
+            userName = "SixteenBitNinja",
+            text = messageText,
+            kind = ChatMessageKind.REWARD,
+            noticeType = "channel_points_custom_reward_redemption",
+            rewardId = rewardId,
+        ).copy(
+            timestampMs = timestamp,
+            user = ChatUser(userId, "sixteenbitninja", "SixteenBitNinja", Color.rgb(145, 71, 255)),
+            rawText = messageText,
+            rewardTitle = "🍑 Ask Goku TTS",
+            rewardCost = 1_500,
+        )
+        val chat = message(
+            id = "irc-chat-message",
+            userName = "SixteenBitNinja",
+            text = messageText,
+            rewardId = rewardId,
+        ).copy(
+            timestampMs = timestamp,
+            user = ChatUser(userId, "sixteenbitninja", "SixteenBitNinja", chatColor),
+            rawText = messageText,
+        )
+        val timeline = ChatTimelineStore(fixtureScope)
+        timeline.apply(TimelineOperation.Append(listOf(synthetic, chat)))
+        return timeline.snapshot()
     }
 
     /** Debug-only Twitch-format fixture; it exercises the production EventSub parser and row factory. */
@@ -525,5 +565,6 @@ class ChatEventFixtureActivity : AppCompatActivity() {
         const val EXTRA_THEME = "event_theme"
         const val EXTRA_SCALE = "event_scale"
         const val EXTRA_MODERATION_FIXTURE = "moderation_fixture"
+        const val EXTRA_DUPLICATE_REWARD_FIXTURE = "duplicate_reward_fixture"
     }
 }

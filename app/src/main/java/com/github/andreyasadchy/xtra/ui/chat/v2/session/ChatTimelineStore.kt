@@ -113,9 +113,19 @@ class ChatTimelineStore(
                     }
                     is TimelineOperation.Append -> {
                         val appended = ArrayList<ChatMessage>(operation.items.size)
+                        var mergedExisting = false
                         operation.items.forEach { item ->
                             if (isSuppressed(item, deletedMessages, clearedUsers, globallyClearedAt)) return@forEach
-                            if (isDuplicateReward(item, items)) return@forEach
+                            val duplicateIndex = duplicateRewardIndex(item, items)
+                            if (duplicateIndex >= 0) {
+                                val existing = items.elementAt(duplicateIndex)
+                                val merged = mergeDuplicateReward(existing, item)
+                                if (merged != existing) {
+                                    replaceAt(items, ids, duplicateIndex, decorate(merged, deletedMessages, clearedUsers))
+                                    mergedExisting = true
+                                }
+                                return@forEach
+                            }
                             if (ids.add(item.id)) {
                                 val decorated = decorate(item, deletedMessages, clearedUsers)
                                 items.addLast(decorated)
@@ -128,7 +138,8 @@ class ChatTimelineStore(
                             changes,
                             TimelineChange(
                                 version,
-                                ChatTimelineDelta.Append(appended, evicted, items.size),
+                                if (mergedExisting) ChatTimelineDelta.Full
+                                else ChatTimelineDelta.Append(appended, evicted, items.size),
                             ),
                         )
                         _version.value = version
@@ -136,7 +147,15 @@ class ChatTimelineStore(
                     }
                     is TimelineOperation.Prepend -> operation.items.asReversed().forEach { item ->
                         if (isSuppressed(item, deletedMessages, clearedUsers, globallyClearedAt)) continue
-                        if (isDuplicateReward(item, items)) continue
+                        val duplicateIndex = duplicateRewardIndex(item, items)
+                        if (duplicateIndex >= 0) {
+                            val existing = items.elementAt(duplicateIndex)
+                            val merged = mergeDuplicateReward(existing, item)
+                            if (merged != existing) {
+                                replaceAt(items, ids, duplicateIndex, decorate(merged, deletedMessages, clearedUsers))
+                            }
+                            continue
+                        }
                         if (ids.add(item.id)) items.addFirst(decorate(item, deletedMessages, clearedUsers))
                     }
                     is TimelineOperation.Delete -> {
@@ -219,11 +238,18 @@ class ChatTimelineStore(
                         })
                             .distinctBy { it.id }
                             .sortedBy { it.timestampMs }
+                        val reconciled = ArrayList<ChatMessage>(merged.size)
+                        merged.forEach { item ->
+                            val duplicateIndex = duplicateRewardIndex(item, reconciled)
+                            if (duplicateIndex < 0) {
+                                reconciled += item
+                            } else {
+                                reconciled[duplicateIndex] = mergeDuplicateReward(reconciled[duplicateIndex], item)
+                            }
+                        }
+                        reconciled.sortBy { it.timestampMs }
                         items.clear(); ids.clear()
-                        merged.fold(ArrayList<ChatMessage>()) { result, item ->
-                            if (!isDuplicateReward(item, result)) result += item
-                            result
-                        }.takeLast(maxSize).forEach { if (ids.add(it.id)) items.addLast(it) }
+                        reconciled.takeLast(maxSize).forEach { if (ids.add(it.id)) items.addLast(it) }
                     }
                 }
                 while (items.size > maxSize) items.removeFirst().also { ids.remove(it.id) }
@@ -314,13 +340,16 @@ class ChatTimelineStore(
     }
 
     /** Hermes and chat.message can describe the same redemption without sharing an ID. */
-    private fun isDuplicateReward(message: ChatMessage, existing: Collection<ChatMessage>): Boolean {
+    private fun duplicateRewardIndex(message: ChatMessage, existing: Collection<ChatMessage>): Int {
         val redemptionId = message.rewardRedemptionId
-        if (redemptionId != null && existing.any { it.rewardRedemptionId == redemptionId }) return true
+        if (redemptionId != null) {
+            val matchingId = existing.indexOfFirst { it.rewardRedemptionId == redemptionId }
+            if (matchingId >= 0) return matchingId
+        }
 
-        val rewardId = message.rewardId ?: return false
-        val userId = message.user?.id ?: return false
-        return existing.any { other ->
+        val rewardId = message.rewardId ?: return -1
+        val userId = message.user?.id ?: return -1
+        return existing.indexOfFirst { other ->
             other.rewardId == rewardId &&
                 other.user?.id == userId &&
                 abs(other.timestampMs - message.timestampMs) <= REWARD_DUPLICATE_WINDOW_MS &&
@@ -333,9 +362,66 @@ class ChatTimelineStore(
                     // user text here so a rapid no-input redemption is not mistaken for a copy.
                     other.rewardRedemptionId != null && message.rewardRedemptionId == null ->
                         !message.rawText.isNullOrBlank()
-                    else -> false
+                    // IRC chat and a synthetic redemption notice can both lack the ID.
+                    // Only pair those different sources; separate id-less redemptions remain.
+                    else -> isSyntheticRedemption(other) != isSyntheticRedemption(message) &&
+                        !message.rawText.isNullOrBlank()
                 }
         }
+    }
+
+    private fun isSyntheticRedemption(message: ChatMessage): Boolean =
+        message.noticeType == "channel_points_custom_reward_redemption"
+
+    private fun mergeDuplicateReward(existing: ChatMessage, incoming: ChatMessage): ChatMessage {
+        val existingSynthetic = isSyntheticRedemption(existing)
+        val incomingSynthetic = isSyntheticRedemption(incoming)
+        val preferIncoming = existingSynthetic && !incomingSynthetic
+        val preferred = if (preferIncoming) incoming else existing
+        val supplemental = if (preferIncoming) existing else incoming
+        val preferredUser = preferred.user
+        val supplementalUser = supplemental.user
+        val mergedUser = when {
+            preferredUser == null -> supplementalUser
+            supplementalUser == null -> preferredUser
+            else -> preferredUser.copy(
+                id = preferredUser.id ?: supplementalUser.id,
+                login = preferredUser.login ?: supplementalUser.login,
+                displayName = preferredUser.displayName ?: supplementalUser.displayName,
+                color = preferredUser.color ?: supplementalUser.color,
+            )
+        }
+        return preferred.copy(
+            user = mergedUser,
+            badges = preferred.badges.ifEmpty { supplemental.badges },
+            segments = preferred.segments.ifEmpty { supplemental.segments },
+            rawText = preferred.rawText?.takeIf { it.isNotEmpty() } ?: supplemental.rawText,
+            reply = preferred.reply ?: supplemental.reply,
+            source = preferred.source ?: supplemental.source,
+            rewardId = preferred.rewardId ?: supplemental.rewardId,
+            rewardTitle = preferred.rewardTitle ?: supplemental.rewardTitle,
+            rewardCost = preferred.rewardCost ?: supplemental.rewardCost,
+            rewardImageUrl = preferred.rewardImageUrl ?: supplemental.rewardImageUrl,
+            rewardRedemptionId = preferred.rewardRedemptionId ?: supplemental.rewardRedemptionId,
+            systemText = preferred.systemText ?: supplemental.systemText,
+            moderation = preferred.moderation ?: supplemental.moderation,
+        )
+    }
+
+    private fun replaceAt(
+        items: ArrayDeque<ChatMessage>,
+        ids: MutableSet<ChatMessageId>,
+        index: Int,
+        replacement: ChatMessage,
+    ) {
+        val updated = items.toMutableList()
+        val previous = updated.set(index, replacement)
+        if (previous.id != replacement.id) {
+            ids.remove(previous.id)
+            ids.add(replacement.id)
+        }
+        items.clear()
+        items.addAll(updated)
     }
 
     private fun trimModerationTombstones(
