@@ -1512,9 +1512,10 @@ class StreamDownloadService : LifecycleService() {
                     if (!savedEmotes.contains(word)) {
                         val cheerEmote = if (chatMessage.bits != null) {
                             val bitsCount = word.takeLastWhile { it.isDigit() }
+                            val parsedBits = bitsCount.toIntOrNull()
                             val bitsName = word.substringBeforeLast(bitsCount)
-                            if (bitsCount.isNotEmpty()) {
-                                cheerEmoteList.findLast { it.name.equals(bitsName, true) && it.minBits <= bitsCount.toInt() }
+                            if (parsedBits != null) {
+                                cheerEmoteList.findLast { it.name.equals(bitsName, true) && it.minBits <= parsedBits }
                             } else null
                         } else null
                         if (cheerEmote != null) {

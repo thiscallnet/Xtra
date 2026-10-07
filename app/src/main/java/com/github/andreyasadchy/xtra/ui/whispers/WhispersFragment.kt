@@ -24,6 +24,7 @@ import androidx.slidingpanelayout.widget.SlidingPaneLayout
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentWhispersBinding
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
 import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThread
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
@@ -54,6 +55,7 @@ class WhispersFragment : Fragment() {
     private var paneModeMeasuredForCurrentView = false
     private var recyclerBottomPadding = 0
     private var searchResultsBottomPadding = 0
+    private var lastShownError: TwitchInboxError? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -209,11 +211,12 @@ class WhispersFragment : Fragment() {
             binding.emptyText.setText(R.string.no_people_found)
         } else if (!searching) binding.emptyText.setText(R.string.no_whispers_yet)
         state.error?.let { binding.emptyText.text = getString(it.messageRes()) }
-        if (state.error != null && state.conversations.isNotEmpty()) {
+        if (state.error != null && state.error != lastShownError && state.conversations.isNotEmpty()) {
             Snackbar.make(binding.root, state.error.messageRes(), Snackbar.LENGTH_LONG)
                 .setAction(R.string.retry) { viewModel.refresh() }
                 .show()
         }
+        lastShownError = state.error
     }
 
     private fun restoreSelectedDetail() {
@@ -427,6 +430,7 @@ class WhispersFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        lastShownError = null
         binding.recyclerView.adapter = null
         binding.searchResults.adapter = null
         _binding = null

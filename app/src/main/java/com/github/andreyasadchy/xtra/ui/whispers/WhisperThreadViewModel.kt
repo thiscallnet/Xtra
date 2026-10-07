@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.whispers
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.github.andreyasadchy.xtra.ui.inbox.runCatchingInboxRequest
 import com.github.andreyasadchy.xtra.model.twitchinbox.LocalSendState
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxException
@@ -13,6 +14,7 @@ import com.github.andreyasadchy.xtra.repository.WhispersRepository
 import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -65,7 +67,7 @@ class WhisperThreadViewModel(
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(initialLoading = true, error = null)
-            runCatching { repository.getThread(id) }.onSuccess { details ->
+            runCatchingInboxRequest { repository.getThread(id) }.onSuccess { details ->
                 mergeMessages(details.messages, replace = true)
                 olderCursor = details.nextCursor
                 hasLoadedOlderHistory = false
@@ -101,6 +103,7 @@ class WhisperThreadViewModel(
     fun refreshLatest() {
         val currentAccountId = repository.currentUserId()
         if (currentAccountId != accountId) {
+            viewModelScope.coroutineContext.cancelChildren()
             accountId = currentAccountId
             threadId = null
             olderCursor = null
@@ -108,9 +111,14 @@ class WhisperThreadViewModel(
             latestRemoteMessageId = null
             lastMarkedReadReceipt = null
             pending.clear()
+            readReceiptsInFlight.clear()
             _uiState.value = _uiState.value.copy(
                 threadId = null,
                 messages = emptyList(),
+                composer = "",
+                initialLoading = false,
+                loadingOlder = false,
+                successfulSendCount = 0,
                 hasOlder = false,
                 error = TwitchInboxError.SignedOut,
                 lastReadReceipt = null,
@@ -120,7 +128,7 @@ class WhisperThreadViewModel(
         val id = threadId ?: return
         if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch {
-            runCatching { repository.getThread(id) }.onSuccess { details ->
+            runCatchingInboxRequest { repository.getThread(id) }.onSuccess { details ->
                 mergeMessages(details.messages, replace = false)
                 if (!hasLoadedOlderHistory) olderCursor = details.nextCursor
                 _uiState.value = _uiState.value.copy(hasOlder = olderCursor != null && details.hasOlderMessages, error = null)
@@ -138,7 +146,7 @@ class WhisperThreadViewModel(
         val cursor = olderCursor ?: return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loadingOlder = true)
-            runCatching { repository.getThread(id, cursor) }.onSuccess { details ->
+            runCatchingInboxRequest { repository.getThread(id, cursor) }.onSuccess { details ->
                 mergeMessages(details.messages, replace = false)
                 olderCursor = nextOlderCursor(details, cursor)
                 hasLoadedOlderHistory = true
@@ -173,7 +181,7 @@ class WhisperThreadViewModel(
 
     private fun sendPending(message: WhisperMessage) {
         viewModelScope.launch {
-            runCatching { repository.sendWhisper(_uiState.value.peer.id, message.text, message.nonce ?: repository.createWhisperNonce()) }.onSuccess { result ->
+            runCatchingInboxRequest { repository.sendWhisper(_uiState.value.peer.id, message.text, message.nonce ?: repository.createWhisperNonce()) }.onSuccess { result ->
                 val confirmed = message.copy(nonce = result.nonce, localState = LocalSendState.CONFIRMED, sendError = null)
                 pending[message.id] = confirmed
                 val current = _uiState.value
@@ -210,8 +218,11 @@ class WhisperThreadViewModel(
         val receipt = WhisperThreadReadReceipt(id, messageId)
         if (receipt == lastMarkedReadReceipt || !readReceiptsInFlight.add(receipt)) return
         viewModelScope.launch {
-            val succeeded = runCatching { repository.markThreadRead(id, messageId) }.isSuccess
-            readReceiptsInFlight.remove(receipt)
+            val succeeded = try {
+                runCatchingInboxRequest { repository.markThreadRead(id, messageId) }.isSuccess
+            } finally {
+                readReceiptsInFlight.remove(receipt)
+            }
             if (succeeded) {
                 lastMarkedReadReceipt = receipt
                 if (threadId == id) {

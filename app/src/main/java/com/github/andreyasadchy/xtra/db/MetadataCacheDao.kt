@@ -20,6 +20,12 @@ interface MetadataCacheDao {
     @Query("DELETE FROM metadata_cache WHERE kind = :kind AND cacheKey = :cacheKey")
     fun delete(kind: String, cacheKey: String)
 
+    @Query("DELETE FROM metadata_cache WHERE lastAccessAt <= :cutoff")
+    fun deleteExpired(cutoff: Long)
+
+    @Query("DELETE FROM metadata_cache WHERE rowid IN (SELECT rowid FROM metadata_cache ORDER BY lastAccessAt DESC LIMIT -1 OFFSET :limit)")
+    fun trimToSize(limit: Int)
+
     @Query("SELECT * FROM metadata_cache ORDER BY lastAccessAt DESC")
     fun allEntries(): List<MetadataCacheEntry>
 

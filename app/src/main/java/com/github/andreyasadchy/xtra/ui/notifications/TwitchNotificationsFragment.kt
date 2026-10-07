@@ -20,6 +20,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentTwitchNotificationsBinding
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotification
+import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotificationAction
 import com.github.andreyasadchy.xtra.ui.inbox.messageRes
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
@@ -37,6 +38,7 @@ class TwitchNotificationsFragment : Fragment() {
         TwitchNotificationsViewModel.factory((requireActivity().application as XtraApp).xtraModule.twitchNotificationsRepository)
     }
     private lateinit var adapter: TwitchNotificationsAdapter
+    private var lastShownError: TwitchInboxError? = null
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentTwitchNotificationsBinding.inflate(inflater, container, false)
@@ -107,11 +109,12 @@ class TwitchNotificationsFragment : Fragment() {
                 (state.items.any { it.isUnread } || state.canLoadMore)
         }
         state.error?.let { binding.errorText.setText(it.messageRes()) }
-        if (state.error != null && state.items.isNotEmpty()) {
+        if (state.error != null && state.error != lastShownError && state.items.isNotEmpty()) {
             Snackbar.make(binding.root, state.error.messageRes(), Snackbar.LENGTH_LONG)
                 .setAction(R.string.retry) { viewModel.refresh() }
                 .show()
         }
+        lastShownError = state.error
     }
 
     private fun openAction(item: TwitchNotification) {
@@ -163,6 +166,7 @@ class TwitchNotificationsFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        lastShownError = null
         binding.recyclerView.adapter = null
         _binding = null
         super.onDestroyView()

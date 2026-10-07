@@ -4,13 +4,14 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.LinearLayout
+import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.crossfade
 import coil3.request.error
-import coil3.request.fallback
 import coil3.request.placeholder
 import coil3.request.target
 import coil3.request.transformations
@@ -26,46 +27,54 @@ class WhisperMessagesAdapter(
     private val currentUser: TwitchUserSummary?,
     private val onRetry: (WhisperMessage) -> Unit,
     private val onPeerClick: (TwitchUserSummary) -> Unit,
-) : RecyclerView.Adapter<WhisperMessagesAdapter.ViewHolder>() {
-    private var items: List<WhisperMessage> = emptyList()
-    fun submitList(value: List<WhisperMessage>) { items = value; notifyDataSetChanged() }
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(ItemWhisperMessageBinding.inflate(LayoutInflater.from(parent.context), parent, false))
-    override fun getItemCount() = items.size
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) = holder.bind(items[position])
+) : ListAdapter<WhisperMessage, WhisperMessagesAdapter.ViewHolder>(DIFF) {
+    override fun getItemViewType(position: Int) = if (getItem(position).isMine) 1 else 0
 
-    inner class ViewHolder(private val binding: ItemWhisperMessageBinding) : RecyclerView.ViewHolder(binding.root) {
-        fun bind(item: WhisperMessage) = with(binding) {
-            val gravity = if (item.isMine) Gravity.END else Gravity.START
-            messageRow.gravity = gravity or Gravity.CENTER_VERTICAL
-            messageColumn.gravity = gravity
-            val columnParams = messageColumn.layoutParams as LinearLayout.LayoutParams
-            columnParams.marginStart = if (item.isMine) 0 else dp(8)
-            columnParams.marginEnd = if (item.isMine) dp(8) else 0
-            messageColumn.layoutParams = columnParams
-            messageRow.removeAllViews()
-            if (item.isMine) {
-                messageRow.addView(messageColumn)
-                messageRow.addView(avatar)
-            } else {
-                messageRow.addView(avatar)
-                messageRow.addView(messageColumn)
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) = ViewHolder(
+        ItemWhisperMessageBinding.inflate(LayoutInflater.from(parent.context), parent, false),
+        isMine = viewType == 1,
+    )
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int) = holder.bind(getItem(position))
+
+    inner class ViewHolder(private val binding: ItemWhisperMessageBinding, isMine: Boolean) : RecyclerView.ViewHolder(binding.root) {
+        init {
+            with(binding) {
+                messageColumn.gravity = if (isMine) Gravity.END else Gravity.START
+                val columnParams = messageColumn.layoutParams as ConstraintLayout.LayoutParams
+                val avatarParams = avatar.layoutParams as ConstraintLayout.LayoutParams
+                if (isMine) {
+                    avatarParams.startToStart = ConstraintLayout.LayoutParams.UNSET
+                    avatarParams.endToEnd = ConstraintLayout.LayoutParams.PARENT_ID
+                    columnParams.startToEnd = ConstraintLayout.LayoutParams.UNSET
+                    columnParams.startToStart = ConstraintLayout.LayoutParams.PARENT_ID
+                    columnParams.endToEnd = ConstraintLayout.LayoutParams.UNSET
+                    columnParams.endToStart = avatar.id
+                    columnParams.horizontalBias = 1f
+                    columnParams.marginStart = 0
+                    columnParams.marginEnd = dp(8)
+                }
+                messageColumn.layoutParams = columnParams
+                avatar.layoutParams = avatarParams
+                avatar.isClickable = !isMine
+                avatar.isFocusable = !isMine
+                avatar.contentDescription = if (isMine) null else avatar.context.getString(R.string.view_profile)
+                avatar.setOnClickListener { if (!isMine) onPeerClick(peer) }
+                val sender = if (isMine) currentUser else peer
+                avatar.context.imageLoader.enqueue(
+                    ImageRequest.Builder(avatar.context)
+                        .data(sender?.profileImageUrl?.takeIf { it.isNotBlank() })
+                        .placeholder(R.drawable.baseline_person_black_24)
+                        .error(R.drawable.baseline_person_black_24)
+                        .crossfade(sender?.profileImageUrl?.isNotBlank() == true)
+                        .transformations(CircleCropTransformation())
+                        .target(avatar)
+                        .build(),
+                )
             }
-            avatar.setImageResource(R.drawable.baseline_person_black_24)
-            avatar.isClickable = !item.isMine
-            avatar.isFocusable = !item.isMine
-            avatar.contentDescription = if (item.isMine) null else avatar.context.getString(R.string.view_profile)
-            avatar.setOnClickListener { if (!item.isMine) onPeerClick(peer) }
-            val sender = if (item.isMine) currentUser else peer
-            avatar.context.imageLoader.enqueue(
-                ImageRequest.Builder(avatar.context)
-                    .data(sender?.profileImageUrl?.takeIf { it.isNotBlank() })
-                    .placeholder(R.drawable.baseline_person_black_24)
-                    .error(R.drawable.baseline_person_black_24)
-                    .crossfade(sender?.profileImageUrl?.isNotBlank() == true)
-                    .transformations(CircleCropTransformation())
-                    .target(avatar)
-                    .build(),
-            )
+        }
+
+        fun bind(item: WhisperMessage) = with(binding) {
             message.text = item.text.ifBlank { message.context.getString(R.string.message_unavailable) }
             if (item.localState == LocalSendState.FAILED) {
                 val debug = item.sendError?.takeIf { it.isNotBlank() }
@@ -88,5 +97,11 @@ class WhisperMessagesAdapter(
         }
 
         private fun dp(value: Int): Int = (value * binding.root.resources.displayMetrics.density).toInt()
+    }
+    private companion object {
+        val DIFF = object : DiffUtil.ItemCallback<WhisperMessage>() {
+            override fun areItemsTheSame(oldItem: WhisperMessage, newItem: WhisperMessage) = oldItem.id == newItem.id
+            override fun areContentsTheSame(oldItem: WhisperMessage, newItem: WhisperMessage) = oldItem == newItem
+        }
     }
 }

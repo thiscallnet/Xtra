@@ -22,6 +22,7 @@ class TwitchUsersAdapter(
     private var selectedPeerId: String? = null
 
     fun submitList(value: List<TwitchUserSummary>, selectedPeerId: String? = null) {
+        if (items == value && this.selectedPeerId == selectedPeerId) return
         items = value
         this.selectedPeerId = selectedPeerId
         notifyDataSetChanged()

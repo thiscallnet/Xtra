@@ -6,10 +6,13 @@ import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.VideoHistory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
@@ -58,6 +61,8 @@ class PlaybackPersistence internal constructor(
     private val pendingVideoPositions = mutableMapOf<Long, VideoPosition>()
     private val videoPositionLock = Any()
     private var videoPositionOperationQueued = false
+    private var videoPositionRetryDelayMs = 0L
+    private var videoPositionRetryJob: Job? = null
 
     init {
         scope.launch {
@@ -119,9 +124,10 @@ class PlaybackPersistence internal constructor(
     }
 
     suspend fun saveVideoPositionAndWait(position: VideoPosition) {
-        enqueueAndWait {
-            store.saveVideoPosition(position)
-        }
+        // Share the coalesced queue so a later update cannot be removed or overwritten
+        // by this call while it waits behind another database operation.
+        saveVideoPosition(position)
+        flush()
     }
 
     suspend fun getPlaybackStatesAndWait(): List<PlaybackState> {
@@ -138,7 +144,13 @@ class PlaybackPersistence internal constructor(
      * and cleanup writes have reached the database.
      */
     suspend fun flush() {
-        enqueueAndWait { }
+        enqueueAndWait {
+            synchronized(videoPositionLock) {
+                videoPositionRetryJob?.cancel()
+                videoPositionRetryJob = null
+            }
+            drainPendingVideoPositions()
+        }
     }
 
     private fun enqueue(operation: suspend () -> Unit) {
@@ -164,23 +176,43 @@ class PlaybackPersistence internal constructor(
         val operation: suspend () -> Unit = {
             drainPendingVideoPositions()
         }
-        if (operations.trySend(operation).isFailure) {
-            scope.launch {
-                operations.send(operation)
+        val retryDelay = synchronized(videoPositionLock) { videoPositionRetryDelayMs }
+        if (retryDelay > 0L) {
+            val retryJob = synchronized(videoPositionLock) {
+                scope.launch(start = CoroutineStart.LAZY) {
+                    delay(retryDelay)
+                    operations.send(operation)
+                }.also { videoPositionRetryJob = it }
             }
+            retryJob.start()
+        } else {
+            enqueue(operation)
         }
     }
 
     private suspend fun drainPendingVideoPositions() {
-        while (true) {
-            val positions = synchronized(videoPositionLock) {
-                if (pendingVideoPositions.isEmpty()) {
-                    videoPositionOperationQueued = false
-                    return
-                }
-                pendingVideoPositions.values.toList().also { pendingVideoPositions.clear() }
+        val positions = synchronized(videoPositionLock) {
+            pendingVideoPositions.values.toList().also { pendingVideoPositions.clear() }
+        }
+        var savedCount = 0
+        try {
+            for (position in positions) {
+                store.saveVideoPosition(position)
+                savedCount++
             }
-            positions.forEach { store.saveVideoPosition(it) }
+            synchronized(videoPositionLock) { videoPositionRetryDelayMs = 0L }
+        } catch (error: Exception) {
+            synchronized(videoPositionLock) {
+                // A newer update received during I/O always wins over the failed batch.
+                for (index in savedCount until positions.size) {
+                    val position = positions[index]
+                    pendingVideoPositions.putIfAbsent(position.id, position)
+                }
+                videoPositionRetryDelayMs = (videoPositionRetryDelayMs * 2L).coerceIn(1_000L, 30_000L)
+            }
+            throw error
+        } finally {
+            synchronized(videoPositionLock) { videoPositionOperationQueued = false }
         }
     }
 

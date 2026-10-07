@@ -24,6 +24,7 @@ class WhisperThreadsAdapter(
     private var selectedPeerId: String? = null
 
     fun submitList(value: List<WhisperThread>, selectedPeerId: String? = null) {
+        if (items == value && this.selectedPeerId == selectedPeerId) return
         items = value
         this.selectedPeerId = selectedPeerId
         notifyDataSetChanged()
