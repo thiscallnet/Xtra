@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.ConcurrentHashMap
+import java.io.IOException
 
 data class DropsInventoryState(
     val drops: List<TwitchDrop> = emptyList(),
@@ -66,7 +67,7 @@ class DropsRepository(
         loadSemaphore = channelDropSemaphore,
     )
     private val channelDropCatalog = ExpiringSingleFlightCache<String, List<TwitchChannelDropCampaign>>(
-        ttlMillis = INVENTORY_CACHE_MILLIS,
+        ttlMillis = CHANNEL_CATALOG_CACHE_MILLIS,
         scope = channelDropScope,
         loadSemaphore = channelDropSemaphore,
     )
@@ -331,8 +332,8 @@ class DropsRepository(
         val sessionProgress = (effectiveSession as? CurrentDropSessionResult.Present)?.progress
         val currentIds = when (effectiveSession) {
             is CurrentDropSessionResult.Present -> setOf(effectiveSession.progress.dropId)
-            CurrentDropSessionResult.None,
-            is CurrentDropSessionResult.Unavailable -> emptySet()
+            CurrentDropSessionResult.None -> emptySet()
+            is CurrentDropSessionResult.Unavailable -> null
             null -> channelDropIds.get(channelCacheKey(id)) {
                 try {
                     GqlDropsParser.parseCurrentDropIds(
@@ -349,7 +350,12 @@ class DropsRepository(
             availableIds != null && currentIds != null -> availableIds + currentIds
             availableIds != null -> availableIds
             currentIds != null -> currentIds
-            else -> emptySet()
+            else -> throw IOException("Channel Drops are temporarily unavailable")
+        }
+
+        // An empty current session cannot confirm that the channel catalog is empty.
+        if (availableIds == null && channelIds.isEmpty()) {
+            throw IOException("Channel Drops are temporarily unavailable")
         }
 
         val projected = if (channelIds.isEmpty()) {
@@ -416,6 +422,9 @@ class DropsRepository(
         if (!isSessionCurrent()) return projected
 
         if (catalogMatches.isEmpty()) {
+            if (available == null && projected.isEmpty()) {
+                throw IOException("Channel Drops are temporarily unavailable")
+            }
             logDiagnostics {
                 event(
                     category = DiagnosticsCategory.DROPS,
@@ -787,6 +796,7 @@ class DropsRepository(
 
     companion object {
         private const val INVENTORY_CACHE_MILLIS = 45_000L
+        private const val CHANNEL_CATALOG_CACHE_MILLIS = 5 * 60_000L
         private const val MAX_CHANNEL_DROP_REQUESTS = 3
         private const val MAX_AUTO_CLAIMS = 10
         private const val TAG = "DropsRepository"

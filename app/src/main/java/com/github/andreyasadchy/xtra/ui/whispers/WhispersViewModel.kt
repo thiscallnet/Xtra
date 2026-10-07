@@ -3,12 +3,14 @@ package com.github.andreyasadchy.xtra.ui.whispers
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.github.andreyasadchy.xtra.ui.inbox.runCatchingInboxRequest
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxException
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
 import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThread
 import com.github.andreyasadchy.xtra.repository.WhispersRepository
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -37,37 +39,44 @@ class WhispersViewModel(private val repository: WhispersRepository) : ViewModel(
     private var refreshQueued = false
     private var searchJob: Job? = null
     private var nextCursor: String? = null
+    private var accountId = repository.currentUserId()
 
     init { loadInitial() }
 
     fun loadInitial() {
+        ensureAccountCurrent()
         if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loading = true, error = null)
-            runCatching { repository.getCachedThreads() }.getOrNull()?.let { page ->
+            runCatchingInboxRequest { repository.getCachedThreads() }.getOrNull()?.let { page ->
+                if (!ensureAccountCurrent()) return@let
                 nextCursor = page.nextCursor
                 updateConversations(page.threads, page.hasNextPage)
             }
-            runCatching { repository.getThreads() }.onSuccess { page ->
+            runCatchingInboxRequest { repository.getThreads() }.onSuccess { page ->
+                if (!ensureAccountCurrent()) return@onSuccess
                 nextCursor = page.nextCursor
                 updateConversations(page.threads, page.hasNextPage)
-            }.onFailure { error -> _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
+            }.onFailure { error -> if (ensureAccountCurrent()) _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
             _uiState.value = _uiState.value.copy(loading = false)
         }
     }
 
     fun refresh() {
+        ensureAccountCurrent()
         if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(refreshing = true, error = null)
-            runCatching { repository.getCachedThreads() }.getOrNull()?.let { page ->
+            runCatchingInboxRequest { repository.getCachedThreads() }.getOrNull()?.let { page ->
+                if (!ensureAccountCurrent()) return@let
                 nextCursor = page.nextCursor
                 updateConversations(page.threads, page.hasNextPage)
             }
-            runCatching { repository.getThreads() }.onSuccess { page ->
+            runCatchingInboxRequest { repository.getThreads() }.onSuccess { page ->
+                if (!ensureAccountCurrent()) return@onSuccess
                 nextCursor = page.nextCursor
                 updateConversations(page.threads, page.hasNextPage)
-            }.onFailure { error -> _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
+            }.onFailure { error -> if (ensureAccountCurrent()) _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
             _uiState.value = _uiState.value.copy(refreshing = false)
         }
     }
@@ -105,24 +114,23 @@ class WhispersViewModel(private val repository: WhispersRepository) : ViewModel(
     }
 
     fun loadMore() {
+        if (!ensureAccountCurrent()) return
         if (loadJob?.isActive == true || !_uiState.value.canLoadMore || nextCursor.isNullOrBlank()) return
         val requestedCursor = nextCursor ?: return
         loadJob = viewModelScope.launch {
             _uiState.value = _uiState.value.copy(loadingMore = true)
-            runCatching { repository.getThreads(requestedCursor) }.onSuccess { page ->
-                if (page.nextCursor == requestedCursor) {
-                    nextCursor = null
-                    _uiState.value = _uiState.value.copy(canLoadMore = false)
-                    return@onSuccess
-                }
-                nextCursor = page.nextCursor
-                updateConversations((_uiState.value.conversations + page.threads).distinctBy { it.id }, page.hasNextPage)
-            }.onFailure { error -> _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
+            runCatchingInboxRequest { repository.getThreads(requestedCursor) }.onSuccess { page ->
+                if (!ensureAccountCurrent()) return@onSuccess
+                val advanced = page.nextCursor != requestedCursor
+                nextCursor = page.nextCursor.takeIf { advanced }
+                updateConversations((_uiState.value.conversations + page.threads).distinctBy { it.id }, advanced && page.hasNextPage && nextCursor != null)
+            }.onFailure { error -> if (ensureAccountCurrent()) _uiState.value = _uiState.value.copy(error = error.toInboxError()) }
             _uiState.value = _uiState.value.copy(loadingMore = false)
         }
     }
 
     fun setSearchQuery(value: String) {
+        ensureAccountCurrent()
         val query = value.trimStart()
         val local = filter(_uiState.value.conversations, query)
         _uiState.value = _uiState.value.copy(searchQuery = query, filteredConversations = local, searchResults = emptyList(), searching = query.isNotBlank())
@@ -132,17 +140,28 @@ class WhispersViewModel(private val repository: WhispersRepository) : ViewModel(
             delay(300)
             try {
                 val results = repository.searchUsers(query)
-                if (_uiState.value.searchQuery == query) {
+                if (ensureAccountCurrent() && _uiState.value.searchQuery == query) {
                     _uiState.value = _uiState.value.copy(searchResults = results.filterNot { user -> _uiState.value.conversations.any { it.peer.id == user.id } }, searching = false)
                 }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                if (_uiState.value.searchQuery == query) {
+                if (ensureAccountCurrent() && _uiState.value.searchQuery == query) {
                     _uiState.value = _uiState.value.copy(searching = false, error = error.toInboxError())
                 }
             }
         }
+    }
+
+    private fun ensureAccountCurrent(): Boolean {
+        val currentAccountId = repository.currentUserId()
+        if (currentAccountId == accountId) return true
+        viewModelScope.coroutineContext.cancelChildren()
+        accountId = currentAccountId
+        nextCursor = null
+        refreshQueued = false
+        _uiState.value = WhispersUiState(error = TwitchInboxError.SignedOut)
+        return false
     }
 
     private fun updateConversations(items: List<WhisperThread>, canLoadMore: Boolean) {

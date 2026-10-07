@@ -36,6 +36,7 @@ class TwitchNotificationsAdapter(
     private lateinit var markwon: Markwon
 
     fun submitList(value: List<TwitchNotification>) {
+        if (items == value) return
         items = value
         notifyDataSetChanged()
     }

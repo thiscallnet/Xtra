@@ -655,13 +655,8 @@ class MetadataCache(
 
     private fun cleanup(nowMs: Long) {
         val cutoff = nowMs - MetadataCachePolicy.DURABLE_RETENTION_MS
-        val entries = dao.allEntries()
-        entries.filter { it.lastAccessAt <= cutoff }
-            .forEach { dao.delete(it.kind, it.cacheKey) }
-        entries.asSequence()
-            .filter { it.lastAccessAt > cutoff }
-            .drop(MAX_CACHE_ENTRIES)
-            .forEach { dao.delete(it.kind, it.cacheKey) }
+        dao.deleteExpired(cutoff)
+        dao.trimToSize(MAX_CACHE_ENTRIES)
     }
 
     private data class CacheHit<T>(

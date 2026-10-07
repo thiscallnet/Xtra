@@ -6,13 +6,16 @@ import com.github.andreyasadchy.xtra.model.chat.TwitchEmote
 import com.github.andreyasadchy.xtra.model.chat.VideoChatMessage
 import com.github.andreyasadchy.xtra.model.gql.video.nextCursor
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
-import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlin.math.max
 import kotlin.time.Duration.Companion.milliseconds
@@ -42,6 +45,7 @@ class ChatReplayManager(
     private val list = mutableListOf<VideoChatMessage>()
     private var started = false
     private var isLoading = false
+    private var loadGeneration = 0L
     private var loadJob: Job? = null
     private var messageJob: Job? = null
     private var lastCheckedPosition = 0L
@@ -63,131 +67,159 @@ class ChatReplayManager(
     }
 
     fun stop() {
+        loadGeneration++
+        isLoading = false
         loadJob?.cancel()
         messageJob?.cancel()
         isActive = false
     }
 
-    private fun load(position: Long? = null) {
-        isLoading = true
-        loadJob = coroutineScope.launch(Dispatchers.IO) {
-            try {
-                val response = if (position != null) {
-                    graphQLRepository.loadQueryVideoComments(networkLibrary, gqlHeaders, videoId, offset = position.div(1000).toInt())
-                } else {
-                    graphQLRepository.loadQueryVideoComments(networkLibrary, gqlHeaders, videoId, cursor = cursor)
-                }
-                val comments = response.data!!.video!!.comments!!
-                val messages = comments.edges!!.mapNotNull { comment ->
-                    comment?.node.let { item ->
-                        item?.message?.let { message ->
-                            val chatMessage = StringBuilder()
-                            val emotes = message.fragments?.mapNotNull { fragment ->
-                                fragment?.text?.let { text ->
-                                    fragment.emote?.emoteID?.let { id ->
-                                        TwitchEmote(
-                                            id = id,
-                                            begin = chatMessage.codePointCount(0, chatMessage.length),
-                                            end = chatMessage.codePointCount(0, chatMessage.length) + text.lastIndex
-                                        )
-                                    }.also { chatMessage.append(text) }
-                                }
-                            }
-                            val badges = message.userBadges?.mapNotNull { badge ->
-                                badge?.setID?.let { setId ->
-                                    badge.version?.let { version ->
-                                        Badge(
-                                            setId = setId,
-                                            version = version,
-                                        )
-                                    }
-                                }
-                            }
-                            VideoChatMessage(
-                                id = item.id,
-                                offsetSeconds = item.contentOffsetSeconds,
-                                createdAt = item.createdAt?.toString(),
-                                userId = item.commenter?.id,
-                                userLogin = item.commenter?.login,
-                                userName = item.commenter?.displayName,
-                                message = chatMessage.toString(),
-                                color = message.userColor,
-                                emotes = emotes,
-                                badges = badges,
-                                fullMsg = null
-                            )
-                        }
-                    }
-                }
-                messageJob?.cancel()
-                list.addAll(messages)
-                val edges = comments.edges.orEmpty()
-                cursor = if (comments.pageInfo?.hasNextPage != false) {
-                    edges.asReversed().firstNotNullOfOrNull { edge -> edge?.cursor?.takeIf(String::isNotBlank) }
-                } else null
-                isLoading = false
-                startJob()
-            } catch (e: Exception) {
-                try {
-                    val response = if (position != null) {
-                        graphQLRepository.loadVideoMessages(networkLibrary, gqlHeaders, videoId, offset = position.div(1000).toInt())
-                    } else {
-                        graphQLRepository.loadVideoMessages(networkLibrary, gqlHeaders, videoId, cursor = cursor)
-                    }
-                    val comments = response.data?.video?.comments ?: run {
-                        isLoading = false
-                        return@launch
-                    }
-                    val messages = comments.edges.orEmpty().mapNotNull { comment ->
-                        comment?.node?.let { item ->
-                            item.message?.let { message ->
-                                val chatMessage = StringBuilder()
-                                val emotes = message.fragments?.mapNotNull { fragment ->
-                                    fragment.text?.let { text ->
-                                        fragment.emote?.emoteID?.let { id ->
-                                            TwitchEmote(
-                                                id = id,
-                                                begin = chatMessage.codePointCount(0, chatMessage.length),
-                                                end = chatMessage.codePointCount(0, chatMessage.length) + text.lastIndex
-                                            )
-                                        }.also { chatMessage.append(text) }
-                                    }
-                                }
-                                val badges = message.userBadges?.mapNotNull { badge ->
-                                    badge.setID?.let { setId ->
-                                        badge.version?.let { version ->
-                                            Badge(
-                                                setId = setId,
-                                                version = version,
-                                            )
-                                        }
-                                    }
-                                }
-                                VideoChatMessage(
-                                    id = item.id,
-                                    offsetSeconds = item.contentOffsetSeconds,
-                                    createdAt = item.createdAt,
-                                    userId = item.commenter?.id,
-                                    userLogin = item.commenter?.login,
-                                    userName = item.commenter?.displayName,
-                                    message = chatMessage.toString(),
-                                    color = message.userColor,
-                                    emotes = emotes,
-                                    badges = badges,
-                                    fullMsg = json.encodeToString(item)
-                                )
-                            }
-                        }
-                    }
-                    messageJob?.cancel()
-                    list.addAll(messages)
-                    cursor = if (comments.pageInfo?.hasNextPage != false) comments.nextCursor else null
-                    isLoading = false
-                    startJob()
-                } catch (e: Exception) {
+    private data class ReplayPage(val messages: List<VideoChatMessage>, val nextCursor: String?)
 
+    private fun load(position: Long? = null) {
+        if (!isActive) return
+        loadJob?.cancel()
+        val generation = ++loadGeneration
+        val requestedCursor = cursor
+        isLoading = true
+        // All replay state belongs to the caller's UI scope. Repository calls move network I/O
+        // to their own dispatcher, so they cannot race the message ticker or a seek.
+        loadJob = coroutineScope.launch {
+            var retryDelayMs = 1_000L
+            try {
+                while (isActive && generation == loadGeneration) {
+                    try {
+                        val page = loadPage(position, requestedCursor)
+                        currentCoroutineContext().ensureActive()
+                        if (generation != loadGeneration) return@launch
+                        check(requestedCursor == null || page.nextCursor != requestedCursor) {
+                            "Replay pagination did not advance"
+                        }
+                        messageJob?.cancel()
+                        list.addAll(page.messages)
+                        cursor = page.nextCursor
+                        isLoading = false
+                        if (list.isEmpty() && !cursor.isNullOrBlank()) load() else startJob()
+                        return@launch
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        delay(retryDelayMs)
+                        retryDelayMs = (retryDelayMs * 2L).coerceAtMost(30_000L)
+                    }
+                }
+            } finally {
+                if (generation == loadGeneration) isLoading = false
+            }
+        }
+    }
+
+    private suspend fun loadPage(position: Long?, requestedCursor: String?): ReplayPage = withContext(Dispatchers.Default) {
+        try {
+            val response = if (position != null) {
+                graphQLRepository.loadQueryVideoComments(networkLibrary, gqlHeaders, videoId, offset = position.div(1000).toInt())
+            } else {
+                graphQLRepository.loadQueryVideoComments(networkLibrary, gqlHeaders, videoId, cursor = requestedCursor)
+            }
+            val comments = response.data!!.video!!.comments!!
+            val messages = comments.edges!!.mapNotNull { comment ->
+                comment?.node.let { item ->
+                    item?.message?.let { message ->
+                        val chatMessage = StringBuilder()
+                        val emotes = message.fragments?.mapNotNull { fragment ->
+                            fragment?.text?.let { text ->
+                                fragment.emote?.emoteID?.let { id ->
+                                    TwitchEmote(
+                                        id = id,
+                                        begin = chatMessage.codePointCount(0, chatMessage.length),
+                                        end = chatMessage.codePointCount(0, chatMessage.length) + text.lastIndex
+                                    )
+                                }.also { chatMessage.append(text) }
+                            }
+                        }
+                        val badges = message.userBadges?.mapNotNull { badge ->
+                            badge?.setID?.let { setId ->
+                                badge.version?.let { version ->
+                                    Badge(
+                                        setId = setId,
+                                        version = version,
+                                    )
+                                }
+                            }
+                        }
+                        VideoChatMessage(
+                            id = item.id,
+                            offsetSeconds = item.contentOffsetSeconds,
+                            createdAt = item.createdAt?.toString(),
+                            userId = item.commenter?.id,
+                            userLogin = item.commenter?.login,
+                            userName = item.commenter?.displayName,
+                            message = chatMessage.toString(),
+                            color = message.userColor,
+                            emotes = emotes,
+                            badges = badges,
+                            fullMsg = null
+                        )
+                    }
                 }
             }
+            val nextCursor = if (comments.pageInfo?.hasNextPage != false) {
+                comments.edges.orEmpty().asReversed()
+                    .firstNotNullOfOrNull { it?.cursor?.takeIf(String::isNotBlank) }
+            } else null
+            ReplayPage(messages, nextCursor)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            val response = if (position != null) {
+                graphQLRepository.loadVideoMessages(networkLibrary, gqlHeaders, videoId, offset = position.div(1000).toInt())
+            } else {
+                graphQLRepository.loadVideoMessages(networkLibrary, gqlHeaders, videoId, cursor = requestedCursor)
+            }
+            val comments = response.data?.video?.comments
+                ?: error("Replay comments were unavailable")
+            val messages = comments.edges.orEmpty().mapNotNull { comment ->
+                comment?.node?.let { item ->
+                    item.message?.let { message ->
+                        val chatMessage = StringBuilder()
+                        val emotes = message.fragments?.mapNotNull { fragment ->
+                            fragment.text?.let { text ->
+                                fragment.emote?.emoteID?.let { id ->
+                                    TwitchEmote(
+                                        id = id,
+                                        begin = chatMessage.codePointCount(0, chatMessage.length),
+                                        end = chatMessage.codePointCount(0, chatMessage.length) + text.lastIndex
+                                    )
+                                }.also { chatMessage.append(text) }
+                            }
+                        }
+                        val badges = message.userBadges?.mapNotNull { badge ->
+                            badge.setID?.let { setId ->
+                                badge.version?.let { version ->
+                                    Badge(
+                                        setId = setId,
+                                        version = version,
+                                    )
+                                }
+                            }
+                        }
+                        VideoChatMessage(
+                            id = item.id,
+                            offsetSeconds = item.contentOffsetSeconds,
+                            createdAt = item.createdAt,
+                            userId = item.commenter?.id,
+                            userLogin = item.commenter?.login,
+                            userName = item.commenter?.displayName,
+                            message = chatMessage.toString(),
+                            color = message.userColor,
+                            emotes = emotes,
+                            badges = badges,
+                            fullMsg = json.encodeToString(item)
+                        )
+                    }
+                }
+            }
+            ReplayPage(messages, if (comments.pageInfo?.hasNextPage != false) comments.nextCursor else null)
         }
     }
 

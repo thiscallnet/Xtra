@@ -133,8 +133,8 @@ class WhisperThreadFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         if (this::adapter.isInitialized) {
-            viewModel.setReadEligible(true)
             viewModel.refreshLatest()
+            viewModel.setReadEligible(true)
         }
     }
 
@@ -144,7 +144,18 @@ class WhisperThreadFragment : Fragment() {
     }
 
     private fun render(state: WhisperThreadUiState, layout: LinearLayoutManager) {
-        adapter.submitList(state.messages)
+        val submittedAdapter = adapter
+        submittedAdapter.submitList(state.messages) {
+            if (_binding == null || binding.recyclerView.adapter !== submittedAdapter) return@submitList
+            if (loadingOlder && !state.loadingOlder) {
+                val added = state.messages.size - previousCount
+                if (added > 0) layout.scrollToPositionWithOffset(anchorPosition + added, anchorOffset)
+                loadingOlder = false
+            } else if (previousCount == 0 && state.messages.isNotEmpty()) {
+                layout.scrollToPosition(state.messages.lastIndex)
+            }
+            previousCount = state.messages.size
+        }
         val showingFirstMessageState = isEmbedded && args.threadId == null &&
             state.threadId == null && state.messages.isEmpty()
         binding.emptyState.isVisible = showingFirstMessageState
@@ -175,14 +186,6 @@ class WhisperThreadFragment : Fragment() {
         if (binding.composer.text?.toString() != state.composer) binding.composer.setText(state.composer)
         if (state.error == null) binding.composerLayout.error = null
         state.error?.let { binding.composerLayout.error = getString(it.messageRes()) }
-        if (loadingOlder && !state.loadingOlder) {
-            val added = state.messages.size - previousCount
-            if (added > 0) layout.scrollToPositionWithOffset(anchorPosition + added, anchorOffset)
-            loadingOlder = false
-        } else if (previousCount == 0 && state.messages.isNotEmpty()) {
-            layout.scrollToPosition(state.messages.lastIndex)
-        }
-        previousCount = state.messages.size
     }
 
     internal fun updateAdaptivePresentation() {
@@ -220,6 +223,8 @@ class WhisperThreadFragment : Fragment() {
 
     override fun onDestroyView() {
         binding.recyclerView.adapter = null
+        previousCount = 0
+        loadingOlder = false
         _binding = null
         super.onDestroyView()
     }

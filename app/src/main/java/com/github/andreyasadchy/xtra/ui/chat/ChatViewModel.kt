@@ -128,6 +128,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.viewerSendableValues
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage as V2ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.ChatUserSuggestion
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.ChatUserSuggestionAggregator
 import com.github.andreyasadchy.xtra.ui.chat.v2.recommendations.EmoteRecommendationEngine
@@ -892,12 +893,16 @@ class ChatViewModel(
     private val recordedChatUserMessageIds = HashSet<String>()
     private val chatUserAvatarCache = mutableMapOf<String, String?>()
     private val chatUserSuggestionAggregator = ChatUserSuggestionAggregator()
+    private var chatUserSuggestionReconciliationJob: Job? = null
+    private var chatUserSuggestionReconciliationGeneration = 0L
+    private var chatUserSuggestionInputGeneration = 0L
+    private var pendingV2ChatMessages: List<V2ChatMessage>? = null
     private var chatUserAvatarLoadJob: Job? = null
     private var chatUserPresenceRefreshJob: Job? = null
     private var chatUserPresenceAutocompleteActive = false
     private var chatUserPresence = emptyList<ChatUserSuggestion>()
     private var chatUserPresenceLoadedAtMillis = 0L
-    private var latestV2ChatMessages = emptyList<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>()
+    private var latestV2ChatMessages = emptyList<V2ChatMessage>()
     private var hasV2ChatUserTimeline = false
     private var chatUserAvatarGeneration = 0L
     private var chatUserSequence = 0L
@@ -2208,33 +2213,89 @@ class ChatViewModel(
     }
 
     internal fun reconcileV2ChatUsers(
-        messages: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>,
+        messages: List<V2ChatMessage>,
     ) {
-        if (!chatUsernameRecommendationsEnabled) return
-        latestV2ChatMessages = messages.toList()
+        // The bounded timeline can be large; its user index is only consumed while typing a mention.
+        if (!chatUsernameRecommendationsEnabled || !chatUserPresenceAutocompleteActive) return
         hasV2ChatUserTimeline = true
-        var changed = false
-        synchronized(chatUserRecords) {
-            val previous = chatUserRecords.toMap()
-            val next = chatUserSuggestionAggregator.aggregate(
-                messages = messages,
-                previous = previous,
-                presence = chatUserPresence,
-                avatarFor = { userId, login -> cachedChatUserAvatar(userId, login) },
-            )
-            val activeAvatarKeys = next.flatMap(::chatUserAvatarKeys).toSet()
-            chatUserAvatarCache.keys.retainAll(activeAvatarKeys)
-            changed = next != chatUserRecords.values.toList()
-            if (changed) {
-                chatUserRecords.clear()
-                next.forEach { user -> chatUserRecords[user.login.lowercase(Locale.ROOT)] = user }
-                recordedChatUserMessageIds.clear()
-                chatUserAvatarGeneration++
-                _chatUserSuggestions.value = next
+        pendingV2ChatMessages = messages
+        chatUserSuggestionInputGeneration++
+        if (chatUserSuggestionReconciliationJob?.isActive == true) return
+
+        val generation = chatUserSuggestionReconciliationGeneration
+        chatUserSuggestionReconciliationJob = viewModelScope.launch {
+            try {
+                while (isCurrentChatUserReconciliation(generation)) {
+                    delay(CHAT_USER_SUGGESTION_RECONCILE_DELAY_MILLIS)
+                    if (!isCurrentChatUserReconciliation(generation)) break
+
+                    // Snapshot the mutable renderer list once after bursts settle, then do the
+                    // full timeline aggregation away from the UI thread.
+                    val inputGeneration = chatUserSuggestionInputGeneration
+                    val timeline = pendingV2ChatMessages?.toList() ?: break
+                    pendingV2ChatMessages = null
+                    latestV2ChatMessages = timeline
+                    val (previous, presence, avatarCache) = synchronized(chatUserRecords) {
+                        Triple(chatUserRecords.toMap(), chatUserPresence, chatUserAvatarCache.toMap())
+                    }
+                    val next = withContext(Dispatchers.Default) {
+                        chatUserSuggestionAggregator.aggregate(
+                            messages = timeline,
+                            previous = previous,
+                            presence = presence,
+                            avatarFor = { userId, login ->
+                                chatUserAvatarKeys(userId, login).asSequence()
+                                    .mapNotNull(avatarCache::get)
+                                    .firstOrNull()
+                            },
+                        )
+                    }
+                    if (!isCurrentChatUserReconciliation(generation)) break
+
+                    var changed = false
+                    if (inputGeneration == chatUserSuggestionInputGeneration) {
+                        synchronized(chatUserRecords) {
+                            if (isCurrentChatUserReconciliation(generation) &&
+                                inputGeneration == chatUserSuggestionInputGeneration
+                            ) {
+                                val currentByLogin = chatUserRecords.toMap()
+                                val reconciled = next.map { user ->
+                                    val current = currentByLogin[user.login.lowercase(Locale.ROOT)]
+                                    if (user.profileImageUrl == null && current?.profileImageUrl != null) {
+                                        user.copy(profileImageUrl = current.profileImageUrl)
+                                    } else {
+                                        user
+                                    }
+                                }
+                                val activeAvatarKeys = reconciled.flatMap(::chatUserAvatarKeys).toSet()
+                                chatUserAvatarCache.keys.retainAll(activeAvatarKeys)
+                                changed = reconciled != chatUserRecords.values.toList()
+                                if (changed) {
+                                    chatUserRecords.clear()
+                                    reconciled.forEach { user ->
+                                        chatUserRecords[user.login.lowercase(Locale.ROOT)] = user
+                                    }
+                                    recordedChatUserMessageIds.clear()
+                                    chatUserAvatarGeneration++
+                                    _chatUserSuggestions.value = reconciled
+                                }
+                            }
+                        }
+                    }
+                    if (changed) scheduleChatUserAvatarLoad()
+                    if (pendingV2ChatMessages == null) break
+                }
+            } finally {
+                if (generation == chatUserSuggestionReconciliationGeneration) {
+                    chatUserSuggestionReconciliationJob = null
+                }
             }
         }
-        if (changed) scheduleChatUserAvatarLoad()
     }
+
+    private fun isCurrentChatUserReconciliation(generation: Long): Boolean =
+        generation == chatUserSuggestionReconciliationGeneration &&
+                chatUsernameRecommendationsEnabled && chatUserPresenceAutocompleteActive
 
     private fun startChatUserPresenceRefresh() {
         chatUserPresenceRefreshJob?.cancel()
@@ -2334,7 +2395,7 @@ class ChatViewModel(
         chatUserPresence = suggestions
         chatUserPresenceLoadedAtMillis = System.currentTimeMillis()
         if (hasV2ChatUserTimeline) {
-            reconcileV2ChatUsers(latestV2ChatMessages)
+            reconcileV2ChatUsers(pendingV2ChatMessages ?: latestV2ChatMessages)
             return
         }
         val presenceKeys = suggestions.mapTo(HashSet()) { it.login.lowercase(Locale.ROOT) }
@@ -2833,7 +2894,16 @@ class ChatViewModel(
         add("login:${login.lowercase(Locale.ROOT)}")
     }
 
+    private fun cancelChatUserSuggestionReconciliation() {
+        chatUserSuggestionReconciliationGeneration++
+        chatUserSuggestionInputGeneration++
+        chatUserSuggestionReconciliationJob?.cancel()
+        chatUserSuggestionReconciliationJob = null
+        pendingV2ChatMessages = null
+    }
+
     private fun clearChatUserSuggestions() {
+        cancelChatUserSuggestionReconciliation()
         chatUserAvatarLoadJob?.cancel()
         chatUserAvatarLoadJob = null
         if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
@@ -2875,9 +2945,12 @@ class ChatViewModel(
         chatUserPresenceAutocompleteActive = active
         if (active) {
             startChatUserPresenceRefresh()
-        } else if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
-            chatUserPresenceRefreshJob?.cancel()
-            chatUserPresenceRefreshJob = null
+        } else {
+            cancelChatUserSuggestionReconciliation()
+            if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
+                chatUserPresenceRefreshJob?.cancel()
+                chatUserPresenceRefreshJob = null
+            }
         }
     }
 
@@ -8709,6 +8782,7 @@ class ChatViewModel(
         private const val METERED_CACHE_MAX_AGE_MS = 604_800_000L
         private const val MAX_BADGE_CACHE_FILES = 100
         private const val MAX_CHAT_USER_AVATARS = 100
+        private const val CHAT_USER_SUGGESTION_RECONCILE_DELAY_MILLIS = 250L
         private const val CHAT_USER_PRESENCE_CACHE_TTL_MILLIS = 5 * 60_000L
         private const val CHAT_USER_PRESENCE_REFRESH_INTERVAL_MILLIS = 60_000L
         private const val DEFAULT_REWARD_COLOR = "#9146FF"

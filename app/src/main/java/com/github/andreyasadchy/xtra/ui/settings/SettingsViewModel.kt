@@ -15,7 +15,6 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
-import androidx.sqlite.db.SimpleSQLiteQuery
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.db.AppDatabase
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
@@ -287,11 +286,9 @@ class SettingsViewModel(
                     SettingsBackup.validateProxyConfiguration(stagedProxy)
                 }
 
-                appDatabase.query(SimpleSQLiteQuery("PRAGMA wal_checkpoint(FULL)")).close()
                 val database = applicationContext.getDatabasePath("database")
                 val stagedDatabase = File(staging, SettingsBackup.DATABASE_ENTRY)
-                appDatabase.runInTransaction { database.copyTo(stagedDatabase) }
-                val databaseVersion = appDatabase.openHelper.readableDatabase.version
+                val databaseVersion = DatabaseBackupSnapshot.capture(appDatabase, database, stagedDatabase)
 
                 val treeUri = url.toUri()
                 val directoryUri = DocumentsContract.buildDocumentUriUsingTree(

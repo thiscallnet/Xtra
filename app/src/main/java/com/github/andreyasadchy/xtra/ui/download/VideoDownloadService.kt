@@ -1331,9 +1331,10 @@ class VideoDownloadService : LifecycleService() {
                                             words.add(string)
                                             if (!savedEmotes.contains(string)) {
                                                 val bitsCount = string.takeLastWhile { it.isDigit() }
-                                                val cheerEmote = if (bitsCount.isNotEmpty()) {
+                                                val parsedBits = bitsCount.toIntOrNull()
+                                                val cheerEmote = if (parsedBits != null) {
                                                     val bitsName = string.substringBeforeLast(bitsCount)
-                                                    cheerEmoteList.findLast { it.name.equals(bitsName, true) && it.minBits <= bitsCount.toInt() }
+                                                    cheerEmoteList.findLast { it.name.equals(bitsName, true) && it.minBits <= parsedBits }
                                                 } else null
                                                 if (cheerEmote != null) {
                                                     savedEmotes.add(string)

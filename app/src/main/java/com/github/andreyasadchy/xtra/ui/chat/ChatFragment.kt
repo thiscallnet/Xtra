@@ -372,7 +372,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var chatV2RendererVisible = true
     private var selectedV2Message: V2ChatMessage? = null
     private var selectedPinnedMessage: ChatMessage? = null
-    private var v2KnownMessageIds: Set<String>? = null
     private val v2Translations = mutableMapOf<String, String>()
 
     private val sharedSessionOnly: Boolean
@@ -481,6 +480,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var currentRecommendationQuery: String? = null
     private var currentUserRecommendations = emptyList<UsernameRecommendation>()
     private var currentUsernameQuery: String? = null
+    private var usernameAutocompleteActive = false
     private var currentCommandRecommendations = emptyList<ChatCommandDescriptor>()
 
     private data class RecommendationInput(
@@ -1341,7 +1341,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         )
                                     }
                                 }.collectLatest { result ->
+                                    val becameActive = result.autocompleteActive && !usernameAutocompleteActive
+                                    usernameAutocompleteActive = result.autocompleteActive
                                     viewModel.setChatUsernameAutocompleteActive(result.autocompleteActive)
+                                    if (becameActive && useChatV2) {
+                                        chatV2Renderer?.currentMessages()?.let(viewModel::reconcileV2ChatUsers)
+                                    }
                                     val queryChanged = currentUsernameQuery != result.query
                                     currentUsernameQuery = result.query
                                     currentUserRecommendations = result.recommendations
@@ -1479,6 +1484,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 }
                                 currentUserRecommendations = emptyList()
                                 currentUsernameQuery = null
+                                usernameAutocompleteActive = false
                                 userRecommendationAdapter?.submitList(emptyList())
                                 updateRecommendationInput()
                                 updateRecommendationVisibility()
@@ -3744,8 +3750,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         rows: List<ChatRowUiModel>,
     ) {
         viewModel.reconcileV2ChatUsers(messages)
-        val currentIds = messages.mapNotNull { it.id.value }.toSet()
-        v2KnownMessageIds = currentIds
         if (selectedV2Message != null) {
             val legacyMessages = messages.map(::v2MessageToLegacy)
             messageDialog?.updateV2Messages(legacyMessages, rows)
@@ -4282,6 +4286,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     override fun onStop() {
         chatIdentityPopup?.dismiss()
+        usernameAutocompleteActive = false
         viewModel.setChatUsernameAutocompleteActive(false)
         super.onStop()
         if (!useChatV2 && (!requireArguments().getBoolean(KEY_IS_LIVE) || !requireContext().prefs().getBoolean(C.PLAYER_KEEP_CHAT_OPEN, false))) {
@@ -4309,13 +4314,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onDestroyView() {
+        usernameAutocompleteActive = false
         viewModel.setChatUsernameAutocompleteActive(false)
         pinnedMessageTimerJob?.cancel()
         pinnedMessageTimerJob = null
         pinnedMessageBinding = null
         captureActiveOverlayState()
         chatV2ViewportState = chatV2Renderer?.state ?: chatV2ViewportState
-        v2KnownMessageIds = null
         chatV2Renderer?.detach()
         chatV2Renderer = null
         chatBackgroundRequestGeneration++
@@ -4352,6 +4357,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         currentCommandRecommendations = emptyList()
         currentUserRecommendations = emptyList()
         currentUsernameQuery = null
+        usernameAutocompleteActive = false
         disposeChannelPointsIconRequest()
         channelPointsBalanceAnimator?.cancel()
         channelPointsBalanceAnimator = null
