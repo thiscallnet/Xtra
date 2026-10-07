@@ -1343,9 +1343,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 }.collectLatest { result ->
                                     val becameActive = result.autocompleteActive && !usernameAutocompleteActive
                                     usernameAutocompleteActive = result.autocompleteActive
-                                    viewModel.setChatUsernameAutocompleteActive(result.autocompleteActive)
+                                    viewModel.setChatUsernameAutocompleteActive(
+                                        result.autocompleteActive,
+                                        result.recommendations.map { it.user },
+                                    )
                                     if (becameActive && useChatV2) {
-                                        chatV2Renderer?.currentMessages()?.let(viewModel::reconcileV2ChatUsers)
+                                        chatV2Renderer?.currentMessages()?.let { viewModel.reconcileV2ChatUsers(it) }
                                     }
                                     val queryChanged = currentUsernameQuery != result.query
                                     currentUsernameQuery = result.query
@@ -3748,8 +3751,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private fun onV2PublicationChanged(
         messages: List<V2ChatMessage>,
         rows: List<ChatRowUiModel>,
+        evictedHeadCount: Int?,
+        appendedCount: Int?,
     ) {
-        viewModel.reconcileV2ChatUsers(messages)
+        viewModel.reconcileV2ChatUsers(messages, evictedHeadCount, appendedCount)
         if (selectedV2Message != null) {
             val legacyMessages = messages.map(::v2MessageToLegacy)
             messageDialog?.updateV2Messages(legacyMessages, rows)

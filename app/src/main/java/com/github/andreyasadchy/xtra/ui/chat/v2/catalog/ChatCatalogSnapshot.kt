@@ -54,6 +54,12 @@ data class ScopedEmoteCatalog(
     fun viewerPersonalValues(): Collection<ChatCatalogEmote> =
         viewerPersonalSetIds.asSequence().flatMap { personal[it].orEmpty().values.asSequence() }.toList()
 
+    /** Other senders' personal sets and unresolved sets never change the viewer's picker. */
+    fun hasSameSendableValuesAs(other: ScopedEmoteCatalog): Boolean =
+        global === other.global && channel === other.channel && legacyCombined === other.legacyCombined &&
+            viewerPersonalSetIds == other.viewerPersonalSetIds &&
+            viewerPersonalSetIds.all { personal[it] === other.personal[it] }
+
     /**
      * The viewer-sendable name projection. The first entry wins because chat sends a textual
      * token, so exposing more than one entry for a name would not preserve the selected ID.

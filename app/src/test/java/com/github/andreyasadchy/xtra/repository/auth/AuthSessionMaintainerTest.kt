@@ -20,7 +20,6 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
-import org.chromium.net.CronetEngine
 import java.util.concurrent.Executors
 
 class AuthSessionMaintainerTest {
@@ -171,8 +170,7 @@ class AuthSessionMaintainerTest {
 
     private fun unusedAuthRepository() = AuthRepository(
         httpEngine = lazy<HttpEngine?> { null },
-        cronetEngine = lazy<CronetEngine?> { null },
-        cronetExecutor = lazy { Executors.newSingleThreadExecutor() },
+        httpExecutor = lazy { Executors.newSingleThreadExecutor() },
         okHttpClient = lazy { OkHttpClient() },
         json = Json,
     )

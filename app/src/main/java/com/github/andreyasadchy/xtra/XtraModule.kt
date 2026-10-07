@@ -1,7 +1,6 @@
 package com.github.andreyasadchy.xtra
 
 import android.app.Application
-import android.net.Uri
 import android.net.http.HttpEngine
 import android.os.Build
 import android.os.ext.SdkExtensions
@@ -101,10 +100,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
-import org.chromium.net.CronetEngine
-import org.chromium.net.CronetProvider
-import org.chromium.net.QuicOptions
-import org.chromium.net.RequestFinishedInfo
 import java.security.KeyStore
 import java.security.cert.CertificateFactory
 import java.util.concurrent.Executors
@@ -203,73 +198,36 @@ class XtraModule(application: Application) {
     }
 
     val httpEngine = lazy {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= 7) {
-            HttpEngine.Builder(application).apply {
-                addQuicHint("gql.twitch.tv", 443, 443)
-                addQuicHint("www.twitch.tv", 443, 443)
-                addQuicHint("7tv.io", 443, 443)
-                addQuicHint("cdn.7tv.app", 443, 443)
-                addQuicHint("api.betterttv.net", 443, 443)
-            }.build()
+        if (Build.VERSION.SDK_INT >= 34 ||
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= 7
+        ) {
+            try {
+                HttpEngine.Builder(application).apply {
+                    addQuicHint("gql.twitch.tv", 443, 443)
+                    addQuicHint("www.twitch.tv", 443, 443)
+                    addQuicHint("7tv.io", 443, 443)
+                    addQuicHint("cdn.7tv.app", 443, 443)
+                    addQuicHint("api.betterttv.net", 443, 443)
+                }.build()
+            } catch (error: RuntimeException) {
+                Log.w("HttpEngine", "Initialization failed; using OkHttp (${error.javaClass.simpleName})")
+                null
+            } catch (error: LinkageError) {
+                Log.w("HttpEngine", "Platform implementation unavailable; using OkHttp (${error.javaClass.simpleName})")
+                null
+            }
         } else {
             null
         }
     }
 
-    val cronetExecutor = lazy {
+    val httpExecutor = lazy {
         Executors.newCachedThreadPool { runnable ->
-            Thread(runnable, "xtra-cronet").apply {
+            Thread(runnable, "xtra-http").apply {
                 isDaemon = true
             }
         }
     }
-
-    val cronetEngine = lazy {
-        if (CronetProvider.getAllProviders(application).any { it.isEnabled }) {
-            CronetEngine.Builder(application).apply {
-                val userAgent = "Cronet/" + defaultUserAgent.substringAfter("Cronet/", "").substringBefore(')')
-                setUserAgent(userAgent)
-                @QuicOptions.Experimental
-                setQuicOptions(QuicOptions.builder().setHandshakeUserAgent(userAgent).build())
-                addQuicHint("gql.twitch.tv", 443, 443)
-                addQuicHint("www.twitch.tv", 443, 443)
-                addQuicHint("7tv.io", 443, 443)
-                addQuicHint("cdn.7tv.app", 443, 443)
-                addQuicHint("api.betterttv.net", 443, 443)
-            }.build().also {
-                if (BuildConfig.DEBUG) {
-                    it.addRequestFinishedListener(object : RequestFinishedInfo.Listener(cronetExecutor.value) {
-                        override fun onRequestFinished(requestInfo: RequestFinishedInfo) {
-                            requestInfo.responseInfo?.let {
-                                val safeUrl = runCatching {
-                                    Uri.parse(it.url).buildUpon().clearQuery().build().toString()
-                                }.getOrDefault("<invalid-url>")
-                                Log.i("Cronet", "${it.httpStatusCode} ${it.negotiatedProtocol} $safeUrl")
-                                it.allHeadersAsList?.forEach {
-                                    val value = if (it.key.equals("authorization", true) ||
-                                        it.key.equals("cookie", true) ||
-                                        it.key.equals("set-cookie", true) ||
-                                        it.key.equals("client-id", true) ||
-                                        it.key.equals("client-integrity", true) ||
-                                        it.key.equals("x-device-id", true) ||
-                                        it.key.equals("client-session-id", true)
-                                    ) {
-                                        "<redacted>"
-                                    } else {
-                                        it.value
-                                    }
-                                    Log.i("Cronet", "${it.key}: $value")
-                                }
-                            }
-                        }
-                    })
-                }
-            }
-        } else {
-            null
-        }
-    }
-
     val okHttpClient = lazy {
         OkHttpClient.Builder().apply {
             if (BuildConfig.DEBUG) {
@@ -301,7 +259,7 @@ class XtraModule(application: Application) {
     val updateRepository by lazy {
         UpdateRepository(
             application,
-            ReleaseClient(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json),
+            ReleaseClient(httpEngine, httpExecutor, okHttpClient, json),
             diagnosticsLogger = diagnosticsLogger,
         )
     }
@@ -602,7 +560,7 @@ class XtraModule(application: Application) {
         }.build()
 
     val authRepository by lazy {
-        AuthRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json)
+        AuthRepository(httpEngine, httpExecutor, okHttpClient, json)
     }
 
     val authSessionMaintainer by lazy {
@@ -632,8 +590,7 @@ class XtraModule(application: Application) {
     val graphQLRepository by lazy {
         GraphQLRepository(
             httpEngine = httpEngine,
-            cronetEngine = cronetEngine,
-            cronetExecutor = cronetExecutor,
+            httpExecutor = httpExecutor,
             okHttpClient = okHttpClient,
             json = json,
             twitchWebSessionManager = twitchWebSessionManager,
@@ -648,8 +605,7 @@ class XtraModule(application: Application) {
     val twitchPrivateGqlClient by lazy {
         TwitchPrivateGqlClient(
             httpEngine = httpEngine,
-            cronetEngine = cronetEngine,
-            cronetExecutor = cronetExecutor,
+            httpExecutor = httpExecutor,
             okHttpClient = okHttpClient,
             json = json,
             twitchWebSessionManager = twitchWebSessionManager,
@@ -666,7 +622,7 @@ class XtraModule(application: Application) {
     }
 
     val helixRepository by lazy {
-        HelixRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, diagnosticsLogger)
+        HelixRepository(httpEngine, httpExecutor, okHttpClient, json, diagnosticsLogger)
     }
 
     val localChannelFollowsRepository by lazy {
@@ -713,7 +669,7 @@ class XtraModule(application: Application) {
     }
 
     val playerRepository by lazy {
-        PlayerRepository(httpEngine, cronetEngine, cronetExecutor, okHttpClient, json, database.recentEmotes(), database.favoriteEmotes(), database.translatedChannels(), database.videoPositions(), database.videoHistory(), database.playbackStates(), graphQLRepository, helixRepository, diagnosticsLogger)
+        PlayerRepository(httpEngine, httpExecutor, okHttpClient, json, database.recentEmotes(), database.favoriteEmotes(), database.translatedChannels(), database.videoPositions(), database.videoHistory(), database.playbackStates(), graphQLRepository, helixRepository, diagnosticsLogger)
     }
 
     val emoteUsageRepository by lazy {

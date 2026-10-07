@@ -32,15 +32,12 @@ import okhttp3.Headers.Companion.toHeaders
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import org.chromium.net.CronetEngine
-import org.chromium.net.apihelpers.UploadDataProviders
 import java.io.IOException
 import java.util.concurrent.ExecutorService
 
 class TwitchPrivateGqlClient(
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
     private val twitchWebSessionManager: TwitchWebSessionManager,
@@ -203,7 +200,6 @@ class TwitchPrivateGqlClient(
         val url = "https://gql.twitch.tv/gql"
         return when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> postHttpEngine(url, headers, body)
-            networkLibrary == C.CRONET && cronetEngine.value != null -> postCronet(url, headers, body)
             else -> okHttpClient.value.newCall(Request.Builder().url(url).headers(headers.toHeaders()).header("Content-Type", "application/json").post(body.toRequestBody()).build()).executeAsync().use {
                 Response(it.code, it.body.string())
             }
@@ -215,10 +211,10 @@ class TwitchPrivateGqlClient(
     private suspend fun postHttpEngine(url: String, headers: Map<String, String>, body: String): Response {
         val response = suspendCancellableCoroutine<NetworkUtils.HttpEngineResponse> { continuation ->
             val timeout = NetworkUtils.HttpEngineTimeout()
-            val request = httpEngine.value!!.newUrlRequestBuilder(url, cronetExecutor.value, NetworkUtils.ByteArrayUrlCallback(continuation, timeout)).apply {
+            val request = httpEngine.value!!.newUrlRequestBuilder(url, httpExecutor.value, NetworkUtils.ByteArrayUrlCallback(continuation, timeout)).apply {
                 headers.forEach { addHeader(it.key, it.value) }
                 addHeader("Content-Type", "application/json")
-                setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
+                setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), httpExecutor.value)
             }.build()
             timeout.start(request, continuation)
             request.start()
@@ -227,20 +223,6 @@ class TwitchPrivateGqlClient(
         return Response(response.info.httpStatusCode, response.body.decodeToString())
     }
 
-    private suspend fun postCronet(url: String, headers: Map<String, String>, body: String): Response {
-        val response = suspendCancellableCoroutine<NetworkUtils.CronetResponse> { continuation ->
-            val timeout = NetworkUtils.CronetTimeout()
-            val request = cronetEngine.value!!.newUrlRequestBuilder(url, NetworkUtils.ByteArrayCronetCallback(continuation, timeout), cronetExecutor.value).apply {
-                headers.forEach { addHeader(it.key, it.value) }
-                addHeader("Content-Type", "application/json")
-                setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
-            }.build()
-            timeout.start(request, continuation)
-            request.start()
-            continuation.invokeOnCancellation { request.cancel(); timeout.stop() }
-        }
-        return Response(response.info.httpStatusCode, response.body.decodeToString())
-    }
 }
 
 internal fun diagnosticsGraphQlCode(message: String?, statusCode: Int): String {

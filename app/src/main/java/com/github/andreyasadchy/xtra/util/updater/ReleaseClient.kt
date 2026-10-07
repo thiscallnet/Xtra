@@ -18,8 +18,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.chromium.net.CronetEngine
-import java.io.IOException
 import java.text.ParsePosition
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -38,8 +36,7 @@ fun interface ReleaseSource {
 
 class ReleaseClient(
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
 ) : ReleaseSource {
@@ -97,7 +94,6 @@ class ReleaseClient(
 
     private suspend fun fetchElement(url: String, networkLibrary: String?): JsonElement = when {
         networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> fetchWithHttpEngine(url)
-        networkLibrary == C.CRONET && cronetEngine.value != null -> fetchWithCronet(url)
         else -> fetchWithOkHttp(url)
     }
 
@@ -107,7 +103,7 @@ class ReleaseClient(
             val timeout = NetworkUtils.HttpEngineTimeout()
             val request = httpEngine.value!!.newUrlRequestBuilder(
                 url,
-                cronetExecutor.value,
+                httpExecutor.value,
                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
             ).addHeader("User-Agent", "Xtra/${BuildConfig.VERSION_NAME}").build()
             timeout.start(request, continuation)
@@ -122,28 +118,6 @@ class ReleaseClient(
             response.info.httpStatusCode,
             response.body.decodeToString(),
             headers,
-        )
-    }
-
-    private suspend fun fetchWithCronet(url: String): JsonElement {
-        val response = suspendCancellableCoroutine { continuation ->
-            val timeout = NetworkUtils.CronetTimeout()
-            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                url,
-                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                cronetExecutor.value,
-            ).addHeader("User-Agent", "Xtra/${BuildConfig.VERSION_NAME}").build()
-            timeout.start(request, continuation)
-            request.start()
-            continuation.invokeOnCancellation {
-                request.cancel()
-                timeout.stop()
-            }
-        }
-        return parseResponse(
-            response.info.httpStatusCode,
-            response.body.decodeToString(),
-            response.info.allHeaders,
         )
     }
 

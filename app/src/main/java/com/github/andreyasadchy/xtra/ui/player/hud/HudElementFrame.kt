@@ -291,7 +291,9 @@ class HudElementFrame @JvmOverloads constructor(
     }
 
     private fun actionTarget(): View? = clickableChildren()
-        .firstOrNull { it.isEnabled && it.isShown }
+        // Overflow invokes controls omitted from the visible HUD. Child visibility
+        // still defines availability, but the frame and HUD may be hidden.
+        .firstOrNull { it.isEnabled }
 
     private val longPressAction = Runnable {
         val target = longPressTarget

@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.player.clip
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.hls.HlsManifest
+import com.github.andreyasadchy.xtra.ui.player.clip.HlsClipSnapshotMapper.toClipSegmentRef
 
 /**
  * Keeps a small rolling journal of complete HLS segment metadata.
@@ -17,6 +18,8 @@ class LiveClipBufferManager(
 ) {
     private val lock = Any()
     private val history = mutableListOf<ClipSegmentRef>()
+    private val retainedSequences = hashSetOf<Long>()
+    private var retainedDurationUs = 0L
     private var retentionUs = retentionUs.coerceAtLeast(MIN_CLIP_BUFFER_US)
     private var generation = 0L
     private var renditionId: String? = null
@@ -29,14 +32,14 @@ class LiveClipBufferManager(
 
     fun startNewGeneration(): Long = synchronized(lock) {
         generation += 1L
-        history.clear()
+        clearHistory()
         renditionId = null
         generation
     }
 
     fun reset() = synchronized(lock) {
         generation += 1L
-        history.clear()
+        clearHistory()
         renditionId = null
     }
 
@@ -56,25 +59,24 @@ class LiveClipBufferManager(
                 return false
             }
             if (renditionId != currentRenditionId) {
-                history.clear()
+                clearHistory()
                 renditionId = currentRenditionId
             }
 
-            val existingSequences = history.asSequence()
-                .filter { it.generation == generation && it.renditionId == currentRenditionId }
-                .map { it.mediaSequence }
-                .toHashSet()
-            val mappedSegments = HlsClipSnapshotMapper.fromManifest(manifest, generation)
-                .segments
-                .associateBy { it.mediaSequence }
+            var needsSort = false
             playlist.segments.forEachIndexed { index, segment ->
                 val mediaSequence = playlist.mediaSequence + index
-                if (mediaSequence in existingSequences || segment.durationUs <= 0L) {
+                if (mediaSequence in retainedSequences || segment.durationUs <= 0L) {
                     return@forEachIndexed
                 }
-                mappedSegments[mediaSequence]?.let(history::add)
+                if (history.lastOrNull()?.mediaSequence?.let { it > mediaSequence } == true) {
+                    needsSort = true
+                }
+                history.add(segment.toClipSegmentRef(playlist, generation, currentRenditionId, mediaSequence))
+                retainedSequences.add(mediaSequence)
+                retainedDurationUs += segment.durationUs
             }
-            history.sortBy { it.mediaSequence }
+            if (needsSort) history.sortBy { it.mediaSequence }
             trimHistory()
             return true
         }
@@ -176,8 +178,18 @@ class LiveClipBufferManager(
     }
 
     private fun trimHistory() {
-        while (history.sumOf { it.durationUs } > retentionUs && history.size > 1) {
-            history.removeAt(0)
+        var removedCount = 0
+        while (retainedDurationUs > retentionUs && history.size - removedCount > 1) {
+            val removed = history[removedCount++]
+            retainedDurationUs -= removed.durationUs
+            retainedSequences.remove(removed.mediaSequence)
         }
+        if (removedCount > 0) history.subList(0, removedCount).clear()
+    }
+
+    private fun clearHistory() {
+        history.clear()
+        retainedSequences.clear()
+        retainedDurationUs = 0L
     }
 }

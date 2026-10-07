@@ -3,17 +3,13 @@ package com.github.andreyasadchy.xtra.ui.settings
 import android.Manifest
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
-import android.app.admin.DeviceAdminReceiver
-import android.app.admin.DevicePolicyManager
 import android.app.NotificationManager
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ActivityInfo
-import android.graphics.Color
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
@@ -116,7 +112,6 @@ import com.github.andreyasadchy.xtra.ui.main.WatchStreakReminderNotifier
 import com.github.andreyasadchy.xtra.repository.WatchStreakReminderStateStore
 import com.github.andreyasadchy.xtra.ui.player.PhoneChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.player.persistPhoneChatOverlayConfig
-import com.github.andreyasadchy.xtra.ui.player.phoneChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
 import com.github.andreyasadchy.xtra.ui.tv.TvChatOverlayAnchor
 import com.github.andreyasadchy.xtra.ui.tv.TvChatOverlayConfig
@@ -132,7 +127,6 @@ import com.github.andreyasadchy.xtra.ui.update.UpdateUiAction
 import com.github.andreyasadchy.xtra.ui.update.UpdateUiMapper
 import com.github.andreyasadchy.xtra.ui.update.UpdateUiModel
 import com.github.andreyasadchy.xtra.ui.update.UpdateUiStatus
-import com.github.andreyasadchy.xtra.ui.update.toUiModel
 import com.github.andreyasadchy.xtra.util.updater.UpdateDiagnostics
 import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
 import com.github.andreyasadchy.xtra.util.C
@@ -170,7 +164,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.chromium.net.CronetProvider
 import java.util.Collections
 import java.util.Locale
 import java.util.UUID
@@ -3759,13 +3752,10 @@ class SettingsActivity : AppCompatActivity() {
             findPreference<ListPreference>(C.NETWORK_LIBRARY)?.apply {
                 val supported = buildList {
                     add(C.AUTOMATIC)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                    if (Build.VERSION.SDK_INT >= 34 || Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
                         SdkExtensions.getExtensionVersion(Build.VERSION_CODES.S) >= 7
                     ) {
                         add(C.HTTP_ENGINE)
-                    }
-                    if (CronetProvider.getAllProviders(requireContext()).any { it.isEnabled }) {
-                        add(C.CRONET)
                     }
                     add(C.OKHTTP)
                 }
@@ -4183,6 +4173,3 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 }
-
-
-

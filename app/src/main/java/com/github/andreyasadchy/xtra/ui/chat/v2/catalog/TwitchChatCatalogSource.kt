@@ -2,6 +2,8 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.catalog
 
 import android.content.Context
 import android.graphics.Color
+import android.os.Trace
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
@@ -20,6 +22,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.LinkedHashMap
+import java.util.IdentityHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.async
@@ -85,16 +88,20 @@ class TwitchChatCatalogSource(
 
     override suspend fun load(): ChatCatalogLoadResult = load(force = false)
 
-    override suspend fun load(force: Boolean): ChatCatalogLoadResult = withContext(Dispatchers.IO) {
+    override suspend fun load(force: Boolean): ChatCatalogLoadResult = load(force, null)
+
+    override suspend fun load(force: Boolean, previousAttempt: ChatCatalogLoadResult?): ChatCatalogLoadResult = withContext(Dispatchers.IO) {
+        val previous = previousAttempt.takeUnless { force }
         val network = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
         val helix = TwitchApiHelper.getHelixHeaders(context)
         val gql = TwitchApiHelper.getGQLHeaders(context, true)
         val useWebp = true
         supervisorScope {
-            val sevenTv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_STV, true)) loadSevenTv(network, useWebp, force) else emptyProviderUpdate() }
-            val bttv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true)) loadBttv(network, useWebp, force) else emptyProviderUpdate() }
-            val ffz = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)) loadFfz(network, useWebp, force) else emptyProviderUpdate() }
+            val sevenTv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_STV, true)) previous?.sevenTv?.takeUnless { it.hasFailedScope } ?: loadSevenTv(network, useWebp, force, previous?.sevenTv) else emptyProviderUpdate() }
+            val bttv = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_BTTV, true)) previous?.bttv?.takeUnless { it.hasFailedScope } ?: loadBttv(network, useWebp, force, previous?.bttv) else emptyProviderUpdate() }
+            val ffz = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)) previous?.ffz?.takeUnless { it.hasFailedScope } ?: loadFfz(network, force, previous?.ffz) else emptyProviderUpdate() }
             val twitch = async<ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>?> {
+                previous?.twitch?.let { return@async it }
                 try {
                     val emotes = playerRepository.loadUserEmotes(
                         network,
@@ -111,7 +118,7 @@ class TwitchChatCatalogSource(
                     null
                 }
             }
-            val cheermotes = async { provider {
+            val cheermotes = async { previous?.cheermotes ?: provider {
                 playerRepository.loadCheerEmotes(
                     network,
                     helix,
@@ -150,9 +157,10 @@ class TwitchChatCatalogSource(
         network: String?,
         useWebp: Boolean,
         force: Boolean,
+        previous: ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>? = null,
     ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
-        var channelSetId: String? = null
-        val global = scopeUpdate(channel = false) {
+        var channelSetId: String? = previous?.channelSetId
+        val global = previous?.global?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = false) {
             val response = globalCatalogCache.get(GlobalCatalogKey.SEVEN_TV, force) {
                 playerRepository.loadGlobalSTVEmoteSetResponse(network).also {
                     playerRepository.loadSTVEmoteSet(it, useWebp, true)
@@ -160,7 +168,7 @@ class TwitchChatCatalogSource(
             }
             playerRepository.loadSTVEmoteSet(response, useWebp, true).second
         }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.GLOBAL) }
-        val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
+        val channel = previous?.channel?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = true, emptyValue = emptyList()) {
             val user = playerRepository.loadSTVUser(
                 playerRepository.loadSTVUserResponse(network, channelId, throwOnHttpError = true),
                 useWebp,
@@ -178,8 +186,8 @@ class TwitchChatCatalogSource(
                 ).second
             } else emptyList()
         }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.CHANNEL) }
-        var viewerPersonalSetIds = emptySet<String>()
-        val personal = context.tokenPrefs().getString(C.USER_ID, null)?.let { accountId ->
+        var viewerPersonalSetIds = previous?.viewerPersonalSetIds.orEmpty()
+        val personal = previous?.personal?.takeIf { it is ScopeUpdate.Success } ?: context.tokenPrefs().getString(C.USER_ID, null)?.let { accountId ->
             // Personal emotes are optional. A missing entitlement query must not make the
             // channel catalog retry forever or hide the global/channel scopes.
             scopeUpdate(channel = true, emptyValue = emptyMap()) {
@@ -220,8 +228,9 @@ class TwitchChatCatalogSource(
         network: String?,
         useWebp: Boolean,
         force: Boolean,
+        previous: ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>? = null,
     ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
-        val global = scopeUpdate(channel = false) {
+        val global = previous?.global?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = false) {
             val response = globalCatalogCache.get(GlobalCatalogKey.BTTV, force) {
                 playerRepository.loadGlobalBTTVEmotesResponse(network).also {
                     playerRepository.loadGlobalBTTVEmotes(it, useWebp)
@@ -229,7 +238,7 @@ class TwitchChatCatalogSource(
             }
             playerRepository.loadGlobalBTTVEmotes(response, useWebp)
         }.map { emoteMap(it, ChatAssetProvider.BTTV, ChatEmoteScope.GLOBAL) }
-        val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
+        val channel = previous?.channel?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = true, emptyValue = emptyList()) {
             playerRepository.loadBTTVEmotes(
                 playerRepository.loadBTTVEmotesResponse(
                     network,
@@ -244,25 +253,24 @@ class TwitchChatCatalogSource(
 
     private suspend fun loadFfz(
         network: String?,
-        useWebp: Boolean,
         force: Boolean,
+        previous: ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>? = null,
     ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
-        val global = scopeUpdate(channel = false) {
+        val global = previous?.global?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = false) {
             val response = globalCatalogCache.get(GlobalCatalogKey.FFZ, force) {
                 playerRepository.loadGlobalFFZEmotesResponse(network).also {
-                    playerRepository.loadGlobalFFZEmotes(it, useWebp)
+                    playerRepository.loadGlobalFFZEmotes(it)
                 }
             }
-            playerRepository.loadGlobalFFZEmotes(response, useWebp)
+            playerRepository.loadGlobalFFZEmotes(response)
         }.map { emoteMap(it, ChatAssetProvider.FFZ, ChatEmoteScope.GLOBAL) }
-        val channel = scopeUpdate(channel = true, emptyValue = emptyList()) {
+        val channel = previous?.channel?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = true, emptyValue = emptyList()) {
             playerRepository.loadFFZEmotes(
                 playerRepository.loadFFZEmotesResponse(
                     network,
                     channelId,
                     throwOnHttpError = true,
                 ),
-                useWebp,
             )
         }.map { emoteMap(it, ChatAssetProvider.FFZ, ChatEmoteScope.CHANNEL) }
         return scopedProviderUpdate(global, channel)
@@ -581,6 +589,11 @@ class TwitchChatCatalogCache(
     channelId: String,
 ) : ChatCatalogCache {
     private val context = context.applicationContext
+    private val writeMutex = Mutex()
+    private var encodedSnapshot: ChatCatalogSnapshot? = null
+    private var encodedPayload: String? = null
+    private var encodedEmoteMaps = IdentityHashMap<Map<String, ChatCatalogEmote>, String>()
+    private var encodedBadgesPayload = "[]"
     private val file = File(
         File(context.filesDir, "chat-v2/catalog"),
         channelId.replace(Regex("[^A-Za-z0-9._-]"), "_") + ".json",
@@ -632,20 +645,28 @@ class TwitchChatCatalogCache(
         catalogConfigFingerprint: String?,
         badgeConfigFingerprint: String?,
     ) = withContext(Dispatchers.IO) {
-        file.parentFile?.mkdirs()
-        val temp = File(file.parentFile, "${file.name}.tmp")
-        temp.writeText(
-            encode(
+        writeMutex.withLock {
+            file.parentFile?.mkdirs()
+            val temp = File(file.parentFile, "${file.name}.tmp")
+            val metadata = encode(
                 snapshot,
                 fetchedAtMs,
                 badgesFetchedAtMs,
                 catalogConfigFingerprint,
                 badgeConfigFingerprint,
-            ).toString(),
-        )
-        if (!temp.renameTo(file)) {
-            file.delete()
-            check(temp.renameTo(file)) { "Unable to publish chat catalog cache" }
+            )
+            val payload = requireNotNull(encodedPayload)
+            // Write the cached payload directly. Joining it to freshness metadata copies the
+            // entire catalog several times, even when none of its emotes changed.
+            temp.bufferedWriter().use { writer ->
+                writer.write(metadata, 0, metadata.length - 1)
+                writer.write(",")
+                writer.write(payload, 1, payload.length - 1)
+            }
+            if (!temp.renameTo(file)) {
+                file.delete()
+                check(temp.renameTo(file)) { "Unable to publish chat catalog cache" }
+            }
         }
     }
 
@@ -655,20 +676,50 @@ class TwitchChatCatalogCache(
         badgesFetchedAtMs: Long,
         catalogConfigFingerprint: String?,
         badgeConfigFingerprint: String?,
-    ): JSONObject = JSONObject().apply {
-        put("schemaVersion", 9)
-        put("revision", snapshot.revision)
-        put("provider", "combined")
-        put("fetchedAt", fetchedAtMs)
-        put("badgesFetchedAt", badgesFetchedAtMs)
-        putOpt("catalogConfigFingerprint", catalogConfigFingerprint)
-        putOpt("badgeConfigFingerprint", badgeConfigFingerprint)
-        put("twitch", encodeEmotes(snapshot.twitch))
-        put("sevenTv", encodeScopedEmotes(snapshot.sevenTv))
-        putOpt("sevenTvChannelSetId", snapshot.sevenTvChannelSetId)
-        put("bttv", encodeScopedEmotes(snapshot.bttv))
-        put("ffz", encodeScopedEmotes(snapshot.ffz))
-        put("badges", encodeBadges(snapshot.badges))
+    ): String {
+        val previous = encodedSnapshot
+        if (previous == null || previous.twitch != snapshot.twitch ||
+            previous.sevenTv != snapshot.sevenTv || previous.sevenTvChannelSetId != snapshot.sevenTvChannelSetId ||
+            previous.bttv != snapshot.bttv || previous.ffz != snapshot.ffz || previous.badges != snapshot.badges
+        ) {
+            if (BuildConfig.PERF_DIAGNOSTICS) Trace.beginSection("Xtra.ChatV2.catalogEncode")
+            try {
+                val nextMaps = IdentityHashMap<Map<String, ChatCatalogEmote>, String>()
+                if (previous == null || previous.badges != snapshot.badges) {
+                    encodedBadgesPayload = encodeBadges(snapshot.badges).toString()
+                }
+                encodedPayload = buildString {
+                    append("{\"twitch\":").append(encodedEmotes(snapshot.twitch, nextMaps))
+                    append(",\"sevenTv\":").append(encodeScopedEmotes(snapshot.sevenTv, nextMaps))
+                    snapshot.sevenTvChannelSetId?.let {
+                        append(",\"sevenTvChannelSetId\":").append(JSONObject.quote(it))
+                    }
+                    append(",\"bttv\":").append(encodeScopedEmotes(snapshot.bttv, nextMaps))
+                    append(",\"ffz\":").append(encodeScopedEmotes(snapshot.ffz, nextMaps))
+                    append(",\"badges\":").append(encodedBadgesPayload).append('}')
+                }
+                // Retain only maps in this snapshot, including each independent personal set.
+                encodedEmoteMaps = nextMaps
+            } finally {
+                if (BuildConfig.PERF_DIAGNOSTICS) Trace.endSection()
+            }
+        } else if (BuildConfig.PERF_DIAGNOSTICS) {
+            Trace.beginSection("Xtra.ChatV2.catalogEncodeReuse")
+            Trace.endSection()
+        }
+        encodedSnapshot = snapshot
+        val metadata = JSONObject().apply {
+            put("schemaVersion", 9)
+            put("revision", snapshot.revision)
+            put("provider", "combined")
+            put("fetchedAt", fetchedAtMs)
+            put("badgesFetchedAt", badgesFetchedAtMs)
+            putOpt("catalogConfigFingerprint", catalogConfigFingerprint)
+            putOpt("badgeConfigFingerprint", badgeConfigFingerprint)
+        }.toString()
+        // Only freshness/revision metadata changes on an unchanged catalog write. Preserve
+        // the schema and atomic file publish without serializing thousands of emotes again.
+        return metadata
     }
 
     private fun encodeEmotes(map: Map<String, ChatCatalogEmote>) = JSONArray().apply {
@@ -686,19 +737,32 @@ class TwitchChatCatalogCache(
         }
     }
 
-    private fun encodeScopedEmotes(scoped: ScopedEmoteCatalog) = JSONObject().apply {
-        put("global", encodeEmotes(scoped.global))
-        put("channel", encodeEmotes(scoped.channel))
-        put("personal", JSONObject().apply {
-            scoped.personal.forEach { (setId, emotes) -> put(setId, encodeEmotes(emotes)) }
-        })
-        put("legacyCombined", encodeEmotes(scoped.legacyCombined))
-        put("pending", JSONObject().apply {
-            scoped.pending.forEach { (setId, emotes) -> put(setId, encodeEmotes(emotes)) }
-        })
-        put("viewerPersonalSetIds", JSONArray().apply {
-            scoped.viewerPersonalSetIds.forEach(::put)
-        })
+    private fun encodedEmotes(
+        map: Map<String, ChatCatalogEmote>,
+        nextMaps: IdentityHashMap<Map<String, ChatCatalogEmote>, String>,
+    ): String = (nextMaps[map] ?: encodedEmoteMaps[map] ?: encodeEmotes(map).toString()).also { nextMaps[map] = it }
+
+    private fun encodeScopedEmotes(
+        scoped: ScopedEmoteCatalog,
+        nextMaps: IdentityHashMap<Map<String, ChatCatalogEmote>, String>,
+    ): String = buildString {
+        fun appendSets(sets: Map<String, Map<String, ChatCatalogEmote>>) {
+            append('{')
+            sets.entries.forEachIndexed { index, (setId, emotes) ->
+                if (index > 0) append(',')
+                append(JSONObject.quote(setId)).append(':').append(encodedEmotes(emotes, nextMaps))
+            }
+            append('}')
+        }
+        append("{\"global\":").append(encodedEmotes(scoped.global, nextMaps))
+        append(",\"channel\":").append(encodedEmotes(scoped.channel, nextMaps))
+        append(",\"personal\":")
+        appendSets(scoped.personal)
+        append(",\"legacyCombined\":").append(encodedEmotes(scoped.legacyCombined, nextMaps))
+        append(",\"pending\":")
+        appendSets(scoped.pending)
+        append(",\"viewerPersonalSetIds\":").append(JSONArray(scoped.viewerPersonalSetIds.toList()))
+        append('}')
     }
 
     private fun encodeBadges(map: Map<String, ChatCatalogBadge>) = JSONArray().apply {

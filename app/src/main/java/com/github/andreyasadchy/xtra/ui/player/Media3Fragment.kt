@@ -123,6 +123,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var clipStatusGeneration = 0L
     private var clipStatusRequestInFlight = false
     private var clipStatusQueued = false
+    private var clipControlSupported: Boolean? = null
     private var vodClipMediaItemId: String? = null
     private var vodClipSegmentDurationsUs = IntArray(0)
     private var vodClipSegmentByteRanges = LongArray(0)
@@ -422,6 +423,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var lastLiveBufferHealthDiagnosticMs = 0L
     private var hasEstablishedLiveBufferHealth = false
     private var lastLiveBufferHealthOffsetMs: Long? = null
+    private var renderedLiveBufferHealthReading: LiveBufferHealthTrend.Reading? = null
+    private val liveBufferHealthWindow = Timeline.Window()
     private val updateProgressAction = Runnable { if (view != null) updateProgress() }
     private var lastSurfaceViewAttachedAtMs: Long? = null
     private var lastSurfaceViewDetachedAtMs: Long? = null
@@ -1217,7 +1220,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         }
                         resetLiveBufferHealth()
                         updateProgress()
-                        refreshClipAvailability()
+                        refreshClipAvailability(resetAvailability = true)
                         applyPendingAudioOnlySourceSwitch()
                         applyPendingPlaybackPrepareAfterChatOnly()
                         if (isLiveRewindStateSyncPending() && mediaItem != null && videoType == STREAM) {
@@ -3349,25 +3352,26 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         shouldShow: Boolean,
     ) {
         val nowMs = SystemClock.elapsedRealtime()
-        val isLiveVideo = shouldShow && currentPlayer?.playWhenReady == true &&
-            currentPlayer.isCurrentMediaItemLive &&
-            currentPlayer.videoSize.width > 0 && currentPlayer.videoSize.height > 0
-        if (!isLiveVideo) {
-            resetLiveBufferHealth()
-            liveBufferHealthTrend.update(null, null, nowMs)
+        val livePlayer = currentPlayer?.takeIf {
+            shouldShow && it.playWhenReady && it.isCurrentMediaItemLive &&
+                it.videoSize.width > 0 && it.videoSize.height > 0
         }
-        val state = currentPlayer?.playbackState
-        // MediaController extrapolates position, but returns cached buffer duration and live offset.
-        // Use endpoints in the same current window so the HUD counts down between session updates.
-        val bufferMs = currentPlayer?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0L) }
-        val currentOffsetMs = currentPlayer?.let { playback ->
+        val state = livePlayer?.playbackState
+        // These endpoints are needed only for the live buffer HUD. MediaController extrapolates
+        // position, so use the current window to keep its displayed live offset counting down.
+        val bufferMs = livePlayer?.let { (it.bufferedPosition - it.currentPosition).coerceAtLeast(0L) }
+        val currentOffsetMs = livePlayer?.let { playback ->
             val timeline = playback.currentTimeline
-            val window = if (!timeline.isEmpty) timeline.getWindow(playback.currentMediaItemIndex, Timeline.Window()) else null
+            val window = if (!timeline.isEmpty) {
+                timeline.getWindow(playback.currentMediaItemIndex, liveBufferHealthWindow)
+            } else {
+                null
+            }
             if (window != null && window.windowStartTimeMs != Media3C.TIME_UNSET) {
                 (window.currentUnixTimeMs - window.windowStartTimeMs - playback.currentPosition).coerceAtLeast(0L)
             } else playback.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET && it >= 0L }
         }
-        if (isLiveVideo && state == Player.STATE_READY) {
+        if (livePlayer != null && state == Player.STATE_READY) {
             if (bufferMs != null && currentOffsetMs != null) {
                 hasEstablishedLiveBufferHealth = true
                 lastLiveBufferHealthOffsetMs = currentOffsetMs
@@ -3376,8 +3380,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 lastLiveBufferHealthOffsetMs = null
             }
         }
-        val allowBuffering = isLiveVideo && hasEstablishedLiveBufferHealth && state == Player.STATE_BUFFERING
-        val reading = if (isLiveVideo && (state == Player.STATE_READY || allowBuffering)) {
+        val allowBuffering = livePlayer != null && hasEstablishedLiveBufferHealth && state == Player.STATE_BUFFERING
+        val reading = if (livePlayer != null && (state == Player.STATE_READY || allowBuffering)) {
             val offsetMs = currentOffsetMs ?: lastLiveBufferHealthOffsetMs.takeIf { allowBuffering }
             if (offsetMs != null && bufferMs != null) {
                 lastLiveBufferHealthOffsetMs = currentOffsetMs ?: lastLiveBufferHealthOffsetMs
@@ -3386,16 +3390,17 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 liveBufferHealthTrend.update(null, null, nowMs)
             }
         } else {
-            if (!allowBuffering) resetLiveBufferHealth()
-            liveBufferHealthTrend.update(null, null, nowMs)
+            resetLiveBufferHealth()
+            null
         }
 
         val healthView = binding.playerControls.bufferHealthGroup
         val wasVisible = healthView.isVisible
         if (reading == null) {
-            healthView.visibility = View.GONE
+            if (healthView.visibility != View.GONE) healthView.visibility = View.GONE
+            renderedLiveBufferHealthReading = null
         } else {
-            healthView.visibility = View.VISIBLE
+            if (healthView.visibility != View.VISIBLE) healthView.visibility = View.VISIBLE
             if (BuildConfig.DEBUG && nowMs - lastLiveBufferHealthDiagnosticMs >= 1_000L) {
                 lastLiveBufferHealthDiagnosticMs = nowMs
                 Log.d("XtraBufferHealth", "alternate=${viewModel.controlledVaftActive} " +
@@ -3403,29 +3408,32 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     "bufferMs=$bufferMs cachedBufferMs=${currentPlayer?.totalBufferedDuration} " +
                     "offsetMs=$currentOffsetMs display=${reading.bufferSeconds}/${reading.liveOffsetSeconds}")
             }
-            val trendSuffix = if (reading.isDecreasing) "↓" else ""
-            healthView.text = "${reading.bufferSeconds}s$trendSuffix / ${reading.liveOffsetSeconds}s"
-            val buffered = resources.getQuantityString(
-                R.plurals.player_buffered_seconds,
-                reading.bufferSeconds,
-                reading.bufferSeconds,
-            )
-            val trendDescription = if (reading.isDecreasing) {
-                getString(R.string.player_buffer_decreasing)
-            } else {
-                ""
+            if (reading != renderedLiveBufferHealthReading) {
+                renderedLiveBufferHealthReading = reading
+                val trendSuffix = if (reading.isDecreasing) "↓" else ""
+                healthView.text = "${reading.bufferSeconds}s$trendSuffix / ${reading.liveOffsetSeconds}s"
+                val buffered = resources.getQuantityString(
+                    R.plurals.player_buffered_seconds,
+                    reading.bufferSeconds,
+                    reading.bufferSeconds,
+                )
+                val trendDescription = if (reading.isDecreasing) {
+                    getString(R.string.player_buffer_decreasing)
+                } else {
+                    ""
+                }
+                val behindLive = resources.getQuantityString(
+                    R.plurals.player_live_behind_seconds,
+                    reading.liveOffsetSeconds,
+                    reading.liveOffsetSeconds,
+                )
+                healthView.contentDescription = getString(
+                    R.string.player_buffer_health_description,
+                    buffered,
+                    trendDescription,
+                    behindLive,
+                )
             }
-            val behindLive = resources.getQuantityString(
-                R.plurals.player_live_behind_seconds,
-                reading.liveOffsetSeconds,
-                reading.liveOffsetSeconds,
-            )
-            healthView.contentDescription = getString(
-                R.string.player_buffer_health_description,
-                buffered,
-                trendDescription,
-                behindLive,
-            )
         }
         if (healthView.isVisible != wasVisible) {
             binding.playerControls.root.refreshAvailabilityIfChanged()
@@ -3436,6 +3444,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         hasEstablishedLiveBufferHealth = false
         lastLiveBufferHealthOffsetMs = null
         liveBufferHealthTrend.reset()
+        renderedLiveBufferHealthReading = null
         if (view != null) binding.playerControls.bufferHealthGroup.visibility = View.GONE
     }
 
@@ -5353,29 +5362,37 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         qualityRetryAttempts = 0
     }
 
-    private fun configureClipControl() {
+    private fun configureClipControl(resetAvailability: Boolean = true) {
         if (view == null) return
         val supported = videoType == STREAM || videoType == VIDEO
         val blockedByRewind = videoType == STREAM && isLiveRewindActiveOrSwitching()
+        val availableControl = supported && !blockedByRewind
         with(binding.playerControls.clip) {
-            if (!supported || blockedByRewind) {
-                visibility = View.GONE
+            if (clipControlSupported != availableControl) {
+                clipControlSupported = availableControl
+                visibility = if (availableControl) View.VISIBLE else View.GONE
                 isEnabled = false
-                setOnClickListener(null)
-            } else {
-                visibility = View.VISIBLE
-                isEnabled = false
-                setOnClickListener {
-                    showController(force = true)
-                    prepareLiveClip()
+                if (availableControl) {
+                    setOnClickListener {
+                        showController(force = true)
+                        prepareLiveClip()
+                    }
+                } else {
+                    setOnClickListener(null)
                 }
+            }
+            if (resetAvailability || !availableControl) {
+                if (isEnabled) isEnabled = false
+                clipStatusGeneration++
+                clipStatusRequestInFlight = false
+                clipStatusQueued = false
             }
         }
     }
 
-    private fun refreshClipAvailability() {
+    private fun refreshClipAvailability(resetAvailability: Boolean = false) {
         if (view == null) return
-        configureClipControl()
+        configureClipControl(resetAvailability)
         if ((videoType != STREAM && videoType != VIDEO) || isLiveRewindActiveOrSwitching()) return
         val controller = player ?: return
         if (clipStatusRequestInFlight) {
@@ -5396,7 +5413,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 if (videoType == STREAM) extras.getBoolean(PlaybackService.LIVE_CLIP_AVAILABLE)
                 else extras.getBoolean(PlaybackService.VOD_CLIP_AVAILABLE)
             } == true
-            binding.playerControls.clip.isEnabled = available
+            if (binding.playerControls.clip.isEnabled != available) {
+                binding.playerControls.clip.isEnabled = available
+            }
             if (clipStatusQueued) {
                 clipStatusQueued = false
                 refreshClipAvailability()
@@ -5954,6 +5973,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         clipStatusGeneration++
         clipStatusRequestInFlight = false
         clipStatusQueued = false
+        clipControlSupported = null
         clipPreparationSnackbar?.dismiss()
         clipPreparationSnackbar = null
         if (clipPreparationJob?.isActive == true) {
@@ -5981,6 +6001,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         videoOutputCover = null
         resetProgressRenderState()
         renderedPlaybackChrome = null
+        renderedLiveBufferHealthReading = null
         binding.playerControls.root.removeCallbacks(updateProgressAction)
         binding.liveCaptionView.clearCaption()
         logVideoSurfaceBinding("on_destroy_view", player, view?.let { videoOutputView })

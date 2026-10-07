@@ -18,6 +18,13 @@ class ChatColorResolver(
 ) {
     private companion object {
         const val SECONDARY_TEXT_MIN_CONTRAST = 4.5
+        val HEX_COLOR = Regex("#[0-9a-fA-F]{6}")
+        // The input is an eight-bit channel. Reuse the exact same gamma calculation
+        // across readability searches instead of evaluating pow for every candidate.
+        val LINEAR_COMPONENTS = DoubleArray(256) { value ->
+            val normalized = value / 255.0
+            if (normalized <= 0.03928) normalized / 12.92 else ((normalized + 0.055) / 1.055).pow(2.4)
+        }
     }
 
     private data class LightnessCandidate(
@@ -34,14 +41,12 @@ class ChatColorResolver(
     fun resolve(raw: String?, identity: String? = null, @ColorInt rowBackground: Int = background): Int {
         val key = "${raw.orEmpty()}|${identity.orEmpty()}|$readable|$randomFallback|$neutralFallback|$rowBackground"
         return cache.getOrPut(key) {
-            val parsed = parseColor(raw)
-            val identityFallback = fallbackColor(identity, rowBackground)
-            val color = parsed?.takeUnless(::isNearWhite) ?: identityFallback
+            val color = parseColor(raw)?.takeUnless(::isNearWhite) ?: fallbackColor(identity, rowBackground)
             val readableColor = if (readable) makeReadable(color, rowBackground) else color
             if (hasContrast(readableColor, rowBackground) && !isNearWhite(readableColor)) {
                 readableColor
             } else {
-                identityFallback
+                fallbackColor(identity, rowBackground)
             }
         }
     }
@@ -157,22 +162,15 @@ class ChatColorResolver(
     }
 
     private fun contrastRatio(@ColorInt color: Int, @ColorInt rowBackground: Int): Double {
-        fun channel(value: Int): Double {
-            val normalized = value / 255.0
-            return if (normalized <= 0.03928) normalized / 12.92 else ((normalized + 0.055) / 1.055).pow(2.4)
-        }
-        val luminance = 0.2126 * channel(color ushr 16 and 0xff) + 0.7152 * channel(color ushr 8 and 0xff) + 0.0722 * channel(color and 0xff)
-        val backgroundLuminance = 0.2126 * channel(rowBackground ushr 16 and 0xff) + 0.7152 * channel(rowBackground ushr 8 and 0xff) + 0.0722 * channel(rowBackground and 0xff)
+        val luminance = 0.2126 * linear(color ushr 16 and 0xff) + 0.7152 * linear(color ushr 8 and 0xff) + 0.0722 * linear(color and 0xff)
+        val backgroundLuminance = 0.2126 * linear(rowBackground ushr 16 and 0xff) + 0.7152 * linear(rowBackground ushr 8 and 0xff) + 0.0722 * linear(rowBackground and 0xff)
         return (maxOf(luminance, backgroundLuminance) + 0.05) / (minOf(luminance, backgroundLuminance) + 0.05)
     }
 
     private fun isLight(@ColorInt color: Int): Boolean =
         (0.2126 * linear(red(color)) + 0.7152 * linear(green(color)) + 0.0722 * linear(blue(color))) > 0.45
 
-    private fun linear(value: Int): Double {
-        val normalized = value / 255.0
-        return if (normalized <= 0.03928) normalized / 12.92 else ((normalized + 0.055) / 1.055).pow(2.4)
-    }
+    private fun linear(value: Int): Double = LINEAR_COMPONENTS[value]
 
     private fun isNearWhite(@ColorInt color: Int): Boolean =
         red(color) >= 245 && green(color) >= 245 && blue(color) >= 245
@@ -243,7 +241,7 @@ class ChatColorResolver(
 
     @ColorInt
     private fun parseColor(raw: String?): Int? {
-        val value = raw?.trim()?.takeIf { it.matches(Regex("#[0-9a-fA-F]{6}")) } ?: return null
+        val value = raw?.trim()?.takeIf { it.matches(HEX_COLOR) } ?: return null
         return (value.substring(1).toLong(16).toInt() or 0xFF000000.toInt())
     }
 

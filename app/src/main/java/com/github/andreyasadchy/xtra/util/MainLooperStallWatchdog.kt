@@ -38,8 +38,9 @@ internal object MainLooperStallWatchdog {
         executor.scheduleAtFixedRate(
             {
                 val now = SystemClock.uptimeMillis()
-                mainHandler.post { lastHeartbeatMs = SystemClock.uptimeMillis() }
-                val stallMs = now - lastHeartbeatMs
+                val expectedHeartbeatMs = now
+                mainHandler.post { lastHeartbeatMs = expectedHeartbeatMs }
+                val stallMs = (now - lastHeartbeatMs - CHECK_INTERVAL_MS).coerceAtLeast(0L)
                 if (stallMs < REPORT_AFTER_MS || now - lastReportMs < REPORT_INTERVAL_MS) return@scheduleAtFixedRate
                 recordStall(stallMs)
                 lastReportMs = now

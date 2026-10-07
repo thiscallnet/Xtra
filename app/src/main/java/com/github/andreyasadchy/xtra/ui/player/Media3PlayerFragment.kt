@@ -142,6 +142,10 @@ import kotlin.time.Instant
 abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment.OnSortOptionChanged, TvRemoteKeyHandler {
 
     private var _binding: FragmentPlayerBinding? = null
+    private var qualityLabelSingleLine: Boolean? = null
+    private var qualityLabelCatalog: List<VideoQuality>? = null
+    private var qualityLabelLocales: String? = null
+    private var qualityLabels: List<Pair<String, VideoQuality>>? = null
     protected val binding get() = _binding!!
     protected val viewModel: Media3PlayerViewModel by viewModels { Media3PlayerViewModelFactory }
     protected var chatFragment: ChatFragment? = null
@@ -177,6 +181,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private val hudVisibility = PlayerHudVisibilityController(
         rootProvider = { _binding?.playerControls?.root },
         televisionProvider = { _binding?.root?.context?.isTelevision() == true },
+        onVisibilityChanged = ::onHudVisibilityChanged,
     )
     protected var controllerAutoHide: Boolean
         get() = hudVisibility.autoHideEnabled
@@ -637,6 +642,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        qualityLabelSingleLine = null
         super.onViewCreated(view, savedInstanceState)
         binding.playerControls.interactionLock.setOnClickListener {
             setInteractionLocked(!isInteractionLocked)
@@ -2228,7 +2234,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (!isQualityCatalogCurrent()) return null
         val qualities = viewModel.qualities
         return if (!qualities.isNullOrEmpty()) {
-            videoQualityDisplayNames(qualities) { name ->
+            val locales = resources.configuration.locales.toLanguageTags()
+            if (qualityLabelCatalog == qualities && qualityLabelLocales == locales) return qualityLabels
+            val labels = videoQualityDisplayNames(qualities) { name ->
                 when (name) {
                     AUTO_QUALITY -> getString(R.string.auto)
                     SOURCE_QUALITY -> getString(R.string.source)
@@ -2237,6 +2245,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     else -> null
                 }
             }
+            qualityLabelCatalog = qualities.toList()
+            qualityLabelLocales = locales
+            qualityLabels = labels
+            labels
         } else null
     }
 
@@ -2600,19 +2612,28 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (view != null) {
             val vaftActive = isVaftActive()
             binding.playerControls.quality.apply {
-                isSingleLine = !vaftActive
-                maxLines = if (vaftActive && confirmedQuality != null) 2 else 1
-                text = if (vaftActive) {
+                val nextMaxLines = if (vaftActive && confirmedQuality != null) 2 else 1
+                // The TextView getter is public only from API 29. Remember the mode
+                // we applied instead, so unchanged labels avoid layout on every API.
+                val nextSingleLine = !vaftActive
+                if (qualityLabelSingleLine != nextSingleLine) {
+                    setSingleLine(nextSingleLine)
+                    qualityLabelSingleLine = nextSingleLine
+                }
+                if (maxLines != nextMaxLines) maxLines = nextMaxLines
+                val nextText = if (vaftActive) {
                     getString(R.string.avoid_twitch_ads).substringBefore(' ') +
                         (confirmedQuality?.let { "\n${compactQualityLabel(qualityLabel(it))}" } ?: "")
                 } else {
                     compactQualityLabel(label)
                 }
-                contentDescription = if (vaftActive) {
+                if (text.toString() != nextText) text = nextText
+                val nextDescription = if (vaftActive) {
                     getString(R.string.waiting_vaft) + (label?.let { ": $it" } ?: "")
                 } else {
                     label ?: getString(R.string.player_quality)
                 }
+                if (contentDescription?.toString() != nextDescription) contentDescription = nextDescription
             }
         }
         (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.setQuality(selectedLabel)
@@ -2691,7 +2712,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                         helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
                         gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
                     )
-                    startLiveRewindTicker()
                 }
                 if (videoType == PlaybackContract.STREAM) startStreamUptimeTicker()
                 onStreamBecameLive(eventSequence)
@@ -3161,6 +3181,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
+    private fun onHudVisibilityChanged(visible: Boolean) {
+        if (!visible) {
+            stopLiveRewindTicker()
+            return
+        }
+        if (liveRewindVod != null && isLiveRewindEnabled()) {
+            startLiveRewindTicker()
+        }
+    }
+
     private fun scheduleControllerHide() {
         hudVisibility.scheduleHide()
     }
@@ -3417,7 +3447,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val streamCreatedAt = requestedStreamCreatedAt
             ?: currentStream?.createdAt
             ?: requireArguments().getString(KEY_STARTED_AT)
-        if (streamCreatedAt.isNullOrBlank()) return
+        if (streamCreatedAt.isNullOrBlank()) {
+            stopLiveRewindTicker()
+            return
+        }
         val streamId = requestedStreamId
             ?: currentStream?.id
             ?: requireArguments().getString(KEY_STREAM_ID)
@@ -3506,6 +3539,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     @SuppressLint("RepeatOnLifecycleWrongUsage")
     private fun startLiveRewindTicker() {
+        if (videoType != PlaybackContract.STREAM || !isLiveRewindEnabled() || liveRewindVod == null ||
+            _binding?.playerControls?.root?.isVisible != true
+        ) {
+            stopLiveRewindTicker()
+            return
+        }
+        if (liveRewindTickerJob?.isActive == true) return
         liveRewindTickerJob?.cancel()
         liveRewindTickerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -3525,6 +3565,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     @SuppressLint("RepeatOnLifecycleWrongUsage")
     private fun startStreamUptimeTicker() {
         streamUptimeWasLive = true
+        if (isLiveRewindAvailable()) {
+            stopStreamUptimeTicker()
+            return
+        }
         if (streamUptimeTickerJob?.isActive == true) return
         streamUptimeTickerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -3582,7 +3626,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun updateStreamUptime() {
-        if (videoType != PlaybackContract.STREAM || isLiveRewindAvailable()) return
+        if (videoType != PlaybackContract.STREAM) return
+        if (isLiveRewindAvailable()) {
+            stopStreamUptimeTicker()
+            return
+        }
         val uptime = currentStreamUptime()
         if (uptime == null) {
             hideStreamUptime()
@@ -4229,6 +4277,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (view == null) return
         cancelLiveTapSeek()
         streamUptimeWasLive = false
+        stopLiveRewindTicker()
         val liveEdgeMs = liveRewindVod?.predictedDurationMs()
         if (liveEdgeMs == null) {
             stopStreamUptimeTicker()
@@ -4241,7 +4290,6 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         liveRewindStreamOffline = state.offline
         liveRewindFrozenEdgeMs = state.frozenEdgeMs
         stopStreamUptimeTicker()
-        stopLiveRewindTicker()
         updateLiveRewindProgress()
     }
 

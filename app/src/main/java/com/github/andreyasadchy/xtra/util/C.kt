@@ -17,7 +17,6 @@ object C {
     const val HEADER_TOKEN = "Authorization"
     const val FAILED_INTEGRITY_CHECK = "failed integrity check"
     const val HTTP_ENGINE = "HttpEngine"
-    const val CRONET = "Cronet"
     const val OKHTTP = "OkHttp"
     const val AUTOMATIC = "Automatic"
     const val DEFAULT_GQL_CLIENT_ID_WEB = "kimne78kx3ncx6brgo4mv6wki5h1ko"

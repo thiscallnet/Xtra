@@ -43,7 +43,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.chromium.net.CronetEngine
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -62,8 +61,7 @@ class MainViewModel(
     offlineVideosRepositoryProvider: () -> OfflineVideosRepository,
     localChannelFollowsRepositoryProvider: () -> LocalChannelFollowsRepository,
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
 ) : ViewModel() {
 
@@ -146,30 +144,8 @@ class MainViewModel(
                                             val timeout = NetworkUtils.HttpEngineTimeout()
                                             val request = httpEngine.value!!.newUrlRequestBuilder(
                                                 url,
-                                                cronetExecutor.value,
+                                                httpExecutor.value,
                                                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                            ).build()
-                                            timeout.start(request, continuation)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        if (response.info.httpStatusCode in 200..299) {
-                                            result.value = url
-                                            jobs.forEach {
-                                                it.cancel()
-                                            }
-                                        }
-                                    }
-                                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
-                                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                                url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                                cronetExecutor.value
                                             ).build()
                                             timeout.start(request, continuation)
                                             request.start()
@@ -529,29 +505,8 @@ class MainViewModel(
                                             val timeout = NetworkUtils.HttpEngineTimeout()
                                             val request = httpEngine.value!!.newUrlRequestBuilder(
                                                 url,
-                                                cronetExecutor.value,
+                                                httpExecutor.value,
                                                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                            ).build()
-                                            timeout.start(request, continuation)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        if (response.info.httpStatusCode in 200..299) {
-                                            FileOutputStream(path).use {
-                                                it.write(response.body)
-                                            }
-                                        }
-                                    }
-                                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
-                                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                                url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                                cronetExecutor.value
                                             ).build()
                                             timeout.start(request, continuation)
                                             request.start()
@@ -597,29 +552,8 @@ class MainViewModel(
                                             val timeout = NetworkUtils.HttpEngineTimeout()
                                             val request = httpEngine.value!!.newUrlRequestBuilder(
                                                 url,
-                                                cronetExecutor.value,
+                                                httpExecutor.value,
                                                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                            ).build()
-                                            timeout.start(request, continuation)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        if (response.info.httpStatusCode in 200..299) {
-                                            FileOutputStream(path).use {
-                                                it.write(response.body)
-                                            }
-                                        }
-                                    }
-                                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
-                                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                                url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                                cronetExecutor.value
                                             ).build()
                                             timeout.start(request, continuation)
                                             request.start()
@@ -706,29 +640,8 @@ class MainViewModel(
                                         val timeout = NetworkUtils.HttpEngineTimeout()
                                         val request = httpEngine.value!!.newUrlRequestBuilder(
                                             url,
-                                            cronetExecutor.value,
+                                            httpExecutor.value,
                                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                        ).build()
-                                        timeout.start(request, continuation)
-                                        request.start()
-                                        continuation.invokeOnCancellation {
-                                            request.cancel()
-                                            timeout.stop()
-                                        }
-                                    }
-                                    if (response.info.httpStatusCode in 200..299) {
-                                        FileOutputStream(path).use {
-                                            it.write(response.body)
-                                        }
-                                    }
-                                }
-                                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                    val response = suspendCancellableCoroutine { continuation ->
-                                        val timeout = NetworkUtils.CronetTimeout()
-                                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                            url,
-                                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                            cronetExecutor.value
                                         ).build()
                                         timeout.start(request, continuation)
                                         request.start()
@@ -774,29 +687,8 @@ class MainViewModel(
                                         val timeout = NetworkUtils.HttpEngineTimeout()
                                         val request = httpEngine.value!!.newUrlRequestBuilder(
                                             url,
-                                            cronetExecutor.value,
+                                            httpExecutor.value,
                                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                        ).build()
-                                        timeout.start(request, continuation)
-                                        request.start()
-                                        continuation.invokeOnCancellation {
-                                            request.cancel()
-                                            timeout.stop()
-                                        }
-                                    }
-                                    if (response.info.httpStatusCode in 200..299) {
-                                        FileOutputStream(path).use {
-                                            it.write(response.body)
-                                        }
-                                    }
-                                }
-                                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                    val response = suspendCancellableCoroutine { continuation ->
-                                        val timeout = NetworkUtils.CronetTimeout()
-                                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                            url,
-                                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                            cronetExecutor.value
                                         ).build()
                                         timeout.start(request, continuation)
                                         request.start()
@@ -887,29 +779,8 @@ class MainViewModel(
                                         val timeout = NetworkUtils.HttpEngineTimeout()
                                         val request = httpEngine.value!!.newUrlRequestBuilder(
                                             url,
-                                            cronetExecutor.value,
+                                            httpExecutor.value,
                                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                        ).build()
-                                        timeout.start(request, continuation)
-                                        request.start()
-                                        continuation.invokeOnCancellation {
-                                            request.cancel()
-                                            timeout.stop()
-                                        }
-                                    }
-                                    if (response.info.httpStatusCode in 200..299) {
-                                        FileOutputStream(path).use {
-                                            it.write(response.body)
-                                        }
-                                    }
-                                }
-                                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                    val response = suspendCancellableCoroutine { continuation ->
-                                        val timeout = NetworkUtils.CronetTimeout()
-                                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                            url,
-                                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                            cronetExecutor.value
                                         ).build()
                                         timeout.start(request, continuation)
                                         request.start()
@@ -955,29 +826,8 @@ class MainViewModel(
                                         val timeout = NetworkUtils.HttpEngineTimeout()
                                         val request = httpEngine.value!!.newUrlRequestBuilder(
                                             url,
-                                            cronetExecutor.value,
+                                            httpExecutor.value,
                                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                        ).build()
-                                        timeout.start(request, continuation)
-                                        request.start()
-                                        continuation.invokeOnCancellation {
-                                            request.cancel()
-                                            timeout.stop()
-                                        }
-                                    }
-                                    if (response.info.httpStatusCode in 200..299) {
-                                        FileOutputStream(path).use {
-                                            it.write(response.body)
-                                        }
-                                    }
-                                }
-                                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                    val response = suspendCancellableCoroutine { continuation ->
-                                        val timeout = NetworkUtils.CronetTimeout()
-                                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                            url,
-                                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                            cronetExecutor.value
                                         ).build()
                                         timeout.start(request, continuation)
                                         request.start()
@@ -1074,13 +924,11 @@ class MainViewModel(
                     xtraModule::offlineVideosRepository,
                     xtraModule::localChannelFollowsRepository,
                     xtraModule.httpEngine,
-                    xtraModule.cronetEngine,
-                    xtraModule.cronetExecutor,
+                    xtraModule.httpExecutor,
                     xtraModule.okHttpClient,
                 )
             }
         }
     }
 }
-
 

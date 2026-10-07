@@ -846,7 +846,7 @@ class ChatRowCompiler(
         output: MutableList<ChatSegment>,
         personalEmoteSetId: String?,
     ) {
-        Regex("\\s+|\\S+").findAll(text).forEach { match ->
+        TEXT_TOKENS.findAll(text).forEach { match ->
             val token = match.value
             if (token.firstOrNull()?.isWhitespace() == true) {
                 output += ChatSegment.Text(token)
@@ -886,7 +886,7 @@ class ChatRowCompiler(
         return true
     }
 
-    private fun colorToHex(color: Int): String = "#%06X".format(color and 0xFFFFFF)
+    private fun colorToHex(color: Int): String = "#" + Integer.toHexString(color or 0xFF000000.toInt()).substring(2)
 
     private fun extractClipPreviews(message: ChatMessage): List<ChatClipPreviewLink> {
         val body = message.rawText ?: message.segments.joinToString("") { segment ->
@@ -902,6 +902,7 @@ class ChatRowCompiler(
     }
 
     private companion object {
+        val TEXT_TOKENS = Regex("\\s+|\\S+")
         val LEGACY_SYSTEM_ACTOR_EXCLUSIONS = setOf("an", "a", "the", "someone")
     }
 

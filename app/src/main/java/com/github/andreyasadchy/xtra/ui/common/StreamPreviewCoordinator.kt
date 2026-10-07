@@ -644,15 +644,26 @@ class StreamPreviewCoordinator(
         if (active.playerView.parent !== candidate.surface) {
             candidate.surface.addView(active.playerView)
         }
-        active.touchRelay?.let { relay ->
-            (relay.parent as? ViewGroup)?.removeView(relay)
+        val clickTarget = findPreviewClickTarget(candidate.surface)
+        val relay = active.touchRelay
+        // Viewport publication follows layout. Replacing this child on every publication
+        // requests another layout and creates a continuous reconciliation/render loop.
+        if (active.touchRelayTarget !== clickTarget ||
+            (clickTarget != null && (relay?.parent !== candidate.surface ||
+                relay.isClickable != clickTarget.isClickable || relay.isLongClickable != clickTarget.isLongClickable))
+        ) {
+            relay?.let { (it.parent as? ViewGroup)?.removeView(it) }
+            active.touchRelayTarget = clickTarget
+            active.touchRelay = clickTarget?.let { target ->
+                createPreviewTouchRelay(candidate.surface, target).also { newRelay ->
+                    candidate.surface.addView(
+                        newRelay,
+                        FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
+                    )
+                }
+            }
         }
-        active.touchRelay = createPreviewTouchRelay(candidate.surface)?.also { relay ->
-            candidate.surface.addView(
-                relay,
-                FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT),
-            )
-        }
+        active.touchRelay?.isEnabled = clickTarget?.isEnabled == true
         attachPreviewPlayer(active)
         active.playerView.alpha = if (active.firstFrameRendered) 1f else 0f
         active.playerView.visibility = View.VISIBLE
@@ -811,10 +822,10 @@ class StreamPreviewCoordinator(
         active.playerView.visibility = View.GONE
         active.surface = null
         active.touchRelay = null
+        active.touchRelayTarget = null
     }
 
-    private fun createPreviewTouchRelay(surface: FrameLayout): View? {
-        val target = findPreviewClickTarget(surface) ?: return null
+    private fun createPreviewTouchRelay(surface: FrameLayout, target: View): View {
         return View(surface.context).apply {
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             isEnabled = target.isEnabled
@@ -893,6 +904,7 @@ class StreamPreviewCoordinator(
         val playerView: PlayerView,
         var surface: FrameLayout? = null,
         var touchRelay: View? = null,
+        var touchRelayTarget: View? = null,
         var firstFrameRendered: Boolean = false,
     )
 

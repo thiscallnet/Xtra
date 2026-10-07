@@ -20,7 +20,6 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.chromium.net.CronetEngine
 import java.util.concurrent.ExecutorService
 
 private const val VALIDATE_URL = "https://id.twitch.tv/oauth2/validate"
@@ -33,8 +32,7 @@ internal data class AuthHttpResponse(
 /** Minimal authentication transport for validating the Gecko-backed Twitch session. */
 class AuthRepository(
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
 ) {
@@ -56,25 +54,8 @@ class AuthRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
-                    ).apply { addHeader("Authorization", authorization) }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                AuthHttpResponse(response.info.httpStatusCode, response.body.decodeToString())
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine<NetworkUtils.CronetResponse> { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value,
                     ).apply { addHeader("Authorization", authorization) }.build()
                     timeout.start(request, continuation)
                     request.start()

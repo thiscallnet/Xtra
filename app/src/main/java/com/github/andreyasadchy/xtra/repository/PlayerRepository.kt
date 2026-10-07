@@ -88,10 +88,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.MediaType.Companion.toMediaType
 import okio.buffer
 import okio.source
-import org.chromium.net.CronetEngine
-import org.chromium.net.CronetProvider
-import org.chromium.net.QuicOptions
-import org.chromium.net.apihelpers.UploadDataProviders
 
 import org.json.JSONException
 import org.json.JSONObject
@@ -138,15 +134,17 @@ internal fun parseBTTVEmotes(response: List<BTTVResponse>, useWebp: Boolean, sou
     return response.mapNotNull { emote ->
         emote.code?.takeIf { it.isNotBlank() }?.let { name ->
             emote.id?.takeIf { it.isNotBlank() }?.let { id ->
+                val isAnimated = emote.animated != false
+                val preferWebp = useWebp && !isAnimated
                 Emote(
                     name = name,
                     id = id,
-                    url1x = if (useWebp) "https://cdn.betterttv.net/emote/$id/1x.webp" else "https://cdn.betterttv.net/emote/$id/1x",
-                    url2x = if (useWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
-                    url3x = if (useWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
-                    url4x = if (useWebp) "https://cdn.betterttv.net/emote/$id/3x.webp" else "https://cdn.betterttv.net/emote/$id/3x",
-                    format = if (useWebp) "webp" else null,
-                    isAnimated = emote.animated != false,
+                    url1x = if (preferWebp) "https://cdn.betterttv.net/emote/$id/1x.webp" else "https://cdn.betterttv.net/emote/$id/1x",
+                    url2x = if (preferWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
+                    url3x = if (preferWebp) "https://cdn.betterttv.net/emote/$id/2x.webp" else "https://cdn.betterttv.net/emote/$id/2x",
+                    url4x = if (preferWebp) "https://cdn.betterttv.net/emote/$id/3x.webp" else "https://cdn.betterttv.net/emote/$id/3x",
+                    format = if (isAnimated) "gif" else if (preferWebp) "webp" else null,
+                    isAnimated = isAnimated,
                     isOverlayEmote = emote.modifier == true || name in legacyModifierNames,
                     source = source,
                     width = emote.width,
@@ -157,20 +155,16 @@ internal fun parseBTTVEmotes(response: List<BTTVResponse>, useWebp: Boolean, sou
     }
 }
 
-internal fun parseFFZEmotes(response: List<FFZResponse.Emote>, useWebp: Boolean, source: Int): List<Emote> {
+internal fun parseFFZEmotes(response: List<FFZResponse.Emote>, source: Int): List<Emote> {
     return response.mapNotNull { emote ->
         emote.name?.takeIf { it.isNotBlank() }?.let { name ->
             val isAnimated = emote.animated != null
             if (isAnimated) {
-                if (useWebp) {
-                    emote.animated
-                } else {
-                    FFZResponse.Urls(
-                        url1x = emote.animated.url1x + ".gif",
-                        url2x = emote.animated.url2x + ".gif",
-                        url4x = emote.animated.url4x + ".gif",
-                    )
-                }
+                FFZResponse.Urls(
+                    url1x = emote.animated.url1x?.takeIf(String::isNotBlank)?.let { it + ".gif" },
+                    url2x = emote.animated.url2x?.takeIf(String::isNotBlank)?.let { it + ".gif" },
+                    url4x = emote.animated.url4x?.takeIf(String::isNotBlank)?.let { it + ".gif" },
+                )
             } else {
                 emote.urls
             }?.let { urls ->
@@ -181,7 +175,7 @@ internal fun parseFFZEmotes(response: List<FFZResponse.Emote>, useWebp: Boolean,
                     url2x = urls.url2x,
                     url3x = urls.url2x,
                     url4x = urls.url4x,
-                    format = if (isAnimated && useWebp) "webp" else null,
+                    format = if (isAnimated) "gif" else null,
                     isAnimated = isAnimated,
                     source = source,
                     width = emote.width,
@@ -195,8 +189,7 @@ internal fun parseFFZEmotes(response: List<FFZResponse.Emote>, useWebp: Boolean,
 @OptIn(UnstableApi::class)
 class PlayerRepository(
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val json: Json,
     private val recentEmotes: RecentEmotesDao,
@@ -239,8 +232,7 @@ class PlayerRepository(
 
     private val proxyOkHttpClients = mutableMapOf<ProxyClientKey, OkHttpClient>()
     private val proxyOkHttpClientsLock = Any()
-    private val proxyHttpEngines = mutableMapOf<ProxyClientKey, HttpEngine>()
-    private val proxyCronetEngines = mutableMapOf<ProxyClientKey, CronetEngine>()
+    private val proxyHttpEngines = mutableMapOf<ProxyClientKey, HttpEngine?>()
     private val proxyEnginesLock = Any()
 
     private fun proxyOkHttpClient(
@@ -290,15 +282,15 @@ class PlayerRepository(
         val proxyHeaders = if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
             listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(username, password)))
         } else emptyList()
-        val builder = HttpEngine.Builder(context)
         return try {
+            val builder = HttpEngine.Builder(context)
             builder.setProxyOptions(ProxyOptions.fromProxyList(
                 listOf(
                     android.net.http.Proxy.createHttpProxy(
                         android.net.http.Proxy.SCHEME_HTTP,
                         host,
                         port,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         object : android.net.http.Proxy.HttpConnectCallback {
                             override fun onBeforeRequest(request: android.net.http.Proxy.HttpConnectCallback.Request) {
                                 request.proceed(proxyHeaders)
@@ -311,10 +303,12 @@ class PlayerRepository(
                     )
                 ),
                 ProxyOptions.ALL_PROXIES_FAILED_BEHAVIOR_DISALLOW_DIRECT
-            ))
-        } catch (e: NoClassDefFoundError) {
+            )).build()
+        } catch (_: RuntimeException) {
             null
-        }?.build()
+        } catch (_: LinkageError) {
+            null
+        }
     }
 
     private fun proxyHttpEngine(
@@ -326,74 +320,10 @@ class PlayerRepository(
     ): HttpEngine? {
         val key = ProxyClientKey(host, port, username, password)
         return synchronized(proxyEnginesLock) {
-            val cached = proxyHttpEngines[key]
-            if (cached != null) return@synchronized cached
+            // Cache unsupported platform proxy configurations as well as working engines.
+            if (proxyHttpEngines.containsKey(key)) return@synchronized proxyHttpEngines[key]
             val built = buildProxyHttpEngine(context.applicationContext, host, port, username, password)
-            if (built != null) {
-                proxyHttpEngines[key] = built
-            }
-            built
-        }
-    }
-
-    private fun buildProxyCronetEngine(
-        context: Context,
-        host: String,
-        port: Int,
-        username: String?,
-        password: String?,
-    ): CronetEngine? {
-        if (CronetProvider.getAllProviders(context).none { it.isEnabled }) return null
-        val proxyHeaders = if (!username.isNullOrBlank() && !password.isNullOrBlank()) {
-            mapOf("Proxy-Authorization" to Credentials.basic(username, password)).entries.toList()
-        } else emptyList()
-        val builder = CronetEngine.Builder(context).apply {
-            val userAgent = "Cronet/" + defaultUserAgent.substringAfter("Cronet/", "").substringBefore(')')
-            setUserAgent(userAgent)
-            @QuicOptions.Experimental
-            setQuicOptions(QuicOptions.builder().setHandshakeUserAgent(userAgent).build())
-        }
-        return try {
-            @org.chromium.net.ProxyOptions.Experimental
-            builder.setProxyOptions(org.chromium.net.ProxyOptions(
-                listOf(
-                    org.chromium.net.Proxy(
-                        org.chromium.net.Proxy.HTTP,
-                        host,
-                        port,
-                        cronetExecutor.value,
-                        object : org.chromium.net.Proxy.Callback() {
-                            override fun onBeforeTunnelRequest(request: Request) {
-                                request.proceed(proxyHeaders)
-                            }
-
-                            override fun onTunnelHeadersReceived(responseHeaders: List<Map.Entry<String?, String?>?>, statusCode: Int): Boolean {
-                                return true
-                            }
-                        }
-                    )
-                )
-            ))
-        } catch (e: UnsupportedOperationException) {
-            null
-        }?.build()
-    }
-
-    private fun proxyCronetEngine(
-        context: Context,
-        host: String,
-        port: Int,
-        username: String?,
-        password: String?,
-    ): CronetEngine? {
-        val key = ProxyClientKey(host, port, username, password)
-        return synchronized(proxyEnginesLock) {
-            val cached = proxyCronetEngines[key]
-            if (cached != null) return@synchronized cached
-            val built = buildProxyCronetEngine(context.applicationContext, host, port, username, password)
-            if (built != null) {
-                proxyCronetEngines[key] = built
-            }
+            proxyHttpEngines[key] = built
             built
         }
     }
@@ -708,47 +638,12 @@ class PlayerRepository(
                                 val timeout = NetworkUtils.HttpEngineTimeout()
                                 val request = httpEngine.newUrlRequestBuilder(
                                     url,
-                                    cronetExecutor.value,
+                                    httpExecutor.value,
                                     NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
                                 ).apply {
                                     headers.forEach { addHeader(it.key, it.value) }
                                     addHeader("Content-Type", "application/json")
-                                    setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
-                                }.build()
-                                timeout.start(request, continuation)
-                                request.start()
-                                continuation.invokeOnCancellation {
-                                    request.cancel()
-                                    timeout.stop()
-                                }
-                            }
-                            json.decodeFromString<PlaybackAccessTokenResponse>(response.body.decodeToString())
-                        } else {
-                            proxyOkHttpClient(proxyHost, proxyPort, proxyUser, proxyPassword).newCall(Request.Builder().apply {
-                                url(url)
-                                headers.forEach {
-                                    addHeader(it.key, it.value)
-                                }
-                                header("Content-Type", "application/json")
-                                post(body.toRequestBody())
-                            }.build()).executeAsync().use { response ->
-                                json.decodeFromString<PlaybackAccessTokenResponse>(response.body.string())
-                            }
-                        }
-                    }
-                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                        val cronetEngine = proxyCronetEngine(context, proxyHost, proxyPort, proxyUser, proxyPassword)
-                        if (cronetEngine != null) {
-                            val response = suspendCancellableCoroutine { continuation ->
-                                val timeout = NetworkUtils.CronetTimeout()
-                                val request = cronetEngine.newUrlRequestBuilder(
-                                    url,
-                                    NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                    cronetExecutor.value
-                                ).apply {
-                                    headers.forEach { addHeader(it.key, it.value) }
-                                    addHeader("Content-Type", "application/json")
-                                    setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
+                                    setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), httpExecutor.value)
                                 }.build()
                                 timeout.start(request, continuation)
                                 request.start()
@@ -821,51 +716,12 @@ class PlayerRepository(
                                 val timeout = NetworkUtils.HttpEngineTimeout()
                                 val request = httpEngine.newUrlRequestBuilder(
                                     url,
-                                    cronetExecutor.value,
+                                    httpExecutor.value,
                                     NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
                                 ).apply {
                                     headers.forEach { addHeader(it.key, it.value) }
                                     addHeader("Content-Type", "application/json")
-                                    setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
-                                }.build()
-                                timeout.start(request, continuation)
-                                request.start()
-                                continuation.invokeOnCancellation {
-                                    request.cancel()
-                                    timeout.stop()
-                                }
-                            }
-                            response.body.inputStream().source().buffer().jsonReader().use {
-                                query.parseResponse(it)
-                            }
-                        } else {
-                            proxyOkHttpClient(proxyHost, proxyPort, proxyUser, proxyPassword).newCall(Request.Builder().apply {
-                                url(url)
-                                headers.forEach {
-                                    addHeader(it.key, it.value)
-                                }
-                                header("Content-Type", "application/json")
-                                post(body.toRequestBody())
-                            }.build()).executeAsync().use { response ->
-                                response.body.byteStream().source().buffer().jsonReader().use {
-                                    query.parseResponse(it)
-                                }
-                            }
-                        }
-                    }
-                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                        val cronetEngine = proxyCronetEngine(context, proxyHost, proxyPort, proxyUser, proxyPassword)
-                        if (cronetEngine != null) {
-                            val response = suspendCancellableCoroutine { continuation ->
-                                val timeout = NetworkUtils.CronetTimeout()
-                                val request = cronetEngine.newUrlRequestBuilder(
-                                    url,
-                                    NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                    cronetExecutor.value
-                                ).apply {
-                                    headers.forEach { addHeader(it.key, it.value) }
-                                    addHeader("Content-Type", "application/json")
-                                    setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
+                                    setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), httpExecutor.value)
                                 }.build()
                                 timeout.start(request, continuation)
                                 request.start()
@@ -1362,25 +1218,8 @@ class PlayerRepository(
                         val timeout = NetworkUtils.HttpEngineTimeout()
                         val request = httpEngine.value!!.newUrlRequestBuilder(
                             url,
-                            cronetExecutor.value,
+                            httpExecutor.value,
                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
-                        ).build()
-                        timeout.start(request, continuation)
-                        request.start()
-                        continuation.invokeOnCancellation {
-                            request.cancel()
-                            timeout.stop()
-                        }
-                    }
-                    WatchCreditHttpResponse(response.info.httpStatusCode, response.body.decodeToString())
-                }
-                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                    val response = suspendCancellableCoroutine<NetworkUtils.CronetResponse> { continuation ->
-                        val timeout = NetworkUtils.CronetTimeout()
-                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                            url,
-                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                            cronetExecutor.value,
                         ).build()
                         timeout.start(request, continuation)
                         request.start()
@@ -1458,31 +1297,11 @@ class PlayerRepository(
                         val timeout = NetworkUtils.HttpEngineTimeout()
                         val request = httpEngine.value!!.newUrlRequestBuilder(
                             spadeUrl,
-                            cronetExecutor.value,
+                            httpExecutor.value,
                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout),
                         ).apply {
                             addHeader("Content-Type", "application/x-www-form-urlencoded")
-                            setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(spadeRequest.toByteArray()), cronetExecutor.value)
-                        }.build()
-                        timeout.start(request, continuation)
-                        request.start()
-                        continuation.invokeOnCancellation {
-                            request.cancel()
-                            timeout.stop()
-                        }
-                    }
-                    response.info.httpStatusCode
-                }
-                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                    val response = suspendCancellableCoroutine<NetworkUtils.CronetResponse> { continuation ->
-                        val timeout = NetworkUtils.CronetTimeout()
-                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                            spadeUrl,
-                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                            cronetExecutor.value,
-                        ).apply {
-                            addHeader("Content-Type", "application/x-www-form-urlencoded")
-                            setUploadDataProvider(UploadDataProviders.create(spadeRequest.toByteArray()), cronetExecutor.value)
+                            setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(spadeRequest.toByteArray()), httpExecutor.value)
                         }.build()
                         timeout.start(request, continuation)
                         request.start()
@@ -1541,27 +1360,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                json.decodeFromString<RecentMessagesResponse>(response.body.decodeToString())
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1593,27 +1393,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1649,27 +1430,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout, throwOnHttpError = throwOnHttpError)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout, throwOnHttpError = throwOnHttpError),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1744,27 +1506,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout, throwOnHttpError = throwOnHttpError)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout, throwOnHttpError = throwOnHttpError),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1799,13 +1542,12 @@ class PlayerRepository(
                 emote.data?.let { data ->
                     data.host?.let { host ->
                         host.url?.takeIf { it.isNotBlank() }?.let { template ->
+                            val isAnimated = data.animated != false
+                            val preferredFormat = if (isAnimated && host.files?.any {
+                                it.format == "GIF" && !it.name.isNullOrBlank()
+                            } == true) "GIF" else if (useWebp) "WEBP" else if (isAnimated) "GIF" else "PNG"
                             val selectedFiles = host.files?.filter { file ->
-                                file.name?.isNotBlank() == true &&
-                                    if (useWebp) {
-                                        file.format == "WEBP"
-                                    } else {
-                                        file.format == "GIF" || file.format == "PNG"
-                                    }
+                                file.name?.isNotBlank() == true && file.format == preferredFormat
                             }
                             val urls = selectedFiles?.mapNotNull { file ->
                                 file.name?.takeIf(String::isNotBlank)?.let { name ->
@@ -1820,7 +1562,7 @@ class PlayerRepository(
                                 url3x = urls?.getOrNull(2) ?: if (urls.isNullOrEmpty()) "https:${template}/3x.webp" else null,
                                 url4x = urls?.getOrNull(3) ?: if (urls.isNullOrEmpty()) "https:${template}/4x.webp" else null,
                                 format = urls?.getOrNull(0)?.substringAfterLast(".") ?: "webp",
-                                isAnimated = data.animated != false,
+                                isAnimated = isAnimated,
                                 isOverlayEmote = emote.flags == 1,
                                 source = source,
                                 width = selectedFiles?.firstOrNull()?.width,
@@ -1841,27 +1583,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -1899,36 +1622,16 @@ class PlayerRepository(
         }.toString()
         when {
             networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
-                suspendCancellableCoroutine { continuation ->
+                suspendCancellableCoroutine<NetworkUtils.HttpEngineResponse> { continuation ->
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
                     ).apply {
                         addHeader("Content-Type", "application/json")
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                        setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), cronetExecutor.value)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                suspendCancellableCoroutine<NetworkUtils.CronetResponse> { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
-                    ).apply {
-                        addHeader("Content-Type", "application/json")
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                        setUploadDataProvider(UploadDataProviders.create(body.toByteArray()), cronetExecutor.value)
+                        setUploadDataProvider(NetworkUtils.ByteArrayUploadProvider(body.toByteArray()), httpExecutor.value)
                     }.build()
                     timeout.start(request, continuation)
                     request.start()
@@ -1957,27 +1660,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -2017,27 +1701,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout, throwOnHttpError = throwOnHttpError)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout, throwOnHttpError = throwOnHttpError),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -2080,27 +1745,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -2124,10 +1770,10 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadGlobalFFZEmotes(response: String, useWebp: Boolean): List<Emote> = withContext(Dispatchers.IO) {
+    suspend fun loadGlobalFFZEmotes(response: String): List<Emote> = withContext(Dispatchers.IO) {
         val response = json.decodeFromString<FFZGlobalResponse>(response)
         response.sets.entries.filter { it.key.toIntOrNull()?.let { set -> response.globalSets.contains(set) } == true }.flatMap {
-            it.value.emoticons?.let { emotes -> parseFFZEmotes(emotes, useWebp, Emote.GLOBAL_FFZ) } ?: emptyList()
+            it.value.emoticons?.let { emotes -> parseFFZEmotes(emotes, Emote.GLOBAL_FFZ) } ?: emptyList()
         }
     }
 
@@ -2143,27 +1789,8 @@ class PlayerRepository(
                     val timeout = NetworkUtils.HttpEngineTimeout()
                     val request = httpEngine.value!!.newUrlRequestBuilder(
                         url,
-                        cronetExecutor.value,
+                        httpExecutor.value,
                         NetworkUtils.ByteArrayUrlCallback(continuation, timeout, throwOnHttpError = throwOnHttpError)
-                    ).apply {
-                        addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
-                    }.build()
-                    timeout.start(request, continuation)
-                    request.start()
-                    continuation.invokeOnCancellation {
-                        request.cancel()
-                        timeout.stop()
-                    }
-                }
-                response.body.decodeToString()
-            }
-            networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                val response = suspendCancellableCoroutine { continuation ->
-                    val timeout = NetworkUtils.CronetTimeout()
-                    val request = cronetEngine.value!!.newUrlRequestBuilder(
-                        url,
-                        NetworkUtils.ByteArrayCronetCallback(continuation, timeout, throwOnHttpError = throwOnHttpError),
-                        cronetExecutor.value
                     ).apply {
                         addHeader("User-Agent", "Xtra/" + BuildConfig.VERSION_NAME)
                     }.build()
@@ -2187,10 +1814,10 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadFFZEmotes(response: String, useWebp: Boolean): List<Emote> = withContext(Dispatchers.IO) {
+    suspend fun loadFFZEmotes(response: String): List<Emote> = withContext(Dispatchers.IO) {
         val response = json.decodeFromString<FFZChannelResponse>(response)
         response.sets.entries.flatMap {
-            it.value.emoticons?.let { emotes -> parseFFZEmotes(emotes, useWebp, Emote.CHANNEL_FFZ) } ?: emptyList()
+            it.value.emoticons?.let { emotes -> parseFFZEmotes(emotes, Emote.CHANNEL_FFZ) } ?: emptyList()
         }
     }
 

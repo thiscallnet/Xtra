@@ -74,7 +74,6 @@ import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
-import com.github.andreyasadchy.xtra.player.lowlatency.CronetDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
@@ -138,6 +137,7 @@ class PlaybackService : MediaSessionService() {
     private var lastSystemBehindSeconds: Long? = null
     private var adaptiveLiveController: AdaptiveLivePlaybackController? = null
     private var adaptiveLiveSpeedControl: AdaptiveLivePlaybackSpeedControl? = null
+    private var adaptiveLiveSampleJob: Job? = null
     private val liveClipBufferManager = LiveClipBufferManager()
     private var liveClipDataSourceFactory: DataSource.Factory? = null
     private var liveClipMediaItemId: String? = null
@@ -415,11 +415,11 @@ class PlaybackService : MediaSessionService() {
         super.onCreate()
         ensurePlaybackNotificationChannel()
         setMediaNotificationProvider(
-            DefaultMediaNotificationProvider.Builder(this)
+            LiveMediaNotificationProvider(this, DefaultMediaNotificationProvider.Builder(this)
                 .setChannelId(PLAYBACK_NOTIFICATION_CHANNEL_ID)
                 .setChannelName(R.string.playback_notification_channel)
                 .setNotificationId(PLAYBACK_NOTIFICATION_ID)
-                .build(),
+                .build()),
         )
         xtraModule = (application as XtraApp).xtraModule
         lifecycleScope.launch(Dispatchers.IO) {
@@ -455,29 +455,10 @@ class PlaybackService : MediaSessionService() {
                 }
             }
         }
-        lifecycleScope.launch {
-            while (true) {
-                delay(5_000L)
-                val behindSeconds = systemBehindLiveSeconds()
-                if (behindSeconds != lastSystemBehindSeconds) {
-                    lastSystemBehindSeconds = behindSeconds
-                    refreshSystemMediaMetadata()
-                }
-                if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
-                    player.isCurrentMediaItemLive && player.isPlaying
-                ) {
-                    adaptiveLiveController?.onStableSample(
-                        bufferedMs = player.totalBufferedDuration,
-                        realtimeMs = SystemClock.elapsedRealtime(),
-                    )?.let { changed ->
-                        if (changed) applyAdaptiveLivePolicy()
-                    }
-                }
-            }
-        }
         player.addListener(
             object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    updateAdaptiveLiveSampleTicker(player)
                     updateVaft(player)
                     updateViewingStats(player)
                     if (isPlaying) {
@@ -661,6 +642,7 @@ class PlaybackService : MediaSessionService() {
                     refreshSystemMediaMetadata()
                     refreshMediaButtonPreferences(player)
                     syncTwitchHlsDiagnostics(player)
+                    updateAdaptiveLiveSampleTicker(player)
                 }
 
                 override fun onRenderedFirstFrame() {
@@ -1474,10 +1456,7 @@ class PlaybackService : MediaSessionService() {
                                             this@PlaybackService,
                                             when {
                                                 networkLibrary == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
-                                                    HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
-                                                }
-                                                networkLibrary == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                                                    CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                                                    HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.httpExecutor.value, false, false, null, null, null) { false }
                                                 }
                                                 else -> {
                                                     OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
@@ -2131,6 +2110,7 @@ class PlaybackService : MediaSessionService() {
         liveRewindVodId = vodId
         liveRewindTransitioning = transitioning
         if (commandStateChanged) {
+            playbackPlayer?.let(::updateAdaptiveLiveSampleTicker)
             invalidatePlaybackSessionPlayerState()
             mediaSession?.player?.let { player ->
                 refreshSystemMediaMetadata()
@@ -2358,6 +2338,7 @@ class PlaybackService : MediaSessionService() {
             PlaybackContract.OFFLINE_VIDEO -> state.offlineVideoId?.toString()
             else -> null
         }
+        playbackPlayer?.let(::updateAdaptiveLiveSampleTicker)
 
         if (state.type == PlaybackContract.STREAM) {
             val uri = mediaItem?.localConfiguration?.uri?.toString()
@@ -2505,6 +2486,48 @@ class PlaybackService : MediaSessionService() {
     private fun applyAdaptiveLivePolicy() {
         val targetOffsetMs = adaptiveLiveController?.currentPolicy()?.targetOffsetMs ?: return
         adaptiveLiveSpeedControl?.setAdaptiveTargetLiveOffsetUs(targetOffsetMs * 1_000L)
+    }
+
+    private fun shouldRunLiveSampleTicker(player: Player): Boolean =
+        viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+            (player.isCurrentMediaItemLive && player.isPlaying || liveRewindActive && player.currentMediaItem != null)
+
+    private fun updateAdaptiveLiveSampleTicker(player: Player) {
+        val shouldSample = shouldRunLiveSampleTicker(player)
+        if (!shouldSample) {
+            adaptiveLiveSampleJob?.cancel()
+            adaptiveLiveSampleJob = null
+            return
+        }
+        if (adaptiveLiveSampleJob?.isActive == true) return
+
+        adaptiveLiveSampleJob = lifecycleScope.launch {
+            try {
+                while (true) {
+                    delay(5_000L)
+                    if (!shouldRunLiveSampleTicker(player)) {
+                        break
+                    }
+                    val behindSeconds = systemBehindLiveSeconds()
+                    if (behindSeconds != lastSystemBehindSeconds) {
+                        lastSystemBehindSeconds = behindSeconds
+                        refreshSystemMediaMetadata()
+                    }
+                    if (player.isCurrentMediaItemLive && player.isPlaying) {
+                        adaptiveLiveController?.onStableSample(
+                            bufferedMs = player.totalBufferedDuration,
+                            realtimeMs = SystemClock.elapsedRealtime(),
+                        )?.let { changed ->
+                            if (changed) applyAdaptiveLivePolicy()
+                        }
+                    }
+                }
+            } finally {
+                if (adaptiveLiveSampleJob === currentCoroutineContext()[Job]) {
+                    adaptiveLiveSampleJob = null
+                }
+            }
+        }
     }
 
     private fun prepareLiveClipCommand(): ListenableFuture<SessionResult> {
@@ -5855,10 +5878,7 @@ class PlaybackService : MediaSessionService() {
                 this@PlaybackService,
                 when {
                     prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP) == C.HTTP_ENGINE && xtraModule.httpEngine.value != null -> @SuppressLint("NewApi") {
-                        HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
-                    }
-                    prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP) == C.CRONET && xtraModule.cronetEngine.value != null -> {
-                        CronetDataSource.Factory(xtraModule.cronetEngine.value, xtraModule.cronetExecutor.value, false, false, null, null, null) { false }
+                        HttpEngineDataSource.Factory(xtraModule.httpEngine.value, xtraModule.httpExecutor.value, false, false, null, null, null) { false }
                     }
                     else -> {
                         OkHttpDataSource.Factory(xtraModule.okHttpClient.value, null) { false }
@@ -6250,6 +6270,7 @@ class PlaybackService : MediaSessionService() {
         viewingStreamPreview = extras.getString(THUMBNAIL)
         viewingContentType = contentType
         viewingContentId = contentId
+        playbackPlayer?.let(::updateAdaptiveLiveSampleTicker)
         if (beginNewPlayback) beginPrimaryPlaybackWatchState()
     }
 
@@ -6547,6 +6568,8 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         prefs().unregisterOnSharedPreferenceChangeListener(mediaPreferenceListener)
+        adaptiveLiveSampleJob?.cancel()
+        adaptiveLiveSampleJob = null
         clearLiveClipState()
         clearVodClipSource()
         if (::xtraModule.isInitialized) {

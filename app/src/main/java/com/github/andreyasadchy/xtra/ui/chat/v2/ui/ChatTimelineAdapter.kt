@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import androidx.recyclerview.widget.DiffUtil
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEmoteInteraction
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGifInteraction
@@ -48,7 +49,9 @@ class ChatTimelineAdapter(
     )
     override fun onBindViewHolder(holder: Holder, position: Int) {
         holder.view.setRenderingActive(renderingActive)
-        messageTextColor?.let(holder.view::setTextColor)
+        messageTextColor
+            ?.takeIf { it != holder.view.currentTextColor }
+            ?.let(holder.view::setTextColor)
         holder.view.setMessageTextSizeSp(textSizeSp)
         holder.view.setAnimateGifs(animateGifs)
         holder.bind(rows[position])
@@ -57,9 +60,18 @@ class ChatTimelineAdapter(
     /** Replaces the complete snapshot for reconciliation and presentation-wide updates. */
     fun replaceAll(newRows: List<ChatRowUiModel>, commitCallback: (() -> Unit)? = null) {
         val nextRows = newRows.toList()
+        val previous = rows.toList()
+        val changes = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
+            override fun getOldListSize() = previous.size
+            override fun getNewListSize() = nextRows.size
+            override fun areItemsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                previous[oldItemPosition].id == nextRows[newItemPosition].id
+            override fun areContentsTheSame(oldItemPosition: Int, newItemPosition: Int) =
+                previous[oldItemPosition] == nextRows[newItemPosition]
+        }, false)
         rows.clear()
         rows.addAll(nextRows)
-        notifyDataSetChanged()
+        changes.dispatchUpdatesTo(this)
         commitCallback?.invoke()
     }
 

@@ -56,7 +56,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import org.chromium.net.CronetEngine
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
@@ -75,8 +74,7 @@ internal sealed interface FreshLiveStatus {
 class Media3PlayerViewModel(
     private val applicationContext: Context,
     private val httpEngine: Lazy<HttpEngine?>,
-    private val cronetEngine: Lazy<CronetEngine?>,
-    private val cronetExecutor: Lazy<ExecutorService>,
+    private val httpExecutor: Lazy<ExecutorService>,
     private val okHttpClient: Lazy<OkHttpClient>,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
@@ -161,27 +159,8 @@ class Media3PlayerViewModel(
                         val timeout = NetworkUtils.HttpEngineTimeout()
                         val request = httpEngine.value!!.newUrlRequestBuilder(
                             url,
-                            cronetExecutor.value,
+                            httpExecutor.value,
                             NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                        ).build()
-                        timeout.start(request, continuation)
-                        request.start()
-                        continuation.invokeOnCancellation {
-                            request.cancel()
-                            timeout.stop()
-                        }
-                    }
-                    response.body.inputStream().use {
-                        PlaylistUtils.parseMediaPlaylist(it)
-                    }
-                }
-                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                    val response = suspendCancellableCoroutine { continuation ->
-                        val timeout = NetworkUtils.CronetTimeout()
-                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                            url,
-                            NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                            cronetExecutor.value
                         ).build()
                         timeout.start(request, continuation)
                         request.start()
@@ -216,33 +195,12 @@ class Media3PlayerViewModel(
                         val timeout = NetworkUtils.HttpEngineTimeout()
                         val request = httpEngine.value!!.newUrlRequestBuilder(
                             url,
-                            cronetExecutor.value,
+                            httpExecutor.value,
                             NetworkUtils.ByteArrayUrlCallback(
                                 continuation,
                                 timeout,
                                 throwOnHttpError = true,
                             ),
-                        ).build()
-                        timeout.start(request, continuation)
-                        request.start()
-                        continuation.invokeOnCancellation {
-                            request.cancel()
-                            timeout.stop()
-                        }
-                    }
-                    response.body.takeIf { response.info.httpStatusCode in 200..299 }
-                }
-                networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                    val response = suspendCancellableCoroutine { continuation ->
-                        val timeout = NetworkUtils.CronetTimeout()
-                        val request = cronetEngine.value!!.newUrlRequestBuilder(
-                            url,
-                            NetworkUtils.ByteArrayCronetCallback(
-                                continuation,
-                                timeout,
-                                throwOnHttpError = true,
-                            ),
-                            cronetExecutor.value,
                         ).build()
                         timeout.start(request, continuation)
                         request.start()
@@ -638,29 +596,8 @@ class Media3PlayerViewModel(
                                             val timeout = NetworkUtils.HttpEngineTimeout()
                                             val request = httpEngine.value!!.newUrlRequestBuilder(
                                                 url,
-                                                cronetExecutor.value,
+                                                httpExecutor.value,
                                                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                            ).build()
-                                            timeout.start(request, continuation)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        if (response.info.httpStatusCode in 200..299) {
-                                            FileOutputStream(path).use {
-                                                it.write(response.body)
-                                            }
-                                        }
-                                    }
-                                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
-                                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                                url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                                cronetExecutor.value
                                             ).build()
                                             timeout.start(request, continuation)
                                             request.start()
@@ -706,29 +643,8 @@ class Media3PlayerViewModel(
                                             val timeout = NetworkUtils.HttpEngineTimeout()
                                             val request = httpEngine.value!!.newUrlRequestBuilder(
                                                 url,
-                                                cronetExecutor.value,
+                                                httpExecutor.value,
                                                 NetworkUtils.ByteArrayUrlCallback(continuation, timeout)
-                                            ).build()
-                                            timeout.start(request, continuation)
-                                            request.start()
-                                            continuation.invokeOnCancellation {
-                                                request.cancel()
-                                                timeout.stop()
-                                            }
-                                        }
-                                        if (response.info.httpStatusCode in 200..299) {
-                                            FileOutputStream(path).use {
-                                                it.write(response.body)
-                                            }
-                                        }
-                                    }
-                                    networkLibrary == C.CRONET && cronetEngine.value != null -> {
-                                        val response = suspendCancellableCoroutine { continuation ->
-                                            val timeout = NetworkUtils.CronetTimeout()
-                                            val request = cronetEngine.value!!.newUrlRequestBuilder(
-                                                url,
-                                                NetworkUtils.ByteArrayCronetCallback(continuation, timeout),
-                                                cronetExecutor.value
                                             ).build()
                                             timeout.start(request, continuation)
                                             request.start()
@@ -983,7 +899,7 @@ class Media3PlayerViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                Media3PlayerViewModel(application.applicationContext, xtraModule.httpEngine, xtraModule.cronetEngine, xtraModule.cronetExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.streamPreloadCoordinator, xtraModule.bookmarksRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository, xtraModule.streamFeedRefreshCoordinator, xtraModule.playbackPersistence)
+                Media3PlayerViewModel(application.applicationContext, xtraModule.httpEngine, xtraModule.httpExecutor, xtraModule.okHttpClient, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.playerRepository, xtraModule.streamPreloadCoordinator, xtraModule.bookmarksRepository, xtraModule.offlineVideosRepository, xtraModule.localChannelFollowsRepository, xtraModule.notificationsRepository, xtraModule.streamFeedRefreshCoordinator, xtraModule.playbackPersistence)
             }
         }
     }

@@ -48,7 +48,16 @@ class ChatViewportController(
         }
     }
 
-    fun onSnapshotCommitted(previousAnchor: ChatViewportAnchor?, rows: List<ChatRowUiModel>, appendedCount: Int) {
+    fun onSnapshotDeferred(anchor: ChatViewportAnchor, appendedCount: Int) {
+        state = state.copy(anchor = anchor, newMessageCount = state.newMessageCount + appendedCount)
+    }
+
+    fun onSnapshotCommitted(
+        previousAnchor: ChatViewportAnchor?,
+        rows: List<ChatRowUiModel>,
+        appendedCount: Int,
+        retainedGeometryUnchanged: Boolean = false,
+    ) {
         if (state.followMode == FollowMode.FOLLOWING_BOTTOM) {
             if (rows.isNotEmpty()) recyclerView.scrollToPosition(rows.lastIndex)
             state = state.copy(anchor = rows.lastOrNull()?.let { ChatViewportAnchor(it.id, 0) })
@@ -58,7 +67,12 @@ class ChatViewportController(
         val anchor = previousAnchor ?: state.anchor
         val position = anchor?.let { rows.indexOfFirst { row -> row.id == it.messageId } } ?: -1
         if (position >= 0) {
-            (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(position, anchor!!.topOffsetPx)
+            // Range notifications already remap attached positions after head eviction. Let
+            // LinearLayoutManager keep its visible children for an unchanged retained row.
+            // Full replacements and geometry changes still need an explicit anchor restore.
+            if (!retainedGeometryUnchanged || previousAnchor == null) {
+                (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(position, anchor!!.topOffsetPx)
+            }
             state = state.copy(anchor = anchor)
         } else if (rows.isNotEmpty()) {
             (recyclerView.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(0, 0)

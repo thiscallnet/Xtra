@@ -5,7 +5,6 @@ import com.github.andreyasadchy.xtra.model.helix.follows.FollowsResponse
 import java.util.concurrent.Executors
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
-import org.chromium.net.CronetEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -46,8 +45,7 @@ class HelixRepositoryTest {
 
     private fun repository(): HelixRepository = HelixRepository(
         httpEngine = lazy<HttpEngine?> { null },
-        cronetEngine = lazy<CronetEngine?> { null },
-        cronetExecutor = lazy { Executors.newSingleThreadExecutor() },
+        httpExecutor = lazy { Executors.newSingleThreadExecutor() },
         okHttpClient = lazy { OkHttpClient() },
         json = Json { ignoreUnknownKeys = true },
     )

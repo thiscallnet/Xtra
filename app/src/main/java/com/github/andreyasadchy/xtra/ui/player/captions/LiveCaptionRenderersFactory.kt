@@ -13,6 +13,7 @@ class LiveCaptionRenderersFactory(
     context: Context,
     private val audioBufferSink: TeeAudioProcessor.AudioBufferSink,
     private val presentationDelayMs: () -> Int,
+    private val captureAudio: () -> Boolean,
 ) : PlaybackRenderersFactory(context) {
 
     override fun buildAudioSink(
@@ -31,8 +32,7 @@ class LiveCaptionRenderersFactory(
             .setEnableAudioOutputPlaybackParameters(enableAudioOutputPlaybackParams)
             .setAudioProcessors(
                 arrayOf(
-                    TeeAudioProcessor(audioBufferSink),
-                    CaptionPresentationDelayAudioProcessor(presentationDelayMs),
+                    CaptionPresentationDelayAudioProcessor(audioBufferSink, presentationDelayMs, captureAudio),
                 ),
             )
             .build()
