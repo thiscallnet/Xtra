@@ -8,11 +8,12 @@ import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.util.C
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.channels.Channel
@@ -333,44 +334,45 @@ class LiveNotificationEventSub(
     }
 
     suspend fun stop() {
-        val sockets = stateMutex.withLock {
-            started = false
-            suspension = null
-            revokedChannelIds.clear()
-            reconnectJob?.cancel()
-            handoffRetryJob?.cancel()
-            reconnectJob = null
-            handoffRetryJob = null
-            val connections = listOfNotNull(activeConnection, pendingReconnect)
-            connections.forEach(::cancelConnectionJobs)
-            val sockets = connections.mapNotNull { it.socket }
-            activeConnection = null
-            pendingReconnect = null
-            sockets
-        }
+        val sockets = stateMutex.withLock { drainStateLocked() }
         sockets.forEach { it.close(NORMAL_CLOSE_CODE, "monitoring stopped") }
     }
 
-    /** Synchronous best-effort close used when the process-scoped engine stops. */
+    /** Resets state and returns the sockets to close. Caller must hold [stateMutex]. */
+    private fun drainStateLocked(): List<WebSocket> {
+        started = false
+        suspension = null
+        revokedChannelIds.clear()
+        reconnectJob?.cancel()
+        handoffRetryJob?.cancel()
+        reconnectJob = null
+        handoffRetryJob = null
+        val connections = listOfNotNull(activeConnection, pendingReconnect)
+        connections.forEach(::cancelConnectionJobs)
+        val sockets = connections.mapNotNull { it.socket }
+        activeConnection = null
+        pendingReconnect = null
+        return sockets
+    }
+
+    /**
+     * Best-effort close used when the process-scoped engine stops. Never blocks the caller: if
+     * another coroutine holds the state lock, the teardown finishes asynchronously instead.
+     */
     fun shutdown() {
-        val sockets = runBlocking {
-            stateMutex.withLock {
-                started = false
-                suspension = null
-                revokedChannelIds.clear()
-                reconnectJob?.cancel()
-                handoffRetryJob?.cancel()
-                reconnectJob = null
-                handoffRetryJob = null
-                val connections = listOfNotNull(activeConnection, pendingReconnect)
-                connections.forEach(::cancelConnectionJobs)
-                val sockets = connections.mapNotNull { it.socket }
-                activeConnection = null
-                pendingReconnect = null
-                sockets
+        if (stateMutex.tryLock()) {
+            val sockets = try {
+                drainStateLocked()
+            } finally {
+                stateMutex.unlock()
+            }
+            sockets.forEach { it.close(NORMAL_CLOSE_CODE, "process stopped") }
+        } else {
+            CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+                val sockets = stateMutex.withLock { drainStateLocked() }
+                sockets.forEach { it.close(NORMAL_CLOSE_CODE, "process stopped") }
             }
         }
-        sockets.forEach { it.close(NORMAL_CLOSE_CODE, "process stopped") }
         processorJob?.cancel()
         socketEvents.close()
     }
