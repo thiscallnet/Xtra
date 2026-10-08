@@ -118,7 +118,8 @@ class SmoothHlsQualityPolicy {
 class SmoothHlsTrackSelector(
     context: Context,
     private val qualityPolicy: SmoothHlsQualityPolicy,
-) : DefaultTrackSelector(context, SmoothHlsTrackSelectionFactory(qualityPolicy)) {
+    discardHiddenAudio: (Long, List<MediaChunk>) -> Int? = { _, _ -> null },
+) : DefaultTrackSelector(context, SmoothHlsTrackSelectionFactory(qualityPolicy, discardHiddenAudio)) {
     override fun selectVideoTrack(
         mappedTrackInfo: MappedTrackInfo,
         rendererFormatSupports: Array<Array<IntArray>>,
@@ -216,6 +217,7 @@ internal fun videoQualityTrackOverride(
  */
 class SmoothHlsTrackSelectionFactory(
     private val qualityPolicy: SmoothHlsQualityPolicy,
+    private val discardHiddenAudio: (Long, List<MediaChunk>) -> Int? = { _, _ -> null },
 ) : ExoTrackSelection.Factory {
     private val adaptiveFactory = AdaptiveTrackSelection.Factory()
 
@@ -234,7 +236,7 @@ class SmoothHlsTrackSelectionFactory(
         return selections.mapIndexed { index, selection ->
             val definition = definitions[index]
             if (selection is AdaptiveTrackSelection && definition?.let(::containsVideoFormat) == true) {
-                SmoothHlsTrackSelection(selection, qualityPolicy)
+                SmoothHlsTrackSelection(selection, qualityPolicy, discardHiddenAudio)
             } else {
                 selection
             }
@@ -248,6 +250,7 @@ class SmoothHlsTrackSelectionFactory(
 private class SmoothHlsTrackSelection(
     private val adaptiveSelection: AdaptiveTrackSelection,
     private val qualityPolicy: SmoothHlsQualityPolicy,
+    private val discardHiddenAudio: (Long, List<MediaChunk>) -> Int?,
 ) : ForwardingTrackSelection(adaptiveSelection) {
     private var effectiveIndex = adaptiveSelection.selectedIndex
     private var effectiveReason = adaptiveSelection.selectionReason
@@ -325,6 +328,7 @@ private class SmoothHlsTrackSelection(
         playbackPositionUs: Long,
         queue: List<MediaChunk>,
     ): Int {
+        discardHiddenAudio(playbackPositionUs, queue)?.let { return it }
         val desired = qualityPolicy.snapshot()
         if (desired.isAuto || queue.isEmpty()) {
             return adaptiveSelection.evaluateQueueSize(playbackPositionUs, queue)

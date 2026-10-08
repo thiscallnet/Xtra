@@ -7,6 +7,7 @@ import androidx.media3.common.Format
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.ForwardingRenderer
 import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecInfo
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -14,7 +15,10 @@ import androidx.media3.exoplayer.video.MediaCodecVideoRenderer
 import androidx.media3.exoplayer.video.VideoRendererEventListener
 
 @UnstableApi
-open class PlaybackRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
+open class PlaybackRenderersFactory(
+    context: Context,
+    private val videoMayBeAbsent: () -> Boolean = { false },
+) : DefaultRenderersFactory(context) {
 
     override fun buildVideoRenderers(
         context: Context,
@@ -31,21 +35,27 @@ open class PlaybackRenderersFactory(context: Context) : DefaultRenderersFactory(
             context, extensionRendererMode, mediaCodecSelector, enableDecoderFallback,
             eventHandler, eventListener, allowedVideoJoiningTimeMs, out,
         )
-        if (Build.HARDWARE != "ranchu" && Build.HARDWARE != "goldfish") return
-        // Keep extension renderers and their ordering from the default factory.
-        val videoRendererIndex = (firstRenderer until out.size).firstOrNull {
-            out[it].javaClass == MediaCodecVideoRenderer::class.java
-        } ?: return
-        out[videoRendererIndex] = GoldfishVideoRenderer(
-            MediaCodecVideoRenderer.Builder(context)
-                .setCodecAdapterFactory(codecAdapterFactory)
-                .setMediaCodecSelector(mediaCodecSelector)
-                .setEnableDecoderFallback(enableDecoderFallback)
-                .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
-                .setEventHandler(eventHandler)
-                .setEventListener(eventListener)
-                .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY),
-        )
+        if (Build.HARDWARE == "ranchu" || Build.HARDWARE == "goldfish") {
+            // Keep extension renderers and their ordering from the default factory.
+            val videoRendererIndex = (firstRenderer until out.size).firstOrNull {
+                out[it].javaClass == MediaCodecVideoRenderer::class.java
+            } ?: return
+            out[videoRendererIndex] = GoldfishVideoRenderer(
+                MediaCodecVideoRenderer.Builder(context)
+                    .setCodecAdapterFactory(codecAdapterFactory)
+                    .setMediaCodecSelector(mediaCodecSelector)
+                    .setEnableDecoderFallback(enableDecoderFallback)
+                    .setAllowedJoiningTimeMs(allowedVideoJoiningTimeMs)
+                    .setEventHandler(eventHandler)
+                    .setEventListener(eventListener)
+                    .setMaxDroppedFramesToNotify(MAX_DROPPED_VIDEO_FRAME_COUNT_TO_NOTIFY),
+            )
+        }
+        for (index in firstRenderer until out.size) {
+            out[index] = object : ForwardingRenderer(out[index]) {
+                override fun isReady(): Boolean = super.isReady() || videoMayBeAbsent()
+            }
+        }
     }
 
     private class GoldfishVideoRenderer(builder: MediaCodecVideoRenderer.Builder) : MediaCodecVideoRenderer(builder) {

@@ -5,6 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.IntentFilter
 import android.content.SharedPreferences
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
@@ -15,6 +18,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.Process
+import android.os.PowerManager
 import android.os.StatFs
 import android.os.SystemClock
 import android.util.Log
@@ -65,6 +69,7 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.player.hls.HiddenStreamAudioPlaylist
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.model.PlaybackState
@@ -151,6 +156,13 @@ class PlaybackService : MediaSessionService() {
     private val diagnostics = PlaybackVideoDiagnosticsStore()
     private var dynamicsProcessing: DynamicsProcessing? = null
     private var backgroundPlayback = false
+    private var hiddenAudioJob: Job? = null
+    private var hiddenAudioSource: HiddenStreamAudioPlaylist? = null
+    private val screenVisibilityReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            updateHiddenStreamAudio()
+        }
+    }
     private var backgroundVideoSuppressed = false
     private var backgroundRecoveryTimer: Timer? = null
     private var backgroundRecoveryAttempt = 0
@@ -394,6 +406,7 @@ class PlaybackService : MediaSessionService() {
     private var resumptionState: PlaybackState? = null
     private var pendingPlaybackQualityState: PlaybackState? = null
     private val mediaPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == C.SETTINGS_BACKGROUND_PLAYBACK) Handler(Looper.getMainLooper()).post { updateHiddenStreamAudio() }
         if (key == C.SYSTEM_MEDIA_CONTROLS_ENABLED ||
             key == C.SYSTEM_MEDIA_ARTWORK_SOURCE ||
             key == C.SYSTEM_MEDIA_SHOW_TITLE ||
@@ -428,6 +441,9 @@ class PlaybackService : MediaSessionService() {
         }
         primaryPlaybackWatchOwnerId = xtraModule.primaryPlaybackWatchState.newOwnerId()
         prefs().registerOnSharedPreferenceChangeListener(mediaPreferenceListener)
+        androidx.core.content.ContextCompat.registerReceiver(this, screenVisibilityReceiver,
+            IntentFilter().apply { addAction(Intent.ACTION_SCREEN_OFF); addAction(Intent.ACTION_SCREEN_ON) },
+            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED)
         val initialLivePolicy = LivePlaybackPolicies.forLowLatency(
             prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
         )
@@ -458,6 +474,7 @@ class PlaybackService : MediaSessionService() {
         player.addListener(
             object : Player.Listener {
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    updateHiddenStreamAudio()
                     updateAdaptiveLiveSampleTicker(player)
                     updateVaft(player)
                     updateViewingStats(player)
@@ -512,6 +529,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    updateHiddenStreamAudio()
                     if (playbackState == Player.STATE_READY) systemReplayRollback = null
                     updateVaft(player)
                     updateViewingStats(player)
@@ -543,6 +561,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+                    updateHiddenStreamAudio()
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "PlaybackLifecycle",
@@ -579,6 +598,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    updateHiddenStreamAudio()
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "PlaybackLifecycle",
@@ -617,6 +637,7 @@ class PlaybackService : MediaSessionService() {
                         }
                     }
                     xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(mediaItem)
+                    updateHiddenStreamAudio()
                     if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
                         canUseLiveSource(PlaybackContract.STREAM, liveRewindActive, liveRewindTransitioning) &&
                         mediaItem != null
@@ -689,6 +710,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onTracksChanged(tracks: Tracks) {
+                    updateHiddenStreamAudio()
                     diagnostics.confirmPendingRenderedVideoSizeAfterTracksChanged(tracks)
                     pendingSystemAudioModeDiagnostic?.let { expectingAudioOnly ->
                         val expectedUri = resumptionState?.playlistUrl
@@ -738,6 +760,9 @@ class PlaybackService : MediaSessionService() {
             }
         )
         player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onAudioUnderrun(eventTime: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) {
+                if (BuildConfig.DEBUG) Log.d("HiddenStreamAudio", "event=audio_underrun bufferMs=$bufferSizeMs elapsedSinceFeedMs=$elapsedSinceLastFeedMs")
+            }
             override fun onVideoDecoderInitialized(
                 eventTime: AnalyticsListener.EventTime,
                 decoderName: String,
@@ -874,6 +899,9 @@ class PlaybackService : MediaSessionService() {
                 mediaLoadData: MediaLoadData,
             ) {
                 diagnostics.recordLoad(mediaLoadData.dataType, loadEventInfo.bytesLoaded)
+                if (BuildConfig.DEBUG && hiddenAudioSource != null && mediaLoadData.dataType == Media3C.DATA_TYPE_MEDIA) {
+                    Log.d("HiddenStreamAudio", "event=loaded bytes=${loadEventInfo.bytesLoaded} positionMs=${player.currentPosition} bufferMs=${player.totalBufferedDuration} videoInputs=${player.videoDecoderCounters?.queuedInputBufferCount} audioInputs=${player.audioDecoderCounters?.queuedInputBufferCount}")
+                }
                 if (BuildConfig.DEBUG && vaftSourceSwitching) {
                     Log.d("XtraVaft", "handoff load type=${mediaLoadData.dataType} durationMs=${loadEventInfo.loadDurationMs} bytes=${loadEventInfo.bytesLoaded}")
                 }
@@ -1609,6 +1637,7 @@ class PlaybackService : MediaSessionService() {
                             }
                             SET_BACKGROUND_PLAYBACK -> {
                                 backgroundPlayback = customCommand.customExtras.getBoolean(BACKGROUND_PLAYBACK)
+                                updateHiddenStreamAudio()
                                 if (!backgroundPlayback) {
                                     restoreBackgroundVideoSuppression(session.player)
                                     backgroundRecoveryTimer?.cancel()
@@ -6371,6 +6400,33 @@ class PlaybackService : MediaSessionService() {
         primaryPlaybackWatchReleased = true
     }
 
+    private fun updateHiddenStreamAudio() {
+        val player = playbackPlayer
+        val hidden = backgroundPlayback || !(getSystemService(POWER_SERVICE) as PowerManager).isInteractive
+        val source = player?.takeIf {
+            isLocalLive() && !liveRewindActive && !liveRewindTransitioning &&
+                it.playWhenReady && it.playbackState != Player.STATE_IDLE && it.playbackState != Player.STATE_ENDED &&
+                !isLogicalAudioOnly() && Media3C.TRACK_TYPE_VIDEO !in it.trackSelectionParameters.disabledTrackTypes &&
+                prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)
+        }?.let { xtraModule.streamMedia3Runtime.hiddenAudioFor(it.currentMediaItem?.mediaId) }
+        if (!hidden || source == null) {
+            hiddenAudioJob?.cancel()
+            hiddenAudioJob = null
+            hiddenAudioSource?.setHidden(false)
+            hiddenAudioSource = null
+            return
+        }
+        if (hiddenAudioSource === source && (source.hidden || hiddenAudioJob?.isActive == true)) return
+        hiddenAudioJob?.cancel()
+        hiddenAudioSource?.setHidden(false)
+        hiddenAudioSource = source
+        if (BuildConfig.DEBUG) Log.d("HiddenStreamAudio", "event=scheduled elapsedMs=${SystemClock.elapsedRealtime()}")
+        hiddenAudioJob = lifecycleScope.launch {
+            delay(5_000L)
+            if (hiddenAudioSource === source && player.isPlaying) source.setHidden(true)
+        }
+    }
+
     private fun suppressVideoForBackground(player: Player) {
         if (player.deviceInfo.playbackType == DeviceInfo.PLAYBACK_TYPE_REMOTE) return
         if (backgroundVideoSuppressed) {
@@ -6548,6 +6604,7 @@ class PlaybackService : MediaSessionService() {
                 && prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)
         if (keepPlayback) {
             backgroundPlayback = true
+            updateHiddenStreamAudio()
             return
         }
         releasePrimaryPlaybackWatchState()
@@ -6567,6 +6624,9 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(screenVisibilityReceiver)
+        hiddenAudioJob?.cancel()
+        hiddenAudioSource?.setHidden(false)
         prefs().unregisterOnSharedPreferenceChangeListener(mediaPreferenceListener)
         adaptiveLiveSampleJob?.cancel()
         adaptiveLiveSampleJob = null
