@@ -368,7 +368,7 @@ class ChatViewModel(
                     emoteUsageViewerId.value = currentEmoteUsageViewerId()
                 }
                 resetViewerRoleForSessionChange()
-                if (BuildConfig.MODERATOR_TOOLS_ENABLED && started) startChatUserPresenceRefresh()
+                if (started) startChatUserPresenceRefresh()
             }
         }
 
@@ -2411,7 +2411,7 @@ class ChatViewModel(
         channelLogin: String?,
         moderationAllowed: Boolean,
     ): ModeratorRoleContext? {
-        if (!BuildConfig.MODERATOR_TOOLS_ENABLED || !moderationAllowed || liveChatReadOnly ||
+        if (!moderationAllowed || liveChatReadOnly ||
             activeChatMode !is ActiveChatMode.Live
         ) {
             if (moderatorRoleContext != null) resetViewerRoleForSessionChange()
@@ -2501,7 +2501,7 @@ class ChatViewModel(
     }
 
     private fun moderatorRoleContextStillCurrent(context: ModeratorRoleContext): Boolean =
-        BuildConfig.MODERATOR_TOOLS_ENABLED && !liveChatReadOnly &&
+        !liveChatReadOnly &&
             activeChatMode is ActiveChatMode.Live && moderatorRoleContext == context &&
             applicationContext.tokenPrefs().getString(C.USER_ID, null) == context.viewerId &&
             applicationContext.tokenPrefs().getString(C.USERNAME, null)?.trim()
@@ -2852,10 +2852,6 @@ class ChatViewModel(
     private fun clearChatUserSuggestions() {
         chatUserAvatarLoadJob?.cancel()
         chatUserAvatarLoadJob = null
-        if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
-            chatUserPresenceRefreshJob?.cancel()
-            chatUserPresenceRefreshJob = null
-        }
         synchronized(chatUserRecords) {
             chatUserRecords.clear()
             chatUserSuggestionAggregator.clear()
@@ -2879,7 +2875,7 @@ class ChatViewModel(
             if (chatUserPresenceAutocompleteActive) startChatUserPresenceRefresh()
         } else {
             clearChatUserSuggestions()
-            if (BuildConfig.MODERATOR_TOOLS_ENABLED && started) startChatUserPresenceRefresh()
+            if (started) startChatUserPresenceRefresh()
         }
     }
 
@@ -2905,10 +2901,6 @@ class ChatViewModel(
         } else {
             chatUserAvatarLoadJob?.cancel()
             chatUserAvatarLoadJob = null
-            if (!BuildConfig.MODERATOR_TOOLS_ENABLED) {
-                chatUserPresenceRefreshJob?.cancel()
-                chatUserPresenceRefreshJob = null
-            }
         }
     }
 
@@ -4171,9 +4163,7 @@ class ChatViewModel(
         activeChannelId = channelId
         activeChannelLogin = channelLogin
         watchCreditStreamLive.value = true
-        if (chatUserPresenceAutocompleteActive || BuildConfig.MODERATOR_TOOLS_ENABLED) {
-            startChatUserPresenceRefresh()
-        }
+        startChatUserPresenceRefresh()
         if (!predictionPreferenceListenerRegistered) {
             applicationContext.prefs().registerOnSharedPreferenceChangeListener(predictionPreferenceListener)
             predictionPreferenceListenerRegistered = true
