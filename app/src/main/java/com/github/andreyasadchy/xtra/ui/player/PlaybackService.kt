@@ -97,7 +97,6 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.preload.VaftPreloadedMediaSource
-import com.github.andreyasadchy.xtra.repository.preload.VaftWarmupHandle
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.FutureCallback
 import com.google.common.util.concurrent.ListenableFuture
@@ -208,49 +207,9 @@ class PlaybackService : MediaSessionService() {
     private var vaftPrimaryReturnAfterElapsedMs: Long? = null
     private var vaftWarmupToken: String? = null
     private var vaftSourceGeneration = 0L
-    private data class TrackedVaftBoundary(
-        var observation: VaftBoundaryObservation,
-        val sourceGeneration: Long,
-        var primaryMediaId: String,
-        val primaryUri: String,
-        var playlistStartTimeUs: Long,
-        var playlistMediaSequence: Long,
-        var sourceRelativeClockValid: Boolean = true,
-        var lastKnownPhase: VaftPlaybackBoundaryPhase = VaftPlaybackBoundaryPhase.UNKNOWN,
-    )
-    private enum class VaftPlaybackBoundaryPhase { NONE, BEFORE, ACTIVE, AFTER, UNKNOWN }
     private var trackedVaftBoundary: TrackedVaftBoundary? = null
     private var vaftBoundaryWatchJob: Job? = null
     private var vaftBoundaryWatchMarkerKey: String? = null
-    private data class PreparedVaftCandidate(
-        val requestId: String,
-        val markerKey: String,
-        val vaftGeneration: Long,
-        val sourceGeneration: Long,
-        val playbackMediaId: String,
-        val configurationFingerprint: String,
-        val qualityIntent: DesiredHlsQuality,
-        val qualityIntentRevision: Long,
-        val candidate: PlayerRepository.StreamPlaylistCandidate,
-        val preparedAtMs: Long,
-        var warmup: VaftWarmupHandle? = null,
-        var nearTriggerWarmStarted: Boolean = false,
-        var refreshAttempted: Boolean = false,
-    )
-    private data class VaftPreparedSourceResolution(
-        val source: VaftPreloadedMediaSource? = null,
-        val rejectionReason: String? = null,
-    )
-    private data class VaftEntryFrameOwner(
-        val requestId: String,
-        val vaftGeneration: Long,
-        val sourceGeneration: Long,
-        val markerKey: String,
-        val primaryMediaId: String,
-        val primaryUri: String,
-        val qualityIntentRevision: Long,
-        val requestedAtMs: Long,
-    )
     private var vaftPreparationJob: Job? = null
     private var vaftPreparationMarkerKey: String? = null
     private var vaftPreparationGeneration = -1L
@@ -3206,12 +3165,6 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private data class VaftPositionSnapshot(
-        val windowStartTimeMs: Long?,
-        val positionMs: Long,
-        val liveOffsetMs: Long?,
-    )
-
     private fun snapshotVaftPosition(player: ExoPlayer): VaftPositionSnapshot {
         val window = Timeline.Window()
         val windowStartTimeMs = if (!player.currentTimeline.isEmpty) {
@@ -5745,51 +5698,6 @@ class PlaybackService : MediaSessionService() {
             }
     }
 
-    private class StreamStartupTrace(
-        val channelLogin: String,
-        private val tappedAtMs: Long,
-        val mediaLabel: String,
-        private val mediaAgeMs: Long?,
-        private val urlWarm: Boolean,
-        private val previewAlreadyPlaying: Boolean,
-        private val streamStartElapsedMs: Long,
-        private val urlAvailableElapsedMs: Long?,
-        val tapSource: String,
-    ) {
-        var prepareCalledAtMs: Long? = null
-        private var readyLogged = false
-        private var firstFrameLogged = false
-
-        fun tapToUrlAvailableMs(): Long? = urlAvailableElapsedMs?.minus(tappedAtMs)
-
-        fun tapToStartStreamMs(): Long = streamStartElapsedMs - tappedAtMs
-
-        fun markReady() {
-            if (readyLogged || !BuildConfig.DEBUG) return
-            readyLogged = true
-            val now = SystemClock.elapsedRealtime()
-            Log.d(
-                "StreamStartup",
-                "StreamStartup channel=$channelLogin url=${if (urlWarm) "warm" else "cold"} media=$mediaLabel mediaAgeMs=${mediaAgeMs ?: -1} " +
-                    "preview=$previewAlreadyPlaying tapSource=$tapSource tapToUrlAvailableMs=${tapToUrlAvailableMs() ?: -1} " +
-                    "tapToStartStreamMs=${tapToStartStreamMs()} tapToReadyMs=${now - tappedAtMs} " +
-                    "prepareToReadyMs=${prepareCalledAtMs?.let { now - it } ?: -1}",
-            )
-        }
-
-        fun markFirstFrame() {
-            if (firstFrameLogged || !BuildConfig.DEBUG) return
-            firstFrameLogged = true
-            val now = SystemClock.elapsedRealtime()
-            Log.d(
-                "StreamStartup",
-                "StreamStartup channel=$channelLogin url=${if (urlWarm) "warm" else "cold"} media=$mediaLabel mediaAgeMs=${mediaAgeMs ?: -1} " +
-                    "preview=$previewAlreadyPlaying tapSource=$tapSource tapToUrlAvailableMs=${tapToUrlAvailableMs() ?: -1} " +
-                    "tapToStartStreamMs=${tapToStartStreamMs()} tapToFirstFrameMs=${now - tappedAtMs}",
-            )
-        }
-    }
-
     private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean =
         controller.uid == Process.myUid() && controller.packageName == packageName
 
@@ -5858,19 +5766,6 @@ class PlaybackService : MediaSessionService() {
             false
         }
     }
-
-    private data class LiveRewindPlaybackSnapshot(
-        val mediaItem: MediaItem,
-        val liveStreamExtras: Bundle,
-        val positionMs: Long,
-        val playWhenReady: Boolean,
-        val volume: Float,
-        val playbackSpeed: Float,
-        val trackSelectionParameters: TrackSelectionParameters,
-        val proxyMediaPlaylist: Boolean,
-        val liveRewindActive: Boolean,
-        val liveRewindVodId: String?,
-    )
 
     private fun createVodMediaSource(uri: android.net.Uri): MediaSource =
         HlsMediaSource.Factory(
