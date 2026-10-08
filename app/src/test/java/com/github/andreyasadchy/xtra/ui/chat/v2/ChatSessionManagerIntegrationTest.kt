@@ -559,12 +559,14 @@ class ChatSessionManagerIntegrationTest {
             id = ChatMessageId("chat-message"),
             timestampMs = 10_000L,
             user = user,
-            rawText = null,
+            rawText = "Viewer input",
             rewardId = "reward-1",
         )
         val hermes = normal.copy(
             id = ChatMessageId("reward-redemption"),
             rewardRedemptionId = "redemption-1",
+            kind = ChatMessageKind.REWARD,
+            noticeType = "channel_points_custom_reward_redemption",
         )
         transport.send(active.key, normal)
         transport.send(active.key, hermes)

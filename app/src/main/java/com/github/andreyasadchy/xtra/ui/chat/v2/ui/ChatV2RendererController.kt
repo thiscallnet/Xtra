@@ -28,6 +28,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatPresentationLab
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPalette
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
+import com.github.andreyasadchy.xtra.ui.chat.v2.session.VersionedTimelineSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
 import com.github.andreyasadchy.xtra.util.ChatBatchingPreferences
@@ -214,6 +215,7 @@ class ChatV2RendererController(
         val messages = externalMessages.orEmpty()
         val catalog = externalCatalog
         val timelineDelta = externalTimelineDelta
+        val timelineVersion = externalTimelineVersion
         publish(
             PresentationPublication(
                 key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey(
@@ -221,9 +223,10 @@ class ChatV2RendererController(
                     EXTERNAL_SESSION_GENERATION,
                 ),
                 messages = messages,
-                fullSnapshot = { messages },
-                timelineVersion = externalTimelineVersion,
+                fullSnapshot = { VersionedTimelineSnapshot(timelineVersion, messages) },
+                timelineVersion = timelineVersion,
                 timelineDelta = timelineDelta,
+                baseVersion = (timelineVersion - 1).takeIf { timelineDelta is ChatTimelineDelta.Append },
                 metadataSettlement = ChatMetadataSettlement(
                     structuralSettled = true,
                     badgesSettled = true,
@@ -437,7 +440,7 @@ class ChatV2RendererController(
             committedPublication = publication
             return
         }
-        val previousPublication = latestPublication
+        val previousPublication = committedPublication
         val previousRows = latestRows
         val previousMessageCount = latestMessages.size
         withContext(Dispatchers.Main.immediate) {
@@ -462,10 +465,7 @@ class ChatV2RendererController(
             fullMessages = fullMessages,
         )
         if (fullMessages == null && compiled.appendInfo == null) {
-            preparedPublication = preparedPublication.copy(
-                messages = preparedPublication.fullSnapshot(),
-                timelineDelta = ChatTimelineDelta.Full,
-            )
+            preparedPublication = materializeFullPublication(preparedPublication)
             fullMessages = preparedPublication.messages
             compiled = compileCurrent(
                 publication = preparedPublication,
@@ -638,9 +638,18 @@ class ChatV2RendererController(
         ) {
             return publication
         }
+        return materializeFullPublication(publication)
+    }
+
+    private suspend fun materializeFullPublication(publication: PresentationPublication): PresentationPublication {
+        // The actor may have advanced since this publication. Keep its actual version with
+        // the fetched window so the next delta cannot append rows already in that window.
+        val snapshot = publication.fullSnapshot()
         return publication.copy(
-            messages = publication.fullSnapshot(),
+            messages = snapshot.messages,
+            timelineVersion = snapshot.version,
             timelineDelta = ChatTimelineDelta.Full,
+            baseVersion = null,
         )
     }
 
@@ -659,6 +668,7 @@ class ChatV2RendererController(
         return previousPublication != null &&
             previousPublication.key == publication.key &&
             publication.timelineVersion > previousPublication.timelineVersion &&
+            publication.baseVersion == previousPublication.timelineVersion &&
             !forceCatalogUpgrade &&
             !metadataSettlementChanged &&
             previousRows.size == previousMessageCount &&
@@ -851,9 +861,10 @@ class ChatV2RendererController(
                 PresentationPublication(
                     key,
                     snapshot.messages,
-                    fullSnapshot = session::snapshot,
+                    fullSnapshot = session.timeline::versionedSnapshot,
                     timelineVersion = snapshot.version,
                     timelineDelta = snapshot.delta,
+                    baseVersion = snapshot.baseVersion,
                     metadataSettlement = ChatMetadataSettlement(
                         structuralSettled = catalogState.structuralCatalogSettled,
                         badgesSettled = !renderStyle.showBadges || catalogState.badgesSettled,
@@ -869,9 +880,10 @@ class ChatV2RendererController(
     private data class PresentationPublication(
         val key: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey,
         val messages: List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>,
-        val fullSnapshot: suspend () -> List<com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage>,
+        val fullSnapshot: suspend () -> VersionedTimelineSnapshot,
         val timelineVersion: Long,
         val timelineDelta: ChatTimelineDelta?,
+        val baseVersion: Long?,
         val metadataSettlement: ChatMetadataSettlement,
         val forceRefreshRevision: Long,
         val catalog: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot,

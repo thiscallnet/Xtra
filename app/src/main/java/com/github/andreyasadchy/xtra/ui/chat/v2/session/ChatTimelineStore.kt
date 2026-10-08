@@ -60,6 +60,8 @@ data class VersionedTimelineSnapshot(
     val version: Long,
     val messages: List<ChatMessage>,
     val delta: ChatTimelineDelta? = null,
+    /** The exact consumer version an append delta extends. */
+    val baseVersion: Long? = null,
 )
 
 /** The only mutable owner of the live message tail. Asset work is deliberately absent here. */
@@ -107,6 +109,7 @@ class ChatTimelineStore(
                                 version = version,
                                 messages = messages,
                                 delta = delta,
+                                baseVersion = operation.afterVersion.takeIf { delta is ChatTimelineDelta.Append },
                             ),
                         )
                         continue
@@ -354,19 +357,12 @@ class ChatTimelineStore(
                 other.user?.id == userId &&
                 abs(other.timestampMs - message.timestampMs) <= REWARD_DUPLICATE_WINDOW_MS &&
                 other.rawText.orEmpty() == message.rawText.orEmpty() &&
-                when {
-                    other.rewardRedemptionId != null && message.rewardRedemptionId != null ->
-                        other.rewardRedemptionId == message.rewardRedemptionId
-                    other.rewardRedemptionId == null && message.rewardRedemptionId != null -> true
-                    // A later chat row can mirror an earlier redemption event. Require actual
-                    // user text here so a rapid no-input redemption is not mistaken for a copy.
-                    other.rewardRedemptionId != null && message.rewardRedemptionId == null ->
-                        !message.rawText.isNullOrBlank()
-                    // IRC chat and a synthetic redemption notice can both lack the ID.
-                    // Only pair those different sources; separate id-less redemptions remain.
-                    else -> isSyntheticRedemption(other) != isSyntheticRedemption(message) &&
-                        !message.rawText.isNullOrBlank()
-                }
+                !other.rewardSourcesMerged && !message.rewardSourcesMerged &&
+                // Each input pairs with one notice. Repeated identical inputs and separate
+                // notices are distinct redemptions even inside the matching time window.
+                isSyntheticRedemption(other) != isSyntheticRedemption(message) &&
+                !message.rawText.isNullOrBlank() &&
+                (other.rewardRedemptionId == null || message.rewardRedemptionId == null)
         }
     }
 
@@ -403,6 +399,8 @@ class ChatTimelineStore(
             rewardCost = preferred.rewardCost ?: supplemental.rewardCost,
             rewardImageUrl = preferred.rewardImageUrl ?: supplemental.rewardImageUrl,
             rewardRedemptionId = preferred.rewardRedemptionId ?: supplemental.rewardRedemptionId,
+            rewardSourcesMerged = existing.rewardSourcesMerged || incoming.rewardSourcesMerged ||
+                existingSynthetic != incomingSynthetic,
             systemText = preferred.systemText ?: supplemental.systemText,
             moderation = preferred.moderation ?: supplemental.moderation,
         )
