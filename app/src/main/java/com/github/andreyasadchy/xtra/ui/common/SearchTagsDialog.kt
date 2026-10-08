@@ -18,6 +18,7 @@ import com.github.andreyasadchy.xtra.databinding.DialogSearchTagsBinding
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.ui.common.SearchTagsViewModel.Companion.SearchTagsViewModelFactory
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -74,6 +75,7 @@ class SearchTagsDialog : DialogFragment() {
                                     recyclerView.scrollToPosition(0)
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }

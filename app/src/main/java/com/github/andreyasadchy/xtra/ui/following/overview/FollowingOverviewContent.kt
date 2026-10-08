@@ -28,7 +28,8 @@ internal suspend fun <T> loadChannelItems(
         } else {
             ChannelItemsResult.Failure
         }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
         ChannelItemsResult.Failure
     }
 }

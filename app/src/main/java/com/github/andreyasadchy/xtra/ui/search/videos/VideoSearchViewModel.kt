@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -143,6 +144,7 @@ class VideoSearchViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -190,6 +192,7 @@ class VideoSearchViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -214,6 +217,7 @@ class VideoSearchViewModel(
                             )
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                             try {
                                 helixRepository.getUsers(
@@ -232,6 +236,7 @@ class VideoSearchViewModel(
                                     )
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
                                 null
                             }
                         } else null

@@ -8,6 +8,7 @@ import android.net.http.UrlResponseInfo
 import android.os.Build
 import androidx.annotation.RequiresExtension
 import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
@@ -196,6 +197,7 @@ object NetworkUtils {
                 byteBuffer.clear()
                 request.read(byteBuffer)
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 request.cancel()
                 fail(error)
             }

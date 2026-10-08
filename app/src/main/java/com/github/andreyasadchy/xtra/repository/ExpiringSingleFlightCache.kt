@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.repository
 
 import android.os.SystemClock
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -75,6 +76,7 @@ internal class ExpiringSingleFlightCache<K, V>(
                     }
                     if (ownsFlight) result.complete(value)
                 } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
                     val ownsFlight = withContext(NonCancellable) {
                         mutex.withLock {
                             if (inFlight[key]?.result !== result) {

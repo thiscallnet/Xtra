@@ -159,6 +159,7 @@ import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.common.model.RemoteModelManager
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.TranslateRemoteModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.Job
@@ -1390,6 +1391,7 @@ class SettingsActivity : AppCompatActivity() {
                     try {
                         setValueIndex(findIndexOfValue(lang.toLanguageTags()))
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         try {
                             setValueIndex(findIndexOfValue(
                                 lang.toLanguageTags().substringBefore("-").let {
@@ -1402,6 +1404,7 @@ class SettingsActivity : AppCompatActivity() {
                                 }
                             ))
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             setValueIndex(findIndexOfValue("en"))
                         }
                     }
@@ -4041,6 +4044,7 @@ class SettingsActivity : AppCompatActivity() {
                                         searchList?.scrollToPosition(0)
                                     }
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             }

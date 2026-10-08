@@ -1351,6 +1351,7 @@ class ChatViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
             }
         }
@@ -1415,6 +1416,7 @@ class ChatViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -1472,6 +1474,7 @@ class ChatViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             try {
                                 val savedResponse = cachedResponse ?: throw e
                                 applyCachedResponse(savedResponse)
@@ -1525,6 +1528,7 @@ class ChatViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -1594,6 +1598,7 @@ class ChatViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -1650,6 +1655,7 @@ class ChatViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -1717,6 +1723,7 @@ class ChatViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -1771,6 +1778,7 @@ class ChatViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -1797,6 +1805,7 @@ class ChatViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
             }
             viewModelScope.launch {
@@ -1812,6 +1821,7 @@ class ChatViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
             }
         }
@@ -1865,6 +1875,7 @@ class ChatViewModel(
                             loadedUserEmotes = true
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                     }
                 }
             }
@@ -1933,6 +1944,7 @@ class ChatViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
 
                 }
             }
@@ -4823,6 +4835,7 @@ class ChatViewModel(
             }
             throw e
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             _dropsUiState.update {
                 it.copy(
                     claimingDropId = null,
@@ -5614,6 +5627,7 @@ class ChatViewModel(
                     updatePoll(current)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 // Hermes remains the live path; a snapshot failure is harmless.
             }
         }
@@ -5635,6 +5649,7 @@ class ChatViewModel(
                     updatePrediction(current, sourceChannelId = channelId)
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 // Hermes remains the live path; a snapshot failure is harmless.
             }
         }
@@ -5690,6 +5705,7 @@ class ChatViewModel(
                             onMessage(ChatMessage(systemMsg = it))
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 }
@@ -6529,6 +6545,7 @@ class ChatViewModel(
                                 try {
                                     val response = graphQLRepository.loadJoinRaid(networkLibrary, gqlHeaders, it.raidId)
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             }
@@ -6824,6 +6841,7 @@ class ChatViewModel(
                     try {
                         playerRepository.sendSTVPresence(networkLibrary, stvUserId, channelId, sessionId, self)
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 }
@@ -6947,6 +6965,7 @@ class ChatViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
 
                 }
             }
@@ -7758,6 +7777,7 @@ class ChatViewModel(
                                 graphQLRepository.loadQueryUser(networkLibrary, gqlHeaders, login = splits[1]).also { response ->
                                 }.data!!.user?.id
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
                                 helixRepository.getUsers(
                                     networkLibrary = networkLibrary,
                                     headers = helixHeaders,
@@ -8522,6 +8542,7 @@ class ChatViewModel(
                     }
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
 
             }
         }
@@ -8584,7 +8605,8 @@ class ChatViewModel(
                 it.write(compressedBytes)
             }
             decompressedStream.toByteArray().decodeToString()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
             null
         }
     }
@@ -8592,7 +8614,8 @@ class ChatViewModel(
     private suspend fun invalidateEmoteResponseCache(fileName: String) = withContext(Dispatchers.IO) {
         try {
             emoteResponseFile(fileName).delete()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
         }
     }
 
@@ -8686,7 +8709,8 @@ class ChatViewModel(
                     )
                 }
             }.takeIf { it.isNotEmpty() }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
             null
         }
     }
@@ -8716,7 +8740,8 @@ class ChatViewModel(
                     .take(excess)
                     .forEach(File::delete)
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
         }
     }
 

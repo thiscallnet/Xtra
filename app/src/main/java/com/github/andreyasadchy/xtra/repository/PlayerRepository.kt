@@ -987,6 +987,7 @@ class PlayerRepository(
                 }
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             val response = graphQLRepository.loadQueryClipUrls(networkLibrary, gqlHeaders, clipId!!)
             val accessToken = response.data?.clip?.playbackAccessToken
             response.data?.clip?.assets?.let { assets ->
@@ -1849,6 +1850,7 @@ class PlayerRepository(
                 }
             } ?: emptyList()
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             try {
                 val response = graphQLRepository.loadChatBadges(networkLibrary, gqlHeaders, "")
                 response.data!!.badges?.mapNotNull {
@@ -1867,6 +1869,7 @@ class PlayerRepository(
                     }
                 } ?: emptyList()
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 helixRepository.getGlobalBadges(networkLibrary, helixHeaders).data.mapNotNull { set ->
                     set.setId?.let { setId ->
@@ -1916,6 +1919,7 @@ class PlayerRepository(
                 }
             } ?: emptyList()
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             try {
                 val response = graphQLRepository.loadChatBadges(networkLibrary, gqlHeaders, channelLogin)
                 response.data!!.badges?.mapNotNull {
@@ -1934,6 +1938,7 @@ class PlayerRepository(
                     }
                 } ?: emptyList()
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 helixRepository.getChannelBadges(networkLibrary, helixHeaders, channelId).data.mapNotNull { set ->
                     set.setId?.let { setId ->
@@ -2023,6 +2028,7 @@ class PlayerRepository(
             }
             emotes
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             try {
                 val emotes = mutableListOf<CheerEmote>()
                 val response = graphQLRepository.loadGlobalCheerEmotes(networkLibrary, gqlHeaders)
@@ -2090,6 +2096,7 @@ class PlayerRepository(
                 }
                 emotes
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 helixRepository.getCheerEmotes(networkLibrary, helixHeaders, channelId).data.map { set ->
                     set.tiers.mapNotNull { tier ->
@@ -2160,6 +2167,7 @@ class PlayerRepository(
             } while (!items.lastOrNull()?.cursor.isNullOrBlank() && sets.pageInfo?.hasNextPage == true)
             emotes
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             try {
                 if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 val response = graphQLRepository.loadQueryUserEmotes(networkLibrary, gqlHeaders)
@@ -2182,6 +2190,7 @@ class PlayerRepository(
                     }
                 }?.flatten() ?: emptyList()
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 val emotes = mutableListOf<TwitchEmote>()
                 var offset: String? = null

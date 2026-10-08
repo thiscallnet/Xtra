@@ -16,6 +16,7 @@ import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.util.findChildDocument
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.Segment
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.IOException
@@ -164,6 +165,7 @@ class SavedPagerViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -243,6 +245,7 @@ class SavedPagerViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }

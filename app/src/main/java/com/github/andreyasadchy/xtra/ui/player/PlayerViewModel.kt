@@ -86,6 +86,7 @@ class PlayerViewModel(
                             updateStreamInfoAndMarkKnown(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                             delay(if (refreshForLiveRewind) 45.seconds else 5.minutes)
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             delay(1.minutes)
                         }
                     }
@@ -97,6 +98,7 @@ class PlayerViewModel(
                     try {
                     updateStreamInfoAndMarkKnown(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                     }
                 }
             }
@@ -140,6 +142,7 @@ class PlayerViewModel(
                 )
             }
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
             try {
                 helixRepository.getStreams(
@@ -163,6 +166,7 @@ class PlayerViewModel(
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 val response = graphQLRepository.loadViewerCount(networkLibrary, gqlHeaders, channelLogin)
                 response.data!!.user.stream?.let {
                     Stream(
@@ -205,6 +209,7 @@ class PlayerViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     try {
                         val response = graphQLRepository.loadVideoGames(networkLibrary, gqlHeaders, videoId)
                         gamesList.value = response.data!!.video.moments.edges.map { item ->
@@ -219,6 +224,7 @@ class PlayerViewModel(
                             }
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 }
@@ -279,6 +285,7 @@ class PlayerViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -326,6 +333,7 @@ class PlayerViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -350,6 +358,7 @@ class PlayerViewModel(
                             )
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                             try {
                                 helixRepository.getUsers(
@@ -368,6 +377,7 @@ class PlayerViewModel(
                                     )
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
                                 null
                             }
                         } else null
@@ -418,6 +428,7 @@ class PlayerViewModel(
                 } catch (e: MissingAuthenticationException) {
                     _authenticationRequired.trySend(Unit)
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
             }
         }
@@ -470,6 +481,7 @@ class PlayerViewModel(
             } catch (e: MissingAuthenticationException) {
                 _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
             }
         }
     }
@@ -501,6 +513,7 @@ class PlayerViewModel(
             } catch (e: MissingAuthenticationException) {
                 _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
             }
         }
     }

@@ -27,6 +27,7 @@ import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,6 +60,7 @@ class LiveNotificationNotifier(private val context: Context) {
                 deliveredEvents += event
                 delivered += 1
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 if (firstError == null) {
                     firstError = e
                 }

@@ -302,7 +302,8 @@ class MultiviewViewModel(
                     )
                 }
             }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
             // Helix below is a useful fallback when the persisted GraphQL query is unavailable.
         }
 

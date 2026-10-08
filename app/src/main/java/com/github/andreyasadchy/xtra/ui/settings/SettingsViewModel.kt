@@ -153,6 +153,7 @@ class SettingsViewModel(
                                                         }
                                                     }
                                                 } catch (e: Exception) {
+                                                    if (e is CancellationException) throw e
 
                                                 }
                                             }
@@ -224,6 +225,7 @@ class SettingsViewModel(
                                                 }
                                             }
                                         } catch (e: Exception) {
+                                            if (e is CancellationException) throw e
 
                                         }
                                     }

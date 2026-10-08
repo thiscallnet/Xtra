@@ -132,6 +132,7 @@ class TwitchPrivateGqlClient(
         val body = try {
             json.parseToJsonElement(response.body).jsonObject
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             logger?.finishRequest(
                 token,
                 successful = false,

@@ -1154,7 +1154,8 @@ class PlaybackService : MediaSessionService() {
                                 setLiveRewindSessionState(transitioning = true)
                                 val result = try {
                                     startLiveStream(player, customCommand.customExtras)
-                                } catch (_: Exception) {
+                                } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
                                     setLiveRewindSessionState(transitioning = false)
                                     updatePrimaryPlaybackWatchState(player)
                                     return Futures.immediateFuture(SessionResult(SessionError.ERROR_UNKNOWN))
@@ -2064,6 +2065,7 @@ class PlaybackService : MediaSessionService() {
                                     mainHandler.post(::abortBootstrapPlaybackStart)
                                 }
                             } catch (throwable: Throwable) {
+                                if (throwable is CancellationException) throw throwable
                                 result.setException(throwable)
                                 if (isForPlay) {
                                     mainHandler.post(::abortBootstrapPlaybackStart)
@@ -2536,7 +2538,8 @@ class PlaybackService : MediaSessionService() {
             try {
                 val prepared = prepareLiveClip().await()
                 future.set(SessionResult(SessionResult.RESULT_SUCCESS, prepared.toBundle()))
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
+                if (e is CancellationException) throw e
                 if (!future.isCancelled) future.set(SessionResult(SessionError.ERROR_UNKNOWN))
             }
         }
@@ -2551,7 +2554,8 @@ class PlaybackService : MediaSessionService() {
             try {
                 val prepared = prepareVodClip(startIndex, endIndexExclusive).await()
                 future.set(SessionResult(SessionResult.RESULT_SUCCESS, prepared.toBundle()))
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
+                if (e is CancellationException) throw e
                 if (!future.isCancelled) future.set(SessionResult(SessionError.ERROR_UNKNOWN))
             }
         }
@@ -2850,7 +2854,8 @@ class PlaybackService : MediaSessionService() {
             clearLiveClipState()
             setLiveRewindSessionState(active = true, vodId = vodId)
             Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
             systemReplayRollback = null
             if (replacingActiveRewind) {
                 // Keep the same logical rewind session; the fragment will force a fresh live source.
@@ -5854,6 +5859,7 @@ class PlaybackService : MediaSessionService() {
             updateLiveClipSource(mediaItem)
             true
         } catch (error: Exception) {
+            if (error is CancellationException) throw error
             if (BuildConfig.DEBUG) Log.w("LiveRewind", "Failed to reconstruct live source after rewind setup failure (${error.javaClass.simpleName})")
             false
         }
@@ -6052,6 +6058,7 @@ class PlaybackService : MediaSessionService() {
                                     keepBackgroundPlayback = true,
                                 )
                             } catch (error: Exception) {
+                                if (error is CancellationException) throw error
                                 if (BuildConfig.DEBUG) {
                                     Log.w("PlaybackRecovery", "event=background_source_start_failed", error)
                                 }

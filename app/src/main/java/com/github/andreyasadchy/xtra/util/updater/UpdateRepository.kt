@@ -311,6 +311,7 @@ class UpdateRepository(
                         )
                         throw cancellation
                     } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
                         if (automatic && previousState is UpdateState.Deferred && isDeferred(previousState.release)) {
                             publishCheckResult(generation, checkStart.installSessionId) {
                                 _state.value = previousState
@@ -627,6 +628,7 @@ class UpdateRepository(
             activeDownloadDiagnosticsToken = null
             throw cancellation
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             finishUpdaterRequest(
                 token = activeDownloadDiagnosticsToken,
                 successful = false,
@@ -754,6 +756,7 @@ class UpdateRepository(
                         }
                         throw cancellation
                     } catch (error: Throwable) {
+                        if (error is CancellationException) throw error
                         finishUpdaterRequest(
                             token = activeInstallDiagnosticsToken,
                             successful = false,
@@ -846,6 +849,7 @@ class UpdateRepository(
                 activeDownloadDiagnosticsToken = null
                 throw cancellation
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 if (id != activeDownloadId) return@withLock
                 _state.value = UpdateState.Error(
                     UpdateStage.DOWNLOAD,
@@ -1776,6 +1780,7 @@ class UpdateRepository(
             cancelInstallNotification()
             pendingInstallStarter(intent)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             val release = loadPersistedRelease()
             val artifact = currentArtifact()
             abandonActiveInstallSession()
