@@ -692,7 +692,8 @@ Metadata text</string>
     <string name="settings_restore_complete">Xtra backup restored.</string>
     <string name="settings_restore_archive_authoritative">Xtra backup restored. The archive was used; separately selected files were ignored.</string>
     <string name="settings_operation_failed">Operation failed: %1$s</string>
-    <string name="settings_backup_summary" translatable="false">Manual backups include local playback and download records. Keep the selected destination private.</string>
+    <string name="settings_backup_summary" translatable="false">Includes settings, viewing statistics, history, playback positions, bookmarks, local follows, emote favorites and recents, saved filters, recent searches, and download records. Downloaded media, saved artwork, login tokens, and proxy passwords are excluded. Keep the selected destination private.</string>
+    <string name="settings_restore_summary" translatable="false">Replaces settings and local data with the backup, including viewing statistics. Keeps your current login. Download records require the original media files. Xtra restarts to apply the restore.</string>
     <string name="settings_restore_action">Restore backup</string>
     <string name="settings_reset_action">Reset settings to defaults</string>
     <string name="settings_reset_summary">Keeps your account, downloads and app content.</string>
