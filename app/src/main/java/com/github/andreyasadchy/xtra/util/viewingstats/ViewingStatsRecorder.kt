@@ -175,10 +175,10 @@ class ViewingStatsRecorder(
         completed.await()
     }
 
-    /** Persists the current playback baseline before a foreground stats query. */
-    suspend fun flush() {
+    /** Persists current playback; backups require a successful write rather than a later retry. */
+    suspend fun flush(requirePersisted: Boolean = false) {
         val completed = CompletableDeferred<Unit>()
-        sendOrdered(Command.Checkpoint(reading(), completed))
+        sendOrdered(Command.Checkpoint(reading(), completed, requirePersisted))
         completed.await()
     }
 
@@ -244,7 +244,7 @@ class ViewingStatsRecorder(
                     is Command.SourceReleased -> handleSourceReleased(command)
                     is Command.Checkpoint -> {
                         drainPendingRefreshes()
-                        runCheckpoint(command.reading, force = true)
+                        runCheckpoint(command.reading, force = true, requirePersisted = command.requirePersisted)
                         command.completed?.complete(Unit)
                     }
                     is Command.Reset -> {
@@ -369,6 +369,7 @@ class ViewingStatsRecorder(
         reading: ClockReading,
         force: Boolean = false,
         timerDeadline: Long? = null,
+        requirePersisted: Boolean = false,
     ) {
         val activeStates = states.values.filter { it.actualPlaying }
         activeStates.forEach { accrue(it, reading) }
@@ -387,9 +388,10 @@ class ViewingStatsRecorder(
             dueStates.forEach { it.lastPersistElapsed = reading.elapsedRealtime }
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
+        } catch (failure: Exception) {
             // Keep the state and its elapsed baseline intact so the next
             // checkpoint or transition can retry the write.
+            if (requirePersisted) throw failure
         }
     }
 
@@ -689,6 +691,7 @@ class ViewingStatsRecorder(
         data class Checkpoint(
             val reading: ClockReading,
             val completed: CompletableDeferred<Unit>? = null,
+            val requirePersisted: Boolean = false,
         ) : Command
         data class Reset(val reading: ClockReading, val completed: CompletableDeferred<Unit>) : Command
         data class Barrier(val completed: CompletableDeferred<Unit>) : Command

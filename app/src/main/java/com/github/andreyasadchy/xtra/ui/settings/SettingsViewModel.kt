@@ -36,6 +36,7 @@ import com.github.andreyasadchy.xtra.util.proxyPrefs
 import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import com.github.andreyasadchy.xtra.util.viewingstats.ViewingStatsRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -56,6 +57,7 @@ class SettingsViewModel(
     private val recentSearchesRepository: RecentSearchesRepository,
     private val notificationsRepository: NotificationsRepository,
     private val appDatabase: AppDatabase,
+    private val viewingStatsRecorder: ViewingStatsRecorder,
 ) : ViewModel() {
 
     val liveNotificationResult = MutableSharedFlow<LiveNotificationResult>()
@@ -288,6 +290,7 @@ class SettingsViewModel(
 
                 val database = applicationContext.getDatabasePath("database")
                 val stagedDatabase = File(staging, SettingsBackup.DATABASE_ENTRY)
+                viewingStatsRecorder.flush(requirePersisted = true)
                 val databaseVersion = DatabaseBackupSnapshot.capture(appDatabase, database, stagedDatabase)
 
                 val treeUri = url.toUri()
@@ -681,7 +684,7 @@ class SettingsViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                SettingsViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.recentSearchesRepository, xtraModule.notificationsRepository, xtraModule.database)
+                SettingsViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.recentSearchesRepository, xtraModule.notificationsRepository, xtraModule.database, xtraModule.viewingStatsRecorder)
             }
         }
     }
