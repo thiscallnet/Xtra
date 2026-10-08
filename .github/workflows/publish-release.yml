@@ -357,8 +357,9 @@ jobs:
               echo "Refusing to publish an older build as latest: $VERSION_CODE < $latest_version_code" >&2
               exit 1
             fi
-            if (( latest_version_code == VERSION_CODE )) && [[ "$latest_tag" != "$RELEASE_TAG" ]]; then
-              echo "A different stable release already has versionCode $VERSION_CODE" >&2
+            latest_build_number="$(jq -er '.buildNumber | numbers' "$latest_metadata")"
+            if (( latest_build_number > BUILD_RUN_NUMBER )) || { (( latest_build_number == BUILD_RUN_NUMBER )) && [[ "$latest_tag" != "$RELEASE_TAG" ]]; }; then
+              echo "Refusing to replace a newer or conflicting stable build" >&2
               exit 1
             fi
           fi

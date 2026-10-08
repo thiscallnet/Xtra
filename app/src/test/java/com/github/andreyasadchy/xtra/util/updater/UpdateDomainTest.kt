@@ -440,11 +440,14 @@ class UpdateDomainTest {
 
         assertEquals(132L, release.buildNumber)
         assertEquals("2.58.5 (build 132)", release.displayVersion)
-        assertEquals("2.58.5 (build 132)", UpdateVersionDisplay.installed("2.58.5", 253L, 121L))
-        assertEquals(132L, UpdateVersionDisplay.installedBuildNumber(253L, 121L))
+        assertEquals("2.58.5 (build 132)", UpdateVersionDisplay.installed("2.58.5", 132L))
+        assertEquals(132L, UpdateVersionDisplay.installedBuildNumber(132L))
         assertTrue(UpdatePolicy.isNewer("2.58.5", 132L, parse("v2.59.0-build.1")))
         assertTrue(UpdatePolicy.isNewer("2.58.5", 132L, parse("v2.58.5-build.133")))
-        // The future APK uses a different version-code base; only its actual archive code matters.
+        assertTrue(UpdatePolicy.isCompatibleArchive("com.github.andreyasadchy.xtra", 10000L, "com.github.andreyasadchy.xtra", 10000L))
+        assertFalse(UpdatePolicy.isCompatibleArchive("com.github.andreyasadchy.xtra", 9999L, "com.github.andreyasadchy.xtra", 10000L))
+        assertNull(UpdateVersionDisplay.installedBuildNumber(0L))
+        // Compatibility boundaries can advance independently of the release build number.
         assertTrue(UpdatePolicy.isCompatibleArchive("com.github.andreyasadchy.xtra", 1001L, "com.github.andreyasadchy.xtra", 253L))
         assertFalse(UpdatePolicy.isCompatibleArchive("com.other.app", 1001L, "com.github.andreyasadchy.xtra", 253L))
         assertTrue(

@@ -83,7 +83,7 @@ class UpdateDetailsBottomSheet : BottomSheetDialogFragment() {
         binding.detailsTitle.text = getString(model.titleRes)
         binding.detailsVersion.text = release?.displayVersion ?: getString(
             R.string.update_version,
-            UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.CI_VERSION_CODE_BASE.toLong()),
+            UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.CI_BUILD_NUMBER.toLong()),
         )
         binding.detailsMeta.text = release?.let { releaseMeta(it, model.selectedAsset) }.orEmpty()
         binding.detailsStatus.text = statusText(model)
