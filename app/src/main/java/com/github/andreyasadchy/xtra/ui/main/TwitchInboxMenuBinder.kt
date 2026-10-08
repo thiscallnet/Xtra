@@ -30,7 +30,7 @@ object TwitchInboxMenuBinder {
     private var cachedNotificationSummary: NotificationUnreadSummary? = null
     private var cachedWhisperSummary: com.github.andreyasadchy.xtra.repository.WhisperUnreadSummary? = null
     private var hasCachedSummary = false
-    private val boundToolbars = WeakHashMap<Toolbar, Unit>()
+    private val boundToolbars = WeakHashMap<Toolbar, Boolean>()
 
     fun invalidateSummary() {
         lastSummaryRefreshAt = 0L
@@ -46,7 +46,12 @@ object TwitchInboxMenuBinder {
         val notificationItem = toolbar.menu.findItem(R.id.twitchNotifications)
         val whispersItem = toolbar.menu.findItem(R.id.whispers)
         if (notificationItem == null && whispersItem == null) return
-        boundToolbars[toolbar] = Unit
+        if (!boundToolbars.containsKey(toolbar)) {
+            toolbar.addOnLayoutChangeListener { _, left, _, right, _, oldLeft, _, oldRight, _ ->
+                if (right - left != oldRight - oldLeft) updateActionPlacement(toolbar)
+            }
+        }
+        updateActionPlacement(toolbar)
         notificationItem?.isVisible = loggedIn
         whispersItem?.isVisible = loggedIn
         if (!loggedIn) {
@@ -77,6 +82,22 @@ object TwitchInboxMenuBinder {
         } }
         applyCachedBadges()
         refreshBadges(toolbar, activity)
+    }
+
+    private fun updateActionPlacement(toolbar: Toolbar) {
+        // Five fixed 48dp actions leave almost no title space on compact phones.
+        // Keep the inbox actions available in overflow until the toolbar has room.
+        val widthDp = if (toolbar.width > 0) {
+            toolbar.width / toolbar.resources.displayMetrics.density
+        } else {
+            toolbar.resources.configuration.screenWidthDp.toFloat()
+        }
+        val compact = widthDp < 400f
+        if (boundToolbars[toolbar] == compact) return
+        boundToolbars[toolbar] = compact
+        val placement = if (compact) MenuItem.SHOW_AS_ACTION_NEVER else MenuItem.SHOW_AS_ACTION_ALWAYS
+        toolbar.menu.findItem(R.id.twitchNotifications)?.setShowAsAction(placement)
+        toolbar.menu.findItem(R.id.whispers)?.setShowAsAction(placement)
     }
 
     private fun applyCachedBadges() {

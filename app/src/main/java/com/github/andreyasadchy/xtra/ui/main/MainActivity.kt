@@ -1098,6 +1098,8 @@ class MainActivity : AppCompatActivity() {
         Snackbar.make(binding.root, message, duration).also { snackbar ->
             if (!useNavigationRail && binding.navBarContainer.isVisible) {
                 snackbar.setAnchorView(binding.navBarContainer)
+                // Rotation and keyboard insets move navigation after the snackbar is shown.
+                snackbar.setAnchorViewLayoutListenerEnabled(true)
             }
         }
 

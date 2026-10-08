@@ -14,6 +14,7 @@ import androidx.core.content.edit
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.lifecycle.lifecycleScope
 import coil3.imageLoader
+import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.target
 import coil3.request.transformations
@@ -32,6 +33,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.shape.ShapeAppearanceModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -55,10 +57,25 @@ object ProfileMenuBinder {
         } else {
             activity.getString(R.string.sign_in)
         }
-        val avatarViews = createAvatar(activity, item, contentDescription)
-        item.actionView = avatarViews.container
-        if (!isLoggedIn) {
+        val avatarViews = item.actionView?.tag as? AvatarViews
+            ?: createAvatar(activity, item, contentDescription)
+        if (!avatarViews.initialized || avatarViews.userId != userId || avatarViews.login != login) {
+            avatarViews.profileImageJob?.cancel()
+            avatarViews.imageRequest?.dispose()
+            avatarViews.imageRequest = null
+            avatarViews.userId = userId
+            avatarViews.login = login
+            avatarViews.imageUrl = null
+            avatarViews.lastImageLoadAt = null
+            avatarViews.lastImageLookupAt = null
+            avatarViews.initialized = true
             showPlaceholder(avatarViews.image)
+        }
+        if (item.title != contentDescription) item.title = contentDescription
+        avatarViews.container.contentDescription = contentDescription
+        if (item.actionView !== avatarViews.container) item.actionView = avatarViews.container
+        if (!isLoggedIn) {
+            avatarViews.container.findViewWithTag<TextView>(AUTH_BADGE_TAG)?.let(avatarViews.container::removeView)
             avatarViews.container.setOnClickListener { launchLogin(activity) }
             return
         }
@@ -66,16 +83,15 @@ object ProfileMenuBinder {
         val authHealth = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
         bindAuthHealthBadge(activity, avatarViews.container, authHealth)
         avatarViews.container.setOnClickListener { openProfile(activity) }
-        item.actionView = avatarViews.container
 
         val cachedUserId = activity.tokenPrefs().getString(C.PROFILE_IMAGE_USER_ID, null)
         val cachedUrl = activity.tokenPrefs().getString(C.PROFILE_IMAGE_URL, null)
         if (cachedUserId == userId && !cachedUrl.isNullOrBlank()) {
-            showPlaceholder(avatarViews.image)
-            loadImage(activity, avatarViews.image, cachedUrl)
+            if (avatarViews.imageUrl != cachedUrl) {
+                loadImage(activity, avatarViews, cachedUrl)
+            }
         } else {
-            showPlaceholder(avatarViews.image)
-            loadProfileImage(activity, avatarViews.image, userId, login)
+            loadProfileImage(activity, avatarViews, userId, login)
         }
     }
 
@@ -97,7 +113,17 @@ object ProfileMenuBinder {
     private data class AvatarViews(
         val container: FrameLayout,
         val image: ShapeableImageView,
-    )
+    ) {
+        var initialized = false
+        var userId: String? = null
+        var login: String? = null
+        var imageUrl: String? = null
+        var lastImageLoadUrl: String? = null
+        var lastImageLoadAt: Long? = null
+        var lastImageLookupAt: Long? = null
+        var profileImageJob: Job? = null
+        var imageRequest: Disposable? = null
+    }
 
     private fun createAvatar(context: Context, item: MenuItem, contentDescription: String): AvatarViews {
         val density = context.resources.displayMetrics.density
@@ -124,7 +150,7 @@ object ProfileMenuBinder {
             this.contentDescription = contentDescription
             item.title = contentDescription
         }
-        return AvatarViews(container, image)
+        return AvatarViews(container, image).also { container.tag = it }
     }
 
     private fun isLoggedIn(activity: MainActivity): Boolean =
@@ -217,37 +243,58 @@ object ProfileMenuBinder {
             }
     }
 
-    private fun loadImage(context: Context, avatar: ShapeableImageView, url: String) {
+    private fun loadImage(context: Context, avatarViews: AvatarViews, url: String) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (avatarViews.lastImageLoadUrl == url &&
+            avatarViews.lastImageLoadAt?.let { now - it < 45_000L } == true
+        ) return
+        avatarViews.lastImageLoadUrl = url
+        avatarViews.lastImageLoadAt = now
+        avatarViews.imageUrl = url
+        val avatar = avatarViews.image
         avatar.scaleType = ImageView.ScaleType.CENTER_CROP
-        context.imageLoader.enqueue(
+        avatarViews.imageRequest = context.imageLoader.enqueue(
             ImageRequest.Builder(context).apply {
                 data(TwitchApiHelper.getProfileImage(url) ?: url)
                 transformations(CircleCropTransformation())
                 target(avatar)
+                listener(onError = { _, _ ->
+                    if (avatarViews.imageUrl == url) avatarViews.imageUrl = null
+                })
             }.build()
         )
     }
 
     private fun loadProfileImage(
         activity: MainActivity,
-        avatar: ShapeableImageView,
+        avatarViews: AvatarViews,
         userId: String?,
         login: String?,
     ) {
         if (userId.isNullOrBlank() && login.isNullOrBlank()) {
             return
         }
-        activity.lifecycleScope.launch {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (avatarViews.profileImageJob?.isActive == true ||
+            avatarViews.lastImageLookupAt?.let { now - it < 45_000L } == true
+        ) return
+        avatarViews.lastImageLookupAt = now
+        avatarViews.profileImageJob = activity.lifecycleScope.launch {
             val imageUrl = withContext(Dispatchers.IO) {
                 fetchProfileImage(activity, userId, login)
             }
+            // A late response must not replace the avatar/cache after an account change.
+            if (avatarViews.userId != userId || avatarViews.login != login ||
+                activity.tokenPrefs().getString(C.USER_ID, null) != userId ||
+                activity.tokenPrefs().getString(C.USERNAME, null) != login
+            ) return@launch
             if (!imageUrl.isNullOrBlank()) {
                 activity.tokenPrefs().edit {
                     putString(C.PROFILE_IMAGE_URL, imageUrl)
                     putString(C.PROFILE_IMAGE_USER_ID, userId)
                 }
-                if (avatar.isAttachedToWindow) {
-                    loadImage(activity, avatar, imageUrl)
+                if (avatarViews.image.isAttachedToWindow) {
+                    loadImage(activity, avatarViews, imageUrl)
                 }
             }
         }

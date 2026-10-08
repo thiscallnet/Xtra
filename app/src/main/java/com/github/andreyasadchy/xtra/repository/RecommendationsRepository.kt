@@ -92,7 +92,7 @@ class RecommendationsRepository(
                 limit = limit,
                 excludedChannelIds = excludedChannelIds,
             )
-            val streams = (cachedResult.streams + fallbackStreams)
+            val streams = (cachedResult.streams + fallbackStreams.orEmpty())
                 .filterNot { it.channelId in excludedChannelIds }
                 .distinctBy { it.channelId ?: it.id }
                 .take(limit)
@@ -163,7 +163,7 @@ class RecommendationsRepository(
         } else {
             emptyList()
         }
-        val streams = (personalized.orEmpty() + fallbackStreams)
+        val streams = (personalized.orEmpty() + fallbackStreams.orEmpty())
             .filterNot { it.channelId in excludedChannelIds }
             .distinctBy { it.channelId ?: it.id }
             .take(limit)
@@ -173,6 +173,7 @@ class RecommendationsRepository(
             streams = streams,
             source = resultSource,
             authMode = auth.mode,
+            isFailure = personalized == null && fallbackStreams == null,
         )
         debug("source=${result.source} auth=${result.authMode} count=${result.streams.size}")
         if (result.streams.isNotEmpty()) {
@@ -188,7 +189,7 @@ class RecommendationsRepository(
         requestContext: RecommendationRequestContext,
         limit: Int,
         excludedChannelIds: Set<String>,
-    ): List<Stream> = try {
+    ): List<Stream>? = try {
         fallback(
             networkLibrary = requestContext.networkLibrary,
             headers = TwitchApiHelper.getPublicRecommendationGQLHeaders(
@@ -202,7 +203,7 @@ class RecommendationsRepository(
         throw error
     } catch (error: Exception) {
         debugFailure("Fallback recommendations failed", error)
-        emptyList()
+        null
     }
 
     private suspend fun publishCacheIfCurrent(
@@ -348,6 +349,8 @@ data class RecommendationResult(
     val source: RecommendationSource,
     val authMode: RecommendationAuthMode,
     val isCacheHit: Boolean = false,
+    /** All attempted sources failed, rather than successfully returning no matches. */
+    val isFailure: Boolean = false,
 )
 
 enum class RecommendationAuthMode {

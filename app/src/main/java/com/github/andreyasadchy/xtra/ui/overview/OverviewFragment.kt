@@ -33,6 +33,12 @@ class OverviewFragment : Fragment(), Scrollable, FragmentHost {
 
     private var _binding: FragmentMediaBinding? = null
     private val binding get() = _binding!!
+    private val configuredRecyclerViews = mutableSetOf<RecyclerView>()
+    private val pageLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+        override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
+            configureOverviewContent(f)
+        }
+    }
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentById(R.id.fragmentContainer)
@@ -93,11 +99,7 @@ class OverviewFragment : Fragment(), Scrollable, FragmentHost {
                 }
             }
 
-            childFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
-                override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
-                    configureOverviewContent(f)
-                }
-            }, false)
+            childFragmentManager.registerFragmentLifecycleCallbacks(pageLifecycleCallbacks, false)
 
             if (currentFragment == null) {
                 childFragmentManager.beginTransaction()
@@ -118,17 +120,21 @@ class OverviewFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     private fun configureOverviewContent(fragment: Fragment?) {
+        val pageBinding = _binding ?: return
         val recyclerView = fragment?.view?.findViewById<RecyclerView>(R.id.recyclerView) ?: return
-        binding.appBar.setLiftOnScrollTargetView(recyclerView)
+        pageBinding.appBar.setLiftOnScrollTargetView(recyclerView)
+        if (!configuredRecyclerViews.add(recyclerView)) return
         recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                if (_binding !== pageBinding) return
                 val lifted = recyclerView.canScrollVertically(-1)
-                if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
+                if (pageBinding.appBar.isLifted != lifted) pageBinding.appBar.isLifted = lifted
             }
         })
         recyclerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (_binding !== pageBinding) return@addOnLayoutChangeListener
             val lifted = recyclerView.canScrollVertically(-1)
-            if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
+            if (pageBinding.appBar.isLifted != lifted) pageBinding.appBar.isLifted = lifted
         }
     }
 
@@ -146,6 +152,8 @@ class OverviewFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        childFragmentManager.unregisterFragmentLifecycleCallbacks(pageLifecycleCallbacks)
+        configuredRecyclerViews.clear()
         super.onDestroyView()
         _binding = null
     }

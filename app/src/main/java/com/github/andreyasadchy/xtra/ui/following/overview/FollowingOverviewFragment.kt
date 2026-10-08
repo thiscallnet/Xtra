@@ -46,6 +46,7 @@ private data class RecommendationState(
     val isLoading: Boolean,
     val hasResolved: Boolean,
     val source: RecommendationSource,
+    val hasFailed: Boolean,
 )
 
 private data class LoadingState(
@@ -197,8 +198,9 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                     viewModel.recommendationsLoading,
                     viewModel.recommendationsResolved,
                     viewModel.recommendationSource,
-                ) { recommended, recommendationsLoading, recommendationsResolved, recommendationSource ->
-                    RecommendationState(recommended, recommendationsLoading, recommendationsResolved, recommendationSource)
+                    viewModel.recommendationsFailed,
+                ) { recommended, recommendationsLoading, recommendationsResolved, recommendationSource, recommendationsFailed ->
+                    RecommendationState(recommended, recommendationsLoading, recommendationsResolved, recommendationSource, recommendationsFailed)
                 }
                 val sections = combine(
                     viewModel.liveStreams,
@@ -207,6 +209,11 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                     viewModel.overviewSectionKeys,
                 ) { live, recommendation, continueWatching, sectionKeys ->
                     val recommended = recommendation.streams
+                    val recommendationTitle = if (recommendation.source == RecommendationSource.FALLBACK) {
+                        R.string.following_popular_live_channels
+                    } else {
+                        R.string.following_recommended_channels
+                    }
                     val availableSections = mapOf(
                         FollowingOverviewSections.LIVE to FollowingOverviewSection(
                             key = FollowingOverviewSections.LIVE,
@@ -216,11 +223,10 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                         ),
                         FollowingOverviewSections.RECOMMENDED to FollowingOverviewSection(
                             key = FollowingOverviewSections.RECOMMENDED,
-                            titleRes = if (recommendation.source == RecommendationSource.FALLBACK) {
-                                R.string.following_popular_live_channels
-                            } else {
-                                R.string.following_recommended_channels
-                            },
+                            titleRes = recommendationTitle,
+                            title = if (recommendation.hasFailed && recommended.isNotEmpty()) {
+                                getString(R.string.following_cached_recommendations, getString(recommendationTitle))
+                            } else null,
                             emptyRes = R.string.following_no_recommended_channels,
                             streams = recommended,
                             isLoading = recommendation.isLoading && recommended.isEmpty() && !recommendation.hasResolved,

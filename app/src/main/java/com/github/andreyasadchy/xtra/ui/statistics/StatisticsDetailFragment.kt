@@ -8,6 +8,7 @@ import android.widget.GridLayout
 import android.widget.TextView
 import androidx.core.os.bundleOf
 import androidx.core.view.ViewCompat
+import androidx.core.view.doOnLayout
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import androidx.fragment.app.Fragment
@@ -209,19 +210,24 @@ class StatisticsDetailFragment : Fragment() {
     }
 
     private fun configureSummaryGrid() {
-        val grid = binding.detailStatsGrid
+        val pageBinding = binding
+        val grid = pageBinding.detailStatsGrid
         grid.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            updateSummaryGridColumns()
+            if (_binding === pageBinding) updateSummaryGridColumns()
         }
-        grid.post { updateSummaryGridColumns() }
+        grid.doOnLayout {
+            if (_binding === pageBinding) updateSummaryGridColumns()
+        }
     }
 
     private fun updateSummaryGridColumns() {
-        val grid = binding.detailStatsGrid
+        // Layout work can remain queued while navigation destroys this view.
+        val currentBinding = _binding ?: return
+        val grid = currentBinding.detailStatsGrid
         val summaryFields = listOf(
-            binding.sessionsValue,
-            binding.averageSessionValue,
-            binding.lastWatchedValue,
+            currentBinding.sessionsValue,
+            currentBinding.averageSessionValue,
+            currentBinding.lastWatchedValue,
         )
         val threeColumnMinWidth = resources.getDimensionPixelSize(
             R.dimen.statistics_detail_summary_three_column_min_width,
