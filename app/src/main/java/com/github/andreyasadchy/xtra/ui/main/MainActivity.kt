@@ -263,6 +263,7 @@ class MainActivity : AppCompatActivity() {
             migrateSettings()
             if (restoringSettings) app.completeRestoredSettingsMigration()
         } catch (error: Exception) {
+            if (error is CancellationException) throw error
             if (!restoringSettings) throw error
             app.rollbackRestoredSettingsMigration(error)
             startActivity(Intent(this, MainActivity::class.java).apply {

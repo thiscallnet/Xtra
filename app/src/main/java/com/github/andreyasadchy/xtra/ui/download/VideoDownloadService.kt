@@ -80,6 +80,7 @@ class VideoDownloadService : LifecycleService() {
     } catch (e: DownloadStorageException) {
         throw e
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         throw DownloadStorageException("Unable to open download output", e)
     }
 
@@ -89,6 +90,7 @@ class VideoDownloadService : LifecycleService() {
     } catch (e: DownloadStorageException) {
         throw e
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         throw DownloadStorageException("Unable to open download file", e)
     }
 
@@ -204,6 +206,7 @@ class VideoDownloadService : LifecycleService() {
                             failed = true
                             Log.e("VideoDownloadService", "Download storage failed", e)
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             Log.w("VideoDownloadService", "Download interrupted; will retry", e)
                         }
                         offlineVideos.remove(offlineVideo)
@@ -610,6 +613,7 @@ class VideoDownloadService : LifecycleService() {
                     }
                     p.segments.forEach { downloadedSegments.add(it.uri.substringAfterLast("%2F").substringAfterLast("/")) }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
 
                 }
             }
@@ -856,6 +860,7 @@ class VideoDownloadService : LifecycleService() {
                                 val badges = xtraModule.playerRepository.loadGlobalBadges(networkLibrary, helixHeaders, gqlHeaders, emoteQuality)
                                 globalBadgeList.addAll(badges)
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         })
@@ -865,6 +870,7 @@ class VideoDownloadService : LifecycleService() {
                                 val emotes = xtraModule.playerRepository.loadSTVEmoteSet(response, useWebp, true).second
                                 synchronized(emoteList) { emoteList.addAll(emotes) }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         })
@@ -874,6 +880,7 @@ class VideoDownloadService : LifecycleService() {
                                 val emotes = xtraModule.playerRepository.loadGlobalBTTVEmotes(response, useWebp)
                                 synchronized(emoteList) { emoteList.addAll(emotes) }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         })
@@ -883,6 +890,7 @@ class VideoDownloadService : LifecycleService() {
                                 val emotes = xtraModule.playerRepository.loadGlobalFFZEmotes(response)
                                 synchronized(emoteList) { emoteList.addAll(emotes) }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         })
@@ -904,6 +912,7 @@ class VideoDownloadService : LifecycleService() {
                                     }
                                     synchronized(emoteList) { emoteList.addAll(emotes) }
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             })
@@ -913,6 +922,7 @@ class VideoDownloadService : LifecycleService() {
                                     val emotes = xtraModule.playerRepository.loadBTTVEmotes(response, useWebp)
                                     synchronized(emoteList) { emoteList.addAll(emotes) }
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             })
@@ -922,6 +932,7 @@ class VideoDownloadService : LifecycleService() {
                                     val emotes = xtraModule.playerRepository.loadFFZEmotes(response)
                                     synchronized(emoteList) { emoteList.addAll(emotes) }
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             })
@@ -930,6 +941,7 @@ class VideoDownloadService : LifecycleService() {
                                     val badges = xtraModule.playerRepository.loadChannelBadges(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, emoteQuality)
                                     channelBadgeList.addAll(badges)
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             })
@@ -938,6 +950,7 @@ class VideoDownloadService : LifecycleService() {
                                     val emotes = xtraModule.playerRepository.loadCheerEmotes(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, animateGifs = true)
                                     cheerEmoteList.addAll(emotes)
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             })

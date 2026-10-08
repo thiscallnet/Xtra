@@ -90,6 +90,7 @@ class StreamDownloadService : LifecycleService() {
     } catch (e: DownloadStorageException) {
         throw e
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         throw DownloadStorageException("Unable to open stream download output", e)
     }
 
@@ -99,6 +100,7 @@ class StreamDownloadService : LifecycleService() {
     } catch (e: DownloadStorageException) {
         throw e
     } catch (e: Exception) {
+        if (e is CancellationException) throw e
         throw DownloadStorageException("Unable to open stream download file", e)
     }
 
@@ -207,6 +209,7 @@ class StreamDownloadService : LifecycleService() {
                         failed = true
                         false
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         Log.w("StreamDownloadService", "Download interrupted; will retry", e)
                         false
                     }
@@ -344,6 +347,7 @@ class StreamDownloadService : LifecycleService() {
                     } catch (e: DownloadStorageException) {
                         throw e
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         Log.e("StreamDownloadService", "Download failed", e)
                         false
                     } finally {
@@ -855,6 +859,7 @@ class StreamDownloadService : LifecycleService() {
                     )
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 val helixHeaders = TwitchApiHelper.getHelixHeaders(this@StreamDownloadService)
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 try {
@@ -879,6 +884,7 @@ class StreamDownloadService : LifecycleService() {
                         )
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     null
                 }
             }
@@ -925,6 +931,7 @@ class StreamDownloadService : LifecycleService() {
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -981,6 +988,7 @@ class StreamDownloadService : LifecycleService() {
                         val badges = xtraModule.playerRepository.loadGlobalBadges(networkLibrary, helixHeaders, gqlHeaders, emoteQuality)
                         globalBadgeList.addAll(badges)
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 })
@@ -990,6 +998,7 @@ class StreamDownloadService : LifecycleService() {
                         val emotes = xtraModule.playerRepository.loadSTVEmoteSet(response, useWebp, true).second
                         synchronized(emoteList) { emoteList.addAll(emotes) }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 })
@@ -999,6 +1008,7 @@ class StreamDownloadService : LifecycleService() {
                         val emotes = xtraModule.playerRepository.loadGlobalBTTVEmotes(response, useWebp)
                         synchronized(emoteList) { emoteList.addAll(emotes) }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 })
@@ -1008,6 +1018,7 @@ class StreamDownloadService : LifecycleService() {
                         val emotes = xtraModule.playerRepository.loadGlobalFFZEmotes(response)
                         synchronized(emoteList) { emoteList.addAll(emotes) }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 })
@@ -1029,6 +1040,7 @@ class StreamDownloadService : LifecycleService() {
                             }
                             synchronized(emoteList) { emoteList.addAll(emotes) }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     })
@@ -1038,6 +1050,7 @@ class StreamDownloadService : LifecycleService() {
                             val emotes = xtraModule.playerRepository.loadBTTVEmotes(response, useWebp)
                             synchronized(emoteList) { emoteList.addAll(emotes) }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     })
@@ -1047,6 +1060,7 @@ class StreamDownloadService : LifecycleService() {
                             val emotes = xtraModule.playerRepository.loadFFZEmotes(response)
                             synchronized(emoteList) { emoteList.addAll(emotes) }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     })
@@ -1055,6 +1069,7 @@ class StreamDownloadService : LifecycleService() {
                             val badges = xtraModule.playerRepository.loadChannelBadges(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, emoteQuality)
                             channelBadgeList.addAll(badges)
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     })
@@ -1063,6 +1078,7 @@ class StreamDownloadService : LifecycleService() {
                             val emotes = xtraModule.playerRepository.loadCheerEmotes(networkLibrary, helixHeaders, gqlHeaders, channelId, channelLogin, animateGifs = true)
                             cheerEmoteList.addAll(emotes)
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     })

@@ -44,6 +44,7 @@ import com.github.andreyasadchy.xtra.databinding.FragmentClipEditorBinding
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.slider.RangeSlider
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -856,6 +857,7 @@ class ClipEditorDialogFragment : Fragment() {
                 } ?: error("Unable to open output media")
                 PublishedClip(uri, displayName, CLIP_LOCATION)
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 resolver.delete(uri, null, null)
                 legacyFile.delete()
                 throw error
@@ -878,6 +880,7 @@ class ClipEditorDialogFragment : Fragment() {
                 resolver.update(uri, ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }, null, null)
                 PublishedClip(uri, displayName, CLIP_LOCATION)
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 resolver.delete(uri, null, null)
                 throw error
             }

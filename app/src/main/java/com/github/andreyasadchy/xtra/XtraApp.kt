@@ -31,6 +31,7 @@ import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.repository.auth.AuthSessionStore
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPrewarmScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -104,6 +105,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
             try {
                 SettingsRestoreCoordinator.finishAfterDatabaseValidation(this)
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 database.close()
                 runCatching { com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery.rollback(this) }
                 SettingsRestoreCoordinator.failAfterBootstrap(this, error.message)

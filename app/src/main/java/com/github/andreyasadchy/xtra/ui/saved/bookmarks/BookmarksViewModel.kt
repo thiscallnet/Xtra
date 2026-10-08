@@ -22,6 +22,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -106,6 +107,7 @@ class BookmarksViewModel(
                             } else null
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                             try {
                                 helixRepository.getUsers(
@@ -124,6 +126,7 @@ class BookmarksViewModel(
                                     )
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
                                 null
                             }
                         } else null
@@ -168,6 +171,7 @@ class BookmarksViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         try {
                             helixRepository.getVideos(
@@ -188,6 +192,7 @@ class BookmarksViewModel(
                                 )
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             null
                         }
                     } else null
@@ -235,6 +240,7 @@ class BookmarksViewModel(
                                         }
                                     }
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             }
@@ -339,6 +345,7 @@ class BookmarksViewModel(
                                                 }
                                             }
                                         } catch (e: Exception) {
+                                            if (e is CancellationException) throw e
 
                                         }
                                     }

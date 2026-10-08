@@ -24,6 +24,7 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.common.LoadRequestCoalescer
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -90,7 +91,8 @@ class GamePagerViewModel(
     private suspend fun loadGame(request: LoadRequest) {
                 val cached = try {
                     metadataCache.readGame(args.gameId, args.gameSlug, args.gameName)
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     null
                 }
                 cached?.let { _game.value = it.game }
@@ -128,10 +130,12 @@ class GamePagerViewModel(
                                 liveStatsValidated = true,
                                 followerCountValidated = true,
                             )
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (!request.helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         try {
                             helixRepository.getGames(
@@ -154,10 +158,12 @@ class GamePagerViewModel(
                                         name = args.gameName ?: game.name,
                                         snapshot = GamePageCacheSnapshot(game),
                                     )
-                                } catch (_: Exception) {
+                                } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                         }
                     }
                 }
@@ -179,6 +185,7 @@ class GamePagerViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
 
                 }
             }
@@ -206,6 +213,7 @@ class GamePagerViewModel(
                                 try {
                                     graphQLRepository.loadQueryGameBoxArt(networkLibrary, gqlHeaders, gameId).data!!.game?.boxArtURL
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
                                     if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                                         helixRepository.getGames(
                                             networkLibrary = networkLibrary,
@@ -250,6 +258,7 @@ class GamePagerViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -259,6 +268,7 @@ class GamePagerViewModel(
                     }
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
 
             }
         }
@@ -284,6 +294,7 @@ class GamePagerViewModel(
                     }
                 }
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
 
             }
         }
@@ -301,6 +312,7 @@ class GamePagerViewModel(
                             try {
                                 graphQLRepository.loadQueryGameBoxArt(networkLibrary, gqlHeaders, gameId).data!!.game?.boxArtURL
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
                                 if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                                     helixRepository.getGames(
                                         networkLibrary = networkLibrary,
@@ -345,6 +357,7 @@ class GamePagerViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }

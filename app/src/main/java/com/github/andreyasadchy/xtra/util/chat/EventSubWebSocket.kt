@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.util.chat
 
 import android.os.SystemClock
 import com.github.andreyasadchy.xtra.util.WebSocket
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -450,7 +451,8 @@ class EventSubWebSocket(
                         }
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 // A malformed EventSub message must not kill the socket loop.
             }
         }

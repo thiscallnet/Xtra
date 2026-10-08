@@ -25,6 +25,7 @@ import com.github.andreyasadchy.xtra.ui.common.installVisibleViewportStatePositi
 import com.github.andreyasadchy.xtra.ui.saved.clips.ClipsViewModel.Companion.ClipsViewModelFactory
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
@@ -223,7 +224,8 @@ class ClipsFragment : Fragment() {
         }
         try {
             startActivity(Intent.createChooser(intent, getString(R.string.share)))
-        } catch (_: Throwable) {
+        } catch (e: Throwable) {
+            if (e is CancellationException) throw e
             Toast.makeText(requireContext(), R.string.clips_share_failed, Toast.LENGTH_SHORT).show()
         }
     }

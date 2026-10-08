@@ -552,7 +552,8 @@ class TwitchWebSessionManager(
         } catch (_: IOException) {
             if (generation != sessionGeneration) return
             _state.value = TwitchWebSessionState.RecoverableError
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
             if (generation != sessionGeneration) return
             _state.value = TwitchWebSessionState.RecoverableError
         }

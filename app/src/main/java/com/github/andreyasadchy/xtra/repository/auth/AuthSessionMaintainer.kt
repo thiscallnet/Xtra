@@ -286,7 +286,8 @@ class AuthSessionMaintainer(
             if (error.statusCode == 401) ValidationOutcome.INVALID else ValidationOutcome.TRANSIENT
         } catch (_: IOException) {
             ValidationOutcome.TRANSIENT
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
             // Validation endpoint outages and malformed intermediary responses do not prove that
             // the browser session is dead.
             ValidationOutcome.TRANSIENT

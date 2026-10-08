@@ -1618,6 +1618,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                                             try {
                                                                 player?.prepare()
                                                             } catch (e: Exception) {
+                                                                if (e is CancellationException) throw e
                                                             }
                                                         }
                                                     }
@@ -1635,7 +1636,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                         try {
                                             it.prepare()
                                             it.playWhenReady = true
-                                        } catch (_: Exception) {
+                                        } catch (e: Exception) {
+                                            if (e is CancellationException) throw e
                                         }
                                     }
                                 }
@@ -3099,7 +3101,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         } else {
             try {
                 viewModel.loadFreshStreamPlaylistUrl(login)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 null
             }
         } ?: run {
@@ -5796,6 +5799,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 val value = get()
                 if (continuation.isActive) continuation.resume(value)
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 if (continuation.isActive) continuation.resumeWithException(error)
             }
         }, ContextCompat.getMainExecutor(requireContext()))

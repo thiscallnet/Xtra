@@ -95,6 +95,7 @@ import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
 import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
 import com.github.andreyasadchy.xtra.ui.settings.SettingsRestoreCoordinator
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -298,6 +299,7 @@ class XtraModule(application: Application) {
         val candidate = try {
             buildDatabase(application)
         } catch (error: Exception) {
+            if (error is CancellationException) throw error
             if (!pendingRestore) throw error
             SettingsRestoreCoordinator.markDatabaseValidationFailed(application, error.message)
             DatabaseRestoreRecovery.rollback(application)
@@ -315,6 +317,7 @@ class XtraModule(application: Application) {
                 }
                 candidate
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 candidate.close()
                 SettingsRestoreCoordinator.markDatabaseValidationFailed(application, error.message)
                 DatabaseRestoreRecovery.rollback(application)

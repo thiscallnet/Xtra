@@ -485,6 +485,7 @@ internal class ExpiringSingleFlightCache<K>(
             }
             value
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             mutex.withLock { inFlight.remove(key)?.completeExceptionally(error) }
             throw error
         }
@@ -549,6 +550,7 @@ internal class PersistentStringSingleFlightCache<K>(
             if (diskFresh == null) writeDisk(key, fetchedAtMs, value)
             value
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             mutex.withLock { inFlight.remove(key)?.completeExceptionally(error) }
             throw error
         }

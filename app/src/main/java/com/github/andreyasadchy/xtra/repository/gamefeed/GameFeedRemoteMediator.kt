@@ -5,6 +5,7 @@ import androidx.paging.PagingState
 import androidx.paging.RemoteMediator
 import com.github.andreyasadchy.xtra.db.CachedGameFeedItem
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
+import kotlinx.coroutines.CancellationException
 
 @OptIn(androidx.paging.ExperimentalPagingApi::class)
 class GameFeedRemoteMediator(
@@ -47,6 +48,7 @@ class GameFeedRemoteMediator(
                 LoadType.APPEND -> MediatorResult.Success(coordinator.append(spec).endOfPaginationReached)
             }
         } catch (error: Exception) {
+            if (error is CancellationException) throw error
             MediatorResult.Error(error)
         }
     }

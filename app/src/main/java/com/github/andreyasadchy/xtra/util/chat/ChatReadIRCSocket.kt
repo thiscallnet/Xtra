@@ -97,6 +97,7 @@ class ChatReadIRCSocket(
             try {
                 socket?.close()
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
 
             }
         }
@@ -106,6 +107,7 @@ class ChatReadIRCSocket(
         try {
             socket?.close()
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
 
         }
     }

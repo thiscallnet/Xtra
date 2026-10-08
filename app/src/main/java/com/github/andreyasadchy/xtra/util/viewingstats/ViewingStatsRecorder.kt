@@ -282,6 +282,7 @@ class ViewingStatsRecorder(
                 }
                 throw cancelled
             } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
                 if (!retried &&
                     (command is Command.StateChanged || command is Command.SourceReleased)
                 ) {
