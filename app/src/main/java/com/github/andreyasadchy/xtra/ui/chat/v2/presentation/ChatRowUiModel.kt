@@ -99,7 +99,7 @@ data class ChatEventPresentation(
 /** Shared event-row measurements. Keep these independent from event semantics and colors. */
 object ChatEventVisualTokens {
     const val accentRailWidthDp = 4
-    const val contentInsetAfterRailDp = 12
+    const val contentInsetAfterRailDp = 8
     const val endPaddingDp = 8
     const val verticalPaddingDp = 6
     const val lineSpacingExtraDp = 1

@@ -100,8 +100,21 @@ class DropsAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
         if (viewType == SECTION) {
             object : RecyclerView.ViewHolder(TextView(parent.context).apply {
-                setPadding(16, 20, 16, 6)
+                val density = resources.displayMetrics.density
+                // Align with the cards' 12dp margin plus a 4dp optical inset.
+                setPadding(
+                    (16 * density).toInt(),
+                    (20 * density).toInt(),
+                    (16 * density).toInt(),
+                    (6 * density).toInt(),
+                )
                 setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
+                setTextColor(
+                    com.google.android.material.color.MaterialColors.getColor(
+                        this,
+                        androidx.appcompat.R.attr.colorPrimary,
+                    ),
+                )
             }) {}
         } else {
             DropViewHolder(ItemDropBinding.inflate(LayoutInflater.from(parent.context), parent, false))

@@ -350,12 +350,14 @@ class ChatV2RendererController(
         val nextHighlightSettings = resolveChatHighlightSettings(recyclerView.context)
         if (style == renderStyle && nextHighlightSettings == highlightSettings) return
         flushDeferredRows()
+        val edgePaddingChanged = style.edgePaddingDp != renderStyle.edgePaddingDp
         renderStyle = style
         highlightSettings = nextHighlightSettings
         presentation.replaceCompiler(createPresentationCompiler(style))
         adapter.setMessageTextSizeSp(style.textSizeSp)
         adapter.setAnimateGifs(style.animateGifs)
         adapter.setMessageTextColor(messageTextColor)
+        if (edgePaddingChanged) adapter.rebindAll()
         for (index in 0 until recyclerView.childCount) {
             (recyclerView.getChildAt(index) as? ChatMessageTextView)?.apply {
                 setMessageTextSizeSp(style.textSizeSp)

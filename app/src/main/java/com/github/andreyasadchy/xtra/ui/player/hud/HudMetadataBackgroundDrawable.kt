@@ -21,7 +21,7 @@ class HudMetadataBackgroundDrawable(
     private val density: Float,
 ) : Drawable() {
     private companion object {
-        const val BACKGROUND_ALPHA = 0x99
+        const val BACKGROUND_ALPHA = 0x4D
     }
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -37,8 +37,8 @@ class HudMetadataBackgroundDrawable(
             return
         }
 
-        val horizontalFade = min(8f * density, width / 2f)
-        val verticalFade = min(6f * density, height / 2f)
+        val horizontalFade = min(14f * density, width / 2f)
+        val verticalFade = min(10f * density, height / 2f)
         val horizontalShader = LinearGradient(
             bounds.left.toFloat(),
             0f,
@@ -75,8 +75,8 @@ class HudMetadataBackgroundDrawable(
         paint.alpha = BACKGROUND_ALPHA * drawableAlpha / 255
         canvas.drawRoundRect(
             drawingBounds,
-            8f * density,
-            8f * density,
+            16f * density,
+            16f * density,
             paint,
         )
     }

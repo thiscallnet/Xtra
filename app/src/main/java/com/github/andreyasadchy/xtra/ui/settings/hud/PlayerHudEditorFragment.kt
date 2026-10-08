@@ -377,6 +377,7 @@ class PlayerHudEditorFragment : Fragment() {
             text = "Show this control"
             textSize = 14f
             setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER_VERTICAL
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
@@ -385,7 +386,11 @@ class PlayerHudEditorFragment : Fragment() {
             setOnCheckedChangeListener { _, value ->
                 if (!suppressPanelCallbacks) {
                     selected?.let { id ->
-                        updateSelected(id, transform = { placement -> placement.copy(enabled = value) })
+                        if (!value && id in essentialControls) {
+                            confirmHideEssentialControl(id)
+                        } else {
+                            updateSelected(id, transform = { placement -> placement.copy(enabled = value) })
+                        }
                     }
                 }
             }
@@ -750,11 +755,11 @@ class PlayerHudEditorFragment : Fragment() {
     }
 
     private fun MaterialButton.configureSecondaryButton() {
-        cornerRadius = dp(8)
-        backgroundTintList = ColorStateList.valueOf(Color.TRANSPARENT)
-        strokeColor = ColorStateList.valueOf(0xFF514958.toInt())
-        strokeWidth = dp(1)
-        setTextColor(0xFFD0C2FF.toInt())
+        // Tonal pill: reads as a button without the heavy outline.
+        cornerRadius = dp(24)
+        backgroundTintList = ColorStateList.valueOf(0xFF3A3345.toInt())
+        strokeWidth = 0
+        setTextColor(0xFFE9DDFF.toInt())
     }
 
     private fun weightedButtonParams(last: Boolean = false) = LinearLayout.LayoutParams(0, dp(48), 1f).apply {
@@ -786,23 +791,52 @@ class PlayerHudEditorFragment : Fragment() {
         dialog.setOnDismissListener { editorDialogs.remove(dialog) }
     }
 
+    private val essentialControls = setOf(HudElementId.PLAY_PAUSE, HudElementId.MORE)
+
+    /** Hiding these can leave the player without a way back, so ask first. */
+    private fun confirmHideEssentialControl(id: HudElementId) {
+        suppressPanelCallbacks = true
+        enabledSwitch.isChecked = true
+        suppressPanelCallbacks = false
+        MaterialAlertDialogBuilder(editorContext)
+            .setTitle("Hide ${displayName(id).lowercase()}?")
+            .setMessage(
+                "This control is how you play, pause or reach player options. " +
+                    "You can show it again here at any time.",
+            )
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton("Hide") { _, _ ->
+                updateSelected(id, transform = { placement -> placement.copy(enabled = false) })
+            }
+            .show().also(::trackDialog)
+    }
+
+    private fun showResetUndo(message: String) {
+        val anchor = view ?: return
+        com.google.android.material.snackbar.Snackbar.make(anchor, message, com.google.android.material.snackbar.Snackbar.LENGTH_LONG)
+            .setAction("Undo") { undo() }
+            .show()
+    }
+
     private fun showLayoutOptions() {
         val actions = listOf<Pair<String, () -> Unit>>(
             getString(R.string.settings_hud_use_for_both) to { useCurrentSetupForBoth() },
             getString(R.string.settings_hud_copy_setup) to { copySetup() },
             getString(R.string.settings_hud_paste_setup) to { pasteSetup() },
-            "Reset this orientation" to {
+            "Restore recommended layout (this orientation)" to {
                 val before = snapshot()
                 setProfile(PlayerHudDefaults.config().profile(orientation))
                 selectElement(null)
                 commitAction(before)
+                showResetUndo("Recommended layout restored")
             },
-            "Reset both orientations" to {
+            "Restore recommended layout (both)" to {
                 val before = snapshot()
                 workingConfig = PlayerHudDefaults.config()
                 setProfile(currentProfile())
                 selectElement(null)
                 commitAction(before)
+                showResetUndo("Recommended layout restored")
             },
         )
         MaterialAlertDialogBuilder(editorContext)
@@ -1264,7 +1298,7 @@ class PlayerHudEditorFragment : Fragment() {
 
     private fun roundedBackground(color: Int) = android.graphics.drawable.GradientDrawable().apply {
         shape = android.graphics.drawable.GradientDrawable.RECTANGLE
-        cornerRadius = dp(12).toFloat()
+        cornerRadius = dp(20).toFloat()
         setColor(color)
     }
 

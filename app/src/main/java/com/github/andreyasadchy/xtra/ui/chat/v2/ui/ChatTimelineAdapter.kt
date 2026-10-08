@@ -143,6 +143,11 @@ class ChatTimelineAdapter(
         textSizeSp = value
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
     }
+    /** Rebinds every row, e.g. after the chat edge padding setting changed. */
+    fun rebindAll() {
+        if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
+    }
+
     fun setAnimateGifs(value: Boolean) {
         if (animateGifs == value) return
         animateGifs = value

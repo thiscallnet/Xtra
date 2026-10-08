@@ -53,6 +53,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
+import com.github.andreyasadchy.xtra.ui.chat.chatEdgePaddingDp
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatSizing
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
@@ -134,10 +135,15 @@ class ChatMessageTextViewTest {
                 }
             }
 
+            // Rows are inset by the edge-padding setting; events keep at least the rail and end insets.
+            val edge = (chatEdgePaddingDp(context) * density).roundToInt()
+            val layoutStart = initial[0] - edge
+            val layoutEnd = initial[2] - edge
+
             measurements.forEach { measurement ->
-                assertEquals(initial[0] + (ChatEventVisualTokens.contentStartInsetDp * density).roundToInt(), measurement[0])
+                assertEquals(layoutStart + maxOf(edge, (ChatEventVisualTokens.contentStartInsetDp * density).roundToInt()), measurement[0])
                 assertEquals(initial[1] + (ChatEventVisualTokens.verticalPaddingDp * density).roundToInt(), measurement[1])
-                assertEquals(initial[2] + (ChatEventVisualTokens.endPaddingDp * density).roundToInt(), measurement[2])
+                assertEquals(layoutEnd + maxOf(edge, (ChatEventVisualTokens.endPaddingDp * density).roundToInt()), measurement[2])
                 assertEquals(initial[3] + (ChatEventVisualTokens.verticalPaddingDp * density).roundToInt(), measurement[3])
             }
             assertTrue(measurements.distinct().size == 1)
@@ -320,7 +326,9 @@ class ChatMessageTextViewTest {
         val candidateRow = emoteSpamRow(ChatMessageId("spam-row"), candidateSpecs)
         try {
             runOnMain {
-                view.layoutParams = FrameLayout.LayoutParams(160, ViewGroup.LayoutParams.WRAP_CONTENT)
+                // Rows are inset by the chat edge padding; keep the same 160px of text width.
+                val edgePx = (chatEdgePaddingDp(context) * context.resources.displayMetrics.density).roundToInt()
+                view.layoutParams = FrameLayout.LayoutParams(160 + 2 * edgePx, ViewGroup.LayoutParams.WRAP_CONTENT)
                 view.bind(oldRow)
             }
             awaitSettled(repository, listOf(oldSpec.key))

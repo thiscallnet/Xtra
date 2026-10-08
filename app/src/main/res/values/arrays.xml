@@ -170,6 +170,16 @@
         <item>15</item>
     </string-array>
 
+    <string-array name="chatEdgePaddingEntries">
+        <item>@string/chat_edge_padding_edge_to_edge</item>
+        <item>@string/chat_edge_padding_default</item>
+        <item>@string/chat_edge_padding_roomy</item>
+    </string-array>
+    <string-array name="chatEdgePaddingValues" translatable="false">
+        <item>1</item>
+        <item>8</item>
+        <item>14</item>
+    </string-array>
     <string-array name="chatTextSizeEntries" translatable="false">
         <item>12 sp</item>
         <item>14 sp</item>

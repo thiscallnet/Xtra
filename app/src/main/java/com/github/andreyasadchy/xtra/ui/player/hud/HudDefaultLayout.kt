@@ -77,6 +77,9 @@ object HudDefaultLayout {
     private fun usesFixedPlayerChromePolicy(defaultPolicyVersion: Int): Boolean =
         defaultPolicyVersion >= HudDefaultPolicy.FIXED_PLAYER_CHROME_V5
 
+    private fun usesAlignedTimeRowPolicy(defaultPolicyVersion: Int): Boolean =
+        defaultPolicyVersion >= HudDefaultPolicy.ALIGNED_TIME_ROW_V6
+
     private fun isResponsiveCompact(
         defaultPolicyVersion: Int,
         safeWidth: Float,
@@ -480,7 +483,25 @@ object HudDefaultLayout {
             } else {
                 NORMAL_EDGE_PADDING * density
             }
-            val y = safeRect.bottom - bottomClearance - timeSize.height
+            val legacyY = safeRect.bottom - bottomClearance - timeSize.height
+            val y = if (usesAlignedTimeRowPolicy(profile.defaultPolicyVersion)) {
+                // Sit on the same row as the bottom controls, above the
+                // timeline scrub lane, so the row reads as one line:
+                // [start controls] time . . . [end controls].
+                val rowHeight = (bottomStart + bottomEnd)
+                    .maxOfOrNull { scaledSize(it).height }
+                    ?: (DEFAULT_BOTTOM_CONTROL_SIZE * density * globalScale)
+                val rowCenterY = safeRect.bottom -
+                    (TIMELINE_TOUCH_TARGET_HEIGHT + BOTTOM_CONTROL_TIMELINE_CLEARANCE) * density -
+                    rowHeight / 2f
+                val alignedY = rowCenterY - timeSize.height / 2f
+                // Short viewports push the transport buttons down into this row;
+                // keep the label clear of them instead of overlapping.
+                val aligned = HudRect(x, alignedY, x + timeSize.width, alignedY + timeSize.height)
+                if (protectedControlRects.any { it.overlaps(aligned) }) legacyY else alignedY
+            } else {
+                legacyY
+            }
             add(HudElementId.TIME_STATUS, x, y)
         }
 
