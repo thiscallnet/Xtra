@@ -12,8 +12,11 @@ plugins {
     alias(libs.plugins.apollo)
 }
 
-val defaultVersionCode = 121
+// Shared by mutually data-compatible GitHub releases. Raise this for incompatible
+// database/settings changes; never derive it from the Actions run number.
+val defaultVersionCode = 10000
 val applicationVersionName = "2.58.6"
+val applicationBuildNumber = providers.gradleProperty("ciBuildNumber").orNull?.toInt() ?: 0
 val applicationVersionCode = providers.gradleProperty("ciVersionCode")
     .orNull
     ?.toInt()
@@ -70,6 +73,7 @@ if (customGeckoViewAar != null) {
 require(applicationVersionCode in 1..2_100_000_000) {
     "versionCode must be between 1 and 2,100,000,000"
 }
+require(applicationBuildNumber >= 0) { "ciBuildNumber must be non-negative" }
 
 kotlin {
     jvmToolchain(21)
@@ -95,7 +99,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         versionCode = applicationVersionCode
         versionName = applicationVersionName
-        buildConfigField("int", "CI_VERSION_CODE_BASE", defaultVersionCode.toString())
+        buildConfigField("int", "CI_BUILD_NUMBER", applicationBuildNumber.toString())
+        manifestPlaceholders["xtraBuildNumber"] = applicationBuildNumber
         buildConfigField("boolean", "PERF_DIAGNOSTICS", "false")
         buildConfigField("boolean", "MODERATOR_TOOLS_ENABLED", "true")
         manifestPlaceholders["profileableByShell"] = "false"

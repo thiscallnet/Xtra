@@ -1052,8 +1052,7 @@ class UpdateRepository(
         state = _state.value,
         installedVersion = UpdateVersionDisplay.installed(
             BuildConfig.VERSION_NAME,
-            BuildConfig.VERSION_CODE.toLong(),
-            BuildConfig.CI_VERSION_CODE_BASE.toLong(),
+            BuildConfig.CI_BUILD_NUMBER.toLong(),
         ),
         assetName = preferences.getString(C.UPDATE_AVAILABLE_ASSET_NAME, null),
         lastSuccessfulCheck = lastSuccessfulCheck.takeIf { it > 0L },
@@ -1098,8 +1097,7 @@ class UpdateRepository(
 
     private val installedBuildNumber: Long?
         get() = UpdateVersionDisplay.installedBuildNumber(
-            BuildConfig.VERSION_CODE.toLong(),
-            BuildConfig.CI_VERSION_CODE_BASE.toLong(),
+            BuildConfig.CI_BUILD_NUMBER.toLong(),
         )
 
     private fun beginUpdaterRequest(operation: String, state: String): DiagnosticsLogger.RequestToken? {

@@ -112,7 +112,7 @@ object UpdatePolicy {
         archiveVersionCode: Long,
         installedPackageName: String,
         installedVersionCode: Long,
-    ): Boolean = archivePackageName == installedPackageName && archiveVersionCode > installedVersionCode
+    ): Boolean = archivePackageName == installedPackageName && archiveVersionCode >= installedVersionCode
 
     fun isCompatibleArchive(
         archivePackageName: String?,

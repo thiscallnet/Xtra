@@ -35,7 +35,7 @@ class UpdateInstaller(private val context: Context) : UpdateInstallPreparer {
             copyAndVerify(release, artifact, temporaryApk)
             val packageManager = context.packageManager
             val installed = context.packageInfo(context.packageName)
-            val archive = packageManager.getPackageArchiveInfo(temporaryApk.absolutePath, packageInfoFlags())
+            val archive = packageManager.getPackageArchiveInfo(temporaryApk.absolutePath, packageInfoFlags() or PackageManager.GET_META_DATA)
                 ?: throw UpdateException(UpdateError.IncompatibleApk)
             val archiveVersionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 archive.longVersionCode
@@ -48,6 +48,18 @@ class UpdateInstaller(private val context: Context) : UpdateInstallPreparer {
             } else {
                 @Suppress("DEPRECATION")
                 installed.versionCode.toLong()
+            }
+            // Equal version codes no longer identify a specific build. New APKs embed the
+            // Actions build number; legacy APKs without it keep their existing checks.
+            val metadata = archive.applicationInfo?.metaData
+            val buildNumberKey = "com.github.andreyasadchy.xtra.BUILD_NUMBER"
+            if (archiveVersionCode == installedVersionCode && metadata?.containsKey(buildNumberKey) != true) {
+                throw UpdateException(UpdateError.IncompatibleApk)
+            }
+            if (metadata?.containsKey(buildNumberKey) == true &&
+                metadata.getInt(buildNumberKey).toLong() != release.buildNumber
+            ) {
+                throw UpdateException(UpdateError.IncompatibleApk)
             }
             // PackageInstaller remains authoritative for signing identity and certificate lineage.
             // Preflight also binds the archive to the release metadata, without deriving a

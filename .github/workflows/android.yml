@@ -65,6 +65,7 @@ jobs:
     outputs:
       version_name: ${{ steps.version.outputs.name }}
       version_code: ${{ steps.version.outputs.code }}
+      build_number: ${{ steps.version.outputs.build }}
     steps:
     - name: Checkout sources
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -96,8 +97,8 @@ jobs:
           exit 1
         fi
 
-        version_code=$((base_version_code + GITHUB_RUN_NUMBER))
-        if (( version_code <= base_version_code || version_code > 2100000000 )); then
+        version_code=$base_version_code
+        if (( version_code <= 0 || version_code > 2100000000 )); then
           echo "Generated versionCode is outside the supported range: $version_code" >&2
           exit 1
         fi
@@ -145,6 +146,7 @@ jobs:
         fi
         build_args=(
           "-PciVersionCode=${{ steps.version.outputs.code }}"
+          "-PciBuildNumber=${{ steps.version.outputs.build }}"
           "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
         )
         bash .github/scripts/run-gradle-build.sh release 15 \
@@ -168,6 +170,7 @@ jobs:
       env:
         VERSION_NAME: ${{ steps.version.outputs.name }}
         VERSION_CODE: ${{ steps.version.outputs.code }}
+        BUILD_NUMBER: ${{ steps.version.outputs.build }}
       shell: bash
       run: |
         set -euo pipefail
@@ -247,6 +250,14 @@ jobs:
             echo "Built APK identity does not match expected release identity: $apk_name" >&2
             echo "APK: package=$apk_package_name versionName=$apk_version_name versionCode=$apk_version_code" >&2
             echo "Expected: package=com.github.andreyasadchy.xtra versionName=$VERSION_NAME versionCode=$VERSION_CODE" >&2
+            exit 1
+          fi
+
+          local embedded_build_number
+          embedded_build_number="$($aapt2 dump xmltree "$apk_asset" --file AndroidManifest.xml |
+            awk '/com.github.andreyasadchy.xtra.BUILD_NUMBER/ { found=1; next } found && /android:value/ { sub(/^.*android:value\(0x[0-9a-fA-F]+\)=/, ""); sub(/^\(type 0x10\)/, ""); print; exit }')"
+          if [[ ! "$embedded_build_number" =~ ^(0x[0-9a-fA-F]+|[0-9]+)$ ]] || (( embedded_build_number != BUILD_NUMBER )); then
+            echo "APK build number does not match release metadata: $apk_name" >&2
             exit 1
           fi
 
@@ -424,6 +435,7 @@ jobs:
         bash .github/scripts/run-gradle-build.sh perf 15 \
           :app:assemblePerf \
           "-PciVersionCode=${{ needs.build.outputs.version_code }}" \
+          "-PciBuildNumber=${{ needs.build.outputs.build_number }}" \
           "-PtwitchPublicClientId=${TWITCH_PUBLIC_CLIENT_ID}"
     - name: Collect perf diagnostics
       if: failure()

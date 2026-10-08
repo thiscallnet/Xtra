@@ -89,7 +89,7 @@ class DiagnosticsLogger(
 
     fun environment(): DiagnosticsEnvironment = DiagnosticsEnvironment(
         appVersion = BuildConfig.VERSION_NAME,
-        appBuild = BuildConfig.VERSION_CODE.toString(),
+        appBuild = BuildConfig.CI_BUILD_NUMBER.toString(),
         androidApi = Build.VERSION.SDK_INT,
         deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim().ifBlank { "unknown" },
     )

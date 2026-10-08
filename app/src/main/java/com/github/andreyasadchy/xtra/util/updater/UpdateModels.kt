@@ -116,13 +116,12 @@ data class UpdateSelectedAssetInfo(
 )
 
 object UpdateVersionDisplay {
-    fun installed(versionName: String, versionCode: Long, versionCodeBase: Long): String {
-        val buildNumber = installedBuildNumber(versionCode, versionCodeBase)
+    fun installed(versionName: String, ciBuildNumber: Long): String {
+        val buildNumber = installedBuildNumber(ciBuildNumber)
         return buildNumber?.let { "$versionName (build $it)" } ?: versionName
     }
 
-    fun installedBuildNumber(versionCode: Long, versionCodeBase: Long): Long? =
-        (versionCode - versionCodeBase).takeIf { it > 0L }
+    fun installedBuildNumber(ciBuildNumber: Long): Long? = ciBuildNumber.takeIf { it > 0L }
 }
 
 enum class UpdateStage {

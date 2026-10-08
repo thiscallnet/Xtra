@@ -1481,7 +1481,7 @@ class SettingsActivity : AppCompatActivity() {
             )
             findPreference<Preference>("about_build")?.summary = getString(
                 R.string.app_build_summary,
-                BuildConfig.BUILD_TYPE,
+                UpdateVersionDisplay.installed(BuildConfig.BUILD_TYPE, BuildConfig.CI_BUILD_NUMBER.toLong()),
             )
             findPreference<Preference>("about_package")?.summary = BuildConfig.APPLICATION_ID
             if (settingsScreen == SCREEN_PLAYER_GESTURES) {
@@ -1711,7 +1711,7 @@ class SettingsActivity : AppCompatActivity() {
                 true
             }
             findPreference<Preference>("about_version")?.apply {
-                summary = getString(R.string.app_version_summary, BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE)
+                summary = UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.CI_BUILD_NUMBER.toLong())
                 var taps = 0
                 setOnPreferenceClickListener {
                     taps++
@@ -2198,7 +2198,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         private fun diagnosticInformation(): String = buildString {
-            appendLine("Xtra ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            appendLine("Xtra ${UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.CI_BUILD_NUMBER.toLong())} (version code ${BuildConfig.VERSION_CODE})")
             appendLine("Build: ${BuildConfig.BUILD_TYPE}")
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
@@ -2547,12 +2547,12 @@ class SettingsActivity : AppCompatActivity() {
             binding.statusTitle.text = getString(model.titleRes)
             binding.versionText.text = release?.displayVersion ?: getString(
                 R.string.update_version,
-                UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.CI_VERSION_CODE_BASE.toLong()),
+                UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.CI_BUILD_NUMBER.toLong()),
             )
             binding.currentVersionText.text = if (release != null && model.status != UpdateUiStatus.CURRENT) {
                 getString(
                     R.string.update_current_version,
-                    UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.VERSION_CODE.toLong(), BuildConfig.CI_VERSION_CODE_BASE.toLong()),
+                    UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.CI_BUILD_NUMBER.toLong()),
                 )
             } else ""
             binding.statusMessage.text = when (model.status) {
@@ -3976,7 +3976,7 @@ class SettingsActivity : AppCompatActivity() {
         )
 
         private fun diagnosticInformation(): String = buildString {
-            appendLine("Xtra ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+            appendLine("Xtra ${UpdateVersionDisplay.installed(BuildConfig.VERSION_NAME, BuildConfig.CI_BUILD_NUMBER.toLong())} (version code ${BuildConfig.VERSION_CODE})")
             appendLine("Build: ${BuildConfig.BUILD_TYPE}")
             appendLine("Android: ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})")
             appendLine("Device: ${Build.MANUFACTURER} ${Build.MODEL}")
