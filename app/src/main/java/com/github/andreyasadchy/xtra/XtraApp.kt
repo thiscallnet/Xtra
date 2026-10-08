@@ -1,8 +1,10 @@
 package com.github.andreyasadchy.xtra
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.Application
 import android.os.Build
+import android.os.Process
 import android.os.SystemClock
 import android.os.StrictMode
 import androidx.core.content.edit
@@ -67,7 +69,17 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         com.github.andreyasadchy.xtra.player.hls.VaftPlaylistCapture.initialize(this)
         INSTANCE = this
-        androidx.media3.cast.Cast.getSingletonInstance(this).initialize()
+        // Application.onCreate also runs in GeckoView's browser child processes.
+        // Cast requires the main process and throws if initialized in a child.
+        val processName = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            Application.getProcessName()
+        } else {
+            getSystemService(ActivityManager::class.java)?.runningAppProcesses
+                ?.firstOrNull { it.pid == Process.myPid() }?.processName
+        }
+        if (processName == packageName) {
+            androidx.media3.cast.Cast.getSingletonInstance(this).initialize()
+        }
         if (BuildConfig.PERF_DIAGNOSTICS) {
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()
