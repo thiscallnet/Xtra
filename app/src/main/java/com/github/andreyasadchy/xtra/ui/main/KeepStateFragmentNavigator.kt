@@ -165,7 +165,10 @@ class KeepStateFragmentNavigator(
                 if (transactionOutgoingDestinationId != null && isTabDestination(transactionOutgoingDestinationId)) {
                     transaction.hide(outgoing)
                     transaction.setMaxLifecycle(outgoing, Lifecycle.State.CREATED)
-                } else if (outgoing !in createdInThisNavigation) {
+                } else {
+                    // A restored stack can create several detail pages in this transaction.
+                    // Only its last page should remain attached, including newly added pages
+                    // that FragmentManager.fragments cannot see until the commit.
                     transaction.remove(outgoing)
                     forget(outgoing)
                 }

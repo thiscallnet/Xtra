@@ -7,7 +7,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.MenuItem
+import android.view.ViewTreeObserver
 import androidx.appcompat.widget.SearchView
+import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.core.view.ViewCompat
@@ -31,6 +33,7 @@ import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
 import com.github.andreyasadchy.xtra.repository.mergeDropsWithDashboard
+import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.main.TwitchInboxMenuBinder
 import com.github.andreyasadchy.xtra.util.SettingsUpdateIndicator
@@ -40,11 +43,25 @@ import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.snackbar.Snackbar
+import com.google.android.material.appbar.AppBarLayout
 import kotlinx.coroutines.launch
 
-class DropsFragment : Fragment() {
+class DropsFragment : Fragment(), Scrollable {
     private var _binding: FragmentDropsBinding? = null
     private val binding get() = _binding!!
+    private var stateContainerObserver: ViewTreeObserver? = null
+    private val stateContainerPreDrawListener = ViewTreeObserver.OnPreDrawListener {
+        _binding?.let(::updateStateContainerHeight) ?: true
+    }
+    private val stateContainerAttachListener = object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(view: View) {
+            if (isResumed) observeStateContainer(view)
+        }
+
+        override fun onViewDetachedFromWindow(view: View) {
+            stopObservingStateContainer()
+        }
+    }
     private val viewModel: DropsViewModel by viewModels {
         DropsViewModel.factory((requireActivity().application as XtraApp).xtraModule.dropsRepository)
     }
@@ -68,6 +85,19 @@ class DropsFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        binding.appBar.updateLayoutParams<CoordinatorLayout.LayoutParams> {
+            behavior = AppBarLayout.Behavior().apply {
+                // The header can exceed a short viewport. Let it be dragged back into view
+                // even when the list behind it still has a nonzero scroll position.
+                setDragCallback(object : AppBarLayout.Behavior.DragCallback() {
+                    override fun canDrag(appBarLayout: AppBarLayout) = true
+                })
+            }
+        }
+        // The window's observer survives this view. Register only while attached
+        // and remove the listener on both detach and view destruction.
+        view.addOnAttachStateChangeListener(stateContainerAttachListener)
+        if (view.isAttachedToWindow && isResumed) observeStateContainer(view)
         val navController = findNavController()
         val activity = requireActivity() as MainActivity
         ensureToolbarMenu()
@@ -108,9 +138,8 @@ class DropsFragment : Fragment() {
             val insets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
             )
-            binding.toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
-                topMargin = insets.top
-            }
+            // Keep the status/cutout area fixed while the header scrolls away.
+            view.updatePadding(top = insets.top)
             binding.recyclerView.updatePadding(
                 bottom = baseRecyclerBottomPadding + insets.bottom,
             )
@@ -153,7 +182,7 @@ class DropsFragment : Fragment() {
             override fun onTabUnselected(tab: com.google.android.material.tabs.TabLayout.Tab) = Unit
 
             override fun onTabReselected(tab: com.google.android.material.tabs.TabLayout.Tab) {
-                if (selectedTab == TAB_INVENTORY) binding.recyclerView.scrollToPosition(0)
+                if (selectedTab == TAB_INVENTORY) scrollToTop()
             }
         })
         parentFragmentManager.setFragmentResultListener(FOCUS_RESULT, viewLifecycleOwner) { _, result ->
@@ -175,6 +204,9 @@ class DropsFragment : Fragment() {
             }
         }
         binding.swipeRefresh.setOnRefreshListener { viewModel.refresh() }
+        binding.swipeRefresh.setOnChildScrollUpCallback { _, _ ->
+            binding.recyclerView.canScrollVertically(-1) || binding.appBar.top < binding.root.paddingTop
+        }
         requestedCampaignId?.let {
             binding.tabs.getTabAt(TAB_ALL_CAMPAIGNS)?.select()
         }
@@ -275,6 +307,8 @@ class DropsFragment : Fragment() {
             binding.emptyText.isVisible = true
             binding.emptyText.text = getString(R.string.drops_load_failed)
         }
+        binding.stateContainer.isVisible = loading || binding.emptyText.isVisible || binding.retryButton.isVisible
+        updateStateContainerHeight(binding)
     }
 
     private fun focusRequestedCampaign(rows: List<DropsRow>) {
@@ -288,7 +322,10 @@ class DropsFragment : Fragment() {
         val campaign = (rows[rowIndex] as DropsRow.Campaign).value
         campaignNavigationHandled = true
         adapter.expandCampaign(campaign.id)
-        binding.recyclerView.post { binding.recyclerView.scrollToPosition(rowIndex) }
+        val pageBinding = binding
+        pageBinding.recyclerView.post {
+            if (_binding === pageBinding) pageBinding.recyclerView.scrollToPosition(rowIndex)
+        }
     }
 
     private fun findStreamsForCampaign(campaign: TwitchDropCampaign) {
@@ -360,6 +397,44 @@ class DropsFragment : Fragment() {
         viewModel.refresh(force = false)
     }
 
+    override fun scrollToTop() {
+        binding.recyclerView.scrollToPosition(0)
+        binding.appBar.setExpanded(true, true)
+    }
+
+    private fun updateStateContainerHeight(binding: FragmentDropsBinding): Boolean {
+        if (!binding.stateContainer.isVisible) return true
+        val height = (binding.root.height - binding.root.paddingBottom - binding.appBar.bottom).coerceAtLeast(0)
+        if (binding.stateContainer.layoutParams.height != height) {
+            binding.stateContainer.updateLayoutParams<ViewGroup.LayoutParams> { this.height = height }
+            return false
+        }
+        return true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (binding.root.isAttachedToWindow) observeStateContainer(binding.root)
+    }
+
+    override fun onPause() {
+        stopObservingStateContainer()
+        super.onPause()
+    }
+
+    private fun observeStateContainer(view: View) {
+        stopObservingStateContainer()
+        stateContainerObserver = view.viewTreeObserver.also {
+            it.addOnPreDrawListener(stateContainerPreDrawListener)
+        }
+    }
+
+    private fun stopObservingStateContainer() {
+        stateContainerObserver?.takeIf { it.isAlive }
+            ?.removeOnPreDrawListener(stateContainerPreDrawListener)
+        stateContainerObserver = null
+    }
+
     private fun ensureToolbarMenu() {
         if (binding.toolbar.menu.findItem(R.id.search) == null) {
             binding.toolbar.inflateMenu(R.menu.top_menu)
@@ -398,6 +473,8 @@ class DropsFragment : Fragment() {
     }
 
     override fun onDestroyView() {
+        stopObservingStateContainer()
+        _binding?.root?.removeOnAttachStateChangeListener(stateContainerAttachListener)
         _binding = null
         super.onDestroyView()
     }

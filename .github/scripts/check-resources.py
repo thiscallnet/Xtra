@@ -140,6 +140,8 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "drops_show_summary",
     # Following categories empty-state copy uses the default English wording until translated.
     "following_categories_empty",
+    # Cached recommendation status uses default English until translated.
+    "following_cached_recommendations",
     # Saved page empty-state copy ships with the default English wording until translated.
     "bookmarks_empty",
     "downloads_empty",

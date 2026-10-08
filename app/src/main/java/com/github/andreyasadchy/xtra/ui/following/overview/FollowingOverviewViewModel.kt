@@ -126,6 +126,9 @@ class FollowingOverviewViewModel(
     private val _recommendationsResolved = MutableStateFlow(false)
     val recommendationsResolved: StateFlow<Boolean> = _recommendationsResolved
 
+    private val _recommendationsFailed = MutableStateFlow(false)
+    val recommendationsFailed: StateFlow<Boolean> = _recommendationsFailed
+
     private val _recommendationSource = MutableStateFlow(RecommendationSource.UNAVAILABLE)
     val recommendationSource: StateFlow<RecommendationSource> = _recommendationSource
 
@@ -149,8 +152,11 @@ class FollowingOverviewViewModel(
         val keys = readOverviewSectionKeys()
         val now = System.currentTimeMillis()
         val keysChanged = keys != _overviewSectionKeys.value
+        val recommendationsInterval = if (_recommendationsFailed.value) {
+            RECOMMENDATIONS_RETRY_MS
+        } else RECOMMENDATIONS_TTL_MS
         val recommendationsDue = FollowingOverviewSections.RECOMMENDED in keys &&
-            (force || now - lastRecommendationsRefreshAt >= RECOMMENDATIONS_TTL_MS)
+            (force || now - lastRecommendationsRefreshAt >= recommendationsInterval)
         val recentVideosDue = FollowingOverviewSections.CONTINUE in keys &&
             (force || now - lastRecentVideosRefreshAt >= RECENT_VIDEOS_TTL_MS)
         val upcomingStreamsDue = FollowingOverviewSections.UPCOMING in keys &&
@@ -645,6 +651,12 @@ class FollowingOverviewViewModel(
             try {
                 val liveChannelIds = allLiveChannelIds.first()
                 val result = recommendationsRepository.getLiveRecommendations(RECOMMENDED_LIMIT, liveChannelIds)
+                if (result.isFailure) {
+                    if (isCurrentRecommendationRequest(generation, requestAccountId)) {
+                        _recommendationsFailed.value = true
+                    }
+                    return@launch
+                }
                 val streams = result.streams.withHelixBroadcasterTypes(
                     networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                     headers = TwitchApiHelper.getHelixHeaders(applicationContext),
@@ -654,14 +666,13 @@ class FollowingOverviewViewModel(
                     _recommendedStreams.value = streams
                     _recommendationSource.value = result.source
                     _recommendationAuthMode.value = result.authMode
+                    _recommendationsFailed.value = false
                 }
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
                 if (isCurrentRecommendationRequest(generation, requestAccountId)) {
-                    _recommendedStreams.value = emptyList()
-                    _recommendationSource.value = RecommendationSource.UNAVAILABLE
-                    _recommendationAuthMode.value = RecommendationAuthMode.ANONYMOUS
+                    _recommendationsFailed.value = true
                 }
             } finally {
                 if (isCurrentRecommendationRequest(generation, requestAccountId)) {
@@ -682,6 +693,7 @@ class FollowingOverviewViewModel(
             _recommendationSource.value = RecommendationSource.UNAVAILABLE
             _recommendationAuthMode.value = RecommendationAuthMode.ANONYMOUS
             _recommendationsResolved.value = false
+            _recommendationsFailed.value = false
         }
     }
 
@@ -742,6 +754,7 @@ class FollowingOverviewViewModel(
         private const val RECENT_VODS_PER_CHANNEL = 3
         private const val RECENT_VOD_REQUEST_CONCURRENCY = 6
         private const val RECOMMENDATIONS_TTL_MS = 5 * 60_000L
+        private const val RECOMMENDATIONS_RETRY_MS = 45_000L
         private const val RECENT_VIDEOS_TTL_MS = 5 * 60_000L
         private const val FOLLOWED_CHANNEL_LIMIT = 100
         private const val UPCOMING_REQUEST_CONCURRENCY = 6

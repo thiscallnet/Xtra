@@ -40,6 +40,13 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
     private var firstLaunch = true
     private val configuredRecyclerViews = mutableSetOf<RecyclerView>()
     private var playerOverlayTabAvoidance: PlayerOverlayTabAvoidance? = null
+    private val pageLifecycleCallbacks = object : FragmentManager.FragmentLifecycleCallbacks() {
+        override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
+            if (_binding == null) return
+            hideNestedToolbar(f)
+            if (f === currentFragment) configurePage(f)
+        }
+    }
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
@@ -122,14 +129,7 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
                     }
                 }
             })
-            childFragmentManager.registerFragmentLifecycleCallbacks(object : FragmentManager.FragmentLifecycleCallbacks() {
-                override fun onFragmentViewCreated(fm: FragmentManager, f: Fragment, v: View, savedInstanceState: Bundle?) {
-                    hideNestedToolbar(f)
-                    if (f === currentFragment) {
-                        configurePage(f)
-                    }
-                }
-            }, false)
+            childFragmentManager.registerFragmentLifecycleCallbacks(pageLifecycleCallbacks, false)
             if (firstLaunch) {
                 viewPager.setCurrentItem(0, false)
                 firstLaunch = false
@@ -151,6 +151,7 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
 
     private fun configurePage(fragment: Fragment?) {
         fragment ?: return
+        val pageBinding = _binding ?: return
         hideNestedToolbar(fragment)
         fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let { recyclerView ->
             binding.appBar.setLiftOnScrollTargetView(recyclerView)
@@ -159,14 +160,14 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
             if (configuredRecyclerViews.add(recyclerView)) {
                 recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                     override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
-                        if (fragment === currentFragment) {
+                        if (_binding === pageBinding && fragment === currentFragment) {
                             val lifted = recyclerView.canScrollVertically(-1)
                             if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
                         }
                     }
                 })
                 recyclerView.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-                    if (fragment === currentFragment) {
+                    if (_binding === pageBinding && fragment === currentFragment) {
                         val lifted = recyclerView.canScrollVertically(-1)
                         if (binding.appBar.isLifted != lifted) binding.appBar.isLifted = lifted
                     }
@@ -194,6 +195,7 @@ class BrowsePagerFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        childFragmentManager.unregisterFragmentLifecycleCallbacks(pageLifecycleCallbacks)
         dispatchPagerScrollState(false)
         configuredRecyclerViews.clear()
         playerOverlayTabAvoidance?.close()
