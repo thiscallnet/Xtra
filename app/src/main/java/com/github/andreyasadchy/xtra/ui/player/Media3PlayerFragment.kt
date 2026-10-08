@@ -138,6 +138,10 @@ import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Instant
 
+/**
+ * Shared player UI, gestures and controller wiring. [Media3Fragment] is the only concrete
+ * subclass and adds the screen-specific behaviour (video info, clip editing).
+ */
 @OptIn(UnstableApi::class)
 abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment.OnSortOptionChanged, TvRemoteKeyHandler {
 
