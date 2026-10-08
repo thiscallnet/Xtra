@@ -131,6 +131,7 @@ class AdaptiveLiveLoadControl(
     private val onPolicyChanged: () -> Unit = {},
     private val nonLivePolicy: LivePlaybackPolicy = initialPolicy,
     private val delegate: LoadControl = initialPolicy.buffers.buildLoadControl(),
+    private val hiddenAudioBufferLimitUs: () -> Long? = { null },
 ) : LoadControl {
     private val loadingByPlayer = ConcurrentHashMap<PlayerId, Boolean>()
     @Volatile private var policyChangedListener: () -> Unit = onPolicyChanged
@@ -177,6 +178,13 @@ class AdaptiveLiveLoadControl(
         val isLive = parameters.targetLiveOffsetUs != C.TIME_UNSET
         if (handleRebuffer(parameters)) policyChangedListener()
         val buffers = if (isLive) controller.currentPolicy().buffers else nonLivePolicy.buffers
+        val hiddenLimit = if (isLive) hiddenAudioBufferLimitUs() else null
+        if (hiddenLimit != null) {
+            // Preserve queued audio, but avoid a long audio-only tail when fixed-quality video returns.
+            val shouldLoad = parameters.bufferedDurationUs < hiddenLimit && delegate.shouldContinueLoading(parameters)
+            loadingByPlayer[parameters.playerId] = shouldLoad
+            return shouldLoad
+        }
         val minBufferUs = if (parameters.playbackSpeed > 1f) {
             Util.getMediaDurationForPlayoutDuration(
                 buffers.minBufferMs * 1_000L,

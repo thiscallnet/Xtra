@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.hls.ProbedPlaylistDataSource
 import com.github.andreyasadchy.xtra.player.hls.ControlledVaftPlaylist
+import com.github.andreyasadchy.xtra.player.hls.HiddenStreamAudioPlaylist
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestObservation
@@ -77,6 +78,8 @@ class StreamProxyState {
 
     @Volatile
     var controlledPlaylist: ControlledVaftPlaylist? = null
+
+    var hiddenAudioPlaylist: HiddenStreamAudioPlaylist? = null
 
     fun recordRequestObservation(observation: StreamRequestObservation) {
         if (!primaryPlayback) return
@@ -139,6 +142,8 @@ class StreamHlsMediaSourceFactory(
         }
         val streamSource = mediaItem.liveConfiguration.targetOffsetMs != androidx.media3.common.C.TIME_UNSET
         val networkFactory = dataSourceFactory(state, streamSource)
+        val hiddenAudio = if (streamSource) HiddenStreamAudioPlaylist(networkFactory) else null
+        state.hiddenAudioPlaylist = hiddenAudio
         val channel = mediaItem.mediaId.takeIf { it.startsWith("xtra-live:") }?.split(':')?.getOrNull(2)
         val controlled = if (streamSource && context.prefs().isVaftEnabled() && !channel.isNullOrBlank()) {
             ControlledVaftPlaylist(context, xtraModule, networkFactory, channel, renditionFormats, configuration.lowLatency)
@@ -149,7 +154,7 @@ class StreamHlsMediaSourceFactory(
         } else networkFactory
         val sourceDataSourceFactory = DefaultDataSource.Factory(
             context,
-            handoffFactory,
+            if (hiddenAudio != null) DataSource.Factory { hiddenAudio.dataSource(handoffFactory.createDataSource()) } else handoffFactory,
         ).also { sourceDataSourceFactories[mediaItem.mediaId] = it }
         val lowLatencyEnabled = configuration.lowLatency &&
             streamSource
@@ -157,7 +162,11 @@ class StreamHlsMediaSourceFactory(
             setPlaylistParserFactory(
                 TwitchHlsPlaylistParserFactory(
                     lowLatencyEnabled = lowLatencyEnabled,
-                    transform = { uri, parsed -> controlled?.transform(uri, parsed) ?: parsed },
+                    transform = { uri, parsed ->
+                        hiddenAudio?.observe(uri, parsed)
+                        val published = controlled?.transform(uri, parsed) ?: parsed
+                        hiddenAudio?.transform(published) ?: published
+                    },
                     diagnostics = TwitchHlsDiagnosticsSink { diagnostics, parsed ->
                         if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
                             if (BuildConfig.DEBUG) {
@@ -275,7 +284,10 @@ class StreamHlsMediaSourceFactory(
 
     fun releaseMediaItem(mediaId: String) {
         sourceDataSourceFactories.remove(mediaId)
-        proxyStates.remove(mediaId)?.controlledPlaylist?.close()
+        proxyStates.remove(mediaId)?.let {
+            it.controlledPlaylist?.close()
+            it.hiddenAudioPlaylist?.close()
+        }
     }
 
     fun hlsDiagnosticsFor(mediaId: String): TwitchHlsPlaylistDiagnostics? =

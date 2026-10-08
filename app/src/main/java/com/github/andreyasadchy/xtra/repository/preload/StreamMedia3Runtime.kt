@@ -30,6 +30,8 @@ import com.github.andreyasadchy.xtra.ui.player.DesiredHlsQuality
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionRenderersFactory
 import com.github.andreyasadchy.xtra.ui.player.PlaybackRenderersFactory
+import com.github.andreyasadchy.xtra.player.hls.HiddenStreamAudioPlaylist
+import androidx.media3.exoplayer.source.chunk.MediaChunk
 import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
 import com.github.andreyasadchy.xtra.util.C
@@ -120,6 +122,7 @@ class StreamMedia3Runtime(
     private var currentGeneration: Generation? = null
     @Volatile
     private var primaryPlaybackMediaId: String? = null
+    @Volatile private var primaryHiddenAudio: HiddenStreamAudioPlaylist? = null
     private val proxyPlaylistObservations = ConcurrentHashMap<String, com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestObservation>()
     private var desiredCandidates: List<LiveMediaPreloadCandidate> = emptyList()
     private val playbackPreferences = context.prefs()
@@ -516,6 +519,9 @@ class StreamMedia3Runtime(
     @Synchronized
     fun setPrimaryPlaybackMediaItem(mediaItem: MediaItem?) {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 playback handoff must run on the main looper" }
+        val hiddenAudio = hiddenAudioFor(mediaItem?.mediaId)
+        if (primaryHiddenAudio !== hiddenAudio) primaryHiddenAudio?.setHidden(false)
+        primaryHiddenAudio = hiddenAudio
         val targetEntry = mediaItem?.let { target ->
             states.asReversed().firstNotNullOfOrNull { generation ->
                 generation.entries.values.firstOrNull { it.mediaItem.mediaId == target.mediaId }
@@ -676,6 +682,21 @@ class StreamMedia3Runtime(
         mediaId?.let { id -> states.asReversed().firstNotNullOfOrNull { it.hlsFactory.findState(id)?.controlledPlaylist } }
 
     @Synchronized
+    fun hiddenAudioFor(mediaId: String?): HiddenStreamAudioPlaylist? =
+        mediaId?.let { id -> states.asReversed().firstNotNullOfOrNull { it.hlsFactory.findState(id)?.hiddenAudioPlaylist } }
+
+    fun videoMayBeAbsent(): Boolean = primaryHiddenAudio?.videoMayBeAbsent == true
+
+    fun hiddenAudioDiscardIndex(positionUs: Long, queue: List<MediaChunk>): Int? {
+        if (primaryHiddenAudio?.hidden != false) return null
+        // Native HLS discarding removes only unread upstream samples. Keep enough audio to load video.
+        return queue.indexOfFirst { chunk ->
+            chunk.startTimeUs >= positionUs + 3_000_000L &&
+                HiddenStreamAudioPlaylist.isAudioSegment(chunk.dataSpec.uri)
+        }.takeIf { it >= 0 }
+    }
+
+    @Synchronized
     fun proxyPlaylistObservationFor(mediaId: String): com.github.andreyasadchy.xtra.player.lowlatency.StreamRequestObservation? =
         if (primaryPlaybackMediaId != mediaId) null else proxyPlaylistObservations[mediaId]
 
@@ -686,6 +707,8 @@ class StreamMedia3Runtime(
         if (playbackGenerations.isNotEmpty()) {
             val releasedMediaId = primaryPlaybackMediaId
             primaryPlaybackMediaId = null
+            primaryHiddenAudio?.setHidden(false)
+            primaryHiddenAudio = null
             releasedMediaId?.let(::releaseClipDataSourceFactoryIfUnretained)
         }
         states.forEach { generation ->
@@ -732,6 +755,9 @@ class StreamMedia3Runtime(
         val playbackLoadControl = AdaptiveLiveLoadControl(
             controller = adaptiveLiveController,
             initialPolicy = initialLivePolicy,
+            hiddenAudioBufferLimitUs = {
+                if (primaryHiddenAudio?.hidden == true && primaryHiddenAudio?.videoMayBeAbsent == true) 8_000_000L else null
+            },
             // Live latency settings only apply to actual live items. VOD keeps the
             // 15–50 second normal buffer policy for stable seeks and transient networks.
             nonLivePolicy = LivePlaybackPolicies.NORMAL,
@@ -767,7 +793,7 @@ class StreamMedia3Runtime(
         val builder = DefaultPreloadManager.Builder(context, statusControl)
             .setMediaSourceFactory(hlsFactory)
             .setTrackSelectorFactory { selectorContext ->
-                SmoothHlsTrackSelector(selectorContext, qualitySelectionPolicy)
+                SmoothHlsTrackSelector(selectorContext, qualitySelectionPolicy, ::hiddenAudioDiscardIndex)
             }
             .setLoadControl(playbackLoadControl)
             .setRenderersFactory(
@@ -776,6 +802,7 @@ class StreamMedia3Runtime(
                     audioBufferSink = captionAudioSink.sink,
                     presentationDelayMs = xtraModule.liveCaptionManager::presentationDelayMs,
                     captureAudio = { xtraModule.liveCaptionManager.isAudioBufferSinkCapturing(captionAudioSink) },
+                    videoMayBeAbsent = ::videoMayBeAbsent,
                 ),
             )
         val generation = Generation(

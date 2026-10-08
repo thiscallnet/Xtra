@@ -14,7 +14,8 @@ class LiveCaptionRenderersFactory(
     private val audioBufferSink: TeeAudioProcessor.AudioBufferSink,
     private val presentationDelayMs: () -> Int,
     private val captureAudio: () -> Boolean,
-) : PlaybackRenderersFactory(context) {
+    videoMayBeAbsent: () -> Boolean = { false },
+) : PlaybackRenderersFactory(context, videoMayBeAbsent) {
 
     override fun buildAudioSink(
         context: Context,
