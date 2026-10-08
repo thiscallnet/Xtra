@@ -395,6 +395,7 @@ class GraphQLRepository(
                 try {
                     validateResponse?.invoke(response.body)
                 } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
                     logger?.finishRequest(
                         token,
                         successful = false,

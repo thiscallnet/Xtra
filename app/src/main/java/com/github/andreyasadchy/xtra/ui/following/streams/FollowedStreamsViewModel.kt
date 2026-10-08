@@ -23,6 +23,7 @@ import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,7 +125,8 @@ class FollowedStreamsViewModel(
         appendJob = viewModelScope.launch {
             try {
                 refreshCoordinator.append(spec)
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 // Keep the current snapshot visible; reaching the end again
                 // can retry a transient pagination failure.
             } finally {

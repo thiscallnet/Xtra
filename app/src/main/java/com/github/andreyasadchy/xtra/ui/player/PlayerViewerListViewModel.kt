@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelViewer
 import com.github.andreyasadchy.xtra.model.ui.ChannelViewerList
 import com.github.andreyasadchy.xtra.repository.GraphQLApiException
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -50,7 +51,8 @@ class PlayerViewerListViewModel(
                         viewers = viewers.map(::ChannelViewer),
                         count = chatters.count,
                     )
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     _hasError.value = true
                 } finally {
                     _isLoading.value = false
@@ -97,7 +99,8 @@ class PlayerViewerListViewModel(
                 }
             }
         }
-    } catch (_: Exception) {
+    } catch (e: Exception) {
+        if (e is CancellationException) throw e
         emptyList()
     }
 

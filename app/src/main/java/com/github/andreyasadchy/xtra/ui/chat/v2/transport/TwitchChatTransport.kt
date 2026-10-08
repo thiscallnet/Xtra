@@ -445,7 +445,8 @@ class TwitchChatTransport(
         scope.launch {
             try {
                 update(sessionId, self)
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
+                if (e is CancellationException) throw e
                 // Presence is advisory and must not affect chat transport health.
             }
         }

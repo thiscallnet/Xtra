@@ -15,6 +15,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -52,7 +53,8 @@ class ClipsViewModel(private val context: Context) : ViewModel() {
             _hasError.value = false
             try {
                 _clips.value = withContext(Dispatchers.IO) { queryClips() }
-            } catch (_: Throwable) {
+            } catch (e: Throwable) {
+                if (e is CancellationException) throw e
                 _hasError.value = true
             } finally {
                 _isLoading.value = false

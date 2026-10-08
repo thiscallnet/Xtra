@@ -11,6 +11,7 @@ import com.github.andreyasadchy.xtra.model.ui.UserCardBadge
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.util.C
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -63,6 +64,7 @@ class MessageClickedViewModel(
                             )
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         null
                     }
                 } else {
@@ -84,6 +86,7 @@ class MessageClickedViewModel(
                             )
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         null
                     }
                 val response = gqlUser ?: if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
@@ -106,6 +109,7 @@ class MessageClickedViewModel(
                             )
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         null
                     }
                 } else null
@@ -236,6 +240,7 @@ class MessageClickedViewModel(
                     failed = !response.errors.isNullOrEmpty(),
                 )
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 followResult.value = FollowResult(
                     userId = userId,
                     isFollowing = user.viewerFollowsUser,

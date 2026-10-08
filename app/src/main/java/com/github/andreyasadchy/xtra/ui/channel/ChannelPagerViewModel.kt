@@ -112,7 +112,8 @@ class ChannelPagerViewModel(
     private suspend fun loadStream(request: LoadRequest) {
                 val cached = try {
                     metadataCache.readChannel(args.channelId, args.channelLogin)
-                } catch (_: Exception) {
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     null
                 }
                 cached?.let(::applyChannelSnapshot)
@@ -163,10 +164,12 @@ class ChannelPagerViewModel(
                                 streamValidated = true,
                                 followerCountValidated = true,
                             )
-                        } catch (_: Exception) {
+                        } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (!request.helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         val streamResult: Result<Stream?> = try {
                             Result.success(
@@ -193,6 +196,7 @@ class ChannelPagerViewModel(
                                 }
                             )
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             Result.failure(e)
                         }
                         val userResult: Result<User?> = try {
@@ -215,6 +219,7 @@ class ChannelPagerViewModel(
                                 }
                             )
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             Result.failure(e)
                         }
                         resolveChannelFallback(cached, streamResult, userResult).let { resolution ->
@@ -229,7 +234,8 @@ class ChannelPagerViewModel(
                                             streamValidated = resolution.streamValidated,
                                             followerCountValidated = resolution.followerCountValidated,
                                         )
-                                    } catch (_: Exception) {
+                                    } catch (e: Exception) {
+                                        if (e is CancellationException) throw e
                                     }
                                 }
                             }
@@ -282,6 +288,7 @@ class ChannelPagerViewModel(
             } catch (e: MissingAuthenticationException) {
                 _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
             }
         }
     }
@@ -311,6 +318,7 @@ class ChannelPagerViewModel(
             } catch (e: MissingAuthenticationException) {
                 _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
             }
         }
     }
@@ -350,6 +358,7 @@ class ChannelPagerViewModel(
                 } catch (e: MissingAuthenticationException) {
                     _authenticationRequired.trySend(Unit)
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
             }
         }
@@ -404,6 +413,7 @@ class ChannelPagerViewModel(
             } catch (e: MissingAuthenticationException) {
                 _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
             }
         }
     }
@@ -437,6 +447,7 @@ class ChannelPagerViewModel(
             } catch (e: MissingAuthenticationException) {
                 _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
             }
         }
     }
@@ -502,6 +513,7 @@ class ChannelPagerViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }

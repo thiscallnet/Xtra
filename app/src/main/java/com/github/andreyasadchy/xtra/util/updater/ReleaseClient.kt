@@ -67,6 +67,7 @@ class ReleaseClient(
         } catch (error: UpdateException) {
             throw error
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             throw UpdateException(UpdateErrorMapper.fromThrowable(error), error)
         }
     }
@@ -80,6 +81,7 @@ class ReleaseClient(
         } catch (error: UpdateException) {
             throw error
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             throw UpdateException(UpdateErrorMapper.fromThrowable(error), error)
         }
     }
@@ -147,6 +149,7 @@ class ReleaseClient(
         return try {
             json.parseToJsonElement(body)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             throw UpdateException(UpdateError.InvalidResponse, error, UpdateStage.PARSE)
         }
     }

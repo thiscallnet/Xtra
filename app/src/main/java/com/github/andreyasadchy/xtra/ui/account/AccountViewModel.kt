@@ -345,7 +345,8 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         val webToken = context.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
         val cached = try {
             module.metadataCache.readAccount(tokenUserId, tokenLogin)
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
             null
         }
         if (!webToken.isNullOrBlank()) {
@@ -381,6 +382,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 )
                 return
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -447,6 +449,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     check(response.clientId == expectedClientId) { "The Twitch Helix token belongs to another client" }
                 }
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 _uiState.update {
                     it.copy(
                         loading = false,
@@ -537,6 +540,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 )
             }
         } catch (error: Exception) {
+            if (error is CancellationException) throw error
             _uiState.update {
                 it.copy(
                     loading = false,
@@ -953,6 +957,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 }
                 persistAccountCache(blockedUsersValidated = reset)
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 val message = readableError(error)
                 _uiState.update {
                     it.copy(
@@ -999,6 +1004,7 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 block()
                 _uiState.update { it.copy(saving = false, actionMessage = context.getString(successMessage)) }
             } catch (error: Exception) {
+                if (error is CancellationException) throw error
                 _uiState.update { it.copy(saving = false, actionError = readableError(error)) }
             }
         }
@@ -1072,7 +1078,8 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 chatSettingsValidated = chatSettingsValidated,
                 blockedUsersValidated = blockedUsersValidated,
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
         }
     }
 

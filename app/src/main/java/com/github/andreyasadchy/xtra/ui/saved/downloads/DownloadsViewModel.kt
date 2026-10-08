@@ -22,6 +22,7 @@ import com.github.andreyasadchy.xtra.util.createOrFindDocument
 import com.github.andreyasadchy.xtra.util.findChildDocument
 import com.github.andreyasadchy.xtra.util.m3u8.PlaylistUtils
 import com.github.andreyasadchy.xtra.util.m3u8.Segment
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.io.File
@@ -99,6 +100,7 @@ class DownloadsViewModel(
                     status = OfflineVideo.STATUS_DOWNLOADED
                 })
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 offlineVideosRepository.update(video.apply {
                     status = OfflineVideo.STATUS_FAILED
                 })
@@ -147,6 +149,7 @@ class DownloadsViewModel(
                             }
                             p.segments.forEach { tracksToDelete.remove(it.uri.substringAfterLast("%2F").substringAfterLast("/")) }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -174,6 +177,7 @@ class DownloadsViewModel(
                             try {
                                 DocumentsContract.deleteDocument(applicationContext.contentResolver, oldFileUri.toUri())
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -193,12 +197,14 @@ class DownloadsViewModel(
                         try {
                             DocumentsContract.deleteDocument(applicationContext.contentResolver, videoUrl.toUri())
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     } else {
                         try {
                             DocumentsContract.deleteDocument(applicationContext.contentResolver, oldVideoDirectoryUri.toUri())
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -492,6 +498,7 @@ class DownloadsViewModel(
                             }
                             p.segments.forEach { tracksToDelete.remove(Uri.decode(it.uri.substringAfterLast("%2F").substringAfterLast("/"))) }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -521,6 +528,7 @@ class DownloadsViewModel(
                             try {
                                 DocumentsContract.deleteDocument(applicationContext.contentResolver, oldFileUri.toUri())
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -553,12 +561,14 @@ class DownloadsViewModel(
                         try {
                             DocumentsContract.deleteDocument(applicationContext.contentResolver, videoUrl.toUri())
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     } else {
                         try {
                             DocumentsContract.deleteDocument(applicationContext.contentResolver, oldVideoDirectoryUri.toUri())
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -566,6 +576,7 @@ class DownloadsViewModel(
                         try {
                             DocumentsContract.deleteDocument(applicationContext.contentResolver, oldChatUri.toUri())
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -599,12 +610,14 @@ class DownloadsViewModel(
                     try {
                         DocumentsContract.deleteDocument(applicationContext.contentResolver, videoUrl.toUri())
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                     if (oldChatUri != null) {
                         try {
                             DocumentsContract.deleteDocument(applicationContext.contentResolver, oldChatUri.toUri())
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -663,6 +676,7 @@ class DownloadsViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
 
                 }
                 offlineVideosRepository.update(video.apply {
@@ -700,6 +714,7 @@ class DownloadsViewModel(
                                     PlaylistUtils.parseMediaPlaylist(it)
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
                                 null
                             }
                             val tracksToDelete = playlist?.segments?.toMutableSet() ?: mutableSetOf()
@@ -717,6 +732,7 @@ class DownloadsViewModel(
                                     }
                                     tracksToDelete.removeAll(p.segments.toSet())
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             }
@@ -727,6 +743,7 @@ class DownloadsViewModel(
                                 try {
                                     DocumentsContract.deleteDocument(applicationContext.contentResolver, it.uri.toUri())
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                                 offlineVideosRepository.update(video.apply {
@@ -736,12 +753,14 @@ class DownloadsViewModel(
                             try {
                                 DocumentsContract.deleteDocument(applicationContext.contentResolver, videoUrl.toUri())
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                             if (playlists.isEmpty()) {
                                 try {
                                     DocumentsContract.deleteDocument(applicationContext.contentResolver, videoDirectoryUri.toUri())
                                 } catch (e: Exception) {
+                                    if (e is CancellationException) throw e
 
                                 }
                             }
@@ -749,6 +768,7 @@ class DownloadsViewModel(
                             try {
                                 DocumentsContract.deleteDocument(applicationContext.contentResolver, videoUrl.toUri())
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -756,6 +776,7 @@ class DownloadsViewModel(
                             try {
                                 DocumentsContract.deleteDocument(applicationContext.contentResolver, it.toUri())
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }

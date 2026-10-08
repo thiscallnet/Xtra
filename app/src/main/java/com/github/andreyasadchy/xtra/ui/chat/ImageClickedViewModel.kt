@@ -9,6 +9,7 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.chat.EmoteCard
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.util.C
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -35,6 +36,7 @@ class ImageClickedViewModel(
                         channelName = response?.owner?.displayName,
                     )
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     try {
                         val response = graphQLRepository.loadEmoteCard(networkLibrary, gqlHeaders, emoteId).also { response ->
                         }.data?.emote
@@ -46,6 +48,7 @@ class ImageClickedViewModel(
                             channelName = response?.owner?.displayName,
                         )
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 }

@@ -220,6 +220,7 @@ class MainViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         try {
                             helixRepository.getVideos(
@@ -240,6 +241,7 @@ class MainViewModel(
                                 )
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             null
                         }
                     } else null
@@ -317,10 +319,12 @@ class MainViewModel(
                         )
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     try {
                         val user = try {
                             graphQLRepository.loadClipData(networkLibrary, gqlHeaders, clipId).data?.clip
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             null
                         }
                         val clip = graphQLRepository.loadClipVideo(networkLibrary, gqlHeaders, clipId).also { response ->
@@ -342,6 +346,7 @@ class MainViewModel(
                             },
                         )
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                             try {
                                 helixRepository.getClips(
@@ -368,6 +373,7 @@ class MainViewModel(
                                     )
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
                                 null
                             }
                         } else null
@@ -393,6 +399,7 @@ class MainViewModel(
                         )
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                         try {
                             helixRepository.getUsers(
@@ -411,6 +418,7 @@ class MainViewModel(
                                 )
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             null
                         }
                     } else null
@@ -438,6 +446,7 @@ class MainViewModel(
                         )
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank() && !gameName.isNullOrBlank()) {
                         try {
                             helixRepository.getGames(
@@ -452,6 +461,7 @@ class MainViewModel(
                                 )
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
                             null
                         }
                     } else null
@@ -474,6 +484,7 @@ class MainViewModel(
                         )
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     try {
                         val response = graphQLRepository.loadTag(networkLibrary, gqlHeaders, tagId)
                         response.data!!.contentTag.let {
@@ -483,6 +494,7 @@ class MainViewModel(
                             )
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         null
                     }
                 } ?: Tag()
@@ -534,6 +546,7 @@ class MainViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -581,6 +594,7 @@ class MainViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -669,6 +683,7 @@ class MainViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -716,6 +731,7 @@ class MainViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -808,6 +824,7 @@ class MainViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }
@@ -855,6 +872,7 @@ class MainViewModel(
                                 }
                             }
                         } catch (e: Exception) {
+                            if (e is CancellationException) throw e
 
                         }
                     }

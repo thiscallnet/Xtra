@@ -202,6 +202,7 @@ class PlaybackPersistence internal constructor(
             }
             synchronized(videoPositionLock) { videoPositionRetryDelayMs = 0L }
         } catch (error: Exception) {
+            if (error is CancellationException) throw error
             synchronized(videoPositionLock) {
                 // A newer update received during I/O always wins over the failed batch.
                 for (index in savedCount until positions.size) {

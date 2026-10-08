@@ -183,6 +183,7 @@ class Media3PlayerViewModel(
             }
             TwitchVaftDetector.requiresVaft(playlist)
         } catch (e: Exception) {
+            if (e is CancellationException) throw e
             false
         }
     }
@@ -277,6 +278,7 @@ class Media3PlayerViewModel(
                             ?: playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword)
                         streamUrlAvailableElapsedMs = SystemClock.elapsedRealtime()
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
             }
         }
@@ -291,6 +293,7 @@ class Media3PlayerViewModel(
                         updateStreamInfoAndMarkKnown(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                         delay(if (refreshForLiveRewind) 45.seconds else 5.minutes)
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         delay(1.minutes)
                     }
                 }
@@ -301,6 +304,7 @@ class Media3PlayerViewModel(
                     try {
                     updateStreamInfoAndMarkKnown(channelId, channelLogin, networkLibrary, helixHeaders, gqlHeaders)
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                     }
                 }
             }
@@ -509,6 +513,7 @@ class Media3PlayerViewModel(
                     videoResult.value = result.first
                     backupQualities = result.second
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
             }
         }
@@ -551,6 +556,7 @@ class Media3PlayerViewModel(
                         }
                     }
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     try {
                         val response = graphQLRepository.loadVideoGames(networkLibrary, gqlHeaders, videoId)
                         gamesList.value = response.data!!.video.moments.edges.map { item ->
@@ -565,6 +571,7 @@ class Media3PlayerViewModel(
                             }
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
 
                     }
                 }
@@ -625,6 +632,7 @@ class Media3PlayerViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -672,6 +680,7 @@ class Media3PlayerViewModel(
                                     }
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
 
                             }
                         }
@@ -696,6 +705,7 @@ class Media3PlayerViewModel(
                             )
                         }
                     } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
                             try {
                                 helixRepository.getUsers(
@@ -714,6 +724,7 @@ class Media3PlayerViewModel(
                                     )
                                 }
                             } catch (e: Exception) {
+                                if (e is CancellationException) throw e
                                 null
                             }
                         } else null
@@ -749,6 +760,7 @@ class Media3PlayerViewModel(
                 try {
                     clipUrls.value = playerRepository.loadClipQualities(networkLibrary, gqlHeaders, id) ?: emptyList()
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     clipUrls.value = emptyList()
                 }
             }
@@ -791,6 +803,7 @@ class Media3PlayerViewModel(
                 } catch (e: MissingAuthenticationException) {
                     _authenticationRequired.trySend(Unit)
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
             }
         }
@@ -843,6 +856,7 @@ class Media3PlayerViewModel(
             } catch (e: MissingAuthenticationException) {
                 _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
             }
         }
     }
@@ -874,6 +888,7 @@ class Media3PlayerViewModel(
             } catch (e: MissingAuthenticationException) {
                 _authenticationRequired.trySend(Unit)
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
             }
         }
     }

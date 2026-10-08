@@ -148,6 +148,7 @@ class MoonshineModelManager internal constructor(
                     }
                     throw cancelled
                 } catch (error: Throwable) {
+                    if (error is CancellationException) throw error
                     if (cancellationRequested.get() || !currentJob.isActive) {
                         cleanupIncompleteDownload()
                         stateMutable.value = MoonshineModelState.NotInstalled

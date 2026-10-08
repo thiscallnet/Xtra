@@ -82,6 +82,7 @@ class WebSocket(
                 listener.onDisconnect(this@WebSocket, e.toString(), e.stackTraceToString())
                 return@withContext
             } catch (e: Exception) {
+                if (e is CancellationException) throw e
                 if (!disconnectRequested) {
                     listener.onDisconnect(this@WebSocket, e.toString(), e.stackTraceToString())
                 }

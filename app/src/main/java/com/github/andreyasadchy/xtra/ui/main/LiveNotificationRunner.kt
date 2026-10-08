@@ -257,6 +257,7 @@ class LiveNotificationRunner(
                     recordFailure(e)
                     null
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     Log.w(TAG, "Fast live notification poll failed", e)
                     retryDelayMs = applyHelixMinimumDelay(
                         coverageDelayMs = NETWORK_RETRY_INTERVAL_MS,

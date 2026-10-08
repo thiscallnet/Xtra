@@ -608,6 +608,7 @@ class MultiviewPlaybackCoordinator(
             try {
                 recoverSlot(slot, error)
             } catch (retryError: Exception) {
+                if (retryError is CancellationException) throw retryError
                 handleFailure(slot, retryError, false, extractResponseCode(retryError))
             }
         }

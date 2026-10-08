@@ -30,7 +30,6 @@ import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.DialogChatMessageClickBinding
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.ui.User
@@ -265,20 +264,18 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                 copyFullMsg.visibility = View.VISIBLE
             }
         }
-        if (BuildConfig.MODERATOR_TOOLS_ENABLED) {
-            val roleFlow = listener.onCurrentChatViewerRole()
-            viewLifecycleOwner.lifecycleScope.launch {
-                viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    if (roleFlow != null) {
-                        roleFlow.collectLatest { roleSnapshot ->
-                                currentChatViewerRole = roleSnapshot
-                                userCardUser?.let(::renderUserActions)
-                            }
-                    }
+        val roleFlow = listener.onCurrentChatViewerRole()
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                if (roleFlow != null) {
+                    roleFlow.collectLatest { roleSnapshot ->
+                            currentChatViewerRole = roleSnapshot
+                            userCardUser?.let(::renderUserActions)
+                        }
                 }
             }
-            listener.onRequestCurrentChatViewerRoleVerification()
         }
+        listener.onRequestCurrentChatViewerRoleVerification()
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.followResult.collectLatest { result ->
@@ -541,8 +538,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
             currentChatViewerRole.viewerId == requireContext().tokenPrefs().getString(C.USER_ID, null) &&
             currentChatViewerRole.viewerLogin == requireContext().tokenPrefs().getString(C.USERNAME, null)
                 ?.trim()?.lowercase(Locale.ROOT) && currentChatViewerRole.sessionGeneration > 0L
-        moderatorToolsStatus.isVisible = BuildConfig.MODERATOR_TOOLS_ENABLED &&
-            requireArguments().getBoolean(KEY_MESSAGING) &&
+        moderatorToolsStatus.isVisible = requireArguments().getBoolean(KEY_MESSAGING) &&
             user.id?.isNotBlank() == true && user.login?.isNotBlank() == true && roleContextMatches &&
             currentChatViewerRole.role == ChatViewerRole.UNKNOWN &&
             (currentChatViewerRole.verificationInProgress || currentChatViewerRole.verificationFailed)
@@ -567,7 +563,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
     }
 
     private fun canShowModeratorTools(user: User): Boolean {
-        if (!BuildConfig.MODERATOR_TOOLS_ENABLED || !requireArguments().getBoolean(KEY_MESSAGING) ||
+        if (!requireArguments().getBoolean(KEY_MESSAGING) ||
             user.id.isNullOrBlank() || user.login.isNullOrBlank()
         ) return false
         val channelId = requireArguments().getString(KEY_CHANNEL_ID)?.takeIf(String::isNotBlank) ?: return false

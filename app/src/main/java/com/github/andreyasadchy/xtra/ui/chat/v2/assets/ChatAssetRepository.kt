@@ -166,7 +166,8 @@ class ChatAssetRepository(
                         if (e.statusCode == 400 || e.statusCode == 404 || e.statusCode == 410) {
                             ChatAssetState.Failed(completedAt + 5 * 60_000L, attempt, completedAt + 5 * 60_000L)
                         } else ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
-                    } catch (_: Throwable) {
+                    } catch (e: Throwable) {
+                        if (e is CancellationException) throw e
                         completedAt = nowMs()
                         ChatAssetState.Failed(completedAt + retryDelay(attempt), attempt)
                     }

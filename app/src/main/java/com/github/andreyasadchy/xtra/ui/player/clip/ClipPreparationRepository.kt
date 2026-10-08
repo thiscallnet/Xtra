@@ -76,6 +76,7 @@ class ClipPreparationRepository(
                 downloadedBytes = byteCounter.value,
             ).also { it.writeMetadata() }
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             directory.deleteRecursively()
             throw error
         }
