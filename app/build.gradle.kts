@@ -150,10 +150,17 @@ android {
         }
     }
     lint {
-        disable += "ContentDescription"
-        // Keep CI focused on platform API compatibility. The repository currently has
-        // unrelated legacy lint debt that would otherwise mask new Android regressions.
-        checkOnly += "NewApi"
+        // Existing findings are recorded in lint-baseline.xml; only new issues fail the build.
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+        // Stylistic, dependency-freshness and translation-coverage checks are tracked elsewhere
+        // (check-resources.py, Dependabot) and would only add noise here.
+        disable += setOf(
+            "MissingTranslation", "UnusedResources", "Untranslatable", "UseKtx", "TypographyEllipsis",
+            "PluralsCandidate", "ObsoleteSdkInt", "NewerVersionAvailable", "GradleDependency",
+            "UseTomlInstead", "AndroidGradlePluginVersion", "UseCompatTextViewDrawableXml", "UseAppTint",
+            "Overdraw", "UnusedAttribute",
+        )
     }
     testOptions {
         // LiveCaptionManager's worker tests exercise framework calls that are no-ops on the JVM.
