@@ -67,6 +67,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         super.onCreate()
         com.github.andreyasadchy.xtra.player.hls.VaftPlaylistCapture.initialize(this)
         INSTANCE = this
+        androidx.media3.cast.Cast.getSingletonInstance(this).initialize()
         if (BuildConfig.PERF_DIAGNOSTICS) {
             StrictMode.setThreadPolicy(
                 StrictMode.ThreadPolicy.Builder()

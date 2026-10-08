@@ -1235,6 +1235,19 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 true
             }
             with(playerControls) {
+                if (videoType != OFFLINE_VIDEO) {
+                    val castSetup = androidx.media3.cast.MediaRouteButtonFactory.setUpMediaRouteButton(requireContext(), hudCastButton)
+                    hudCastButton.isEnabled = false
+                    castSetup.addListener({
+                        if (_binding?.playerControls?.hudCastButton === hudCastButton) {
+                            hudCastButton.isEnabled = runCatching { castSetup.get() }.isSuccess
+                            hudCastButton.visibility = if (hudCastButton.isEnabled) View.VISIBLE else View.GONE
+                            root.requestLayout()
+                        }
+                    }, androidx.core.content.ContextCompat.getMainExecutor(requireContext()))
+                } else {
+                    hudCastButton.visibility = View.GONE
+                }
                 playPause.setOnClickListener {
                     showController(force = true)
                     playPause()

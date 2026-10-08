@@ -62,6 +62,7 @@ object HudElementRegistry {
         HudElementSpec(HudElementId.AUDIO_MODE, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),
         HudElementSpec(HudElementId.AUDIO_COMPRESSOR, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),
         HudElementSpec(HudElementId.CHAT_INPUT, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),
+        HudElementSpec(HudElementId.CAST, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),
         HudElementSpec(HudElementId.SLEEP_TIMER, normalVisualSize = icon, compactVisualSize = compactIcon, minimumHitSize = iconHit),
     )
 

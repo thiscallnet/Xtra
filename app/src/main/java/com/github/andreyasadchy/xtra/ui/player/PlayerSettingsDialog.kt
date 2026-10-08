@@ -91,6 +91,9 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
         with(binding) {
             if (type != null && type != PlaybackContract.OFFLINE_VIDEO) {
                 menuCast.isVisible = true
+                menuCast.isEnabled = false
+                castButton.isEnabled = false
+                castButton.setAlwaysVisible(true)
                 menuCast.setOnClickListener { castButton.performClick() }
                 val castContext = requireContext()
                 val castSetup = runCatching {
@@ -100,8 +103,11 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     menuCast.isVisible = false
                 } else {
                     castSetup.addListener({
-                        if (runCatching { castSetup.get() }.isFailure) {
-                            _binding?.menuCast?.isVisible = false
+                        if (_binding?.castButton === castButton) {
+                            val ready = runCatching { castSetup.get() }.isSuccess
+                            menuCast.isVisible = ready
+                            menuCast.isEnabled = ready
+                            castButton.isEnabled = ready
                         }
                     }, ContextCompat.getMainExecutor(castContext))
                 }

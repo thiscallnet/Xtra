@@ -42,6 +42,10 @@ import android.util.AttributeSet
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.appcompat.widget.AppCompatTextView
+import com.github.andreyasadchy.xtra.ui.chat.ChatEmotePopoutMode
+import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.BuildConfig
@@ -158,6 +162,12 @@ open class ChatMessageTextView private constructor(
     private var boundRow: ChatRowUiModel? = null
     private var boundTextSizePx = Float.NaN
     private var bindingRow = false
+    /** Live timelines resolve the saved gesture policy at DOWN; interaction dialogs keep their own callbacks. */
+    var useGesturePreferences = false
+    private var profileGesture = ChatProfilePopoutGesture.TAP
+    private var emoteMode = ChatEmotePopoutMode.EMOTE_DETAILS
+    private var touchSpan: ClickableSpan? = null
+    private var touchActive = false
     private var touchMoved = false
     private var clipPreviewSlugs = emptySet<String>()
     private var clipPreviewAssetKeys = emptySet<ChatAssetKey>()
@@ -303,6 +313,7 @@ open class ChatMessageTextView private constructor(
     private fun bindRow(row: ChatRowUiModel, bindAssets: ChatRowBindAssets) {
         invalidateClipDrawCache()
         if (boundMessageId != row.id) {
+            cancelTouchGesture()
             latchedFailedCompositionKeys.clear()
             latchedFailedDirectKeys.clear()
             latchedFailedClipMetadataSlugs.clear()
@@ -311,14 +322,6 @@ open class ChatMessageTextView private constructor(
         boundRow = row
         boundTextSizePx = textSize
         boundMessageId = row.id
-        longPressConsumed = false
-        touchStartedOnClickableSpan = false
-        touchStartedOnEmote = null
-        touchMoved = false
-        touchDownX = 0f
-        touchDownY = 0f
-        longPressRunnable?.let(mainHandler::removeCallbacks)
-        longPressRunnable = null
         isLongClickable = onMessageLongClick != null || onEmoteLongClick != null || onEmoteMessageLongClick != null
         val oldKeys = keys
         val oldClipPreviewSlugs = clipPreviewSlugs
@@ -972,79 +975,85 @@ open class ChatMessageTextView private constructor(
     }
 
     override fun performClick(): Boolean {
+        if (!touchActive) refreshGesturePreferences()
         val handled = super.performClick()
         // LinkMovementMethod can reach performClick while it is finishing a pointer
         // gesture.  A span owns that gesture; never turn it into a row/profile click.
-        if (touchStartedOnClickableSpan) return handled
+        if (touchStartedOnClickableSpan || (useGesturePreferences && !profileGesture.allowsTap)) return handled
         val id = boundMessageId ?: return handled
         val callback = onMessageClick ?: return handled
         callback(id)
         return true
     }
 
-    /**
-     * TextView's normal long-click is intentionally the row action. In particular,
-     * it must win over LinkMovementMethod when the pointer goes down on an emote.
-     * The consumed flag suppresses LinkMovementMethod's ACTION_UP click after the
-     * long press has already opened the user card.
-     */
     override fun performLongClick(): Boolean {
+        if (!touchActive) refreshGesturePreferences()
         if (longPressConsumed) return true
+        if (touchActive && touchMoved) return false
         val emote = touchStartedOnEmote
-        val emoteCallback = onEmoteLongClick
-        if (emote != null) {
-            if (emoteCallback != null) {
-                longPressConsumed = true
-                emoteCallback(emote)
-                return true
-            }
-            val id = boundMessageId
-            val messageCallback = onEmoteMessageLongClick
-            if (id != null && messageCallback != null) {
-                longPressConsumed = true
-                messageCallback(id)
-                return true
-            }
-            // Keep the original direct-view contract for callers that only provide
-            // the legacy row callback and do not opt into an emote policy.
-            val legacyMessageCallback = onMessageLongClick
-            if (id != null && legacyMessageCallback != null) {
-                longPressConsumed = true
-                legacyMessageCallback(id)
-                return true
-            }
-            return super.performLongClick()
-        }
-        if (touchStartedOnClickableSpan) return super.performLongClick()
         val id = boundMessageId
-        val callback = onMessageLongClick
-        if (id != null && callback != null) {
-            longPressConsumed = true
-            callback(id)
-            return true
+        if (useGesturePreferences) {
+            if (emote != null) {
+                return when (emoteMode) {
+                    ChatEmotePopoutMode.EMOTE_DETAILS -> onEmoteClick?.let {
+                        longPressConsumed = true
+                        it(emote)
+                        true
+                    } ?: false
+                    ChatEmotePopoutMode.EMOTE_TAP_PROFILE_HOLD -> openHeldProfile(id)
+                    ChatEmotePopoutMode.PROFILE_GESTURE ->
+                        if (profileGesture.allowsHold) openHeldProfile(id) else false
+                }
+            }
+            if (touchStartedOnClickableSpan || !profileGesture.allowsHold) return false
+            return openHeldProfile(id)
         }
-        return super.performLongClick()
+        if (emote != null) {
+            onEmoteLongClick?.let {
+                longPressConsumed = true
+                it(emote)
+                return true
+            }
+            val callback = onEmoteMessageLongClick ?: onMessageLongClick
+            if (id != null && callback != null) {
+                longPressConsumed = true
+                callback(id)
+                return true
+            }
+            return false
+        }
+        if (touchStartedOnClickableSpan) return false
+        return openHeldProfile(id)
+    }
+
+    private fun openHeldProfile(id: ChatMessageId?): Boolean {
+        val callback = onMessageLongClick ?: return false
+        if (id == null) return false
+        longPressConsumed = true
+        callback(id)
+        return true
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                longPressConsumed = false
+                cancelTouchGesture()
+                touchActive = true
                 touchMoved = false
-                val spans = clickableSpansAt(event)
-                touchStartedOnClickableSpan = spans.isNotEmpty()
-                touchStartedOnEmote = spans.filterIsInstance<EmoteClickableSpan>().firstOrNull()?.interaction
+                longPressConsumed = false
+                refreshGesturePreferences()
+                touchSpan = clickableSpansAt(event).firstOrNull()
+                touchStartedOnClickableSpan = touchSpan != null
+                touchStartedOnEmote = (touchSpan as? EmoteClickableSpan)?.interaction
                 touchDownX = event.x
                 touchDownY = event.y
-                longPressRunnable?.let(mainHandler::removeCallbacks)
-                if ((onMessageLongClick != null || onEmoteLongClick != null || onEmoteMessageLongClick != null) && boundMessageId != null) {
-                    longPressRunnable = Runnable { performLongClick() }.also {
-                        mainHandler.postDelayed(it, ViewConfiguration.getLongPressTimeout().toLong())
-                    }
-                }
+                longPressRunnable = Runnable {
+                    if (touchActive && !touchMoved) performLongClick()
+                }.also { mainHandler.postDelayed(it, ViewConfiguration.getLongPressTimeout().toLong()) }
+                return true
             }
-
             MotionEvent.ACTION_MOVE -> {
+                if (!touchActive) return false
                 val slop = ViewConfiguration.get(context).scaledTouchSlop
                 if (kotlin.math.abs(event.x - touchDownX) > slop ||
                     kotlin.math.abs(event.y - touchDownY) > slop
@@ -1053,80 +1062,67 @@ open class ChatMessageTextView private constructor(
                     longPressRunnable?.let(mainHandler::removeCallbacks)
                     longPressRunnable = null
                 }
+                return true
             }
-
-            MotionEvent.ACTION_CANCEL -> {
-                touchMoved = true
-                touchStartedOnClickableSpan = false
-                touchStartedOnEmote = null
+            MotionEvent.ACTION_UP -> {
+                if (!touchActive) return false
                 longPressRunnable?.let(mainHandler::removeCallbacks)
                 longPressRunnable = null
-            }
-
-            MotionEvent.ACTION_UP -> {
-                // The layout can be unavailable at DOWN (for example during a rebound),
-                // so check UP as well before TextView gets a chance to call performClick.
-                if (!touchMoved) {
-                    val spans = clickableSpansAt(event)
-                    touchStartedOnClickableSpan = touchStartedOnClickableSpan || spans.isNotEmpty()
-                    touchStartedOnEmote = touchStartedOnEmote ?: spans.filterIsInstance<EmoteClickableSpan>().firstOrNull()?.interaction
-                }
-                hasClipPreviewAt(event)?.let { url ->
-                    if (!touchMoved && !longPressConsumed) {
-                        openClipUrl(url)
-                        longPressRunnable?.let(mainHandler::removeCallbacks)
-                        longPressRunnable = null
-                        touchStartedOnClickableSpan = false
-                        touchStartedOnEmote = null
-                        return true
+                val held = event.eventTime - event.downTime >= ViewConfiguration.getLongPressTimeout()
+                if (held && !touchMoved && !longPressConsumed) performLongClick()
+                // Only profile/emote policy suppresses an unassigned hold. Other spans
+                // and interaction dialogs retain their existing release action.
+                val allowsRelease = !held || !useGesturePreferences ||
+                    (touchSpan != null && touchStartedOnEmote == null)
+                if (!touchMoved && !longPressConsumed && allowsRelease) {
+                    val span = touchSpan
+                    val id = boundMessageId
+                    val emote = touchStartedOnEmote
+                    val upSpans = clickableSpansAt(event)
+                    val sameEmote = upSpans.filterIsInstance<EmoteClickableSpan>().any { it.interaction == emote }
+                    val clip = hasClipPreviewAt(event)
+                    when {
+                        clip != null -> openClipUrl(clip)
+                        emote != null && sameEmote && useGesturePreferences -> when (emoteMode) {
+                            ChatEmotePopoutMode.PROFILE_GESTURE ->
+                                if (profileGesture.allowsTap && id != null) onMessageClick?.invoke(id)
+                            else -> onEmoteClick?.invoke(emote)
+                        }
+                        emote != null && sameEmote && id != null && onEmoteMessageClick != null -> onEmoteMessageClick?.invoke(id)
+                        span != null && span in upSpans -> span.onClick(this)
+                        span == null && upSpans.isEmpty() && (!useGesturePreferences || profileGesture.allowsTap) -> performClick()
                     }
                 }
-                val messageId = boundMessageId
-                val emote = touchStartedOnEmote
-                if (messageId != null && emote != null && onEmoteMessageClick != null &&
-                    !touchMoved && !longPressConsumed
-                ) {
-                    onEmoteMessageClick?.invoke(messageId)
-                    longPressRunnable?.let(mainHandler::removeCallbacks)
-                    longPressRunnable = null
-                    touchStartedOnClickableSpan = false
-                    touchStartedOnEmote = null
-                    return true
-                }
-                val shouldOpenProfile = messageId != null &&
-                    onMessageClick != null &&
-                    !touchMoved &&
-                    !longPressConsumed &&
-                    !touchStartedOnClickableSpan
-                longPressRunnable?.let(mainHandler::removeCallbacks)
-                longPressRunnable = null
-                if (longPressConsumed) {
-                    longPressConsumed = false
-                    touchStartedOnClickableSpan = false
-                    touchStartedOnEmote = null
-                    return true
-                }
-                if (shouldOpenProfile) {
-                    performClick()
-                    touchStartedOnClickableSpan = false
-                    touchStartedOnEmote = null
-                    return true
-                }
+                cancelTouchGesture()
+                return true
+            }
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_POINTER_DOWN -> {
+                cancelTouchGesture()
+                return true
             }
         }
-        if (event.actionMasked == MotionEvent.ACTION_UP && longPressConsumed) {
-            longPressConsumed = false
-            touchStartedOnClickableSpan = false
-            touchStartedOnEmote = null
-            return true
-        }
-        val handled = super.onTouchEvent(event)
-        if (event.actionMasked == MotionEvent.ACTION_UP) {
-            longPressConsumed = false
-            touchStartedOnClickableSpan = false
-            touchStartedOnEmote = null
-        }
-        return handled
+        return touchActive
+    }
+
+    private fun refreshGesturePreferences() {
+        if (!useGesturePreferences) return
+        val preferences = context.prefs()
+        profileGesture = ChatProfilePopoutGesture.fromPreference(
+            preferences.getString(C.CHAT_PROFILE_POPOUT_GESTURE, "tap"),
+        )
+        emoteMode = ChatEmotePopoutMode.fromPreference(
+            preferences.getString(C.CHAT_EMOTE_POPOUT_MODE, "emote_details"),
+        )
+    }
+
+    private fun cancelTouchGesture() {
+        longPressRunnable?.let(mainHandler::removeCallbacks)
+        longPressRunnable = null
+        touchActive = false
+        touchSpan = null
+        touchStartedOnClickableSpan = false
+        touchStartedOnEmote = null
+        longPressConsumed = false
     }
 
     private fun appendStyled(output: SpannableStringBuilder, value: String, color: Int?, bold: Boolean = false) {
@@ -1412,11 +1408,7 @@ open class ChatMessageTextView private constructor(
     }
 
     fun recycle() {
-        longPressRunnable?.let(mainHandler::removeCallbacks)
-        longPressRunnable = null
-        longPressConsumed = false
-        touchStartedOnClickableSpan = false
-        touchStartedOnEmote = null
+        cancelTouchGesture()
         touchMoved = true
         touchDownX = 0f
         touchDownY = 0f
@@ -1541,11 +1533,7 @@ open class ChatMessageTextView private constructor(
         } else {
             clipRelativeTimeRefresh?.let(mainHandler::removeCallbacks)
             clipRelativeTimeRefresh = null
-            longPressRunnable?.let(mainHandler::removeCallbacks)
-            longPressRunnable = null
-            longPressConsumed = false
-            touchStartedOnClickableSpan = false
-            touchStartedOnEmote = null
+            cancelTouchGesture()
             touchMoved = true
             touchDownX = 0f
             touchDownY = 0f
@@ -1559,11 +1547,7 @@ open class ChatMessageTextView private constructor(
         clipRelativeTimeRefresh = null
         // Detach only unregisters callbacks. Keep the bind generation so a staged row can survive
         // a detach/reattach cycle and still be applied when its assets finish loading.
-        longPressRunnable?.let(mainHandler::removeCallbacks)
-        longPressRunnable = null
-        longPressConsumed = false
-        touchStartedOnClickableSpan = false
-        touchStartedOnEmote = null
+        cancelTouchGesture()
         touchMoved = true
         touchDownX = 0f
         touchDownY = 0f

@@ -31,6 +31,7 @@ enum class HudElementId {
     AUDIO_COMPRESSOR,
     CHAT_INPUT,
     SLEEP_TIMER,
+    CAST,
 }
 
 enum class HudPivot {

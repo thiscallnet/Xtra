@@ -363,7 +363,7 @@ class HudElementFrame @JvmOverloads constructor(
 
     private fun collectClickableChildren(view: View?, result: MutableList<View>) {
         if (view == null || view.visibility != VISIBLE) return
-        if (view.hasOnClickListeners() || view.isLongClickable) {
+        if (view.hasOnClickListeners() || view.isLongClickable || view is androidx.mediarouter.app.MediaRouteButton) {
             result += view
             return
         }

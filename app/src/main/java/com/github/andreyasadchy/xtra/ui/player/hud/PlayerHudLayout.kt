@@ -103,6 +103,7 @@ class PlayerHudLayout @JvmOverloads constructor(
             val verticalPadding = (5f * density).roundToInt()
             setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
         }
+        findViewById<androidx.mediarouter.app.MediaRouteButton>(R.id.hudCastButton)?.setAlwaysVisible(true)
         frames.clear()
         for (index in 0 until childCount) {
             (getChildAt(index) as? HudElementFrame)?.let { frame ->
@@ -1747,7 +1748,7 @@ class PlayerHudLayout @JvmOverloads constructor(
 
     private fun hasBoundAction(view: View): Boolean {
         if (view.visibility != VISIBLE) return false
-        if (view.hasOnClickListeners() || view.isLongClickable) return true
+        if (view.hasOnClickListeners() || view.isLongClickable || view is androidx.mediarouter.app.MediaRouteButton) return true
         if (view !is ViewGroup) return false
         return (0 until view.childCount).any { hasBoundAction(view.getChildAt(it)) }
     }
@@ -1898,7 +1899,7 @@ class PlayerHudLayout @JvmOverloads constructor(
             R.id.follow, R.id.aspectRatio, R.id.volume, R.id.clip, R.id.liveCaptions, R.id.subtitles,
             R.id.toggleChat, R.id.fullscreen, R.id.menu, R.id.interactionLock, R.id.minimize,
             R.id.download, R.id.speed, R.id.vodGames, R.id.restart, R.id.seekLive,
-            R.id.audioOnly, R.id.audioCompressor, R.id.toggleChatInput, R.id.sleepTimer,
+            R.id.audioOnly, R.id.audioCompressor, R.id.toggleChatInput, R.id.sleepTimer, R.id.hudCastButton,
         ).forEach { id -> resizeView(id, buttonSize.roundToInt()) }
         resizeView(R.id.rewind, seekSize.roundToInt())
         resizeView(R.id.fastForward, seekSize.roundToInt())
