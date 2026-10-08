@@ -124,7 +124,9 @@ object TwitchChatEventParser {
     fun fromEventSubRewardRedemption(event: JSONObject, timestamp: String?): ChatEvent.Message {
         val reward = event.optJSONObject("reward")
         val userInput = event.optString("user_input")
-        val redeemedAt = timestamp ?: event.optString("redeemed_at").takeIf { it.isNotBlank() }
+        val redeemedAt = event.optString("redeemed_at").takeIf {
+            runCatching { Instant.parse(it) }.isSuccess
+        } ?: timestamp
         val message = ChatMessage(
             id = ChatMessageId(event.optString("id").takeIf { it.isNotBlank() } ?: "redemption-${event.hashCode()}"),
             channelId = event.optString("broadcaster_user_id").takeIf { it.isNotBlank() }.orEmpty(),

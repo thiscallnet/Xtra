@@ -95,7 +95,10 @@ object PubSubUtils {
                 url4x = if (rewardImage?.isNull("url_4x") == false) { rewardImage.optString("url_4x").takeIf { it.isNotBlank() } } else { null }
                     ?: if (defaultImage?.isNull("url_4x") == false) defaultImage.optString("url_4x").takeIf { it.isNotBlank() } else null,
             ),
-            timestamp = if (messageData?.isNull("timestamp") == false) messageData.optString("timestamp").takeIf { it.isNotBlank() }?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } } else null,
+            // Delivery can be delayed while chat is in the background. Correlate with the
+            // chat message using the redemption time, retaining the old envelope fallback.
+            timestamp = redemption?.optString("redeemed_at")?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } }
+                ?: messageData?.optString("timestamp")?.let { Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } },
             fullMsg = message.toString(),
         )
     }

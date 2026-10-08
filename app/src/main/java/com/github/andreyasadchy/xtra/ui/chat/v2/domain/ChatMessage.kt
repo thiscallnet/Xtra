@@ -192,6 +192,8 @@ data class ChatMessage(
     val rewardImageUrl: String? = null,
     /** Redemption identity from PubSub/EventSub when the message is synthetic. */
     val rewardRedemptionId: String? = null,
+    /** Both the input chat row and its supplemental redemption notice have been paired. */
+    val rewardSourcesMerged: Boolean = false,
     val isFirst: Boolean = false,
     val bits: Int? = null,
     val watchStreakCount: Int? = null,

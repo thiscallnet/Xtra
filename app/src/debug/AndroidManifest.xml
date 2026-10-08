@@ -1,6 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity
+            android:name="com.github.andreyasadchy.xtra.ui.chat.v2.ChatRewardResumeFixtureActivity"
+            android:configChanges="screenSize|smallestScreenSize|screenLayout|orientation"
+            android:exported="true"
+            android:resizeableActivity="true"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/DarkTheme" />
         <receiver
             android:name="com.github.andreyasadchy.xtra.debug.VaftPlaylistCaptureReceiver"
             android:exported="true" />
