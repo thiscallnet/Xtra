@@ -222,6 +222,7 @@ object HudDefaultLayout {
             HudElementId.FOLLOW -> .72f to 0f
             HudElementId.QUALITY -> .84f to 0f
             HudElementId.ASPECT_RATIO -> .95f to 0f
+            HudElementId.CAST -> .70f to .5f
             HudElementId.VOLUME -> .08f to .9f
             HudElementId.CLIP -> .24f to .9f
             HudElementId.MORE -> .92f to .9f

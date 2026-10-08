@@ -964,12 +964,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             com.google.android.material.R.attr.colorOnSurfaceVariant,
                         ),
                     )
-                    val profilePopoutGesture = ChatProfilePopoutGesture.fromPreference(
-                        requireContext().prefs().getString(C.CHAT_PROFILE_POPOUT_GESTURE, "tap"),
-                    )
-                    val emotePopoutMode = ChatEmotePopoutMode.fromPreference(
-                        requireContext().prefs().getString(C.CHAT_EMOTE_POPOUT_MODE, "emote_details"),
-                    )
                     val interactionConfiguration = ChatInteractionAdapterConfiguration(
                         messageTextSize = chatStyle.textSizeSp,
                         animateGifs = chatStyle.animateGifs,
@@ -1057,8 +1051,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             onStateChanged = { state ->
                                 btnDown.isVisible = state.followMode == com.github.andreyasadchy.xtra.ui.chat.v2.ui.FollowMode.USER_SCROLLED_UP
                             },
-                            profilePopoutGesture = profilePopoutGesture,
-                            emotePopoutMode = emotePopoutMode,
                             rewardCatalog = viewModel.channelPoints.map { points ->
                                 val rewards = points?.rewards.orEmpty()
                                 com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog(

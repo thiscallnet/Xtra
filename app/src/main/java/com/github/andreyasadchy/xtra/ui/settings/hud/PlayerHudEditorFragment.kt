@@ -1242,6 +1242,7 @@ class PlayerHudEditorFragment : Fragment() {
         HudElementId.MORE -> "More options"
         HudElementId.INTERACTION_LOCK -> "Lock controls"
         HudElementId.QUALITY -> "Video quality"
+        HudElementId.CAST -> getString(R.string.player_cast_to_device)
         else -> id.name.replace('_', ' ').lowercase().replaceFirstChar(Char::uppercase)
     }
 

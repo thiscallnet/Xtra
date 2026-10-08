@@ -21,6 +21,7 @@ class ChatTimelineAdapter(
     private val onEmoteMessageClick: ((ChatMessageId) -> Unit)? = null,
     private val onEmoteMessageLongClick: ((ChatMessageId) -> Unit)? = null,
     private var messageTextColor: Int? = null,
+    private val useGesturePreferences: Boolean = false,
 ) : RecyclerView.Adapter<ChatTimelineAdapter.Holder>() {
     private val rows = ArrayList<ChatRowUiModel>()
     var renderingActive = true
@@ -32,6 +33,7 @@ class ChatTimelineAdapter(
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = Holder(
         ChatMessageTextView(parent.context, assets).also {
+            it.useGesturePreferences = useGesturePreferences
             it.setMessageTextSizeSp(textSizeSp)
             it.setAnimateGifs(animateGifs)
             it.setInteractionCallbacks(

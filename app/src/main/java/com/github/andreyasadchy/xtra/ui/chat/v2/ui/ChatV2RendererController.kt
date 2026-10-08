@@ -29,8 +29,6 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPal
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
-import com.github.andreyasadchy.xtra.ui.chat.ChatProfilePopoutGesture
-import com.github.andreyasadchy.xtra.ui.chat.ChatEmotePopoutMode
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
 import com.github.andreyasadchy.xtra.util.ChatBatchingPreferences
 import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
@@ -108,8 +106,6 @@ class ChatV2RendererController(
     private val presentationLabels: ChatPresentationLabels = ChatPresentationLabels(),
     private val onStateChanged: (ChatViewportState) -> Unit = {},
     private val onMessageLongClick: (ChatMessage) -> Unit = {},
-    private val profilePopoutGesture: ChatProfilePopoutGesture = ChatProfilePopoutGesture.HOLD,
-    private val emotePopoutMode: ChatEmotePopoutMode = ChatEmotePopoutMode.EMOTE_DETAILS,
     private val rewardCatalog: Flow<ChatRewardCatalog> = flowOf(ChatRewardCatalog()),
     private val rewardCatalogSettled: Flow<Boolean> = flowOf(true),
     private val decorationCatalog: Flow<ChatDecorationSnapshot> = flowOf(ChatDecorationSnapshot()),
@@ -134,36 +130,15 @@ class ChatV2RendererController(
         assets,
         renderStyle.textSizeSp,
         renderStyle.animateGifs,
-        onMessageLongClick = if (profilePopoutGesture.allowsHold) {
-            { id ->
-                latestMessages.firstOrNull { it.id == id }?.let { message -> onMessageLongClick(message) }
-            }
-        } else null,
-        onEmoteClick = onEmoteClick.takeUnless { emotePopoutMode == ChatEmotePopoutMode.PROFILE_GESTURE },
-        onGifClick = onGifClick,
-        onMessageClick = if (profilePopoutGesture.allowsTap) {
-            { id ->
-                latestMessages.firstOrNull { it.id == id }?.let { message -> onMessageLongClick(message) }
-            }
-        } else null,
-        onEmoteLongClick = when {
-            emotePopoutMode == ChatEmotePopoutMode.EMOTE_DETAILS -> onEmoteClick
-            else -> null
+        onMessageLongClick = { id ->
+            latestMessages.firstOrNull { it.id == id }?.let(onMessageLongClick)
         },
-        onEmoteMessageLongClick = if (
-            emotePopoutMode != ChatEmotePopoutMode.EMOTE_DETAILS
-        ) {
-            { id ->
-                if (emotePopoutMode == ChatEmotePopoutMode.EMOTE_TAP_PROFILE_HOLD || profilePopoutGesture.allowsHold) {
-                    latestMessages.firstOrNull { it.id == id }?.let { message -> onMessageLongClick(message) }
-                }
-            }
-        } else null,
-        onEmoteMessageClick = if (
-            emotePopoutMode == ChatEmotePopoutMode.PROFILE_GESTURE && profilePopoutGesture.allowsTap
-        ) {
-            { id -> latestMessages.firstOrNull { it.id == id }?.let { message -> onMessageLongClick(message) } }
-        } else null,
+        onMessageClick = { id ->
+            latestMessages.firstOrNull { it.id == id }?.let(onMessageLongClick)
+        },
+        onEmoteClick = onEmoteClick,
+        onGifClick = onGifClick,
+        useGesturePreferences = true,
         messageTextColor = messageTextColor,
     )
     private val viewport = ChatViewportController(recyclerView, initialState)

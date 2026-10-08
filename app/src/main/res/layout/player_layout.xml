@@ -334,4 +334,15 @@
             <ImageButton android:id="@+id/subtitles" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@android:color/transparent" android:contentDescription="@string/player_subtitles" android:src="@drawable/exo_ic_subtitle_off" android:visibility="gone" app:tint="@android:color/white" />
         </FrameLayout>
     </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
+    <com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame android:tag="CAST">
+        <androidx.mediarouter.app.MediaRouteButton
+            android:id="@+id/hudCastButton"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:minWidth="0dp"
+            android:minHeight="0dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/player_cast_to_device"
+            app:mediaRouteButtonTint="@android:color/white" />
+    </com.github.andreyasadchy.xtra.ui.player.hud.HudElementFrame>
 </com.github.andreyasadchy.xtra.ui.player.hud.PlayerHudLayout>
