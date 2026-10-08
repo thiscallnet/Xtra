@@ -5,17 +5,14 @@ import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.Drawable
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
 import android.text.SpannableStringBuilder
 import android.text.style.StyleSpan
 import android.text.format.DateUtils
 import android.text.method.LinkMovementMethod
 import android.text.util.Linkify
 import android.util.Log
-import android.util.LruCache
 import android.util.TypedValue
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -32,7 +29,6 @@ import android.widget.MultiAutoCompleteTextView
 import android.widget.TextView
 import androidx.activity.OnBackPressedCallback
 import androidx.core.content.res.use
-import androidx.core.content.ContextCompat
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -52,7 +48,6 @@ import androidx.navigation.NavOptions
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.adapter.FragmentStateAdapter
-import coil3.Image
 import coil3.imageLoader
 import coil3.request.CachePolicy
 import coil3.request.Disposable
@@ -63,7 +58,6 @@ import coil3.request.fallback
 import coil3.request.placeholder
 import coil3.request.target
 import coil3.request.transformations
-import coil3.target.ImageViewTarget
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
@@ -72,16 +66,12 @@ import com.github.andreyasadchy.xtra.databinding.ViewPinnedChatMessageBinding
 import com.github.andreyasadchy.xtra.model.chat.Badge
 import com.github.andreyasadchy.xtra.model.chat.ChatMessage
 import com.github.andreyasadchy.xtra.model.chat.ChatIdentityState
-import com.github.andreyasadchy.xtra.model.chat.NamePaint
-import com.github.andreyasadchy.xtra.model.chat.STVBadge
-import com.github.andreyasadchy.xtra.model.chat.selectedVanityBadge
 import com.github.andreyasadchy.xtra.model.chat.Emote
 import com.github.andreyasadchy.xtra.model.chat.Poll
 import com.github.andreyasadchy.xtra.model.chat.PollVoteState
 import com.github.andreyasadchy.xtra.model.chat.PinnedChatMessage
 import com.github.andreyasadchy.xtra.model.chat.Prediction
 import com.github.andreyasadchy.xtra.model.chat.PredictionBetState
-import com.github.andreyasadchy.xtra.model.chat.TwitchBadge
 import com.github.andreyasadchy.xtra.model.ui.ChannelPoints
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRedemptionResult
@@ -108,15 +98,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowCompiler
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
-import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogBadge
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
-import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatDecorationSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatEmoteScope
-import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
-import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaintShadow
-import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatUserDecoration
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.LiveChatSessionSpec
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatSessionHandle
 import com.github.andreyasadchy.xtra.ui.chat.v2.ui.ChatV2RendererController
@@ -135,10 +118,8 @@ import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.ui.player.Media3PlayerFragment
 import com.github.andreyasadchy.xtra.ui.view.AutoCompleteAdapter
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.DEFAULT_CHAT_BADGE_SIZE_DP
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.chat.PinnedMessageDismissalCache
-import com.github.andreyasadchy.xtra.util.chatBadgeSizeOrDefault
 import com.github.andreyasadchy.xtra.util.chat.PredictionState
 import com.github.andreyasadchy.xtra.util.chat.legacyThreadParentId
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -180,41 +161,6 @@ import kotlin.math.min
 private const val TWITCH_LISTENING_ONLY_BADGE_URL =
     "https://static-cdn.jtvnw.net/badges/v1/199a0dba-58f3-494e-a7fc-1fa0a1001fb8/3"
 
-private val chatIdentityBadgeDrawableCache = object : LruCache<String, Drawable.ConstantState>(32) {}
-
-private fun restoreChatIdentityBadgeDrawable(cacheKey: String, imageView: ImageView): Boolean {
-    val state = synchronized(chatIdentityBadgeDrawableCache) {
-        chatIdentityBadgeDrawableCache.get(cacheKey)
-    } ?: return false
-    imageView.setImageDrawable(state.newDrawable(imageView.resources))
-    return true
-}
-
-private class ChatIdentityBadgeImageTarget(
-    imageView: ImageView,
-    private val cacheKey: String,
-    private val isCurrent: () -> Boolean,
-) : ImageViewTarget(imageView) {
-    override fun onStart(placeholder: Image?) {
-        if (isCurrent() && view.drawable != null) return
-        super.onStart(placeholder)
-    }
-
-    override fun onSuccess(result: Image) {
-        if (!isCurrent()) return
-        super.onSuccess(result)
-        view.drawable?.constantState?.let { state ->
-            synchronized(chatIdentityBadgeDrawableCache) {
-                chatIdentityBadgeDrawableCache.put(cacheKey, state)
-            }
-        }
-    }
-
-    override fun onError(error: Image?) {
-        // Preserve the cached badge or the neutral trigger icon on image failure.
-    }
-}
-
 internal fun shouldShowChatComposer(
     chatAvailable: Boolean,
     isSlidingPlayerLayout: Boolean,
@@ -237,116 +183,6 @@ internal fun matchesV2MessageUser(
     }
     return matches(message.user?.id, message.user?.login) ||
             message.reply?.let { reply -> matches(reply.parentUserId, reply.parentUserLogin) } == true
-}
-
-internal fun ChatViewModel.v2DecorationSnapshot(): ChatDecorationSnapshot {
-    val paints = synchronized(namePaints) {
-        namePaints.mapNotNull { paint -> paint.id?.let { it to paint.toV2() } }.toMap()
-    }
-    val badges = synchronized(stvBadges) {
-        stvBadges.mapNotNull { badge -> badge.toV2() }.toMap()
-    }
-    val users = synchronized(stvUsers) {
-        stvUsers.associate { user ->
-            user.userId to ChatUserDecoration(user.paintId, user.badgeId, user.emoteSetId)
-        }
-    }
-    return ChatDecorationSnapshot(users = users, paints = paints, badges = badges)
-}
-
-private fun NamePaint.toV2() = ChatNamePaint(
-    colors = colors?.toList().orEmpty(),
-    imageUrl = imageUrl,
-    colorPositions = colorPositions?.toList().orEmpty(),
-    type = type,
-    angle = angle,
-    repeat = repeat == true,
-    shadows = shadows.orEmpty().map { ChatNamePaintShadow(it.xOffset, it.yOffset, it.radius, it.color) },
-)
-
-private fun STVBadge.toV2(): Pair<String, ChatCatalogBadge>? {
-    val key = id.takeIf { it.isNotBlank() } ?: return null
-    val url = url4x ?: url3x ?: url2x ?: url1x ?: return null
-    return key to ChatCatalogBadge(
-        name = key,
-        asset = ChatAssetSpec(ChatAssetKey(url), 18, 18, 18),
-        provider = ChatAssetProvider.SEVEN_TV,
-        setId = key,
-        versionId = "default",
-        info = name,
-    )
-}
-
-private fun TwitchBadge.toV2CatalogEntry(): Pair<String, ChatCatalogBadge>? {
-    val url = url4x ?: url3x ?: url2x ?: url1x ?: return null
-    val key = "$setId:$version"
-    return key to ChatCatalogBadge(
-        name = key,
-        asset = ChatAssetSpec(ChatAssetKey(url), 18, 18, 18),
-        provider = ChatAssetProvider.TWITCH,
-        setId = setId,
-        versionId = version,
-        info = title,
-    )
-}
-
-internal data class ComposerOverlaySnapshot<Overlay, RestoreState>(
-    val overlay: Overlay,
-    val input: String,
-    val restoreState: RestoreState,
-    val submissionPending: Boolean,
-)
-
-internal fun <Overlay, RestoreState> captureComposerOverlaySnapshot(
-    overlay: Overlay?,
-    existing: ComposerOverlaySnapshot<Overlay, RestoreState>?,
-    pendingRestoreState: RestoreState?,
-    pendingInput: String?,
-    currentInput: String?,
-    submissionPending: Boolean,
-): ComposerOverlaySnapshot<Overlay, RestoreState>? {
-    val retainedOverlay = overlay ?: existing?.overlay ?: return null
-    val restoreState = pendingRestoreState ?: existing?.restoreState ?: return null
-    val input = if (submissionPending) {
-        pendingInput ?: existing?.input.orEmpty()
-    } else {
-        currentInput ?: existing?.input.orEmpty()
-    }
-    return ComposerOverlaySnapshot(
-        overlay = retainedOverlay,
-        input = input,
-        restoreState = restoreState,
-        submissionPending = submissionPending,
-    )
-}
-
-internal class ComposerOverlayStateStore<Overlay, RestoreState> {
-    var active: ComposerOverlaySnapshot<Overlay, RestoreState>? = null
-        private set
-
-    fun open(overlay: Overlay, restoreState: RestoreState) {
-        active = ComposerOverlaySnapshot(overlay, "", restoreState, submissionPending = false)
-    }
-
-    fun submit(input: String): ComposerOverlaySnapshot<Overlay, RestoreState>? {
-        active = active?.copy(input = input, submissionPending = true)
-        return active
-    }
-
-    fun markFailed(input: String): ComposerOverlaySnapshot<Overlay, RestoreState>? {
-        active = active?.copy(input = input, submissionPending = false)
-        return active
-    }
-
-    fun set(snapshot: ComposerOverlaySnapshot<Overlay, RestoreState>) {
-        active = snapshot
-    }
-
-    fun clear(): RestoreState? {
-        val restoreState = active?.restoreState
-        active = null
-        return restoreState
-    }
 }
 
 class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickListener, ReplyClickedDialog.OnButtonClickListener, ChannelPointsDialog.Listener {
