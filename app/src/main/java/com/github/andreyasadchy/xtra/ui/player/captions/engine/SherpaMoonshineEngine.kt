@@ -174,11 +174,9 @@ class SherpaMoonshineEngine(
         val modelConfig = OfflineModelConfig().apply {
             this.moonshine = moonshine
             tokens = "$base/tokens.txt"
-            numThreads = when {
-                Runtime.getRuntime().availableProcessors() >= 8 -> 3
-                Runtime.getRuntime().availableProcessors() >= 4 -> 2
-                else -> 1
-            }
+            // The tiny model decodes far faster than real time on one thread; extra ORT
+            // workers only added wake-ups and roughly doubled the CPU spent on captions.
+            numThreads = 1
             debug = BuildConfig.DEBUG
             provider = "cpu"
             modelType = "moonshine"
