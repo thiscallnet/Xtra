@@ -90,6 +90,9 @@ import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.SystemSpeechAvailability
+import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionUsesSystemEngine
+import com.google.mlkit.genai.common.FeatureStatus
 import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelState
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.tv.applyTvChatPresentation
@@ -561,6 +564,19 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (preferences.getBoolean(C.PLAYER_LIVE_CAPTIONS, false)) {
             preferences.edit { putBoolean(C.PLAYER_LIVE_CAPTIONS, false) }
             xtraModule.liveCaptionManager.setEnabled(false)
+            return
+        }
+
+        if (preferences.liveCaptionUsesSystemEngine()) {
+            // A restored or imported setting can name an engine this phone does not have.
+            if (liveCaptionModelVerificationJob?.isActive == true) return
+            liveCaptionModelVerificationJob = viewLifecycleOwner.lifecycleScope.launch {
+                if (SystemSpeechAvailability.status() == FeatureStatus.AVAILABLE) {
+                    enableLiveCaptions()
+                } else {
+                    openLiveCaptionSettings()
+                }
+            }
             return
         }
 

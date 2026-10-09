@@ -733,6 +733,16 @@
         <item>monospace</item>
     </string-array>
 
+    <string-array name="liveCaptionEngineEntries" translatable="false">
+        <item>Moonshine · downloaded model</item>
+        <item>System recognizer · supported phones</item>
+    </string-array>
+
+    <string-array name="liveCaptionEngineValues" translatable="false">
+        <item>moonshine</item>
+        <item>system</item>
+    </string-array>
+
     <string-array name="liveCaptionIntervalEntries" translatable="false">
         <item>Battery saver · lowest CPU · about 2.0 seconds</item>
         <item>Balanced · low CPU · about 1.0 second</item>

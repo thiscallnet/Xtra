@@ -1339,7 +1339,12 @@ Metadata text</string>
     <string name="live_caption_processing_interval_value">Moonshine partials every %1$.1f seconds</string>
     <string name="live_caption_settings" translatable="false">Live captions (experimental)</string>
     <string name="settings_live_caption_category" translatable="false">Caption settings</string>
-    <string name="live_caption_settings_summary" translatable="false">On-device English captions powered by Moonshine v2 Tiny. Faster updates use more CPU and battery; actual use varies by device.</string>
+    <string name="live_caption_settings_summary" translatable="false">On-device English captions from Moonshine v2 Tiny, or from the phone\'s own speech recognizer where supported. Faster Moonshine updates use more CPU and battery; actual use varies by device.</string>
+    <string name="live_caption_engine" translatable="false">Caption engine</string>
+    <string name="live_caption_engine_system_checking" translatable="false">Checking the system recognizer...</string>
+    <string name="live_caption_engine_system_unavailable" translatable="false">System recognizer is not available on this device.</string>
+    <string name="live_caption_engine_system_downloading" translatable="false">Downloading the system speech model...</string>
+    <string name="live_caption_engine_system_download_failed" translatable="false">System speech model download failed.</string>
     <string name="live_caption_model" translatable="false">Moonshine v2 Tiny model</string>
     <string name="live_caption_model_summary" translatable="false">Downloaded separately for live captions</string>
     <string name="live_caption_model_checking" translatable="false">Checking downloaded model...</string>
