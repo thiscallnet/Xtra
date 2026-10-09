@@ -919,6 +919,20 @@ class SettingsFragment : MaterialPreferenceFragment() {
                 true
             }
         }
+        findPreference<Preference>("clear_stream_start_history")?.setOnPreferenceClickListener {
+            requireActivity().getAlertDialogBuilder()
+                .setMessage(getString(R.string.clear_stream_start_history_message))
+                .setPositiveButton(getString(R.string.yes)) { _, _ ->
+                    val repository = (requireContext().applicationContext as XtraApp).xtraModule.channelStreamStartsRepository
+                    viewLifecycleOwner.lifecycleScope.launch {
+                        repository.clear()
+                        Toast.makeText(requireContext(), R.string.stream_start_history_cleared, Toast.LENGTH_SHORT).show()
+                    }
+                }
+                .setNegativeButton(getString(R.string.no), null)
+                .show()
+            true
+        }
         findPreference<Preference>("reset_settings")?.setOnPreferenceClickListener {
             requireActivity().getAlertDialogBuilder()
                 .setTitle(R.string.settings_reset_action)

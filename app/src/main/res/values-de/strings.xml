@@ -1488,4 +1488,21 @@
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">%1$s hinter live</string>
     <string name="chat_edge_padding">Chat-Randabstand</string>
+    <string name="following_recently_offline">Kürzlich offline</string>
+    <string name="following_no_recently_offline">Gefolgte Kanäle, deren Stream kürzlich endete, erscheinen hier.</string>
+    <string name="following_expected_soon">Bald erwartet</string>
+    <string name="following_no_expected_soon">Kanäle, die um diese Zeit üblicherweise live gehen, erscheinen hier.</string>
+    <string name="following_expected_start">Meist gegen %1$s</string>
+    <string name="following_ended_ago">Beendet %1$s</string>
+    <string name="recently_offline_window_6h">6 Stunden</string>
+    <string name="recently_offline_window_12h">12 Stunden</string>
+    <string name="recently_offline_window_24h">24 Stunden</string>
+    <string name="recently_offline_window_48h">48 Stunden</string>
+    <string name="recently_offline_window_7d">7 Tage</string>
+    <string name="clear_stream_start_history">Stream-Startverlauf löschen</string>
+    <string name="clear_stream_start_history_summary">Gespeicherte Stream-Startzeiten für „Bald erwartet“ vergessen</string>
+    <string name="clear_stream_start_history_message">Gespeicherte Stream-Startzeiten löschen? „Bald erwartet“ baut sich aus aktuellen Streams neu auf, solange es aktiviert ist.</string>
+    <string name="stream_start_history_cleared">Stream-Startverlauf gelöscht</string>
+    <string name="following_recently_offline_window">Zeitraum für „Kürzlich offline“</string>
+    <string name="following_recently_offline_window_summary">Wie lange ein Kanal nach Ende seines Streams unter „Kürzlich offline“ bleibt</string>
 </resources>

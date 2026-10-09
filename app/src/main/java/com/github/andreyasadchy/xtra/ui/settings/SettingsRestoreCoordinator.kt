@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.settings
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.github.andreyasadchy.xtra.repository.StreamStartsBackup
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
 import com.github.andreyasadchy.xtra.util.proxyPrefs
@@ -19,6 +20,7 @@ internal object SettingsRestoreCoordinator {
     private const val SETTINGS_FILE = SettingsBackup.SETTINGS_ENTRY
     private const val DATABASE_FILE = SettingsBackup.DATABASE_ENTRY
     private const val PROXY_FILE = SettingsBackup.PROXY_ENTRY
+    private const val STREAM_STARTS_FILE = SettingsBackup.STREAM_STARTS_ENTRY
     private const val PROXY_BEFORE_FILE = "proxy-before.json"
     private const val SETTINGS_APPLIED_FILE = "settings-applied"
 
@@ -29,6 +31,7 @@ internal object SettingsRestoreCoordinator {
         val settingsSelected: Boolean,
         val databaseSelected: Boolean,
         val proxySelected: Boolean,
+        val streamStartsSelected: Boolean,
         val ignoredLooseFiles: Boolean,
         val sourceSettingsSchemaVersion: Int,
         val settingsApplied: Boolean,
@@ -41,6 +44,7 @@ internal object SettingsRestoreCoordinator {
         database: File?,
         proxy: File?,
         ignoredLooseFiles: Boolean = false,
+        streamStarts: File? = null,
     ) {
         require(settings != null || database != null) { "No settings or database were selected" }
         require(settingsSchemaVersion in 0..C.SETTINGS_SCHEMA_VERSION) { "Backup settings version is unsupported" }
@@ -50,6 +54,7 @@ internal object SettingsRestoreCoordinator {
         try {
             settings?.let { SettingsBackup.writeTypedPreferences(File(directory, SETTINGS_FILE), it, settingsSchemaVersion) }
             database?.copyTo(File(directory, DATABASE_FILE))
+            streamStarts?.copyTo(File(directory, STREAM_STARTS_FILE))
             proxy?.let {
                 it.copyTo(File(directory, PROXY_FILE))
                 SettingsBackup.writeTypedPreferences(
@@ -64,6 +69,7 @@ internal object SettingsRestoreCoordinator {
                 put("settings", settings != null)
                 put("database", database != null)
                 put("proxy", proxy != null)
+                put("streamStarts", streamStarts != null)
                 put("ignoredLooseFiles", ignoredLooseFiles)
                 put("sourceSettingsSchemaVersion", settingsSchemaVersion)
             }
@@ -215,6 +221,15 @@ internal object SettingsRestoreCoordinator {
             context,
             Result(true, if (pending.ignoredLooseFiles) "archive_authoritative" else null),
         )
+        // Start history is best effort: a failed hand-off must not undo a committed restore.
+        if (pending.streamStartsSelected) {
+            runCatching {
+                File(pending.directory, STREAM_STARTS_FILE).copyTo(
+                    File(context.noBackupFilesDir, StreamStartsBackup.PENDING_IMPORT_FILE),
+                    overwrite = true,
+                )
+            }
+        }
         // Cleanup is best-effort after the durable success result; it must not turn a committed restore into a reported failure.
         runCatching { DatabaseRestoreRecovery.complete(context) }
         runCatching { pending.directory.deleteRecursively() }
@@ -259,6 +274,7 @@ internal object SettingsRestoreCoordinator {
             settingsSelected = manifest.getBoolean("settings"),
             databaseSelected = manifest.getBoolean("database"),
             proxySelected = manifest.getBoolean("proxy"),
+            streamStartsSelected = manifest.optBoolean("streamStarts", false),
             ignoredLooseFiles = manifest.optBoolean("ignoredLooseFiles", false),
             sourceSettingsSchemaVersion = sourceSettingsSchemaVersion,
             settingsApplied = File(directory, SETTINGS_APPLIED_FILE).isFile,

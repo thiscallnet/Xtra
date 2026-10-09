@@ -1488,4 +1488,21 @@
     <string name="system_media_video">Vídeo</string>
     <string name="system_media_behind_live">%1$s atrás do ao vivo</string>
     <string name="chat_edge_padding">Margem do chat</string>
+    <string name="following_recently_offline">Offline recentemente</string>
+    <string name="following_no_recently_offline">Os canais que você segue e encerraram uma transmissão recentemente aparecerão aqui.</string>
+    <string name="following_expected_soon">Esperados em breve</string>
+    <string name="following_no_expected_soon">Os canais que costumam entrar ao vivo neste horário aparecerão aqui.</string>
+    <string name="following_expected_start">Geralmente por volta de %1$s</string>
+    <string name="following_ended_ago">Encerrou %1$s</string>
+    <string name="recently_offline_window_6h">6 horas</string>
+    <string name="recently_offline_window_12h">12 horas</string>
+    <string name="recently_offline_window_24h">24 horas</string>
+    <string name="recently_offline_window_48h">48 horas</string>
+    <string name="recently_offline_window_7d">7 dias</string>
+    <string name="clear_stream_start_history">Limpar histórico de início de transmissões</string>
+    <string name="clear_stream_start_history_summary">Esquecer os horários de início salvos usados em “Esperados em breve”</string>
+    <string name="clear_stream_start_history_message">Excluir os horários de início de transmissão salvos? “Esperados em breve” é reconstruído a partir das transmissões recentes enquanto estiver ativado.</string>
+    <string name="stream_start_history_cleared">Histórico de início de transmissões limpo</string>
+    <string name="following_recently_offline_window">Período de “Offline recentemente”</string>
+    <string name="following_recently_offline_window_summary">Por quanto tempo um canal permanece em “Offline recentemente” depois que a transmissão termina</string>
 </resources>

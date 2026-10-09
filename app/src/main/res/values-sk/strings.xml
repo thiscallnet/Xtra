@@ -1511,4 +1511,21 @@
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">%1$s za živým vysielaním</string>
     <string name="chat_edge_padding">Okraje chatu</string>
+    <string name="following_recently_offline">Nedávno offline</string>
+    <string name="following_no_recently_offline">Tu sa zobrazia sledované kanály, ktoré nedávno ukončili stream.</string>
+    <string name="following_expected_soon">Čoskoro očakávané</string>
+    <string name="following_no_expected_soon">Tu sa zobrazia kanály, ktoré sa zvyčajne v tomto čase spúšťajú naživo.</string>
+    <string name="following_expected_start">Zvyčajne okolo %1$s</string>
+    <string name="following_ended_ago">Skončilo %1$s</string>
+    <string name="recently_offline_window_6h">6 hodín</string>
+    <string name="recently_offline_window_12h">12 hodín</string>
+    <string name="recently_offline_window_24h">24 hodín</string>
+    <string name="recently_offline_window_48h">48 hodín</string>
+    <string name="recently_offline_window_7d">7 dní</string>
+    <string name="clear_stream_start_history">Vymazať históriu začiatkov streamov</string>
+    <string name="clear_stream_start_history_summary">Zabudnúť uložené časy začiatkov streamov používané v sekcii Čoskoro očakávané</string>
+    <string name="clear_stream_start_history_message">Odstrániť uložené časy začiatkov streamov? Sekcia Čoskoro očakávané sa znova vytvorí z nedávnych streamov, kým je zapnutá.</string>
+    <string name="stream_start_history_cleared">História začiatkov streamov vymazaná</string>
+    <string name="following_recently_offline_window">Okno sekcie Nedávno offline</string>
+    <string name="following_recently_offline_window_summary">Ako dlho kanál zostane v sekcii Nedávno offline po skončení streamu</string>
 </resources>

@@ -1511,4 +1511,21 @@
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">%1$s za živým vysíláním</string>
     <string name="chat_edge_padding">Okraje chatu</string>
+    <string name="following_recently_offline">Nedávno offline</string>
+    <string name="following_no_recently_offline">Zde se zobrazí sledované kanály, které nedávno ukončily stream.</string>
+    <string name="following_expected_soon">Brzy očekáváno</string>
+    <string name="following_no_expected_soon">Zde se zobrazí kanály, které obvykle v tuto dobu začínají vysílat.</string>
+    <string name="following_expected_start">Obvykle kolem %1$s</string>
+    <string name="following_ended_ago">Skončilo %1$s</string>
+    <string name="recently_offline_window_6h">6 hodin</string>
+    <string name="recently_offline_window_12h">12 hodin</string>
+    <string name="recently_offline_window_24h">24 hodin</string>
+    <string name="recently_offline_window_48h">48 hodin</string>
+    <string name="recently_offline_window_7d">7 dní</string>
+    <string name="clear_stream_start_history">Vymazat historii začátků streamů</string>
+    <string name="clear_stream_start_history_summary">Zapomenout uložené časy začátků streamů používané v sekci Brzy očekáváno</string>
+    <string name="clear_stream_start_history_message">Smazat uložené časy začátků streamů? Sekce Brzy očekáváno se znovu vytvoří z nedávných streamů, dokud je zapnutá.</string>
+    <string name="stream_start_history_cleared">Historie začátků streamů vymazána</string>
+    <string name="following_recently_offline_window">Okno sekce Nedávno offline</string>
+    <string name="following_recently_offline_window_summary">Jak dlouho kanál zůstane v sekci Nedávno offline po skončení streamu</string>
 </resources>

@@ -15,6 +15,8 @@ import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.AP
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import com.github.andreyasadchy.xtra.repository.ChannelStreamStartsRepository
+import com.github.andreyasadchy.xtra.repository.StreamStartsBackup
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.db.AppDatabase
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
@@ -58,6 +60,7 @@ class SettingsViewModel(
     private val notificationsRepository: NotificationsRepository,
     private val appDatabase: AppDatabase,
     private val viewingStatsRecorder: ViewingStatsRecorder,
+    private val channelStreamStartsRepository: ChannelStreamStartsRepository,
 ) : ViewModel() {
 
     val liveNotificationResult = MutableSharedFlow<LiveNotificationResult>()
@@ -294,6 +297,11 @@ class SettingsViewModel(
                 val stagedDatabase = File(staging, SettingsBackup.DATABASE_ENTRY)
                 viewingStatsRecorder.flush(requirePersisted = true)
                 val databaseVersion = DatabaseBackupSnapshot.capture(appDatabase, database, stagedDatabase)
+                // Written only when history exists, so backups without it keep the earlier archive layout.
+                val stagedStreamStarts = File(staging, SettingsBackup.STREAM_STARTS_ENTRY)
+                channelStreamStartsRepository.allStarts().takeIf { it.isNotEmpty() }?.let {
+                    StreamStartsBackup.write(stagedStreamStarts, it)
+                }
 
                 val treeUri = url.toUri()
                 val directoryUri = DocumentsContract.buildDocumentUriUsingTree(
@@ -315,6 +323,7 @@ class SettingsViewModel(
                         database = stagedDatabase,
                         databaseSchemaVersion = databaseVersion,
                         proxy = stagedProxy.takeIf(File::exists),
+                        streamStarts = stagedStreamStarts.takeIf(File::exists),
                         appVersionCode = com.github.andreyasadchy.xtra.BuildConfig.VERSION_CODE,
                     )
                 }
@@ -345,6 +354,7 @@ class SettingsViewModel(
                 }
                 contents.database?.let { validateDatabaseBackup(it, contents.databaseSchemaVersion) }
                 contents.proxy?.let(SettingsBackup::validateProxyConfiguration)
+                contents.streamStarts?.let { StreamStartsBackup.read(it) }
 
                 val importedPreferences = when {
                     contents.settings != null -> SettingsBackup.readTypedPreferences(contents.settings)
@@ -366,6 +376,7 @@ class SettingsViewModel(
                     database = contents.database,
                     proxy = proxy,
                     ignoredLooseFiles = contents.ignoredLooseFiles,
+                    streamStarts = contents.streamStarts,
                 )
                 settingsOperationResult.emit(SettingsOperationResult.RestoreStaged)
                 staging.deleteRecursively()
@@ -686,7 +697,7 @@ class SettingsViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                SettingsViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.recentSearchesRepository, xtraModule.notificationsRepository, xtraModule.database, xtraModule.viewingStatsRecorder)
+                SettingsViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.recentSearchesRepository, xtraModule.notificationsRepository, xtraModule.database, xtraModule.viewingStatsRecorder, xtraModule.channelStreamStartsRepository)
             }
         }
     }

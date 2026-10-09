@@ -1488,4 +1488,21 @@
     <string name="system_media_video">動画</string>
     <string name="system_media_behind_live">ライブから%1$s遅れ</string>
     <string name="chat_edge_padding">チャットの余白</string>
+    <string name="following_recently_offline">最近オフラインになった配信</string>
+    <string name="following_no_recently_offline">最近配信を終了したフォロー中のチャンネルがここに表示されます。</string>
+    <string name="following_expected_soon">まもなく配信予定</string>
+    <string name="following_no_expected_soon">この時間帯にいつも配信を開始するチャンネルがここに表示されます。</string>
+    <string name="following_expected_start">通常 %1$s ごろ</string>
+    <string name="following_ended_ago">%1$sに終了</string>
+    <string name="recently_offline_window_6h">6 時間</string>
+    <string name="recently_offline_window_12h">12 時間</string>
+    <string name="recently_offline_window_24h">24 時間</string>
+    <string name="recently_offline_window_48h">48 時間</string>
+    <string name="recently_offline_window_7d">7 日間</string>
+    <string name="clear_stream_start_history">配信開始履歴を消去</string>
+    <string name="clear_stream_start_history_summary">「まもなく配信予定」に使用する保存済みの配信開始時刻を削除します</string>
+    <string name="clear_stream_start_history_message">保存済みの配信開始時刻を削除しますか？有効な間は、最近の配信から「まもなく配信予定」が再構築されます。</string>
+    <string name="stream_start_history_cleared">配信開始履歴を消去しました</string>
+    <string name="following_recently_offline_window">「最近オフラインになった配信」の期間</string>
+    <string name="following_recently_offline_window_summary">配信終了後、チャンネルが「最近オフラインになった配信」に残る期間</string>
 </resources>

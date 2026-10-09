@@ -64,7 +64,8 @@ class VideoShelfAdapter(
     private val layoutChangeListener = View.OnLayoutChangeListener { view, left, _, right, _, oldLeft, _, oldRight, _ ->
         if (right - left != oldRight - oldLeft) {
             val shelf = view as RecyclerView
-            repeat(shelf.childCount) { index -> ShelfCardSizing.apply(shelf.getChildAt(index), shelf) }
+            // Resizing inside the layout pass leaves stale layout flags on the cards, so the shelf would not re-measure them.
+            shelf.post { repeat(shelf.childCount) { index -> ShelfCardSizing.apply(shelf.getChildAt(index), shelf) } }
         }
     }
 
@@ -124,12 +125,11 @@ class VideoShelfAdapter(
         fun bind(item: VideoHistory) {
             val context = binding.root.context
             boundItem = item
+            // request() returns the entry when a prewarm finished between the lookup and the call; no callback fires then.
             val presentation = VideoHistoryCardPresentationCache.get(item)
-            if (presentation == null) {
-                VideoHistoryCardPresentationCache.request(item) {
+                ?: VideoHistoryCardPresentationCache.request(item) {
                     if (boundItem === item && binding.root.isAttachedToWindow) applyPresentation(it)
                 }
-            }
             val nextPreviewIdentity = "vod:${item.id}"
             if (boundPreviewIdentity != nextPreviewIdentity) {
                 streamPreviewCoordinator.detachSurface(previewSurface)

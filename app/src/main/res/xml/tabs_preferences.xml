@@ -4,6 +4,8 @@
     <PreferenceCategory android:title="@string/settings_ui_content" app:iconSpaceReserved="false" />
     <Preference android:key="ui_following_tabs_dialog" android:title="@string/following_tabs" app:iconSpaceReserved="false" />
     <Preference android:key="ui_following_overview_sections_dialog" android:title="@string/following_overview_sections" android:summary="@string/following_overview_sections_summary" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="24" android:entries="@array/recentlyOfflineWindowEntries" android:entryValues="@array/recentlyOfflineWindowValues" android:key="ui_recently_offline_window_hours" android:summary="%s" android:title="@string/following_recently_offline_window" app:iconSpaceReserved="false" />
+    <Preference android:key="clear_stream_start_history" android:title="@string/clear_stream_start_history" android:summary="@string/clear_stream_start_history_summary" app:iconSpaceReserved="false" />
     <Preference android:key="ui_saved_tabs_dialog" android:title="@string/saved_tabs" app:iconSpaceReserved="false" />
     <Preference android:key="ui_channel_tabs_dialog" android:title="@string/channel_tabs" app:iconSpaceReserved="false" />
     <Preference android:key="ui_game_tabs_dialog" android:title="@string/game_tabs" app:iconSpaceReserved="false" />

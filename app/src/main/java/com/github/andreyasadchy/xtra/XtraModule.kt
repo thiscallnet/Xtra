@@ -10,6 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.room.Room
 import androidx.room.migration.Migration
 import com.github.andreyasadchy.xtra.db.AppDatabase
+import com.github.andreyasadchy.xtra.db.ChannelStreamStartsDatabase
 import com.github.andreyasadchy.xtra.db.MetadataCacheMigrations
 import com.github.andreyasadchy.xtra.db.StreamFeedMigrations
 import com.github.andreyasadchy.xtra.db.GameFeedMigrations
@@ -19,6 +20,7 @@ import com.github.andreyasadchy.xtra.db.ViewingStatsMigrations
 import com.github.andreyasadchy.xtra.repository.AuthRepository
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
 import com.github.andreyasadchy.xtra.repository.ChannelSortRepository
+import com.github.andreyasadchy.xtra.repository.ChannelStreamStartsRepository
 import com.github.andreyasadchy.xtra.repository.GameSortRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.DropsRepository
@@ -28,6 +30,7 @@ import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
 import com.github.andreyasadchy.xtra.repository.LocalGameFollowsRepository
 import com.github.andreyasadchy.xtra.repository.MetadataCache
 import com.github.andreyasadchy.xtra.repository.NotificationsRepository
+import com.github.andreyasadchy.xtra.repository.StreamStartsBackup
 import com.github.andreyasadchy.xtra.repository.TwitchNotificationsRepository
 import com.github.andreyasadchy.xtra.repository.TwitchPrivateGqlClient
 import com.github.andreyasadchy.xtra.repository.WatchStreakReminderRepository
@@ -52,6 +55,7 @@ import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedCache
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedPager
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCoordinator
+import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSections
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelManager
@@ -96,6 +100,7 @@ import com.github.andreyasadchy.xtra.util.updater.ReleaseClient
 import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
 import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
 import com.github.andreyasadchy.xtra.ui.settings.SettingsRestoreCoordinator
+import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -124,7 +129,18 @@ class XtraModule(application: Application) {
     }
 
     val streamFeedRefreshCoordinator by lazy {
-        StreamFeedRefreshCoordinator(streamFeedCache)
+        StreamFeedRefreshCoordinator(
+            cache = streamFeedCache,
+            onFollowedStreamsRefreshed = { streams ->
+                // Start history is only collected while the Expected Soon shelf is enabled.
+                val shelves = FollowingOverviewSections.visibleKeys(
+                    application.prefs().getString(C.UI_FOLLOWING_OVERVIEW_SECTIONS, null),
+                )
+                if (FollowingOverviewSections.EXPECTED_SOON in shelves) {
+                    channelStreamStartsRepository.recordLiveStreams(streams)
+                }
+            },
+        )
     }
 
     val streamFeedPager by lazy {
@@ -686,6 +702,17 @@ class XtraModule(application: Application) {
 
     val savedFiltersRepository by lazy {
         SavedFiltersRepository(database.savedFilters())
+    }
+
+    val channelStreamStartsRepository by lazy {
+        ChannelStreamStartsRepository(
+            database = channelStreamStartsDatabase,
+            pendingImportFile = File(application.noBackupFilesDir, StreamStartsBackup.PENDING_IMPORT_FILE),
+        )
+    }
+
+    private val channelStreamStartsDatabase by lazy {
+        Room.databaseBuilder(application, ChannelStreamStartsDatabase::class.java, "channel_stream_starts.db").build()
     }
 
     val viewingStatsRepository by lazy {

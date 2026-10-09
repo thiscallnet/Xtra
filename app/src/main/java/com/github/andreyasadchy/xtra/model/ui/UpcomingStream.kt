@@ -12,4 +12,6 @@ data class UpcomingStream(
     val startTimeMillis: Long,
     val endTimeMillis: Long?,
     val isRecurring: Boolean,
+    /** Estimated from past start times rather than a Twitch schedule. */
+    val isPredicted: Boolean = false,
 )

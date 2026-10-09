@@ -20,11 +20,13 @@ internal object SettingsBackup {
     const val SETTINGS_ENTRY = "settings.json"
     const val DATABASE_ENTRY = "database.sqlite3"
     const val PROXY_ENTRY = "proxy.json"
+    const val STREAM_STARTS_ENTRY = "stream-starts.json"
     private const val MANIFEST_ENTRY = "manifest.json"
     private const val FORMAT = "xtra-settings-backup"
     private const val VERSION = 2
     private const val MAX_MANIFEST_BYTES = 64L * 1024L
     private const val MAX_PROXY_BYTES = 64L * 1024L
+    private const val MAX_STREAM_STARTS_BYTES = 32L * 1024L * 1024L
     const val MAX_SETTINGS_BYTES = 16L * 1024L * 1024L
     private const val MAX_ENTRY_BYTES = 1024L * 1024L * 1024L
     private const val MAX_ARCHIVE_BYTES = MAX_ENTRY_BYTES * 2
@@ -48,6 +50,7 @@ internal object SettingsBackup {
         val settings: File?,
         val database: File?,
         val proxy: File? = null,
+        val streamStarts: File? = null,
         val formatVersion: Int = 1,
         val settingsSchemaVersion: Int? = null,
         val databaseSchemaVersion: Int? = null,
@@ -61,6 +64,7 @@ internal object SettingsBackup {
         database: File,
         databaseSchemaVersion: Int,
         proxy: File? = null,
+        streamStarts: File? = null,
         appVersionCode: Int = 0,
     ) {
         val settings = encodeSettings(preferences, settingsSchemaVersion)
@@ -68,10 +72,12 @@ internal object SettingsBackup {
             add(SETTINGS_ENTRY to settings)
             add(DATABASE_ENTRY to database)
             proxy?.let { add(PROXY_ENTRY to it) }
+            streamStarts?.let { add(STREAM_STARTS_ENTRY to it) }
         }
         files.forEach { (name, file) ->
             val maxBytes = when (name) {
                 PROXY_ENTRY -> MAX_PROXY_BYTES
+                STREAM_STARTS_ENTRY -> MAX_STREAM_STARTS_BYTES
                 SETTINGS_ENTRY -> MAX_SETTINGS_BYTES
                 else -> MAX_ENTRY_BYTES
             }
@@ -163,6 +169,7 @@ internal object SettingsBackup {
                     SETTINGS_ENTRY -> File(stagingRoot, SETTINGS_ENTRY)
                     DATABASE_ENTRY -> File(stagingRoot, DATABASE_ENTRY)
                     PROXY_ENTRY -> File(stagingRoot, PROXY_ENTRY)
+                    STREAM_STARTS_ENTRY -> File(stagingRoot, STREAM_STARTS_ENTRY)
                     else -> throw IllegalArgumentException("Unexpected backup entry ${entry.name}")
                 }.canonicalFile
                 val entryName = output.name
@@ -172,6 +179,7 @@ internal object SettingsBackup {
                     val entryLimit = when (entryName) {
                         MANIFEST_ENTRY -> MAX_MANIFEST_BYTES
                         PROXY_ENTRY -> MAX_PROXY_BYTES
+                        STREAM_STARTS_ENTRY -> MAX_STREAM_STARTS_BYTES
                         PREFERENCES_ENTRY, SETTINGS_ENTRY -> MAX_SETTINGS_BYTES
                         else -> MAX_ENTRY_BYTES
                     }
@@ -190,20 +198,24 @@ internal object SettingsBackup {
         val version = manifest.optInt("version")
         require(version in 1..VERSION) { "Unsupported backup version" }
         val expectedFiles = manifest.getJSONArray("files")
-        require(expectedFiles.length() in 2..3) { "Backup manifest has an unsupported file count" }
+        require(expectedFiles.length() in 2..4) { "Backup manifest has an unsupported file count" }
         val settingsEntry = if (version == 1) PREFERENCES_ENTRY else SETTINGS_ENTRY
         val expectedNames = buildSet {
             for (index in 0 until expectedFiles.length()) add(expectedFiles.getJSONObject(index).getString("name"))
         }
+        val requiredNames = setOf(settingsEntry, DATABASE_ENTRY)
+        val optionalNames = if (version == 1) setOf(PROXY_ENTRY) else setOf(PROXY_ENTRY, STREAM_STARTS_ENTRY)
         require(
-            expectedNames == setOf(settingsEntry, DATABASE_ENTRY) ||
-                expectedNames == setOf(settingsEntry, DATABASE_ENTRY, PROXY_ENTRY),
+            expectedNames.containsAll(requiredNames) && (expectedNames - requiredNames).all { it in optionalNames },
         ) { "Backup manifest is incomplete" }
         require(extracted.keys - MANIFEST_ENTRY == expectedNames) { "Backup entries do not match the manifest" }
         for (index in 0 until expectedFiles.length()) {
             val expected = expectedFiles.getJSONObject(index)
             val name = expected.getString("name")
-            require(name == PREFERENCES_ENTRY || name == SETTINGS_ENTRY || name == DATABASE_ENTRY || name == PROXY_ENTRY) {
+            require(
+                name == PREFERENCES_ENTRY || name == SETTINGS_ENTRY || name == DATABASE_ENTRY ||
+                    name == PROXY_ENTRY || name == STREAM_STARTS_ENTRY,
+            ) {
                 "Unexpected backup entry $name"
             }
             val file = requireNotNull(extracted[name]) { "Backup entry $name is missing" }
@@ -232,6 +244,7 @@ internal object SettingsBackup {
                 settings = settingsFile,
                 database = extracted[DATABASE_ENTRY],
                 proxy = extracted[PROXY_ENTRY],
+                streamStarts = extracted[STREAM_STARTS_ENTRY],
                 formatVersion = version,
                 settingsSchemaVersion = manifest.getInt("settingsSchemaVersion"),
                 databaseSchemaVersion = databaseSchemaVersion,

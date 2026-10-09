@@ -1488,4 +1488,21 @@
     <string name="system_media_video">Vidéo</string>
     <string name="system_media_behind_live">%1$s de retard sur le direct</string>
     <string name="chat_edge_padding">Marge du chat</string>
+    <string name="following_recently_offline">Récemment hors ligne</string>
+    <string name="following_no_recently_offline">Les chaînes que vous suivez et dont le stream s’est récemment terminé apparaîtront ici.</string>
+    <string name="following_expected_soon">Bientôt attendues</string>
+    <string name="following_no_expected_soon">Les chaînes qui lancent généralement un stream à cette heure apparaîtront ici.</string>
+    <string name="following_expected_start">Habituellement vers %1$s</string>
+    <string name="following_ended_ago">Terminé %1$s</string>
+    <string name="recently_offline_window_6h">6 heures</string>
+    <string name="recently_offline_window_12h">12 heures</string>
+    <string name="recently_offline_window_24h">24 heures</string>
+    <string name="recently_offline_window_48h">48 heures</string>
+    <string name="recently_offline_window_7d">7 jours</string>
+    <string name="clear_stream_start_history">Effacer l’historique des débuts de stream</string>
+    <string name="clear_stream_start_history_summary">Oublier les heures de début enregistrées utilisées pour « Bientôt attendues »</string>
+    <string name="clear_stream_start_history_message">Supprimer les heures de début de stream enregistrées ? « Bientôt attendues » se reconstruit à partir des streams récents tant qu’il est activé.</string>
+    <string name="stream_start_history_cleared">Historique des débuts de stream effacé</string>
+    <string name="following_recently_offline_window">Période « Récemment hors ligne »</string>
+    <string name="following_recently_offline_window_summary">Durée pendant laquelle une chaîne reste dans « Récemment hors ligne » après la fin de son stream</string>
 </resources>

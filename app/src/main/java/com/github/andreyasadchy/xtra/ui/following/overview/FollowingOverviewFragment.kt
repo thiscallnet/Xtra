@@ -1,7 +1,9 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
+import android.content.Context
 import android.os.Bundle
 import android.content.res.Configuration
+import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -16,6 +18,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
+import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.databinding.FragmentFollowingOverviewBinding
@@ -36,6 +40,7 @@ import com.github.andreyasadchy.xtra.ui.overview.OverviewFragment
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewViewModel.Companion.FollowingOverviewViewModelFactory
+import kotlin.time.Instant
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -265,6 +270,20 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                             showSeeAll = false,
                             loadingType = FollowingOverviewLoadingType.UPCOMING,
                         ),
+                        FollowingOverviewSections.RECENTLY_OFFLINE to FollowingOverviewSection(
+                            key = FollowingOverviewSections.RECENTLY_OFFLINE,
+                            titleRes = R.string.following_recently_offline,
+                            emptyRes = R.string.following_no_recently_offline,
+                            showSeeAll = false,
+                            loadingType = FollowingOverviewLoadingType.VIDEO,
+                        ),
+                        FollowingOverviewSections.EXPECTED_SOON to FollowingOverviewSection(
+                            key = FollowingOverviewSections.EXPECTED_SOON,
+                            titleRes = R.string.following_expected_soon,
+                            emptyRes = R.string.following_no_expected_soon,
+                            showSeeAll = false,
+                            loadingType = FollowingOverviewLoadingType.UPCOMING,
+                        ),
                     )
                     sectionKeys.mapNotNull(availableSections::get)
                 }
@@ -272,6 +291,14 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                     viewModel.recentVideosLoading,
                     viewModel.recentVideosResolved,
                 ) { isLoading, hasResolved -> LoadingState(isLoading, hasResolved) }
+                val channelVodsState = combine(
+                    viewModel.recentlyOfflineVideos,
+                    viewModel.expectedStreams,
+                    viewModel.channelVodsLoading,
+                    viewModel.channelVodsResolved,
+                ) { videos, expected, isLoading, hasResolved ->
+                    ChannelVodsState(videos, expected, isLoading, hasResolved)
+                }
                 val upcomingStreamsState = combine(
                     viewModel.upcomingStreams,
                     viewModel.upcomingStreamsLoading,
@@ -281,7 +308,8 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                     sections,
                     recentVideosState,
                     upcomingStreamsState,
-                ) { currentSections, recentVideos, upcoming ->
+                    channelVodsState,
+                ) { currentSections, recentVideos, upcoming, channelVods ->
                     currentSections.map { section ->
                         when (section.key) {
                             FollowingOverviewSections.CONTINUE -> section.copy(
@@ -292,6 +320,18 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
                                 scheduledStreams = upcoming.streams,
                                 isLoading = upcoming.isLoading && upcoming.streams.isEmpty() && !upcoming.hasResolved,
                                 hasResolved = upcoming.hasResolved,
+                            )
+                            FollowingOverviewSections.RECENTLY_OFFLINE -> section.copy(
+                                videos = channelVods.videos.mapNotNull { video ->
+                                    video.toRecentlyOfflineCard(requireContext(), System.currentTimeMillis())
+                                },
+                                isLoading = channelVods.isLoading && channelVods.videos.isEmpty() && !channelVods.hasResolved,
+                                hasResolved = channelVods.hasResolved,
+                            )
+                            FollowingOverviewSections.EXPECTED_SOON -> section.copy(
+                                scheduledStreams = channelVods.expected,
+                                isLoading = channelVods.isLoading && channelVods.expected.isEmpty() && !channelVods.hasResolved,
+                                hasResolved = channelVods.hasResolved,
                             )
                             else -> section
                         }
@@ -382,4 +422,40 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
         durationSeconds = durationSeconds,
     )
 
+}
+
+private data class ChannelVodsState(
+    val videos: List<Video>,
+    val expected: List<UpcomingStream>,
+    val isLoading: Boolean,
+    val hasResolved: Boolean,
+)
+
+private fun Video.toRecentlyOfflineCard(context: Context, nowMs: Long): VideoHistory? {
+    val videoId = id?.toLongOrNull() ?: return null
+    val startedAt = createdAt?.let(Instant::parseOrNull)?.toEpochMilliseconds() ?: return null
+    val endedAt = startedAt + (durationSeconds ?: 0) * 1000L
+    val endedAgo = DateUtils.getRelativeTimeSpanString(
+        endedAt,
+        nowMs,
+        DateUtils.MINUTE_IN_MILLIS,
+        DateUtils.FORMAT_ABBREV_RELATIVE,
+    ).toString()
+    return VideoHistory(
+        id = videoId,
+        position = 0,
+        durationSeconds = durationSeconds,
+        channelId = channelId,
+        channelLogin = channelLogin,
+        channelName = channelName,
+        channelImageURL = channelImageURL,
+        title = title,
+        thumbnailURL = thumbnailURL,
+        gameId = gameId,
+        gameSlug = gameSlug,
+        gameName = listOfNotNull(context.getString(R.string.following_ended_ago, endedAgo), gameName)
+            .joinToString(" \u00B7 "),
+        createdAt = createdAt,
+        updatedAt = 0,
+    )
 }

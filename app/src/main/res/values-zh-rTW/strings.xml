@@ -1488,4 +1488,21 @@
     <string name="system_media_video">影片</string>
     <string name="system_media_behind_live">落後直播%1$s</string>
     <string name="chat_edge_padding">聊天邊距</string>
+    <string name="following_recently_offline">最近離線</string>
+    <string name="following_no_recently_offline">你追蹤的頻道最近結束的直播會顯示在這裡。</string>
+    <string name="following_expected_soon">即將開播</string>
+    <string name="following_no_expected_soon">通常在這個時段開播的頻道會顯示在這裡。</string>
+    <string name="following_expected_start">通常在 %1$s 左右</string>
+    <string name="following_ended_ago">%1$s結束</string>
+    <string name="recently_offline_window_6h">6 小時</string>
+    <string name="recently_offline_window_12h">12 小時</string>
+    <string name="recently_offline_window_24h">24 小時</string>
+    <string name="recently_offline_window_48h">48 小時</string>
+    <string name="recently_offline_window_7d">7 天</string>
+    <string name="clear_stream_start_history">清除開播歷史</string>
+    <string name="clear_stream_start_history_summary">忘記「即將開播」使用的已儲存開播時間</string>
+    <string name="clear_stream_start_history_message">要刪除已儲存的開播時間嗎？啟用期間，「即將開播」會根據近期直播重新產生。</string>
+    <string name="stream_start_history_cleared">開播歷史已清除</string>
+    <string name="following_recently_offline_window">「最近離線」時間範圍</string>
+    <string name="following_recently_offline_window_summary">頻道結束直播後在「最近離線」中保留的時長</string>
 </resources>

@@ -1489,4 +1489,21 @@
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">Canlı yayından %1$s geride</string>
     <string name="chat_edge_padding">Sohbet kenar boşluğu</string>
+    <string name="following_recently_offline">Yakın Zamanda Çevrimdışı Olanlar</string>
+    <string name="following_no_recently_offline">Takip ettiğiniz ve yakın zamanda yayınını bitiren kanallar burada görünür.</string>
+    <string name="following_expected_soon">Yakında Bekleniyor</string>
+    <string name="following_no_expected_soon">Genellikle bu saatlerde yayına başlayan kanallar burada görünür.</string>
+    <string name="following_expected_start">Genellikle %1$s civarı</string>
+    <string name="following_ended_ago">Bitti: %1$s</string>
+    <string name="recently_offline_window_6h">6 saat</string>
+    <string name="recently_offline_window_12h">12 saat</string>
+    <string name="recently_offline_window_24h">24 saat</string>
+    <string name="recently_offline_window_48h">48 saat</string>
+    <string name="recently_offline_window_7d">7 gün</string>
+    <string name="clear_stream_start_history">Yayın başlangıç geçmişini temizle</string>
+    <string name="clear_stream_start_history_summary">Yakında Bekleniyor için kaydedilen yayın başlangıç saatlerini unut</string>
+    <string name="clear_stream_start_history_message">Kaydedilen yayın başlangıç saatleri silinsin mi? Yakında Bekleniyor etkin olduğu sürece son yayınlardan yeniden oluşturulur.</string>
+    <string name="stream_start_history_cleared">Yayın başlangıç geçmişi temizlendi</string>
+    <string name="following_recently_offline_window">Yakın Zamanda Çevrimdışı Olanlar süresi</string>
+    <string name="following_recently_offline_window_summary">Yayını bittikten sonra bir kanalın Yakın Zamanda Çevrimdışı Olanlar bölümünde ne kadar kalacağı</string>
 </resources>

@@ -10,6 +10,8 @@ object FollowingOverviewSections {
     const val RECOMMENDED = "recommended"
     const val CONTINUE = "continue"
     const val UPCOMING = "upcoming"
+    const val RECENTLY_OFFLINE = "recently_offline"
+    const val EXPECTED_SOON = "expected_soon"
 
     data class Definition(
         val key: String,
@@ -22,6 +24,8 @@ object FollowingOverviewSections {
         Definition(RECOMMENDED, R.string.following_recommended_channels, R.string.following_no_recommended_channels),
         Definition(CONTINUE, R.string.following_continue_watching, R.string.following_no_continue_watching),
         Definition(UPCOMING, R.string.following_upcoming_streams, R.string.following_no_upcoming_streams),
+        Definition(RECENTLY_OFFLINE, R.string.following_recently_offline, R.string.following_no_recently_offline),
+        Definition(EXPECTED_SOON, R.string.following_expected_soon, R.string.following_no_expected_soon),
     )
 
     fun followingTabKey(sectionKey: String): String? = when (sectionKey) {
