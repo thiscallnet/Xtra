@@ -247,6 +247,7 @@ class SmoothHlsTrackSelectionFactory(
         definition.tracks.any { definition.group.getFormat(it).height > 0 }
 }
 
+@OptIn(UnstableApi::class)
 private class SmoothHlsTrackSelection(
     private val adaptiveSelection: AdaptiveTrackSelection,
     private val qualityPolicy: SmoothHlsQualityPolicy,
