@@ -13,6 +13,7 @@ import com.github.andreyasadchy.xtra.ui.player.captions.engine.CaptionRecognitio
 import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngine
 import com.github.andreyasadchy.xtra.ui.player.captions.engine.LiveCaptionEngineFactory
 import com.github.andreyasadchy.xtra.ui.player.captions.engine.MOONSHINE_ENGINE_ID
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.SYSTEM_SPEECH_ENGINE_ID
 import com.github.andreyasadchy.xtra.util.C as PreferenceKeys
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -100,6 +101,7 @@ class LiveCaptionManager(
     private val captionTextOffsetMs = AtomicInteger(DEFAULT_CAPTION_TEXT_OFFSET_MS)
     private val captionSettingsGeneration = AtomicLong(0L)
     private val captionHoldMs = AtomicInteger(DEFAULT_CAPTION_HOLD_SECONDS * 1_000)
+    private val systemEngineSelected = AtomicBoolean(false)
     private val audioQueue = CaptionAudioQueue()
     private val stateMutable = MutableStateFlow(LiveCaptionState())
     private val metricsMutable = MutableStateFlow(
@@ -398,7 +400,11 @@ class LiveCaptionManager(
         }
 
         fun resetMetrics() {
-            metricsEngineId = MOONSHINE_ENGINE_ID
+            metricsEngineId = if (systemEngineSelected.get()) {
+                SYSTEM_SPEECH_ENGINE_ID
+            } else {
+                MOONSHINE_ENGINE_ID
+            }
             metricsStartedAtMs = SystemClock.elapsedRealtime()
             engineInitMs = 0L
             firstOutputAfterStartMs = null
@@ -500,7 +506,8 @@ class LiveCaptionManager(
                     is AudioEvent.Pcm -> {
                         if (!enabled.get() || event.generation != audioGeneration.get()) continue
 
-                        when (modelManager?.state?.value) {
+                        // The Moonshine download only gates Moonshine; the system recognizer has its own.
+                        when (modelManager?.state?.takeUnless { systemEngineSelected.get() }?.value) {
                             null -> Unit
                             MoonshineModelState.Ready -> {
                                 if (modelBlocked) {
@@ -541,11 +548,12 @@ class LiveCaptionManager(
                             engine = engineFactory(context)
                             engineGeneration = event.generation
                             engineInitMs = SystemClock.elapsedRealtime() - initStartedAt
+                            metricsEngineId = checkNotNull(engine).id
                             metricsMutable.value = metricsMutable.value.copy(
-                                engineId = MOONSHINE_ENGINE_ID,
+                                engineId = metricsEngineId,
                                 engineInitMs = engineInitMs,
                             )
-                            if (BuildConfig.DEBUG) Log.d(TAG, "engine_initialized id=$MOONSHINE_ENGINE_ID initMs=$engineInitMs abi=${android.os.Build.SUPPORTED_ABIS.joinToString()} cores=${Runtime.getRuntime().availableProcessors()}")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "engine_initialized id=$metricsEngineId initMs=$engineInitMs abi=${android.os.Build.SUPPORTED_ABIS.joinToString()} cores=${Runtime.getRuntime().availableProcessors()}")
                             publishListening()
                         }
 
@@ -722,6 +730,7 @@ class LiveCaptionManager(
                 ),
             ),
         )
+        systemEngineSelected.set(preferences.liveCaptionUsesSystemEngine())
         captionHoldMs.set(
             preferences.getInt(
                 PreferenceKeys.PLAYER_LIVE_CAPTION_HOLD_SECONDS,

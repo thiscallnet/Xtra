@@ -20,3 +20,10 @@ internal fun parseLiveCaptionPartialInterval(value: Any?): Int =
         is String -> value.toIntOrNull() ?: DEFAULT_PARTIAL_INTERVAL_MS
         else -> DEFAULT_PARTIAL_INTERVAL_MS
     }.coerceIn(MIN_PARTIAL_INTERVAL_MS, MAX_PARTIAL_INTERVAL_MS)
+
+internal const val LIVE_CAPTION_ENGINE_MOONSHINE = "moonshine"
+internal const val LIVE_CAPTION_ENGINE_SYSTEM = "system"
+
+/** Moonshine stays the default; only an explicit choice switches to the system recognizer. */
+internal fun SharedPreferences.liveCaptionUsesSystemEngine(): Boolean =
+    getString(C.PLAYER_LIVE_CAPTION_ENGINE, LIVE_CAPTION_ENGINE_MOONSHINE) == LIVE_CAPTION_ENGINE_SYSTEM

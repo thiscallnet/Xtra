@@ -29,7 +29,15 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.ui.player.captions.formatCaptionTextOffset
+import com.github.andreyasadchy.xtra.ui.player.captions.LIVE_CAPTION_ENGINE_MOONSHINE
+import com.github.andreyasadchy.xtra.ui.player.captions.LIVE_CAPTION_ENGINE_SYSTEM
 import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelState
+import com.github.andreyasadchy.xtra.ui.player.captions.engine.SystemSpeechAvailability
+import com.google.mlkit.genai.common.DownloadStatus
+import com.google.mlkit.genai.common.FeatureStatus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -38,6 +46,7 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
     private val viewModel: SettingsViewModel by activityViewModels { SettingsViewModelFactory }
     private val moonshineModelManager
         get() = (requireContext().applicationContext as XtraApp).xtraModule.moonshineModelManager
+    private var engineJob: Job? = null
     private var moonshineModelDialog: AlertDialog? = null
     private var moonshineModelDialogMessage: TextView? = null
     private var moonshineModelDialogProgress: ProgressBar? = null
@@ -93,6 +102,7 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
     }
 
     private fun configureLiveCaptionPreferences() {
+            configureLiveCaptionEngine()
             findPreference<Preference>(C.PLAYER_LIVE_CAPTION_MODEL)?.setOnPreferenceClickListener {
                 showMoonshineModelDialog()
                 true
@@ -204,6 +214,63 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
         moonshineModelDialogMessage = null
         moonshineModelDialogProgress = null
         super.onDestroyView()
+    }
+
+    /**
+     * Moonshine is always available. The system recognizer is only selectable once the device
+     * reports it, so a missing AICore never leaves captions pointing at an engine that cannot start.
+     */
+    private fun configureLiveCaptionEngine() {
+        findPreference<ListPreference>(C.PLAYER_LIVE_CAPTION_ENGINE)?.setOnPreferenceChangeListener { preference, newValue ->
+            if (newValue != LIVE_CAPTION_ENGINE_SYSTEM) {
+                applyLiveCaptionEngine(preference as ListPreference, LIVE_CAPTION_ENGINE_MOONSHINE)
+                return@setOnPreferenceChangeListener false
+            }
+            val list = preference as ListPreference
+            val previousSummary = list.summary
+            list.summary = getString(R.string.live_caption_engine_system_checking)
+            // One check or download at a time; picking again restarts it cleanly.
+            engineJob?.cancel()
+            engineJob = viewLifecycleOwner.lifecycleScope.launch {
+                val status = SystemSpeechAvailability.status()
+                when (status) {
+                    FeatureStatus.AVAILABLE -> applyLiveCaptionEngine(list, LIVE_CAPTION_ENGINE_SYSTEM)
+                    FeatureStatus.DOWNLOADABLE, FeatureStatus.DOWNLOADING -> {
+                        list.summary = getString(R.string.live_caption_engine_system_downloading)
+                        val result = try {
+                            SystemSpeechAvailability.download().first {
+                                it is DownloadStatus.DownloadCompleted || it is DownloadStatus.DownloadFailed
+                            }
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            null
+                        }
+                        if (result is DownloadStatus.DownloadCompleted) {
+                            applyLiveCaptionEngine(list, LIVE_CAPTION_ENGINE_SYSTEM)
+                        } else {
+                            list.summary = previousSummary
+                            showEngineToast(R.string.live_caption_engine_system_download_failed)
+                        }
+                    }
+                    else -> {
+                        list.summary = previousSummary
+                        showEngineToast(R.string.live_caption_engine_system_unavailable)
+                    }
+                }
+            }
+            false
+        }
+    }
+
+    private fun applyLiveCaptionEngine(preference: ListPreference, value: String) {
+        preference.value = value
+        preference.summary = preference.entry
+        (requireContext().applicationContext as XtraApp).xtraModule.liveCaptionManager.reloadConfiguration()
+    }
+
+    private fun showEngineToast(message: Int) {
+        if (isAdded) Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
     }
 
     private fun updateMoonshineModelUi(state: MoonshineModelState) {

@@ -8,6 +8,14 @@
             android:selectable="false"
             android:summary="@string/live_caption_settings_summary"
             app:iconSpaceReserved="false" />
+        <ListPreference
+            android:defaultValue="moonshine"
+            android:entries="@array/liveCaptionEngineEntries"
+            android:entryValues="@array/liveCaptionEngineValues"
+            android:key="player_live_caption_engine"
+            android:summary="%s"
+            android:title="@string/live_caption_engine"
+            app:iconSpaceReserved="false" />
         <Preference
             android:key="player_live_caption_model"
             android:title="@string/live_caption_model"
