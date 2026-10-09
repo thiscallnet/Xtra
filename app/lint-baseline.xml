@@ -52,7 +52,7 @@
         errorLine2="                                                                                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/PlaybackService.kt"
-            line="1628"
+            line="1657"
             column="103"/>
     </issue>
 
@@ -63,7 +63,7 @@
         errorLine2="                                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/PlaybackService.kt"
-            line="1630"
+            line="1659"
             column="85"/>
     </issue>
 
@@ -74,7 +74,7 @@
         errorLine2="                                                                                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/PlaybackService.kt"
-            line="1632"
+            line="1661"
             column="85"/>
     </issue>
 
@@ -85,7 +85,7 @@
         errorLine2="                                                                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/PlaybackService.kt"
-            line="1662"
+            line="1691"
             column="116"/>
     </issue>
 
@@ -96,7 +96,7 @@
         errorLine2="                                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/PlaybackService.kt"
-            line="4965"
+            line="4994"
             column="58"/>
     </issue>
 
@@ -107,7 +107,7 @@
         errorLine2="                                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/PlaybackService.kt"
-            line="5012"
+            line="5041"
             column="50"/>
     </issue>
 
@@ -118,7 +118,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/PlaybackService.kt"
-            line="5315"
+            line="5344"
             column="42"/>
     </issue>
 
@@ -327,7 +327,7 @@
         errorLine2="    ~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="134"
+            line="135"
             column="5"/>
     </issue>
 
@@ -335,28 +335,6 @@
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="    override fun onPrepared(playerId: PlayerId) {"
-        errorLine2="                 ~~~~~~~~~~">
-        <location
-            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="142"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="    override fun onPrepared(playerId: PlayerId) {"
-        errorLine2="                                      ~~~~~~~~">
-        <location
-            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="142"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        delegate.onPrepared(playerId)"
         errorLine2="                 ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
@@ -367,11 +345,33 @@
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="    override fun onPrepared(playerId: PlayerId) {"
+        errorLine2="                                      ~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="143"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        delegate.onPrepared(playerId)"
+        errorLine2="                 ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="144"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="    override fun onTracksSelected("
         errorLine2="                 ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="147"
+            line="148"
             column="18"/>
     </issue>
 
@@ -382,7 +382,7 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="148"
+            line="149"
             column="21"/>
     </issue>
 
@@ -393,7 +393,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="149"
+            line="150"
             column="22"/>
     </issue>
 
@@ -404,7 +404,7 @@
         errorLine2="                                   ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="150"
+            line="151"
             column="36"/>
     </issue>
 
@@ -415,7 +415,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="152"
+            line="153"
             column="18"/>
     </issue>
 
@@ -423,28 +423,6 @@
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="    override fun onStopped(playerId: PlayerId) {"
-        errorLine2="                 ~~~~~~~~~">
-        <location
-            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="155"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="    override fun onStopped(playerId: PlayerId) {"
-        errorLine2="                                     ~~~~~~~~">
-        <location
-            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="155"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        delegate.onStopped(playerId)"
         errorLine2="                 ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
@@ -455,11 +433,22 @@
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="    override fun onReleased(playerId: PlayerId) {"
-        errorLine2="                 ~~~~~~~~~~">
+        errorLine1="    override fun onStopped(playerId: PlayerId) {"
+        errorLine2="                                     ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="160"
+            line="156"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        delegate.onStopped(playerId)"
+        errorLine2="                 ~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="157"
             column="18"/>
     </issue>
 
@@ -467,17 +456,6 @@
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="    override fun onReleased(playerId: PlayerId) {"
-        errorLine2="                                      ~~~~~~~~">
-        <location
-            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="160"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        delegate.onReleased(playerId)"
         errorLine2="                 ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
@@ -488,11 +466,33 @@
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="    override fun onReleased(playerId: PlayerId) {"
+        errorLine2="                                      ~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="161"
+            column="39"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        delegate.onReleased(playerId)"
+        errorLine2="                 ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="162"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="    override fun getAllocator(playerId: PlayerId): Allocator = delegate.getAllocator(playerId)"
         errorLine2="                 ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="165"
+            line="166"
             column="18"/>
     </issue>
 
@@ -503,7 +503,7 @@
         errorLine2="                                        ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="165"
+            line="166"
             column="41"/>
     </issue>
 
@@ -514,7 +514,7 @@
         errorLine2="                                                   ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="165"
+            line="166"
             column="52"/>
     </issue>
 
@@ -525,7 +525,7 @@
         errorLine2="                                                                        ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="165"
+            line="166"
             column="73"/>
     </issue>
 
@@ -536,7 +536,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="167"
+            line="168"
             column="18"/>
     </issue>
 
@@ -547,7 +547,7 @@
         errorLine2="                                                   ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="167"
+            line="168"
             column="52"/>
     </issue>
 
@@ -558,7 +558,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="168"
+            line="169"
             column="18"/>
     </issue>
 
@@ -566,28 +566,6 @@
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="    override fun retainBackBufferFromKeyframe(playerId: PlayerId): Boolean ="
-        errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="170"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="    override fun retainBackBufferFromKeyframe(playerId: PlayerId): Boolean ="
-        errorLine2="                                                        ~~~~~~~~">
-        <location
-            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="170"
-            column="57"/>
-    </issue>
-
-    <issue
-        id="UnsafeOptInUsageError"
-        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        delegate.retainBackBufferFromKeyframe(playerId)"
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
@@ -598,11 +576,33 @@
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="    override fun retainBackBufferFromKeyframe(playerId: PlayerId): Boolean ="
+        errorLine2="                                                        ~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="171"
+            column="57"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        delegate.retainBackBufferFromKeyframe(playerId)"
+        errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="172"
+            column="18"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
         errorLine1="    override fun shouldContinueLoading(parameters: LoadControl.Parameters): Boolean {"
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="173"
+            line="174"
             column="18"/>
     </issue>
 
@@ -613,7 +613,7 @@
         errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="173"
+            line="174"
             column="52"/>
     </issue>
 
@@ -624,7 +624,7 @@
         errorLine2="                       ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="174"
+            line="175"
             column="24"/>
     </issue>
 
@@ -635,7 +635,7 @@
         errorLine2="                                ~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="174"
+            line="175"
             column="33"/>
     </issue>
 
@@ -646,7 +646,7 @@
         errorLine2="                                                 ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="174"
+            line="175"
             column="50"/>
     </issue>
 
@@ -657,7 +657,7 @@
         errorLine2="                                                         ~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="174"
+            line="175"
             column="58"/>
     </issue>
 
@@ -668,7 +668,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="175"
+            line="176"
             column="29"/>
     </issue>
 
@@ -679,8 +679,41 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="177"
+            line="178"
             column="33"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            val shouldLoad = parameters.bufferedDurationUs &lt; hiddenLimit &amp;&amp; delegate.shouldContinueLoading(parameters)"
+        errorLine2="                                        ~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="184"
+            column="41"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            val shouldLoad = parameters.bufferedDurationUs &lt; hiddenLimit &amp;&amp; delegate.shouldContinueLoading(parameters)"
+        errorLine2="                                                                                     ~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="184"
+            column="86"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            loadingByPlayer[parameters.playerId] = shouldLoad"
+        errorLine2="                                       ~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
+            line="185"
+            column="40"/>
     </issue>
 
     <issue
@@ -690,7 +723,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="180"
+            line="188"
             column="42"/>
     </issue>
 
@@ -701,7 +734,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="181"
+            line="189"
             column="18"/>
     </issue>
 
@@ -712,7 +745,7 @@
         errorLine2="                           ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="183"
+            line="191"
             column="28"/>
     </issue>
 
@@ -723,7 +756,7 @@
         errorLine2="                                                          ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="187"
+            line="195"
             column="59"/>
     </issue>
 
@@ -734,7 +767,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="189"
+            line="197"
             column="24"/>
     </issue>
 
@@ -745,7 +778,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="190"
+            line="198"
             column="24"/>
     </issue>
 
@@ -756,7 +789,7 @@
         errorLine2="                                             ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="193"
+            line="201"
             column="46"/>
     </issue>
 
@@ -767,7 +800,7 @@
         errorLine2="                                   ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="195"
+            line="203"
             column="36"/>
     </issue>
 
@@ -778,7 +811,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="199"
+            line="207"
             column="18"/>
     </issue>
 
@@ -789,7 +822,7 @@
         errorLine2="                  ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="200"
+            line="208"
             column="19"/>
     </issue>
 
@@ -800,7 +833,7 @@
         errorLine2="                       ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="202"
+            line="210"
             column="24"/>
     </issue>
 
@@ -811,7 +844,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="206"
+            line="214"
             column="18"/>
     </issue>
 
@@ -822,7 +855,7 @@
         errorLine2="                                                 ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="206"
+            line="214"
             column="50"/>
     </issue>
 
@@ -833,7 +866,7 @@
         errorLine2="                       ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="207"
+            line="215"
             column="24"/>
     </issue>
 
@@ -844,7 +877,7 @@
         errorLine2="                                ~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="207"
+            line="215"
             column="33"/>
     </issue>
 
@@ -855,7 +888,7 @@
         errorLine2="                                                 ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="207"
+            line="215"
             column="50"/>
     </issue>
 
@@ -866,7 +899,7 @@
         errorLine2="                                                         ~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="207"
+            line="215"
             column="58"/>
     </issue>
 
@@ -877,7 +910,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="208"
+            line="216"
             column="29"/>
     </issue>
 
@@ -888,7 +921,7 @@
         errorLine2="                                     ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="211"
+            line="219"
             column="38"/>
     </issue>
 
@@ -899,7 +932,7 @@
         errorLine2="                                        ~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="216"
+            line="224"
             column="41"/>
     </issue>
 
@@ -910,7 +943,7 @@
         errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="219"
+            line="227"
             column="38"/>
     </issue>
 
@@ -921,7 +954,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="220"
+            line="228"
             column="24"/>
     </issue>
 
@@ -932,7 +965,7 @@
         errorLine2="                       ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="221"
+            line="229"
             column="24"/>
     </issue>
 
@@ -943,7 +976,7 @@
         errorLine2="                                                ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="223"
+            line="231"
             column="49"/>
     </issue>
 
@@ -954,7 +987,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="224"
+            line="232"
             column="42"/>
     </issue>
 
@@ -965,7 +998,7 @@
         errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="231"
+            line="239"
             column="44"/>
     </issue>
 
@@ -976,7 +1009,7 @@
         errorLine2="                   ~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="232"
+            line="240"
             column="20"/>
     </issue>
 
@@ -987,7 +1020,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="233"
+            line="241"
             column="24"/>
     </issue>
 
@@ -998,7 +1031,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="234"
+            line="242"
             column="24"/>
     </issue>
 
@@ -1009,7 +1042,7 @@
         errorLine2="                                             ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="235"
+            line="243"
             column="46"/>
     </issue>
 
@@ -1020,7 +1053,7 @@
         errorLine2="                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="240"
+            line="248"
             column="27"/>
     </issue>
 
@@ -1031,7 +1064,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="241"
+            line="249"
             column="5"/>
     </issue>
 
@@ -1042,7 +1075,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="250"
+            line="258"
             column="18"/>
     </issue>
 
@@ -1053,7 +1086,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="251"
+            line="259"
             column="18"/>
     </issue>
 
@@ -1064,7 +1097,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="255"
+            line="263"
             column="18"/>
     </issue>
 
@@ -1075,7 +1108,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="258"
+            line="266"
             column="18"/>
     </issue>
 
@@ -1086,7 +1119,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="262"
+            line="270"
             column="18"/>
     </issue>
 
@@ -1097,7 +1130,7 @@
         errorLine2="                                             ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="262"
+            line="270"
             column="46"/>
     </issue>
 
@@ -1108,7 +1141,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="264"
+            line="272"
             column="18"/>
     </issue>
 
@@ -1119,7 +1152,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="266"
+            line="274"
             column="25"/>
     </issue>
 
@@ -1130,7 +1163,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="269"
+            line="277"
             column="18"/>
     </issue>
 
@@ -1141,7 +1174,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="271"
+            line="279"
             column="25"/>
     </issue>
 
@@ -1152,7 +1185,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/util/AdaptiveLivePlaybackController.kt"
-            line="278"
+            line="286"
             column="22"/>
     </issue>
 
@@ -2281,22 +2314,33 @@
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1=") : DefaultTrackSelector(context, SmoothHlsTrackSelectionFactory(qualityPolicy)) {"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~">
+        errorLine1="    discardHiddenAudio: (Long, List&lt;MediaChunk>) -> Int? = { _, _ -> null },"
+        errorLine2="                                    ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
             line="121"
+            column="37"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1=") : DefaultTrackSelector(context, SmoothHlsTrackSelectionFactory(qualityPolicy, discardHiddenAudio)) {"
+        errorLine2="    ~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
+            line="122"
             column="5"/>
     </issue>
 
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1=") : DefaultTrackSelector(context, SmoothHlsTrackSelectionFactory(qualityPolicy)) {"
+        errorLine1=") : DefaultTrackSelector(context, SmoothHlsTrackSelectionFactory(qualityPolicy, discardHiddenAudio)) {"
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="121"
+            line="122"
             column="5"/>
     </issue>
 
@@ -2307,7 +2351,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="122"
+            line="123"
             column="18"/>
     </issue>
 
@@ -2318,7 +2362,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="123"
+            line="124"
             column="26"/>
     </issue>
 
@@ -2329,7 +2373,7 @@
         errorLine2="                ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="126"
+            line="127"
             column="17"/>
     </issue>
 
@@ -2340,7 +2384,7 @@
         errorLine2="                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="128"
+            line="129"
             column="20"/>
     </issue>
 
@@ -2351,7 +2395,7 @@
         errorLine2="                                                     ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="133"
+            line="134"
             column="54"/>
     </issue>
 
@@ -2362,7 +2406,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="134"
+            line="135"
             column="37"/>
     </issue>
 
@@ -2373,7 +2417,7 @@
         errorLine2="                    ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="135"
+            line="136"
             column="21"/>
     </issue>
 
@@ -2384,7 +2428,7 @@
         errorLine2="                                             ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="135"
+            line="136"
             column="46"/>
     </issue>
 
@@ -2395,7 +2439,7 @@
         errorLine2="                                             ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="136"
+            line="137"
             column="46"/>
     </issue>
 
@@ -2406,7 +2450,7 @@
         errorLine2="                                                ~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="137"
+            line="138"
             column="49"/>
     </issue>
 
@@ -2417,7 +2461,7 @@
         errorLine2="                                                        ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="137"
+            line="138"
             column="57"/>
     </issue>
 
@@ -2428,7 +2472,7 @@
         errorLine2="                                           ~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="138"
+            line="139"
             column="44"/>
     </issue>
 
@@ -2439,7 +2483,7 @@
         errorLine2="                                                   ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="138"
+            line="139"
             column="52"/>
     </issue>
 
@@ -2450,7 +2494,7 @@
         errorLine2="                                                           ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="139"
+            line="140"
             column="60"/>
     </issue>
 
@@ -2461,7 +2505,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="142"
+            line="143"
             column="42"/>
     </issue>
 
@@ -2472,7 +2516,7 @@
         errorLine2="                                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="143"
+            line="144"
             column="38"/>
     </issue>
 
@@ -2483,7 +2527,7 @@
         errorLine2="                                                                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="143"
+            line="144"
             column="92"/>
     </issue>
 
@@ -2494,7 +2538,7 @@
         errorLine2="                                   ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="146"
+            line="147"
             column="36"/>
     </issue>
 
@@ -2505,7 +2549,7 @@
         errorLine2="                                                                      ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="149"
+            line="150"
             column="71"/>
     </issue>
 
@@ -2516,7 +2560,7 @@
         errorLine2="                                                     ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="158"
+            line="159"
             column="54"/>
     </issue>
 
@@ -2527,7 +2571,7 @@
         errorLine2="                                                                                ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="158"
+            line="159"
             column="81"/>
     </issue>
 
@@ -2538,7 +2582,7 @@
         errorLine2="                                                                                                        ~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="158"
+            line="159"
             column="105"/>
     </issue>
 
@@ -2549,7 +2593,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="161"
+            line="162"
             column="22"/>
     </issue>
 
@@ -2560,7 +2604,7 @@
         errorLine2="                                                                                               ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="203"
+            line="204"
             column="96"/>
     </issue>
 
@@ -2571,8 +2615,19 @@
         errorLine2="                                   ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="206"
+            line="207"
             column="36"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="    private val discardHiddenAudio: (Long, List&lt;MediaChunk>) -> Int? = { _, _ -> null },"
+        errorLine2="                                                ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
+            line="220"
+            column="49"/>
     </issue>
 
     <issue
@@ -2582,7 +2637,7 @@
         errorLine2="                ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="220"
+            line="222"
             column="17"/>
     </issue>
 
@@ -2593,7 +2648,7 @@
         errorLine2="                                                         ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="220"
+            line="222"
             column="58"/>
     </issue>
 
@@ -2604,7 +2659,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="222"
+            line="224"
             column="18"/>
     </issue>
 
@@ -2615,7 +2670,7 @@
         errorLine2="                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="223"
+            line="225"
             column="28"/>
     </issue>
 
@@ -2626,7 +2681,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="224"
+            line="226"
             column="25"/>
     </issue>
 
@@ -2637,7 +2692,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="225"
+            line="227"
             column="24"/>
     </issue>
 
@@ -2648,7 +2703,7 @@
         errorLine2="             ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="227"
+            line="229"
             column="14"/>
     </issue>
 
@@ -2659,7 +2714,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="228"
+            line="230"
             column="42"/>
     </issue>
 
@@ -2670,7 +2725,7 @@
         errorLine2="                                              ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="234"
+            line="236"
             column="47"/>
     </issue>
 
@@ -2681,7 +2736,7 @@
         errorLine2="                ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="235"
+            line="237"
             column="17"/>
     </issue>
 
@@ -2692,7 +2747,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="236"
+            line="238"
             column="30"/>
     </issue>
 
@@ -2703,7 +2758,7 @@
         errorLine2="                                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="244"
+            line="246"
             column="49"/>
     </issue>
 
@@ -2714,7 +2769,7 @@
         errorLine2="                   ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="245"
+            line="247"
             column="20"/>
     </issue>
 
@@ -2725,7 +2780,7 @@
         errorLine2="                                           ~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="245"
+            line="247"
             column="44"/>
     </issue>
 
@@ -2736,7 +2791,7 @@
         errorLine2="                                                 ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="245"
+            line="247"
             column="50"/>
     </issue>
 
@@ -2747,8 +2802,19 @@
         errorLine2="                                   ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="249"
+            line="251"
             column="36"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="    private val discardHiddenAudio: (Long, List&lt;MediaChunk>) -> Int?,"
+        errorLine2="                                                ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
+            line="253"
+            column="49"/>
     </issue>
 
     <issue
@@ -2758,7 +2824,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="251"
+            line="254"
             column="5"/>
     </issue>
 
@@ -2769,7 +2835,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="251"
+            line="254"
             column="5"/>
     </issue>
 
@@ -2780,7 +2846,7 @@
         errorLine2="                                                   ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="252"
+            line="255"
             column="52"/>
     </issue>
 
@@ -2791,7 +2857,7 @@
         errorLine2="                                                    ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="253"
+            line="256"
             column="53"/>
     </issue>
 
@@ -2802,7 +2868,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="256"
+            line="259"
             column="18"/>
     </issue>
 
@@ -2813,7 +2879,7 @@
         errorLine2="                    ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="260"
+            line="263"
             column="21"/>
     </issue>
 
@@ -2824,7 +2890,7 @@
         errorLine2="                                       ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="261"
+            line="264"
             column="40"/>
     </issue>
 
@@ -2835,7 +2901,7 @@
         errorLine2="                          ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="263"
+            line="266"
             column="27"/>
     </issue>
 
@@ -2846,7 +2912,7 @@
         errorLine2="                                          ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="271"
+            line="274"
             column="43"/>
     </issue>
 
@@ -2857,7 +2923,7 @@
         errorLine2="                     ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="275"
+            line="278"
             column="22"/>
     </issue>
 
@@ -2868,7 +2934,7 @@
         errorLine2="                                    ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="276"
+            line="279"
             column="37"/>
     </issue>
 
@@ -2879,7 +2945,7 @@
         errorLine2="                                                                                     ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="276"
+            line="279"
             column="86"/>
     </issue>
 
@@ -2890,7 +2956,7 @@
         errorLine2="                                     ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="278"
+            line="281"
             column="38"/>
     </issue>
 
@@ -2901,7 +2967,7 @@
         errorLine2="                                  ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="279"
+            line="282"
             column="35"/>
     </issue>
 
@@ -2912,7 +2978,7 @@
         errorLine2="                                  ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="280"
+            line="283"
             column="35"/>
     </issue>
 
@@ -2923,7 +2989,7 @@
         errorLine2="                                                ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="280"
+            line="283"
             column="49"/>
     </issue>
 
@@ -2934,7 +3000,7 @@
         errorLine2="                                                     ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="285"
+            line="288"
             column="54"/>
     </issue>
 
@@ -2945,7 +3011,7 @@
         errorLine2="                               ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="286"
+            line="289"
             column="32"/>
     </issue>
 
@@ -2956,7 +3022,7 @@
         errorLine2="                                      ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="291"
+            line="294"
             column="39"/>
     </issue>
 
@@ -2967,7 +3033,7 @@
         errorLine2="                             ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="292"
+            line="295"
             column="30"/>
     </issue>
 
@@ -2978,7 +3044,7 @@
         errorLine2="                               ~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="293"
+            line="296"
             column="32"/>
     </issue>
 
@@ -2989,7 +3055,7 @@
         errorLine2="                              ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="295"
+            line="298"
             column="31"/>
     </issue>
 
@@ -3000,7 +3066,7 @@
         errorLine2="                                            ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="297"
+            line="300"
             column="45"/>
     </issue>
 
@@ -3011,7 +3077,7 @@
         errorLine2="                                                                            ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="297"
+            line="300"
             column="77"/>
     </issue>
 
@@ -3022,7 +3088,7 @@
         errorLine2="                                           ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="307"
+            line="310"
             column="44"/>
     </issue>
 
@@ -3033,7 +3099,7 @@
         errorLine2="                                                                ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="308"
+            line="311"
             column="65"/>
     </issue>
 
@@ -3044,7 +3110,7 @@
         errorLine2="                                                ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="309"
+            line="312"
             column="49"/>
     </issue>
 
@@ -3055,7 +3121,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="314"
+            line="317"
             column="18"/>
     </issue>
 
@@ -3066,7 +3132,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="316"
+            line="319"
             column="18"/>
     </issue>
 
@@ -3077,7 +3143,7 @@
         errorLine2="                                                       ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="316"
+            line="319"
             column="56"/>
     </issue>
 
@@ -3088,7 +3154,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="318"
+            line="321"
             column="18"/>
     </issue>
 
@@ -3099,7 +3165,7 @@
         errorLine2="                                               ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="318"
+            line="321"
             column="48"/>
     </issue>
 
@@ -3110,7 +3176,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="320"
+            line="323"
             column="18"/>
     </issue>
 
@@ -3121,7 +3187,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="322"
+            line="325"
             column="18"/>
     </issue>
 
@@ -3132,7 +3198,7 @@
         errorLine2="                                                              ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="322"
+            line="325"
             column="63"/>
     </issue>
 
@@ -3143,7 +3209,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="324"
+            line="327"
             column="18"/>
     </issue>
 
@@ -3154,7 +3220,7 @@
         errorLine2="                    ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="326"
+            line="329"
             column="21"/>
     </issue>
 
@@ -3165,7 +3231,7 @@
         errorLine2="                                     ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="330"
+            line="334"
             column="38"/>
     </issue>
 
@@ -3176,7 +3242,7 @@
         errorLine2="                                                                    ~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="334"
+            line="338"
             column="69"/>
     </issue>
 
@@ -3187,7 +3253,7 @@
         errorLine2="                      ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/SmoothHlsQualitySelection.kt"
-            line="340"
+            line="344"
             column="23"/>
     </issue>
 
@@ -3198,8 +3264,19 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="79"
+            line="80"
             column="29"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="    var hiddenAudioPlaylist: HiddenStreamAudioPlaylist? = null"
+        errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="82"
+            column="30"/>
     </issue>
 
     <issue
@@ -3209,7 +3286,7 @@
         errorLine2="                  ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="97"
+            line="100"
             column="19"/>
     </issue>
 
@@ -3220,7 +3297,7 @@
         errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="121"
+            line="124"
             column="44"/>
     </issue>
 
@@ -3231,7 +3308,7 @@
         errorLine2="                                         ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="122"
+            line="125"
             column="42"/>
     </issue>
 
@@ -3242,7 +3319,7 @@
         errorLine2="                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="122"
+            line="125"
             column="68"/>
     </issue>
 
@@ -3253,7 +3330,7 @@
         errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="125"
+            line="128"
             column="45"/>
     </issue>
 
@@ -3264,7 +3341,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="129"
+            line="132"
             column="18"/>
     </issue>
 
@@ -3275,8 +3352,30 @@
         errorLine2="                                             ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="135"
+            line="138"
             column="46"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        val hiddenAudio = if (streamSource) HiddenStreamAudioPlaylist(networkFactory) else null"
+        errorLine2="            ~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="145"
+            column="13"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="        val hiddenAudio = if (streamSource) HiddenStreamAudioPlaylist(networkFactory) else null"
+        errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="145"
+            column="45"/>
     </issue>
 
     <issue
@@ -3286,7 +3385,7 @@
         errorLine2="            ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="143"
+            line="148"
             column="13"/>
     </issue>
 
@@ -3297,7 +3396,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="144"
+            line="149"
             column="13"/>
     </issue>
 
@@ -3308,7 +3407,7 @@
         errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="148"
+            line="153"
             column="32"/>
     </issue>
 
@@ -3319,8 +3418,41 @@
         errorLine2="                                                                         ~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="148"
+            line="153"
             column="74"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            if (hiddenAudio != null) DataSource.Factory { hiddenAudio.dataSource(handoffFactory.createDataSource()) } else handoffFactory,"
+        errorLine2="                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="157"
+            column="57"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            if (hiddenAudio != null) DataSource.Factory { hiddenAudio.dataSource(handoffFactory.createDataSource()) } else handoffFactory,"
+        errorLine2="                                                                      ~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="157"
+            column="71"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            if (hiddenAudio != null) DataSource.Factory { hiddenAudio.dataSource(handoffFactory.createDataSource()) } else handoffFactory,"
+        errorLine2="                                                                                                ~~~~~~~~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="157"
+            column="97"/>
     </issue>
 
     <issue
@@ -3330,7 +3462,7 @@
         errorLine2="                              ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="156"
+            line="161"
             column="31"/>
     </issue>
 
@@ -3341,7 +3473,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="157"
+            line="162"
             column="13"/>
     </issue>
 
@@ -3352,30 +3484,63 @@
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="158"
+            line="163"
             column="17"/>
     </issue>
 
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="                    transform = { uri, parsed -> controlled?.transform(uri, parsed) ?: parsed },"
+        errorLine1="                    transform = { uri, parsed ->"
         errorLine2="                                       ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="160"
+            line="165"
             column="40"/>
     </issue>
 
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="                    transform = { uri, parsed -> controlled?.transform(uri, parsed) ?: parsed },"
-        errorLine2="                                                             ~~~~~~~~~">
+        errorLine1="                        hiddenAudio?.observe(uri, parsed)"
+        errorLine2="                                     ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="160"
-            column="62"/>
+            line="166"
+            column="38"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                        val published = controlled?.transform(uri, parsed) ?: parsed"
+        errorLine2="                            ~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="167"
+            column="29"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                        val published = controlled?.transform(uri, parsed) ?: parsed"
+        errorLine2="                                                    ~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="167"
+            column="53"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="                        hiddenAudio?.transform(published) ?: published"
+        errorLine2="                                     ~~~~~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="168"
+            column="38"/>
     </issue>
 
     <issue
@@ -3385,7 +3550,7 @@
         errorLine2="                                                                          ~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="161"
+            line="170"
             column="75"/>
     </issue>
 
@@ -3396,7 +3561,7 @@
         errorLine2="                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="162"
+            line="171"
             column="39"/>
     </issue>
 
@@ -3407,7 +3572,7 @@
         errorLine2="                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="171"
+            line="180"
             column="29"/>
     </issue>
 
@@ -3418,7 +3583,7 @@
         errorLine2="                                                                    ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="171"
+            line="180"
             column="69"/>
     </issue>
 
@@ -3429,7 +3594,7 @@
         errorLine2="                                                            ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="172"
+            line="181"
             column="61"/>
     </issue>
 
@@ -3440,7 +3605,7 @@
         errorLine2="                                                                               ~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="172"
+            line="181"
             column="80"/>
     </issue>
 
@@ -3451,7 +3616,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="193"
+            line="202"
             column="13"/>
     </issue>
 
@@ -3462,7 +3627,7 @@
         errorLine2="                                                                                                     ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="193"
+            line="202"
             column="102"/>
     </issue>
 
@@ -3473,7 +3638,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="194"
+            line="203"
             column="30"/>
     </issue>
 
@@ -3484,7 +3649,7 @@
         errorLine2="                                                                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="194"
+            line="203"
             column="116"/>
     </issue>
 
@@ -3495,7 +3660,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="196"
+            line="205"
             column="30"/>
     </issue>
 
@@ -3506,7 +3671,7 @@
         errorLine2="                                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="196"
+            line="205"
             column="55"/>
     </issue>
 
@@ -3517,7 +3682,7 @@
         errorLine2="                             ~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="197"
+            line="206"
             column="30"/>
     </issue>
 
@@ -3528,7 +3693,7 @@
         errorLine2="                                          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="197"
+            line="206"
             column="43"/>
     </issue>
 
@@ -3539,7 +3704,7 @@
         errorLine2="                                  ~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="198"
+            line="207"
             column="35"/>
     </issue>
 
@@ -3550,7 +3715,7 @@
         errorLine2="                                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="198"
+            line="207"
             column="72"/>
     </issue>
 
@@ -3561,7 +3726,7 @@
         errorLine2="                                                                                                         ~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="198"
+            line="207"
             column="106"/>
     </issue>
 
@@ -3572,7 +3737,7 @@
         errorLine2="                                                                                                                       ~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="198"
+            line="207"
             column="120"/>
     </issue>
 
@@ -3583,7 +3748,7 @@
         errorLine2="                                                 ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="199"
+            line="208"
             column="50"/>
     </issue>
 
@@ -3594,7 +3759,7 @@
         errorLine2="                                           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="201"
+            line="210"
             column="44"/>
     </issue>
 
@@ -3605,7 +3770,7 @@
         errorLine2="          ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="202"
+            line="211"
             column="11"/>
     </issue>
 
@@ -3616,7 +3781,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="205"
+            line="214"
             column="18"/>
     </issue>
 
@@ -3627,7 +3792,7 @@
         errorLine2="                                                        ~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="205"
+            line="214"
             column="57"/>
     </issue>
 
@@ -3638,7 +3803,7 @@
         errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="207"
+            line="216"
             column="35"/>
     </issue>
 
@@ -3649,7 +3814,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="211"
+            line="220"
             column="18"/>
     </issue>
 
@@ -3660,7 +3825,7 @@
         errorLine2="                                                    ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="211"
+            line="220"
             column="53"/>
     </issue>
 
@@ -3671,7 +3836,7 @@
         errorLine2="                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="213"
+            line="222"
             column="35"/>
     </issue>
 
@@ -3682,7 +3847,7 @@
         errorLine2="                 ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="217"
+            line="226"
             column="18"/>
     </issue>
 
@@ -3693,7 +3858,7 @@
         errorLine2="                        ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="218"
+            line="227"
             column="25"/>
     </issue>
 
@@ -3704,7 +3869,7 @@
         errorLine2="             ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="221"
+            line="230"
             column="14"/>
     </issue>
 
@@ -3715,19 +3880,30 @@
         errorLine2="                                                             ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="221"
+            line="230"
             column="62"/>
     </issue>
 
     <issue
         id="UnsafeOptInUsageError"
         message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
-        errorLine1="        proxyStates.remove(mediaId)?.controlledPlaylist?.close()"
-        errorLine2="                                                         ~~~~~">
+        errorLine1="            it.controlledPlaylist?.close()"
+        errorLine2="                                   ~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="278"
-            column="58"/>
+            line="288"
+            column="36"/>
+    </issue>
+
+    <issue
+        id="UnsafeOptInUsageError"
+        message="This declaration is opt-in and its usage should be marked with `@androidx.media3.common.util.UnstableApi` or `@OptIn(markerClass = androidx.media3.common.util.UnstableApi.class)`"
+        errorLine1="            it.hiddenAudioPlaylist?.close()"
+        errorLine2="                                    ~~~~~">
+        <location
+            file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
+            line="289"
+            column="37"/>
     </issue>
 
     <issue
@@ -3737,7 +3913,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="311"
+            line="323"
             column="24"/>
     </issue>
 
@@ -3748,7 +3924,7 @@
         errorLine2="                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="311"
+            line="323"
             column="56"/>
     </issue>
 
@@ -3759,7 +3935,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="312"
+            line="324"
             column="24"/>
     </issue>
 
@@ -3770,7 +3946,7 @@
         errorLine2="                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="312"
+            line="324"
             column="52"/>
     </issue>
 
@@ -3781,7 +3957,7 @@
         errorLine2="                                    ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="370"
+            line="382"
             column="37"/>
     </issue>
 
@@ -3792,7 +3968,7 @@
         errorLine2="                                ~~~~~~~">
         <location
             file="src/main/java/com/github/andreyasadchy/xtra/ui/player/StreamHlsMediaSourceFactory.kt"
-            line="401"
+            line="413"
             column="33"/>
     </issue>
 
