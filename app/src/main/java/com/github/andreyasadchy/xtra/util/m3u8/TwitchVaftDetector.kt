@@ -278,8 +278,13 @@ object TwitchVaftDetector {
     internal fun isActiveRange(segmentStart: Long, start: Long?, end: Long?): Boolean =
         start != null && segmentStart >= start && (end == null || segmentStart < end)
 
-    internal fun isVaftTitle(title: String): Boolean =
-        vaftTitleMarkers.any { title.contains(it, ignoreCase = true) }
+    // Twitch labels real live segments "live". Any other non-blank title is a
+    // replaced segment, whichever vendor name it carries (matches upstream VAFT).
+    internal fun isVaftTitle(title: String): Boolean {
+        val trimmed = title.trim()
+        return trimmed.isNotEmpty() && (!trimmed.equals("live", ignoreCase = true) ||
+            vaftTitleMarkers.any { trimmed.contains(it, ignoreCase = true) })
+    }
 
     internal fun isTwitchVaftDateRange(
         id: String,
@@ -295,8 +300,8 @@ object TwitchVaftDetector {
         hasVaftAttribute: Boolean,
     ): List<String> = buildList {
         if (hasVaftAttribute) add("range_attribute")
-        if (id.startsWith("stitched-\u0061\u0064", ignoreCase = true)) add("stitched_id")
-        if (rangeClass?.startsWith("twitch-stitched", ignoreCase = true) == true) add("stitched_class")
+        if (id.contains("stitched", ignoreCase = true)) add("stitched_id")
+        if (rangeClass?.contains("stitched", ignoreCase = true) == true) add("stitched_class")
         // Schedule-only classes also accompany unchanged live media. They do
         // not establish a replaced segment without an explicit media signal.
     }
