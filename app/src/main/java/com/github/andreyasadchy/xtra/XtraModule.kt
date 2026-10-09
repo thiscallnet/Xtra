@@ -56,6 +56,7 @@ import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelManager
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetLoader
+import com.github.andreyasadchy.xtra.ui.chat.Twemoji
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.ChatAssetRepository
 import com.github.andreyasadchy.xtra.ui.chat.v2.assets.CoilChatAssetLoader
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogRepository
@@ -708,6 +709,7 @@ class XtraModule(application: Application) {
         ChatAssetRepository(
             scope = (application as XtraApp).applicationScope,
             loader = chatAssetLoader,
+            isBulkAsset = { key -> Twemoji.isAsset(key) },
         )
     }
 

@@ -24,6 +24,11 @@ class ChatAssetRepository(
     private val loader: ChatAssetLoader,
     private val maxEntries: Int = 512,
     private val maxConcurrentLoads: Int = 8,
+    /** Bulk assets (picker emoji) load in their own lane so they cannot starve chat emotes. */
+    private val isBulkAsset: (ChatAssetKey) -> Boolean = { false },
+    private val maxConcurrentBulkLoads: Int = 6,
+    /** Prefetched-but-unobserved requests allowed to wait; the oldest are dropped first. */
+    private val maxQueuedPrefetch: Int = 16,
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val wait: suspend (Long) -> Unit = { delay(it) },
 ) {
@@ -35,6 +40,8 @@ class ChatAssetRepository(
     /** Loads that have acquired a permit and are inside the loader. */
     private val activeLoads = HashSet<ChatAssetKey>()
     private val loadPermits = Semaphore(maxConcurrentLoads.coerceAtLeast(1))
+    private val bulkLoadPermits = Semaphore(maxConcurrentBulkLoads.coerceAtLeast(1))
+    private val queuedPrefetch = LinkedHashSet<ChatAssetKey>()
     private val _changes = MutableStateFlow<ChatAssetKey?>(null)
     val changes: StateFlow<ChatAssetKey?> = _changes.asStateFlow()
 
@@ -56,8 +63,36 @@ class ChatAssetRepository(
                     true
                 }
             }
-            if (shouldRequest) request(key)
+            if (shouldRequest) {
+                synchronized(this) { queuedPrefetch += key }
+                request(key)
+            }
         }
+        dropStalePrefetch()
+    }
+
+    /** Fast scrolling must not leave a long queue of rows nobody can see anymore. */
+    private fun dropStalePrefetch() {
+        val dropped = ArrayList<Job>()
+        synchronized(this) {
+            val iterator = queuedPrefetch.iterator()
+            while (iterator.hasNext()) {
+                val key = iterator.next()
+                if (states[key] != ChatAssetState.Loading || !listeners[key].isNullOrEmpty() || key in activeLoads) {
+                    iterator.remove()
+                }
+            }
+            val excess = queuedPrefetch.size - maxQueuedPrefetch
+            if (excess > 0) {
+                queuedPrefetch.take(excess).forEach { key ->
+                    queuedPrefetch -= key
+                    loadJobs.remove(key)?.let(dropped::add)
+                    states.remove(key)
+                }
+                updateDiagnosticsLocked()
+            }
+        }
+        dropped.forEach { it.cancel() }
     }
 
     fun observe(key: ChatAssetKey, listener: () -> Unit) {
@@ -126,7 +161,7 @@ class ChatAssetRepository(
                 try {
                     var completedAt: Long
                     val state = try {
-                        val loaded = loadPermits.withPermit {
+                        val loaded = (if (isBulkAsset(key)) bulkLoadPermits else loadPermits).withPermit {
                             synchronized(this@ChatAssetRepository) { activeLoads += key }
                             try {
                                 loader.load(key)

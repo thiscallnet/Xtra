@@ -59,9 +59,9 @@ class EmojiPickerItemTest {
 
     @Test
     fun `twemoji filenames preserve selectors required by zwj sequences`() {
-        assertTrue(Twemoji.url("🏳️‍🌈").endsWith("/1f3f3-fe0f-200d-1f308.png"))
-        assertTrue(Twemoji.url("🏃‍♀️").endsWith("/1f3c3-200d-2640-fe0f.png"))
-        assertTrue(Twemoji.url("👁️‍🗨️").endsWith("/1f441-200d-1f5e8.png"))
-        assertTrue(Twemoji.url("❤️").endsWith("/2764.png"))
+        assertTrue(Twemoji.url("🏳️‍🌈").endsWith("/1f3f3-fe0f-200d-1f308.webp"))
+        assertTrue(Twemoji.url("🏃‍♀️").endsWith("/1f3c3-200d-2640-fe0f.webp"))
+        assertTrue(Twemoji.url("👁️‍🗨️").endsWith("/1f441-200d-1f5e8.webp"))
+        assertTrue(Twemoji.url("❤️").endsWith("/2764.webp"))
     }
 }
