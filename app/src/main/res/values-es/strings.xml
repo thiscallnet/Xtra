@@ -1492,4 +1492,5 @@
     <string name="system_media_replay_30">Repetir 30 s</string>
     <string name="system_media_video">Vídeo</string>
     <string name="system_media_behind_live">%1$s detrás del directo</string>
+    <string name="chat_edge_padding">Margen del chat</string>
 </resources>

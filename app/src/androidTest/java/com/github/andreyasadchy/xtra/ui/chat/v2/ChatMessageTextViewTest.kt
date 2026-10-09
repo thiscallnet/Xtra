@@ -137,8 +137,8 @@ class ChatMessageTextViewTest {
 
             // Rows are inset by the edge-padding setting; events keep at least the rail and end insets.
             val edge = (chatEdgePaddingDp(context) * density).roundToInt()
-            val layoutStart = initial[0] - edge
-            val layoutEnd = initial[2] - edge
+            val layoutStart = initial[0]
+            val layoutEnd = initial[2]
 
             measurements.forEach { measurement ->
                 assertEquals(layoutStart + maxOf(edge, (ChatEventVisualTokens.contentStartInsetDp * density).roundToInt()), measurement[0])

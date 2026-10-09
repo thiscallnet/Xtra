@@ -1487,4 +1487,5 @@
     <string name="system_media_replay_30">Повтор 30 с</string>
     <string name="system_media_video">Видео</string>
     <string name="system_media_behind_live">%1$s позади эфира</string>
+    <string name="chat_edge_padding">Отступ чата от края</string>
 </resources>

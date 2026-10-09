@@ -1487,4 +1487,5 @@
     <string name="system_media_replay_30">Revoir 30 s</string>
     <string name="system_media_video">Vidéo</string>
     <string name="system_media_behind_live">%1$s de retard sur le direct</string>
+    <string name="chat_edge_padding">Marge du chat</string>
 </resources>

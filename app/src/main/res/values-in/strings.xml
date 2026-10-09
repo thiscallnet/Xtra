@@ -1488,4 +1488,5 @@
     <string name="system_media_replay_30">Putar ulang 30 dtk</string>
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">%1$s di belakang siaran langsung</string>
+    <string name="chat_edge_padding">Margin tepi obrolan</string>
 </resources>

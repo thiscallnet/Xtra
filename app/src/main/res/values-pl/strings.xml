@@ -1485,4 +1485,5 @@
     <string name="system_media_replay_30">Powtórz 30 s</string>
     <string name="system_media_video">Wideo</string>
     <string name="system_media_behind_live">%1$s za transmisją na żywo</string>
+    <string name="chat_edge_padding">Margines czatu</string>
 </resources>

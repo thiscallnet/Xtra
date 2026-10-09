@@ -1488,4 +1488,5 @@
     <string name="system_media_replay_30">30 sn tekrar izle</string>
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">Canlı yayından %1$s geride</string>
+    <string name="chat_edge_padding">Sohbet kenar boşluğu</string>
 </resources>
