@@ -1904,6 +1904,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun initLayout() {
+        syncDismissButton()
         with(binding) {
             if (isPortrait) {
                 requireActivity().window.decorView.setOnSystemUiVisibilityChangeListener(null)
@@ -3300,6 +3301,27 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             0.5f to 0.5f
         } else {
             0.3f to 0.325f
+        }
+    }
+
+    /**
+     * The close button is counter-scaled so it stays readable on the shrunken player.
+     * That transform must only exist while minimized, so every state change funnels
+     * through here instead of each caller resetting the pieces on its own.
+     */
+    private fun syncDismissButton() {
+        val binding = _binding ?: return
+        with(binding.dismissPlayer) {
+            if (isMaximized) {
+                visibility = View.GONE
+                scaleX = 1f
+                scaleY = 1f
+                translationX = 0f
+                translationY = 0f
+            } else {
+                visibility = View.VISIBLE
+                applyMinimizedDismissButtonTransform()
+            }
         }
     }
 
@@ -4712,6 +4734,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     slidingLayout.translationY = 0f
                     slidingLayout.scaleX = 1f
                     slidingLayout.scaleY = 1f
+                    syncDismissButton()
                 }
                 if (isPortrait) {
                     setChatLayoutVisibility(View.GONE)
@@ -4787,6 +4810,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             useController = false
             hideController(true)
             fun animate() {
+                // A tap can maximize again before this deferred animation runs.
+                if (isMaximized || view == null) return
                 val (minimizedScaleX, minimizedScaleY) = getScaleValues()
                 applyMinimizedDismissButtonTransform()
                 val windowInsets = ViewCompat.getRootWindowInsets(requireView())
@@ -4820,6 +4845,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             override fun onAnimationEnd(animation: Animator) {
                                 isAnimating = false
                                 setListener(null)
+                                if (view != null) {
+                                    syncDismissButton()
+                                }
                                 activePointerId = -1
                             }
                         }
@@ -4850,11 +4878,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     fun maximize(showControls: Boolean = false) {
         with(binding) {
             isMaximized = true
-            dismissPlayer.visibility = View.GONE
-            dismissPlayer.scaleX = 1f
-            dismissPlayer.scaleY = 1f
-            dismissPlayer.translationX = 0f
-            dismissPlayer.translationY = 0f
+            syncDismissButton()
             (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
             requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, backPressedCallback)
             if (videoType == STREAM && chatFragment?.emoteMenuIsVisible() == true) {
@@ -4891,6 +4915,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             setListener(null)
                             if (view != null) {
                                 enableBackground()
+                                syncDismissButton()
                             }
                             activePointerId = -1
                         }
