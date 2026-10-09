@@ -49,6 +49,14 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
             return
         }
         setPreferencesFromResource(R.xml.playback_preferences, rootKey)
+        findPreference<ListPreference>(C.PLAYER_VAFT_PLAYBACK_PRIORITY)?.summaryProvider =
+            Preference.SummaryProvider<ListPreference> { preference ->
+                getString(if (preference.value == C.VAFT_PRIORITY_LIVE) {
+                    R.string.settings_vaft_priority_live_summary
+                } else {
+                    R.string.settings_vaft_priority_continuity_summary
+                })
+            }
         findPreference<Preference>("live_caption_page")?.setOnPreferenceClickListener {
             findNavController().navigate(R.id.liveCaptionsFragment)
             true

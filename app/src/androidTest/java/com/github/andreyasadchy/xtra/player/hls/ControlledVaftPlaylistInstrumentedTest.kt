@@ -297,8 +297,9 @@ class ControlledVaftPlaylistInstrumentedTest {
             assertTrue(after.mediaSequence > before.mediaSequence)
             assertEquals(before.discontinuitySequence + 1, after.discontinuitySequence)
             assertTrue(after.segments.none { it.url.contains("vaft") })
-            assertTrue(controlled.consumeRecovery(after.startTimeUs))
-            assertFalse(controlled.consumeRecovery(after.startTimeUs))
+            assertEquals(ControlledVaftPlaylist.Recovery(after.startTimeUs, prioritizeLive = false),
+                controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
+            assertNull(controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
             assertEquals(720, controlled.formatAt(after.startTimeUs)?.height)
         } finally { controlled.close() }
     }
@@ -402,9 +403,10 @@ class ControlledVaftPlaylistInstrumentedTest {
             assertTrue(after.mediaSequence > before.mediaSequence)
             assertEquals(before.discontinuitySequence + 1, after.discontinuitySequence)
             assertEquals(epoch + 204_000_000, after.startTimeUs)
-            assertFalse(controlled.consumeRecovery(before.startTimeUs))
-            assertTrue(controlled.consumeRecovery(after.startTimeUs))
-            assertFalse(controlled.consumeRecovery(after.startTimeUs))
+            assertNull(controlled.consumeRecovery(before.startTimeUs, before.startTimeUs + before.durationUs))
+            assertEquals(ControlledVaftPlaylist.Recovery(after.startTimeUs, prioritizeLive = false),
+                controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
+            assertNull(controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
         } finally { controlled.close() }
     }
 }

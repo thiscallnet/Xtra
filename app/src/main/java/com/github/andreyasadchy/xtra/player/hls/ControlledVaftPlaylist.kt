@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
+import com.github.andreyasadchy.xtra.util.m3u8.VaftBoundaryObservation
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import kotlinx.coroutines.CancellationException
@@ -78,12 +79,14 @@ class ControlledVaftPlaylist(
         var lastProgressMs = SystemClock.elapsedRealtime()
         val createdMs = SystemClock.elapsedRealtime()
         var recoveryEpochUs: Long? = null
+        var recoveryAtWindowEnd = false
         var resolved: Resolution? = null
         var generation = 0L
         var qualityRefresh: Job? = null
         var lastQualityRefreshMs = Long.MIN_VALUE
         var improved: Resolution? = null
         @Volatile var visible: List<Published> = emptyList()
+        @Volatile var primaryVaftRanges = emptyList<VaftBoundaryObservation>()
     }
 
     private data class Resolution(val candidate: Candidate?, val anchor: Pair<Int, Published>?, val primary: Boolean)
@@ -99,13 +102,16 @@ class ControlledVaftPlaylist(
         initializationClocks.clear()
     }
 
-    fun consumeRecovery(epochUs: Long): Boolean = currentFeed?.let { feed -> synchronized(feed) {
+    data class Recovery(val epochUs: Long, val prioritizeLive: Boolean)
+
+    fun consumeRecovery(windowStartUs: Long, windowEndUs: Long): Recovery? = currentFeed?.let { feed -> synchronized(feed) {
         val recovery = feed.recoveryEpochUs
+        val epochUs = if (feed.recoveryAtWindowEnd) windowEndUs else windowStartUs
         if (recovery != null && epochUs >= recovery) {
             feed.recoveryEpochUs = null
-            true
-        } else false
-    } } ?: false
+            Recovery(recovery, feed.recoveryAtWindowEnd)
+        } else null
+    } }
 
     private val primaryType = context.prefs().getString(Settings.TOKEN_PLAYER_TYPE, "site") ?: "site"
     private val deviceId = UUID.randomUUID().toString().replace("-", "")
@@ -177,6 +183,16 @@ class ControlledVaftPlaylist(
         it.playerType != primaryType && epochUs >= it.epochUs && epochUs < it.epochUs + it.segment.durationUs
     } == true
 
+    fun playerTypeAt(epochUs: Long): String? = currentFeed?.visible?.lastOrNull {
+        epochUs >= it.epochUs && epochUs < it.epochUs + it.segment.durationUs
+    }?.playerType
+
+    fun adWindowRemainingMsAt(epochUs: Long): Long? = currentFeed?.primaryVaftRanges?.mapNotNull { range ->
+        val start = range.epochStartTimeUs ?: return@mapNotNull null
+        val end = range.epochEndTimeUs ?: return@mapNotNull null
+        if (epochUs in start until end) (end - epochUs + 999L) / 1_000L else null
+    }?.maxOrNull()
+
     fun nextChangeAfter(epochUs: Long): Long? = currentFeed?.visible?.zipWithNext()?.firstOrNull { (a, b) ->
         b.epochUs > epochUs && ((a.playerType != primaryType) != (b.playerType != primaryType) || a.format != b.format)
     }?.second?.epochUs
@@ -193,6 +209,7 @@ class ControlledVaftPlaylist(
         val format = formats[route(uri)] ?: throw IOException("Controlled live rendition is missing its format")
         val feed = feeds.getOrPut(route(uri)) { Feed() }
         return synchronized(feed) {
+            feed.primaryVaftRanges = TwitchVaftDetector.visibleBoundaries(playlist).filter { it.basis == "date_range" }
             if (currentFeed == null && format.height > 0) currentFeed = feed
             val blocked = if (context.prefs().isVaftEnabled()) marked(playlist) else playlist.segments.map { false }
             val tailBlocked = blocked.lastOrNull() == true
@@ -458,26 +475,41 @@ class ControlledVaftPlaylist(
     private fun recoverExpiredWindow(feed: Feed, raw: HlsMediaPlaylist, blocked: List<Boolean>, now: Long,
                                      type: String = primaryType, format: Format? = null) {
         val previous = feed.published.lastOrNull() ?: return
-        if (!raw.hasProgramDateTime || now - feed.lastProgressMs < 8_000L) return
+        if (!raw.hasProgramDateTime) return
         val first = raw.segments.firstOrNull() ?: return
-        if (raw.startTimeUs + first.relativeStartTimeUs <= previous.epochUs + previous.segment.durationUs + 2_000L) return
         val index = maxOf(blocked.indexOfLast { it } + 1, raw.segments.size - 3)
         if (index >= raw.segments.size) return
-        feed.published.clear()
+        val preferences = context.prefs()
+        val prioritizeLive = preferences.isVaftEnabled() &&
+            preferences.getString(Settings.PLAYER_VAFT_PLAYBACK_PRIORITY,
+                Settings.VAFT_PRIORITY_CONTINUITY) == Settings.VAFT_PRIORITY_LIVE
+        val previousEndUs = previous.epochUs + previous.segment.durationUs
+        if (prioritizeLive) {
+            // Only jump to a verified clean suffix which is meaningfully newer.
+            // Comparing the source clock also catches delay retained by content alignment.
+            if (raw.startTimeUs + raw.segments[index].relativeStartTimeUs < previousEndUs + 6_000_000L) return
+        } else {
+            if (now - feed.lastProgressMs < 8_000L ||
+                raw.startTimeUs + first.relativeStartTimeUs <= previousEndUs + 2_000L) return
+        }
+        val replacement = Feed(feed.fingerprints)
+        append(replacement, raw, type, blocked, format = format)
+        val fresh = replacement.published.dropWhile { it.epochUs < raw.startTimeUs + raw.segments[index].relativeStartTimeUs }
+        if (fresh.isEmpty()) return
+        // Keep the old sequence available until the player receives the new timeline
+        // and seeks. Evicting it here races the loader into BEHIND_LIVE_WINDOW.
+        if (!prioritizeLive) feed.published.clear()
         feed.generation++
         feed.resolving?.cancel()
         feed.candidate = null
         feed.resolved = null
-        append(feed, raw, type, blocked, format = format)
-        if (feed.published.isEmpty()) return
-        val fresh = feed.published.dropWhile { it.epochUs < raw.startTimeUs + raw.segments[index].relativeStartTimeUs }
-        feed.published.clear()
         feed.published.addAll(fresh.mapIndexed { offset, item -> item.copy(
             sequence = previous.sequence + offset + 1, discontinuity = previous.discontinuity + 1,
         ) })
-        feed.recoveryEpochUs = feed.published.first().epochUs
+        feed.recoveryEpochUs = fresh.first().epochUs
+        feed.recoveryAtWindowEnd = prioritizeLive
         feed.lastProgressMs = now
-        if (BuildConfig.DEBUG) Log.d("XtraVaftFeed", "event=expired_window_recovery channel=$channel")
+        if (BuildConfig.DEBUG) Log.d("XtraVaftFeed", "event=${if (prioritizeLive) "live_priority_recovery" else "expired_window_recovery"} channel=$channel")
     }
 
     private fun route(uri: Uri): String = uri.buildUpon().clearQuery().build().toString()

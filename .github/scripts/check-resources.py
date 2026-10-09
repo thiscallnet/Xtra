@@ -45,6 +45,23 @@ ARRAY_REFERENCE = re.compile(r"^@string/([A-Za-z0-9_]+)$")
 # Android falls back to values/ for these keys; keeping the allowlist explicit
 # prevents this policy from hiding missing translations elsewhere in the app.
 INTENTIONAL_FALLBACK_RESOURCES = {
+    # VAFT priority and quality status use default English copy until localized.
+    "settings_vaft_playback_priority",
+    "settings_vaft_priority_continuity",
+    "settings_vaft_priority_live",
+    "settings_vaft_priority_continuity_summary",
+    "settings_vaft_priority_live_summary",
+    "vaft_quality_status_title",
+    "vaft_quality_status_body",
+    "vaft_source_site",
+    "vaft_source_popout",
+    "vaft_source_mobile",
+    "vaft_source_embed",
+    "vaft_source_autoplay",
+    "vaft_source_resolving",
+    "vaft_ad_remaining",
+    "vaft_ad_duration_unknown",
+    "vaft_playback_delay",
     # Streamer profile copy uses the default English wording until its
     # translations are reviewed by native speakers.
     "channel_about_heading",
