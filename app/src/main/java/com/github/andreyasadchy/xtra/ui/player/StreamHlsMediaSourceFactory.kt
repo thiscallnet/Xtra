@@ -5,6 +5,8 @@ import android.content.Context
 import android.net.http.HttpEngine
 import android.net.http.ProxyOptions
 import android.util.Log
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -113,6 +115,7 @@ class StreamProxyState {
  * A new DataSource.Factory is made for each MediaItem so its proxy state is not shared by
  * recycled cards or unrelated playback sessions.
  */
+@OptIn(UnstableApi::class)
 class StreamHlsMediaSourceFactory(
     private val context: Context,
     private val xtraModule: XtraModule,

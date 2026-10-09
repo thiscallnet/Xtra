@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util
 
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Timeline
@@ -13,6 +14,7 @@ import androidx.media3.exoplayer.source.TrackGroupArray
 import androidx.media3.exoplayer.trackselection.ExoTrackSelection
 import androidx.media3.exoplayer.upstream.Allocator
 import androidx.media3.common.util.Util
+import androidx.media3.common.util.UnstableApi
 import com.github.andreyasadchy.xtra.BuildConfig
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -244,6 +246,7 @@ class AdaptiveLiveLoadControl(
 }
 
 /** Keeps Media3's seek override separate from Xtra's adaptive target. */
+@OptIn(UnstableApi::class)
 class AdaptiveLivePlaybackSpeedControl(
     private val delegate: DefaultLivePlaybackSpeedControl,
 ) : LivePlaybackSpeedControl {
