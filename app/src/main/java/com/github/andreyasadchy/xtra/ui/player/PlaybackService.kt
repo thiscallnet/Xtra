@@ -1172,6 +1172,7 @@ class PlaybackService : MediaSessionService() {
                             }
                             GET_VAFT_PLAYBACK_STATE -> {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                                    putBundle(VAFT_QUALITY_STATUS, vaftQualityStatus(player))
                                     putBoolean(VAFT_HANDOFF, vaftSourceSwitching)
                                     putBoolean(VAFT_ALTERNATE_ACTIVE, vaftAlternateActive)
                                     putBoolean(SUPPRESS_VAFT_OUTPUT, vaftOutputSuppressed)
@@ -3657,6 +3658,30 @@ class PlaybackService : MediaSessionService() {
         return null
     }
 
+    private fun vaftQualityStatus(player: ExoPlayer): Bundle? {
+        if (liveRewindActive || liveRewindTransitioning || isCasting()) return null
+        val controlled = xtraModule.streamMedia3Runtime.controlledPlaylistFor(player.currentMediaItem?.mediaId)
+        val window = if (!player.currentTimeline.isEmpty) {
+            player.currentTimeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
+        } else null
+        val epochUs = window?.windowStartTimeMs?.takeIf { it != Media3C.TIME_UNSET }
+            ?.let { it * 1_000L + player.currentPosition * 1_000L }
+        val active = if (controlled != null) epochUs?.let(controlled::isAlternateAt) == true
+            else vaftAlternateActive || vaftSourceSwitching || vaftOutputSuppressed || vaftCoordinatorJob?.isActive == true
+        if (!active) return null
+        val type = if (controlled != null) epochUs?.let(controlled::playerTypeAt) else vaftCurrentPlayerType
+        val remainingMs = if (controlled != null) epochUs?.let(controlled::adWindowRemainingMsAt) else {
+            val playlist = (player.currentManifest as? HlsManifest)?.mediaPlaylist
+            trackedVaftBoundary?.let { tracked -> playlist?.let { vaftBoundaryRemainingMs(player, it, tracked) } }
+        }
+        return Bundle().apply {
+            putString(VAFT_PLAYER_TYPE, type)
+            remainingMs?.let { putLong(VAFT_AD_REMAINING_MS, it) }
+            player.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET && it >= 0L }
+                ?.let { putLong(VAFT_LIVE_DELAY_MS, it) }
+        }
+    }
+
     private fun updateVaft(player: ExoPlayer) {
         if (isCasting()) return
         val controlled = xtraModule.streamMedia3Runtime.controlledPlaylistFor(player.currentMediaItem?.mediaId)
@@ -3664,8 +3689,27 @@ class PlaybackService : MediaSessionService() {
             if (!player.currentTimeline.isEmpty) {
                 val window = player.currentTimeline.getWindow(player.currentMediaItemIndex, Timeline.Window())
                 controlled.selectFormat(selectedControlledFormat(player))
-                if (controlled.consumeRecovery(window.windowStartTimeMs * 1_000L)) {
-                    player.seekToDefaultPosition()
+                val windowStartUs = window.windowStartTimeMs * 1_000L
+                val durationMs = window.durationMs.takeIf { it != Media3C.TIME_UNSET } ?: 0L
+                val windowEndUs = windowStartUs + durationMs * 1_000L
+                val targetOffsetMs = adaptiveLiveController?.currentPolicy()?.targetOffsetMs
+                    ?: LivePlaybackPolicies.forLowLatency(prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY)).targetOffsetMs
+                // Media3's default position can retain the delay learned during a stall.
+                // Use the verified playlist tail and the active buffer policy for live priority.
+                val livePositionMs = (durationMs - targetOffsetMs).coerceAtLeast(0L)
+                if (player.playWhenReady) controlled.consumeRecovery(windowStartUs, windowEndUs)?.let { recovery ->
+                    if (recovery.prioritizeLive) {
+                        player.seekTo(maxOf(livePositionMs, (recovery.epochUs - windowStartUs) / 1_000L))
+                    } else {
+                        player.seekToDefaultPosition()
+                    }
+                }
+                if (player.isPlaying && prefs().isVaftEnabled() &&
+                    prefs().getString(C.PLAYER_VAFT_PLAYBACK_PRIORITY, C.VAFT_PRIORITY_CONTINUITY) == C.VAFT_PRIORITY_LIVE &&
+                    livePositionMs - player.currentPosition > 6_000L) {
+                    if (BuildConfig.DEBUG) Log.d("XtraVaftFeed",
+                        "event=live_priority_catch_up skippedMs=${livePositionMs - player.currentPosition}")
+                    player.seekTo(livePositionMs)
                 }
                 val epochUs = window.windowStartTimeMs * 1_000L + player.currentPosition * 1_000L
                 val alternate = controlled.isAlternateAt(epochUs)
@@ -6697,6 +6741,9 @@ class PlaybackService : MediaSessionService() {
         const val VAFT_LOGICAL_QUALITY = "vaftLogicalQuality"
         const val VAFT_PLAYER_TYPE = "vaftPlayerType"
         const val GET_VAFT_PLAYBACK_STATE = "getVaftPlaybackState"
+        const val VAFT_QUALITY_STATUS = "vaftQualityStatus"
+        const val VAFT_AD_REMAINING_MS = "vaftAdRemainingMs"
+        const val VAFT_LIVE_DELAY_MS = "vaftLiveDelayMs"
         const val VAFT_WINDOW_ACTIVE = "vaftWindowActive"
         const val VAFT_CONTROLLED_FEED = "vaftControlledFeed"
         const val VAFT_PLAYBACK_STATE_CHANGED = "vaftPlaybackStateChanged"

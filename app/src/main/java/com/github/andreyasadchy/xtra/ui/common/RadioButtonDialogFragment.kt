@@ -12,16 +12,31 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.RadioButton
 import android.widget.RadioGroup
+import android.widget.TextView
 import androidx.appcompat.widget.AppCompatRadioButton
 import androidx.core.content.res.use
 import androidx.core.view.setPadding
+import androidx.core.view.isVisible
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.core.widget.NestedScrollView
 import com.github.andreyasadchy.xtra.R
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 
 class RadioButtonDialogFragment : BottomSheetDialogFragment() {
+
+    data class Header(val title: String, val description: String)
+
+    interface HeaderProvider {
+        suspend fun optionHeader(requestCode: Int): Header?
+    }
 
     interface OnSortOptionChanged {
         fun onChange(requestCode: Int, index: Int, text: CharSequence, tag: String?, tag2: String?)
@@ -52,6 +67,8 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
 
     private lateinit var listenerSort: OnSortOptionChanged
     private var optionsGroup: RadioGroup? = null
+    private var headerView: View? = null
+    private var renderedHeader: Header? = null
     private var optionsGeneration = 0
 
     fun updateOptions(requestCode: Int, labels: Collection<CharSequence>, tags: Array<String>?, tags2: Array<String>?, checkedIndex: Int): Boolean {
@@ -98,7 +115,13 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         }
         optionsGroup = radioGroup
         renderOptions()
-        return NestedScrollView(context).apply { addView(radioGroup) }
+        val content = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        headerView = inflater.inflate(R.layout.dialog_option_header, content, false).also {
+            it.isVisible = false
+            content.addView(it)
+        }
+        content.addView(radioGroup)
+        return NestedScrollView(context).apply { addView(content) }
     }
 
     private fun renderOptions() {
@@ -155,6 +178,8 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
 
     override fun onDestroyView() {
         optionsGroup = null
+        headerView = null
+        renderedHeader = null
         optionsGeneration++
         super.onDestroyView()
     }
@@ -164,5 +189,28 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         val behavior = BottomSheetBehavior.from(view.parent as View)
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        val provider = parentFragment as? HeaderProvider ?: return
+        viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (isActive) {
+                    try {
+                        val header = provider.optionHeader(requireArguments().getInt(REQUEST_CODE))
+                        if (header != renderedHeader) {
+                            renderedHeader = header
+                            headerView?.apply {
+                                isVisible = header != null
+                                findViewById<TextView>(R.id.optionHeaderTitle).text = header?.title
+                                findViewById<TextView>(R.id.optionHeaderDescription).text = header?.description
+                            }
+                        }
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        // Retain the last successful status during a transient session failure.
+                    }
+                    delay(1_000L)
+                }
+            }
+        }
     }
 }

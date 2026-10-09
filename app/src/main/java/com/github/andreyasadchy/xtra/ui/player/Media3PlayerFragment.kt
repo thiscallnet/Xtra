@@ -143,7 +143,7 @@ import kotlin.time.Instant
  * subclass and adds the screen-specific behaviour (video info, clip editing).
  */
 @OptIn(UnstableApi::class)
-abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment.OnSortOptionChanged, TvRemoteKeyHandler {
+abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFragment.OnSortOptionChanged, RadioButtonDialogFragment.HeaderProvider, TvRemoteKeyHandler {
 
     private var _binding: FragmentPlayerBinding? = null
     private var qualityLabelSingleLine: Boolean? = null
@@ -2291,6 +2291,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             ).show(childFragmentManager, "closeOnPip")
         }
     }
+
+    final override suspend fun optionHeader(requestCode: Int): RadioButtonDialogFragment.Header? =
+        if (requestCode == REQUEST_CODE_QUALITY) qualityMenuHeader() else null
+
+    protected open suspend fun qualityMenuHeader(): RadioButtonDialogFragment.Header? = null
 
     protected data class QualityPickerCandidate(val quality: VideoQuality)
 

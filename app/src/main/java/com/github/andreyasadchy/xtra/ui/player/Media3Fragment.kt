@@ -368,6 +368,37 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         )
     }
 
+    protected override suspend fun qualityMenuHeader(): RadioButtonDialogFragment.Header? {
+        if (videoType != STREAM || isLiveRewindSourceOwned()) return null
+        val controller = player ?: return null
+        val result = controller.sendCustomCommand(
+            SessionCommand(PlaybackService.GET_VAFT_PLAYBACK_STATE, Bundle.EMPTY), Bundle.EMPTY,
+        ).awaitFuture()
+        check(result.resultCode == SessionResult.RESULT_SUCCESS)
+        val status = result.extras.getBundle(PlaybackService.VAFT_QUALITY_STATUS) ?: return null
+        val source = when (status.getString(PlaybackService.VAFT_PLAYER_TYPE)) {
+            "site" -> getString(R.string.vaft_source_site)
+            "popout" -> getString(R.string.vaft_source_popout)
+            "mobile_web" -> getString(R.string.vaft_source_mobile)
+            "embed" -> getString(R.string.vaft_source_embed)
+            "autoplay" -> getString(R.string.vaft_source_autoplay)
+            else -> getString(R.string.vaft_source_resolving)
+        }
+        val remaining = if (status.containsKey(PlaybackService.VAFT_AD_REMAINING_MS)) {
+            val seconds = (status.getLong(PlaybackService.VAFT_AD_REMAINING_MS).coerceAtLeast(0L) + 999L) / 1_000L
+            getString(R.string.vaft_ad_remaining, seconds)
+        } else getString(R.string.vaft_ad_duration_unknown)
+        val priority = getString(if (requireContext().prefs().getString(C.PLAYER_VAFT_PLAYBACK_PRIORITY,
+                C.VAFT_PRIORITY_CONTINUITY) == C.VAFT_PRIORITY_LIVE) {
+            R.string.settings_vaft_priority_live
+        } else R.string.settings_vaft_priority_continuity)
+        val playback = if (status.containsKey(PlaybackService.VAFT_LIVE_DELAY_MS)) {
+            getString(R.string.vaft_playback_delay, priority, status.getLong(PlaybackService.VAFT_LIVE_DELAY_MS) / 1_000L)
+        } else priority
+        return RadioButtonDialogFragment.Header(getString(R.string.vaft_quality_status_title),
+            getString(R.string.vaft_quality_status_body, source, remaining, playback))
+    }
+
     protected override fun qualityPickerSelectionCandidates(): List<QualityPickerCandidate> {
         if (viewModel.controlledVaftFeed) {
             // The primary ladder represents requested qualities. A temporary VAFT
