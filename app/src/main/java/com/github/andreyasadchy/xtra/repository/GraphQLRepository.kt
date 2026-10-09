@@ -55,6 +55,7 @@ import com.github.andreyasadchy.xtra.graphql.UserResultLoginQuery
 import com.github.andreyasadchy.xtra.graphql.UserVideosQuery
 import com.github.andreyasadchy.xtra.graphql.UsersLastBroadcastQuery
 import com.github.andreyasadchy.xtra.graphql.UsersQuery
+import com.github.andreyasadchy.xtra.graphql.UserOfflineImageQuery
 import com.github.andreyasadchy.xtra.graphql.UsersStreamQuery
 import com.github.andreyasadchy.xtra.graphql.UsersTypeQuery
 import com.github.andreyasadchy.xtra.graphql.VideoCommentsQuery
@@ -1038,6 +1039,10 @@ class GraphQLRepository(
             logins = if (ids.isNullOrEmpty() && !logins.isNullOrEmpty()) Optional.Present(logins) else Optional.Absent,
         )
         sendQuery(networkLibrary, headers, query)
+    }
+
+    suspend fun loadUserOfflineImage(networkLibrary: String?, headers: Map<String, String>, id: String?, login: String?): ApolloResponse<UserOfflineImageQuery.Data> = withContext(Dispatchers.IO) {
+        sendQuery(networkLibrary, headers, UserOfflineImageQuery(Optional.presentIfNotNull(id), Optional.presentIfNotNull(login)))
     }
 
     suspend fun loadQueryUsers(networkLibrary: String?, headers: Map<String, String>, ids: List<String>? = null, logins: List<String>? = null): ApolloResponse<UsersQuery.Data> = withContext(Dispatchers.IO) {
