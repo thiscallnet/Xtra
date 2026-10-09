@@ -1487,4 +1487,5 @@
     <string name="system_media_replay_30">إعادة 30 ثانية</string>
     <string name="system_media_video">فيديو</string>
     <string name="system_media_behind_live">%1$s خلف البث المباشر</string>
+    <string name="chat_edge_padding">الهامش الجانبي للدردشة</string>
 </resources>

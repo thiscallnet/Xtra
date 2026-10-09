@@ -1510,4 +1510,5 @@
     <string name="system_media_replay_30">Prehrať posledných 30 s</string>
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">%1$s za živým vysielaním</string>
+    <string name="chat_edge_padding">Okraje chatu</string>
 </resources>
