@@ -3508,6 +3508,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     private fun updateDurationIfNeeded(durationMs: Long) {
+        // Live rewind uses stream-relative positions and its own predicted edge.
+        // HLS timeline refreshes must not replace that duration with the player
+        // window duration, including when the rewind renderer's state is unchanged.
+        if (videoType == STREAM) return
         val showTimeLabels =
             (videoType == VIDEO || videoType == CLIP || videoType == OFFLINE_VIDEO) && durationMs > 0L
         binding.playerControls.position.visibility = if (showTimeLabels) View.VISIBLE else View.GONE
