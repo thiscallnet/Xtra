@@ -103,6 +103,11 @@ class PlayerHudLayout @JvmOverloads constructor(
             val verticalPadding = (5f * density).roundToInt()
             setPadding(horizontalPadding, verticalPadding, horizontalPadding, verticalPadding)
         }
+        // Same quiet backing as the info card, so the time and buffer text
+        // stay readable over a bright webcam or scene.
+        findViewById<View>(R.id.timeStatusLayout)?.apply {
+            background = HudMetadataBackgroundDrawable(density)
+        }
         findViewById<androidx.mediarouter.app.MediaRouteButton>(R.id.hudCastButton)?.setAlwaysVisible(true)
         frames.clear()
         for (index in 0 until childCount) {
@@ -1916,11 +1921,8 @@ class PlayerHudLayout @JvmOverloads constructor(
         findViewById<TextView>(R.id.title)?.apply {
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 11f else 15f)
             includeFontPadding = !compact
-            // The compact player has usable vertical space before the
-            // transport row. A third line keeps long stream descriptions
-            // readable without widening the metadata into the top-right
-            // controls.
-            maxLines = if (compact) 3 else 2
+            // Two lines keep the card from covering the picture.
+            maxLines = 2
         }
         findViewById<TextView>(R.id.playingLabel)?.apply {
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, if (compact) 10f else 12f)

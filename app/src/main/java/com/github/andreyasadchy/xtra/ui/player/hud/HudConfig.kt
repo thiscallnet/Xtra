@@ -83,10 +83,13 @@ object HudDefaultPolicy {
     const val COMPACT_PHONE_V3 = 3
     const val RESPONSIVE_COMPLETE_V4 = 4
     const val FIXED_PLAYER_CHROME_V5 = 5
-    const val CURRENT = FIXED_PLAYER_CHROME_V5
+    /** Shares one bottom row between the time label and the bottom controls. */
+    const val ALIGNED_TIME_ROW_V6 = 6
+    const val CURRENT = ALIGNED_TIME_ROW_V6
 
     fun sanitize(value: Int, fallback: Int): Int = when (value) {
-        LEGACY_V2, COMPACT_PHONE_V3, RESPONSIVE_COMPLETE_V4, FIXED_PLAYER_CHROME_V5 -> value
+        LEGACY_V2, COMPACT_PHONE_V3, RESPONSIVE_COMPLETE_V4, FIXED_PLAYER_CHROME_V5,
+        ALIGNED_TIME_ROW_V6 -> value
         else -> fallback
     }
 }
@@ -120,7 +123,9 @@ object HudConfigMigration {
             // The progress line is fixed player chrome, not a user placement.
             // Drop its old coordinates while preserving every real control.
             placements = profile.placements.filterKeys { !HudElementRegistry.isSystemChrome(it) },
-            defaultPolicyVersion = HudDefaultPolicy.CURRENT,
+            // This repair adopts the policy that shipped with it. Later policy
+            // changes must not re-flow a user's sparse CUSTOM profile.
+            defaultPolicyVersion = HudDefaultPolicy.FIXED_PLAYER_CHROME_V5,
         )
     }
 }

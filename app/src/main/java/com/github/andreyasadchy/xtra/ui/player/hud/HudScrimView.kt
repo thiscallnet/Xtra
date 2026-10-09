@@ -24,8 +24,8 @@ class HudScrimView @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         val height = h.toFloat().coerceAtLeast(1f)
-        topGradient = LinearGradient(0f, 0f, 0f, height * 0.34f,
-            0x99000000.toInt(), 0x00000000, Shader.TileMode.CLAMP)
+        topGradient = LinearGradient(0f, 0f, 0f, height * 0.42f,
+            0xB3000000.toInt(), 0x00000000, Shader.TileMode.CLAMP)
         bottomGradient = LinearGradient(0f, height * 0.66f, 0f, height,
             0x00000000, 0x99000000.toInt(), Shader.TileMode.CLAMP)
     }
@@ -37,7 +37,7 @@ class HudScrimView @JvmOverloads constructor(
         paint.color = 0x24000000
         canvas.drawRect(0f, 0f, width.toFloat(), height, paint)
         paint.shader = topGradient
-        canvas.drawRect(0f, 0f, width.toFloat(), height * 0.34f, paint)
+        canvas.drawRect(0f, 0f, width.toFloat(), height * 0.42f, paint)
         paint.shader = bottomGradient
         canvas.drawRect(0f, height * 0.66f, width.toFloat(), height, paint)
         paint.shader = null

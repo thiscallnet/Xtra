@@ -385,7 +385,7 @@ class HudLayoutEngineTest {
             ),
         ).portrait
 
-        assertEquals(HudDefaultPolicy.CURRENT, migrated.defaultPolicyVersion)
+        assertEquals(HudDefaultPolicy.FIXED_PLAYER_CHROME_V5, migrated.defaultPolicyVersion)
         listOf(false, true).forEach { rtl ->
             val result = engine(rtl = rtl)
                 .resolve(safe, HudOrientation.PORTRAIT, migrated, measured)
@@ -501,7 +501,7 @@ class HudLayoutEngineTest {
         assertEquals(HudConfigMigration.INITIAL, decoded?.migrationVersion)
 
         val migrated = decoded?.let(HudConfigMigration::apply)
-        assertEquals(HudDefaultPolicy.CURRENT, migrated?.portrait?.defaultPolicyVersion)
+        assertEquals(HudDefaultPolicy.FIXED_PLAYER_CHROME_V5, migrated?.portrait?.defaultPolicyVersion)
         assertEquals(custom.placements, migrated?.portrait?.placements)
         assertEquals(HudConfigMigration.CURRENT, migrated?.migrationVersion)
         assertEquals(migrated, migrated?.let(HudConfigMigration::apply))

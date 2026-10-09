@@ -180,11 +180,29 @@ class FollowingOverviewFragment : BaseNetworkFragment(), Scrollable {
             binding.recyclerView.updatePadding(bottom = insets.bottom + resources.getDimensionPixelSize(R.dimen.following_overview_bottom_padding))
             windowInsets
         }
+        view.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> updateTopInsetGuard() }
+        view.post { updateTopInsetGuard() }
         streamFeedScreenController = StreamFeedScreenController(
             fragment = this,
             coordinator = viewModel.refreshCoordinator,
             specProvider = viewModel::currentFeedSpec,
         ).also { it.start() }
+    }
+
+    /** Covers the status bar area whenever this screen reaches the top of the window. */
+    private fun updateTopInsetGuard() {
+        val binding = _binding ?: return
+        if (!binding.root.isAttachedToWindow) return
+        val topInset = ViewCompat.getRootWindowInsets(binding.root)
+            ?.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            ?.top ?: 0
+        val location = IntArray(2)
+        binding.root.getLocationInWindow(location)
+        val guardHeight = (topInset - location[1]).coerceAtLeast(0)
+        if (binding.topInsetGuard.layoutParams.height != guardHeight) {
+            binding.topInsetGuard.layoutParams = binding.topInsetGuard.layoutParams.apply { height = guardHeight }
+        }
+        binding.topInsetGuard.visibility = if (guardHeight > 0) android.view.View.VISIBLE else android.view.View.GONE
     }
 
     override fun initialize() {

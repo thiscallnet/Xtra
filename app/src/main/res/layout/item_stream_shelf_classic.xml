@@ -179,7 +179,9 @@
                 android:layout_height="wrap_content"
                 android:importantForAccessibility="no"
                 android:overScrollMode="never"
-                android:scrollbars="none">
+                android:scrollbars="none"
+                android:fadingEdgeLength="20dp"
+                android:requiresFadingEdge="horizontal">
 
                 <TextView
                     android:id="@+id/title"
@@ -225,7 +227,9 @@
         android:layout_marginTop="3dp"
         android:importantForAccessibility="no"
         android:overScrollMode="never"
-        android:scrollbars="none">
+        android:scrollbars="none"
+        android:fadingEdgeLength="20dp"
+        android:requiresFadingEdge="horizontal">
 
         <LinearLayout
             android:id="@+id/tags"

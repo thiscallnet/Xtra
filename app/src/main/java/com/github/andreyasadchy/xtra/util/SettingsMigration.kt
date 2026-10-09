@@ -258,6 +258,7 @@ object SettingsMigration {
         C.PLAYER_METADATA_TEXT_COLOR,
         C.APPEARANCE_MIGRATION_VERSION,
         C.CHAT_TEXT_SIZE,
+        C.CHAT_EDGE_PADDING,
         C.CHAT_EMOTE_SIZE,
         C.CHAT_BADGE_SIZE,
         C.CHAT_RANDOM_COLOR,

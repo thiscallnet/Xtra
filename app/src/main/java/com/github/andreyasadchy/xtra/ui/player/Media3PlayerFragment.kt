@@ -240,6 +240,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         val timeDescription: String,
         val timeActionable: Boolean,
         val liveIndicatorVisible: Boolean,
+        val liveIndicatorAtEdge: Boolean,
     )
 
     private val backPressedCallback = object : OnBackPressedCallback(true) {
@@ -3648,15 +3649,21 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (wasVisible) binding.playerControls.root.refreshAvailabilityIfChanged()
     }
 
-    private fun setLiveIndicatorVisible(visible: Boolean) {
+    private fun setLiveIndicatorVisible(visible: Boolean, atLiveEdge: Boolean = true) {
         val timeView: TextView = _binding?.playerControls?.liveTimeGroup ?: return
-        if ((timeView.compoundDrawablesRelative[0] != null) == visible) return
+        val muted = visible && !atLiveEdge
+        if ((timeView.compoundDrawablesRelative[0] != null) == visible &&
+            (timeView.tag == LIVE_DOT_MUTED_TAG) == muted
+        ) return
 
         val indicator = if (visible) {
-            timeView.context.getDrawable(R.drawable.bg_game_viewer_dot)
+            timeView.context.getDrawable(R.drawable.bg_game_viewer_dot)?.mutate()?.also {
+                if (muted) it.setTint(0x99FFFFFF.toInt())
+            }
         } else {
             null
         }
+        timeView.tag = if (muted) LIVE_DOT_MUTED_TAG else null
         timeView.setCompoundDrawablesRelativeWithIntrinsicBounds(indicator, null, null, null)
         timeView.compoundDrawablePadding = if (visible) {
             (4f * timeView.resources.displayMetrics.density).roundToInt()
@@ -3820,7 +3827,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             timeText = timeText,
             timeDescription = timeDescription,
             timeActionable = timeActionable,
-            liveIndicatorVisible = isAtLiveEdge,
+            // The dot marks a live stream. It is red at the live edge and
+            // muted while paused or behind live.
+            liveIndicatorVisible = !liveRewindStreamOffline &&
+                !liveRewindSwitching &&
+                !liveRewindReturningLive,
+            liveIndicatorAtEdge = isAtLiveEdge,
         )
         if (next == renderedLiveRewindState) {
             return
@@ -3842,8 +3854,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         if (previous?.timeDescription != next.timeDescription) {
             binding.playerControls.liveTimeGroup.contentDescription = next.timeDescription
         }
-        if (previous?.liveIndicatorVisible != next.liveIndicatorVisible) {
-            setLiveIndicatorVisible(next.liveIndicatorVisible)
+        if (previous?.liveIndicatorVisible != next.liveIndicatorVisible ||
+            previous?.liveIndicatorAtEdge != next.liveIndicatorAtEdge
+        ) {
+            setLiveIndicatorVisible(next.liveIndicatorVisible, next.liveIndicatorAtEdge)
         }
         if (previous?.timeActionable != next.timeActionable) {
             binding.playerControls.liveTimeGroup.setOnClickListener(
@@ -5169,6 +5183,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     companion object {
+        private const val LIVE_DOT_MUTED_TAG = "live_dot_muted"
         private const val CONTROLLER_ANIMATION_DURATION_MS = 250L
         private const val CONTROLLER_AUTO_HIDE_DELAY_MS = 3_000L
         protected const val AUTO_QUALITY = "auto"

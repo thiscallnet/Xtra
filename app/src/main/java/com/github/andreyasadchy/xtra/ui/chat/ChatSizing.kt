@@ -41,7 +41,15 @@ internal data class ChatRenderStyle(
     val showTimestamps: Boolean,
     val timestampFormat: String?,
     val gifDisplayMode: ChatGifDisplayMode = ChatGifDisplayMode.LARGE,
+    val edgePaddingDp: Int = DEFAULT_CHAT_EDGE_PADDING_DP,
 )
+
+internal const val DEFAULT_CHAT_EDGE_PADDING_DP = 8
+
+/** Space between the screen edge and chat rows; "1" lets chat run almost edge to edge. */
+internal fun chatEdgePaddingDp(context: Context): Int =
+    context.prefs().getString(C.CHAT_EDGE_PADDING, DEFAULT_CHAT_EDGE_PADDING_DP.toString())
+        ?.toIntOrNull()?.coerceIn(0, 24) ?: DEFAULT_CHAT_EDGE_PADDING_DP
 
 internal fun resolveChatSizing(context: Context): ChatSizing {
     val prefs = context.prefs()
@@ -76,5 +84,6 @@ internal fun resolveChatRenderStyle(context: Context): ChatRenderStyle {
         gifDisplayMode = ChatGifDisplayMode.fromPreference(
             prefs.getString(C.CHAT_GIF_DISPLAY, "large"),
         ),
+        edgePaddingDp = chatEdgePaddingDp(context),
     )
 }

@@ -67,6 +67,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.resolveChatEventPal
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewLink
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreview
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewRepository
+import com.github.andreyasadchy.xtra.ui.chat.chatEdgePaddingDp
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.ChatClipPreviewState
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.formatClipDuration
 import com.github.andreyasadchy.xtra.ui.chat.v2.preview.parseClipTimestamp
@@ -116,9 +117,17 @@ open class ChatMessageTextView private constructor(
         attrs,
     )
 
-    private val initialPaddingStart = paddingStart
+    // Rows are inset from the screen edge by the user's chat edge padding setting;
+    // it is re-read on every bind so a settings change applies to rebuilt rows.
+    private fun edgePaddingPx(): Int =
+        (chatEdgePaddingDp(context) * resources.displayMetrics.density).roundToInt()
+
+    private var boundEdgePaddingPx = -1
+    private val layoutPaddingStart = paddingStart
+    private val layoutPaddingEnd = paddingEnd
+    private var initialPaddingStart = layoutPaddingStart + edgePaddingPx()
     private val initialPaddingTop = paddingTop
-    private val initialPaddingEnd = paddingEnd
+    private var initialPaddingEnd = layoutPaddingEnd + edgePaddingPx()
     private val initialPaddingBottom = paddingBottom
     private val initialLineSpacingExtra = lineSpacingExtra
     private val initialLineSpacingMultiplier = lineSpacingMultiplier
@@ -234,7 +243,9 @@ open class ChatMessageTextView private constructor(
     }
 
     fun bind(row: ChatRowUiModel) {
-        if (boundRow === row && stagedRow == null && boundTextSizePx == textSize) return
+        if (boundRow === row && stagedRow == null && boundTextSizePx == textSize &&
+            boundEdgePaddingPx == edgePaddingPx()
+        ) return
         externalBindGeneration++
         reboundDimensionKeys.clear()
         clearStagedRow()
@@ -358,6 +369,10 @@ open class ChatMessageTextView private constructor(
         invalidateClipDrawCache()
         latchTerminalAssetFailures()
         val density = resources.displayMetrics.density
+        val edgePadding = edgePaddingPx()
+        boundEdgePaddingPx = edgePadding
+        initialPaddingStart = layoutPaddingStart + edgePadding
+        initialPaddingEnd = layoutPaddingEnd + edgePadding
         val event = row.eventPresentation
         if (event != null) {
             val usesCustomBackground = row.background == Color.TRANSPARENT
@@ -377,10 +392,12 @@ open class ChatMessageTextView private constructor(
                     railWidthPx = (ChatEventVisualTokens.accentRailWidthDp * density).roundToInt(),
                 ),
             )
+            // Event text lines up with normal rows when the edge padding is wide enough
+            // to clear the accent rail; otherwise it keeps the minimum rail/end insets.
             setPaddingRelative(
-                initialPaddingStart + (ChatEventVisualTokens.contentStartInsetDp * density).roundToInt(),
+                layoutPaddingStart + maxOf(edgePadding, (ChatEventVisualTokens.contentStartInsetDp * density).roundToInt()),
                 initialPaddingTop + (ChatEventVisualTokens.verticalPaddingDp * density).roundToInt(),
-                initialPaddingEnd + (ChatEventVisualTokens.endPaddingDp * density).roundToInt(),
+                layoutPaddingEnd + maxOf(edgePadding, (ChatEventVisualTokens.endPaddingDp * density).roundToInt()),
                 initialPaddingBottom + (ChatEventVisualTokens.verticalPaddingDp * density).roundToInt(),
             )
             setLineSpacing(ChatEventVisualTokens.lineSpacingExtraDp * density, 1f)
@@ -431,7 +448,7 @@ open class ChatMessageTextView private constructor(
                 is ChatPiece.Badge -> {
                     if (row.pieces.getOrNull(index - 1) is ChatPiece.Badge) {
                         val gapStart = output.length
-                        output.append(' ')
+                        output.append('ï¿½')
                         output.setSpan(
                             BadgeGapSpan((2f * resources.displayMetrics.density).roundToInt()),
                             gapStart,

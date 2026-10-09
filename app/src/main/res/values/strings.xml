@@ -2057,6 +2057,10 @@ Metadata text</string>
     <string name="avoid_rounded_corners">Avoid rounded screen corners</string>
     <string name="chat_size_modifier">Size modifier</string>
     <string name="chat_emote_size">Emote size</string>
+    <string name="chat_edge_padding">Chat edge padding</string>
+    <string name="chat_edge_padding_edge_to_edge">Edge to edge (1 dp)</string>
+    <string name="chat_edge_padding_default">Default (8 dp)</string>
+    <string name="chat_edge_padding_roomy">Roomy (14 dp)</string>
     <string name="chat_badge_size">Badge size</string>
     <string name="overlay_emotes">Overlay emotes</string>
     <string name="network_library">Network library</string>

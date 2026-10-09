@@ -242,6 +242,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var composerSubmissionInProgress = false
     private var moderatorActionInFlight = false
     private var compactPickerPreferenceListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private var chatEdgePaddingListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     private var pendingChatSendResult: ChatSendResult? = null
 
     private data class ComposerRestoreState(
@@ -495,6 +496,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         applyChatBackgroundAppearance()
+        // Settings opens over a player that is never paused, so onResume would not
+        // pick up a changed edge padding until the player is reopened.
+        chatEdgePaddingListener?.let { requireContext().prefs().unregisterOnSharedPreferenceChangeListener(it) }
+        chatEdgePaddingListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == C.CHAT_EDGE_PADDING && isAdded) {
+                chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
+            }
+        }.also { requireContext().prefs().registerOnSharedPreferenceChangeListener(it) }
         chatV2ViewportState = restoreChatV2ViewportState(savedInstanceState)
         useChatV2 = false
         seenPinnedMessageId = savedInstanceState?.getString(KEY_SEEN_PINNED_MESSAGE_ID)
@@ -4181,6 +4190,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             requireContext().prefs().unregisterOnSharedPreferenceChangeListener(listener)
         }
         compactPickerPreferenceListener = null
+        chatEdgePaddingListener?.let { listener ->
+            requireContext().prefs().unregisterOnSharedPreferenceChangeListener(listener)
+        }
+        chatEdgePaddingListener = null
         autoCompleteAdapter?.dispose()
         autoCompleteAdapter = null
         chatInputEmoteRenderer?.dispose()

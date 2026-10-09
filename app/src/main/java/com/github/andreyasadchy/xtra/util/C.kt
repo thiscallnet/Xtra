@@ -317,6 +317,7 @@ object C {
     const val PLAYER_METADATA_TEXT_COLOR = "player_metadata_text_color"
     const val APPEARANCE_MIGRATION_VERSION = "appearance_migration_version"
     const val CHAT_TEXT_SIZE = "chat_text_size"
+    const val CHAT_EDGE_PADDING = "chat_edge_padding"
     const val CHAT_EMOTE_SIZE = "chat_emote_size"
     const val CHAT_BADGE_SIZE = "chat_badge_size"
     const val CHAT_RANDOM_COLOR = "chat_randomcolor"

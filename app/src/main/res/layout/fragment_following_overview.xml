@@ -13,6 +13,16 @@
         android:paddingTop="4dp"
         tools:listitem="@layout/item_following_section" />
 
+    <!-- Keeps scrolled content from showing through the status bar. -->
+    <View
+        android:id="@+id/topInsetGuard"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_gravity="top"
+        android:background="?android:colorBackground"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
     <TextView
         android:id="@+id/emptyState"
         android:layout_width="match_parent"
