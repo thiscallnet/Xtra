@@ -74,6 +74,14 @@ class StreamsShelfPagingAdapter(
         val layout = if (expressive) R.layout.item_stream_shelf else R.layout.item_stream_shelf_classic
         val itemView = LayoutInflater.from(parent.context).inflate(layout, parent, false)
         if (expressive) ExpressiveShapeStyling.applyStreamShelfItem(itemView)
+        // The shelf layouts only reserve space on one side because they sit in
+        // a horizontal row. In this vertical list that left the cards flush
+        // against the left edge, so give both sides the same gutter.
+        (itemView.layoutParams as? ViewGroup.MarginLayoutParams)?.let { params ->
+            val gutter = (8 * itemView.resources.displayMetrics.density).toInt()
+            params.marginStart = gutter
+            params.marginEnd = gutter
+        }
         return ViewHolder(ItemStreamShelfBinding.bind(itemView), expressive)
     }
 
