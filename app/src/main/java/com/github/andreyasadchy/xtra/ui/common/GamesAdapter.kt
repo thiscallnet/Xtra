@@ -222,6 +222,12 @@ class GamesAdapter(
             fun dp(value: Int) = (value * density + 0.5f).toInt()
             root.orientation = if (horizontal) LinearLayout.HORIZONTAL else LinearLayout.VERTICAL
             root.gravity = if (horizontal) Gravity.CENTER_VERTICAL else Gravity.TOP
+            // The single-column list is full width, so give it the same screen
+            // gutter as the other lists instead of the grid's 4dp tile spacing.
+            root.updateLayoutParams<ViewGroup.MarginLayoutParams> {
+                marginStart = if (horizontal) dp(16) else dp(4)
+                marginEnd = if (horizontal) dp(16) else dp(4)
+            }
             binding.gameImageContainer.layoutParams = if (horizontal) {
                 LinearLayout.LayoutParams(dp(88), dp(118))
             } else {
