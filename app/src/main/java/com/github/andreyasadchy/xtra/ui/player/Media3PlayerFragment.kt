@@ -129,6 +129,7 @@ import coil3.transform.CircleCropTransformation
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -649,6 +650,53 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         qualityLabelSingleLine = null
         super.onViewCreated(view, savedInstanceState)
+        if (videoType == STREAM) {
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    combine(viewModel.waitingForLiveStream, viewModel.streamOfflineImage) { waiting, image ->
+                        waiting to image
+                    }.collectLatest { (waiting, image) ->
+                        if (waiting) {
+                            binding.streamOfflineImage.isVisible = true
+                            binding.bufferingIndicator.isVisible = false
+                            requireContext().imageLoader.enqueue(
+                                ImageRequest.Builder(requireContext())
+                                    .data(image)
+                                    .target(binding.streamOfflineImage)
+                                    .build()
+                            )
+                        }
+                    }
+                }
+            }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.waitingForLiveStream.collectLatest { waiting ->
+                        if (!waiting) return@collectLatest
+                        while (true) {
+                            // Playback events are the fast path. Reconcile after reconnects,
+                            // and when chat or its channel subscriptions are disabled.
+                            delay(15_000L)
+                            val status = viewModel.refreshLiveStatusNow(
+                                requireArguments().getString(KEY_CHANNEL_ID),
+                                requireArguments().getString(KEY_CHANNEL_LOGIN),
+                                requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                                TwitchApiHelper.getHelixHeaders(requireContext()),
+                                TwitchApiHelper.getGQLHeaders(requireContext()),
+                            )
+                            if (status is FreshLiveStatus.Live && viewModel.waitingForLiveStream.value) {
+                                onStreamBecameLive(null)
+                            } else {
+                                viewModel.loadStreamOfflineImage(
+                                    requireArguments().getString(KEY_CHANNEL_ID),
+                                    requireArguments().getString(KEY_CHANNEL_LOGIN),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
         binding.playerControls.interactionLock.setOnClickListener {
             setInteractionLocked(!isInteractionLocked)
         }
@@ -1455,7 +1503,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     }
                     viewLifecycleOwner.lifecycleScope.launch {
                         repeatOnLifecycle(Lifecycle.State.STARTED) {
-                            viewModel.stream.collectLatest { stream ->
+                            combine(viewModel.stream, viewModel.streamStatusKnown) { stream, known ->
+                                stream to known
+                            }.collectLatest { (stream, statusKnown) ->
                                 if (stream != null) {
                                     startStreamUptimeTicker()
                                     if (requireContext().prefs().getBoolean(C.PLAYER_CHANNEL, true)) {
@@ -1510,12 +1560,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                                     if (isLiveRewindAvailable()) {
                                         updateLiveRewindProgress()
                                     }
-                                } else if (shouldMarkLiveStreamOffline(
-                                        viewModel.streamStatusKnown.value,
+                                } else if (statusKnown) {
+                                    onConfirmedStreamOffline()
+                                    if (shouldMarkLiveStreamOffline(
+                                        statusKnown,
                                         liveRewindStreamWasLive || streamUptimeWasLive,
                                         false,
                                     )) {
-                                    onLiveStreamWentOffline()
+                                        onLiveStreamWentOffline()
+                                    }
                                 }
                             }
                         }
@@ -2768,6 +2821,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         onLiveStreamWentOffline()
     }
 
+    protected open fun onConfirmedStreamOffline() = Unit
+
     fun updateStreamInfo(
         title: String?,
         gameId: String?,
@@ -3106,7 +3161,25 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
+    protected fun showOfflineStream() {
+        if (videoType != STREAM || isLiveRewindActiveOrSwitching()) return
+        clearPlayerError()
+        viewModel.waitingForLiveStream.value = true
+        binding.streamOfflineImage.isVisible = true
+        binding.bufferingIndicator.isVisible = false
+        viewModel.loadStreamOfflineImage(
+            requireArguments().getString(KEY_CHANNEL_ID),
+            requireArguments().getString(KEY_CHANNEL_LOGIN),
+        )
+    }
+
+    protected fun clearOfflineStream() {
+        viewModel.waitingForLiveStream.value = false
+        binding.streamOfflineImage.isVisible = false
+    }
+
     protected fun showPlayerError(@StringRes message: Int, retry: (() -> Unit)? = null) {
+        clearOfflineStream()
         binding.playerErrorText.setText(message)
         binding.playerErrorRetry.isVisible = retry != null
         binding.playerErrorRetry.setOnClickListener {

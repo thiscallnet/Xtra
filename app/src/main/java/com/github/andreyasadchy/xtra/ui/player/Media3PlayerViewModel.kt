@@ -93,6 +93,48 @@ class Media3PlayerViewModel(
     var streamUrlAvailableElapsedMs: Long? = null
     val stream = MutableStateFlow<Stream?>(null)
     val streamStatusKnown = MutableStateFlow(false)
+    val waitingForLiveStream = MutableStateFlow(false)
+    val streamOfflineImage = MutableStateFlow<String?>(null)
+    private var offlineImageJob: Job? = null
+    private var offlineImageLoaded = false
+
+    fun loadStreamOfflineImage(channelId: String?, channelLogin: String?) {
+        if (offlineImageJob?.isActive == true || offlineImageLoaded) return
+        offlineImageJob = viewModelScope.launch {
+            val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+            try {
+                val response = graphQLRepository.loadUserOfflineImage(
+                    networkLibrary, TwitchApiHelper.getGQLHeaders(applicationContext), channelId, channelLogin,
+                )
+                if (response.errors.isNullOrEmpty() && response.data?.user != null) {
+                    streamOfflineImage.value = response.data?.user?.offlineImageURL?.takeIf { it.isNotBlank() }
+                    offlineImageLoaded = true
+                    return@launch
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Use the public offline-image field when GraphQL is unavailable.
+            }
+            val headers = TwitchApiHelper.getHelixHeaders(applicationContext)
+            if (!headers[C.HEADER_TOKEN].isNullOrBlank()) {
+                try {
+                    val user = helixRepository.getUsers(
+                        networkLibrary, headers, channelId?.let { listOf(it) },
+                        if (channelId.isNullOrBlank()) channelLogin?.let { listOf(it) } else null,
+                    ).data.firstOrNull()
+                    if (user != null) {
+                        streamOfflineImage.value = user.offlineImageUrl?.takeIf { it.isNotBlank() }
+                        offlineImageLoaded = true
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // Keep the last valid image through transient failures.
+                }
+            }
+        }
+    }
     private val streamStatusRequestGeneration = AtomicLong()
     private var streamJob: Job? = null
     var useCustomProxy = false

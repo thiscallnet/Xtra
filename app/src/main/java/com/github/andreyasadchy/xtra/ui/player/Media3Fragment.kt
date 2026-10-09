@@ -108,6 +108,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var offlineLiveRestartAtMs: Long? = null
     private var clipPreparationJob: Job? = null
     private var clipPreparationSnackbar: Snackbar? = null
     private var livePlaybackBeforeClipEditor: Boolean? = null
@@ -1411,6 +1412,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (isPlaying && viewModel.quality?.name == AUDIO_ONLY_QUALITY) clearOfflineStream()
                         if (isPlaying && videoType == STREAM && !isLiveRewindActiveOrSwitching()) {
                             liveRecoveryState.onPlaybackStarted(
                                 liveRecoveryState.currentGeneration(),
@@ -1677,6 +1679,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     }
 
                     override fun onRenderedFirstFrame() {
+                        offlineLiveRestartAtMs = null
+                        clearOfflineStream()
                         if (videoType == STREAM && !viewModel.liveFirstFrameRendered) {
                             viewModel.liveFirstFrameRendered = true
                             renderPlaybackChrome()
@@ -2031,7 +2035,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         )
                     }
                     clearPlayerError()
-                    showPlayerError(R.string.stream_ended)
+                    showOfflineStream()
                 }
                 FreshLiveStatus.Unknown -> {
                     if (BuildConfig.DEBUG) {
@@ -2198,14 +2202,42 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         )
     }
 
+    override fun onConfirmedStreamOffline() {
+        if (videoType != STREAM || isLiveRewindActiveOrSwitching()) return
+        offlineLiveRestartAtMs = null
+        val controller = player
+        if (!viewModel.liveFirstFrameRendered || controller?.currentMediaItem == null ||
+            controller.playbackState == Player.STATE_ENDED || controller.playerError != null
+        ) {
+            showOfflineStream()
+        }
+    }
+
     override fun onStreamBecameLive(eventSequence: Long?) {
         liveStatusEventGeneration++
+        val wasWaitingForLive = viewModel.waitingForLiveStream.value
         if (videoType == STREAM) clearPlayerError()
         val controller = player
         val state = controller?.playbackState
         val playWhenReady = controller?.playWhenReady == true
         val decision = when {
             videoType != STREAM -> "ignore_non_stream"
+            wasWaitingForLive && !isLiveRewindActiveOrSwitching() -> {
+                if (viewModel.quality?.name == CHAT_ONLY_QUALITY) {
+                    viewModel.waitingForLiveStream.value = false
+                    "keep_chat_only"
+                } else {
+                    val now = SystemClock.elapsedRealtime()
+                    val lastAttempt = offlineLiveRestartAtMs
+                    if (lastAttempt == null || now - lastAttempt >= 15_000L) {
+                        offlineLiveRestartAtMs = now
+                        restartPlayer()
+                        "restart_offline_source"
+                    } else {
+                        "await_offline_restart"
+                    }
+                }
+            }
             controller?.currentMediaItem == null -> {
                 restartPlayer()
                 "start_missing_source"
@@ -2231,6 +2263,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun onStreamBecameOffline(eventSequence: Long?) {
+        offlineLiveRestartAtMs = null
         val requestGeneration = ++liveStatusEventGeneration
         if (videoType != STREAM) {
             if (BuildConfig.DEBUG) {
@@ -2257,7 +2290,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     onLiveStreamWentOffline()
                     if (player?.playWhenReady == true) {
                         clearPlayerError()
-                        showPlayerError(R.string.stream_ended)
+                        showOfflineStream()
                     }
                     "confirm_offline"
                 }
@@ -2405,7 +2438,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             }
             if (status === FreshLiveStatus.Offline && isStreamRecoveryWanted(requestId)) {
                 clearPlayerError()
-                showPlayerError(R.string.stream_ended)
+                showOfflineStream()
                 return AutomaticLiveRecoveryResult.STREAM_ENDED
             }
             return AutomaticLiveRecoveryResult.RETRY
@@ -3537,7 +3570,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private fun renderPlaybackChrome() {
         val player = player ?: return
         val showPlayButton = shouldShowPlaybackPlayButton(player)
-        val buffering = player.playbackState == Player.STATE_BUFFERING &&
+        val buffering = !viewModel.waitingForLiveStream.value && player.playbackState == Player.STATE_BUFFERING &&
             (videoType != STREAM || !viewModel.liveFirstFrameRendered)
         val canPause = !(videoType == STREAM && !requireContext().isTelevision() && !requireContext().prefs().getBoolean(C.PLAYER_PAUSE, true))
         val state = PlaybackChromeState(

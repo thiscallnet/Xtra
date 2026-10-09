@@ -1,0 +1,5 @@
+query UserOfflineImage($id: ID, $login: String) {
+    user(id: $id, login: $login) {
+        offlineImageURL
+    }
+}

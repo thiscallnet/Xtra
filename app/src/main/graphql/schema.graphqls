@@ -384,6 +384,7 @@ type Team {
 
 type User {
     bannerImageURL: String
+    offlineImageURL: String
     broadcastBadges: [Badge]
     broadcastSettings: BroadcastSettings,
     channel: Channel
