@@ -1488,4 +1488,21 @@
     <string name="system_media_video">فيديو</string>
     <string name="system_media_behind_live">%1$s خلف البث المباشر</string>
     <string name="chat_edge_padding">الهامش الجانبي للدردشة</string>
+    <string name="following_recently_offline">انقطع البث مؤخرًا</string>
+    <string name="following_no_recently_offline">ستظهر هنا القنوات التي تتابعها وانتهى بثها مؤخرًا.</string>
+    <string name="following_expected_soon">متوقع قريبًا</string>
+    <string name="following_no_expected_soon">ستظهر هنا القنوات التي تبدأ البث عادةً في هذا الوقت.</string>
+    <string name="following_expected_start">عادةً حوالي %1$s</string>
+    <string name="following_ended_ago">انتهى %1$s</string>
+    <string name="recently_offline_window_6h">6 ساعات</string>
+    <string name="recently_offline_window_12h">12 ساعة</string>
+    <string name="recently_offline_window_24h">24 ساعة</string>
+    <string name="recently_offline_window_48h">48 ساعة</string>
+    <string name="recently_offline_window_7d">7 أيام</string>
+    <string name="clear_stream_start_history">مسح سجل بدء البث</string>
+    <string name="clear_stream_start_history_summary">نسيان أوقات بدء البث المحفوظة المستخدمة في «متوقع قريبًا»</string>
+    <string name="clear_stream_start_history_message">هل تريد حذف أوقات بدء البث المحفوظة؟ يُعاد بناء «متوقع قريبًا» من البثوث الأخيرة طالما كان مفعّلًا.</string>
+    <string name="stream_start_history_cleared">تم مسح سجل بدء البث</string>
+    <string name="following_recently_offline_window">فترة «انقطع البث مؤخرًا»</string>
+    <string name="following_recently_offline_window_summary">المدة التي تبقى فيها القناة ضمن «انقطع البث مؤخرًا» بعد انتهاء بثها</string>
 </resources>

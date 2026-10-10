@@ -159,7 +159,20 @@ class UpcomingStreamShelfAdapter(
             binding.title.visibility = View.VISIBLE
             binding.category.text = item.gameName.orEmpty()
             binding.category.visibility = if (binding.category.text.isNullOrBlank()) View.GONE else View.VISIBLE
-            binding.startTime.text = formatStartTime(context, item.startTimeMillis)
+            binding.startTime.text = if (item.isPredicted) {
+                context.getString(
+                    R.string.following_expected_start,
+                    DateUtils.formatDateTime(context, item.startTimeMillis, DateUtils.FORMAT_SHOW_TIME or DateUtils.FORMAT_ABBREV_TIME),
+                )
+            } else {
+                formatStartTime(context, item.startTimeMillis)
+            }
+            if (item.isPredicted) {
+                binding.title.visibility = View.GONE
+                binding.category.visibility = View.GONE
+            }
+            // Predicted cards have no title or category, so they skip the tall scheduled-card minimum.
+            binding.cardContent.minimumHeight = if (item.isPredicted) 0 else (160 * context.resources.displayMetrics.density).toInt()
 
             val previewUrl = item.previewImageURL?.takeIf { showPreview && it.isNotBlank() }
             binding.previewHost.visibility = if (previewUrl == null) View.GONE else View.INVISIBLE

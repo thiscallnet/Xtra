@@ -1486,4 +1486,21 @@
     <string name="system_media_video">Wideo</string>
     <string name="system_media_behind_live">%1$s za transmisją na żywo</string>
     <string name="chat_edge_padding">Margines czatu</string>
+    <string name="following_recently_offline">Niedawno offline</string>
+    <string name="following_no_recently_offline">Obserwowane kanały, które niedawno zakończyły transmisję, pojawią się tutaj.</string>
+    <string name="following_expected_soon">Wkrótce oczekiwane</string>
+    <string name="following_no_expected_soon">Kanały, które zwykle zaczynają transmisję o tej porze, pojawią się tutaj.</string>
+    <string name="following_expected_start">Zwykle około %1$s</string>
+    <string name="following_ended_ago">Zakończono %1$s</string>
+    <string name="recently_offline_window_6h">6 godzin</string>
+    <string name="recently_offline_window_12h">12 godzin</string>
+    <string name="recently_offline_window_24h">24 godziny</string>
+    <string name="recently_offline_window_48h">48 godzin</string>
+    <string name="recently_offline_window_7d">7 dni</string>
+    <string name="clear_stream_start_history">Wyczyść historię rozpoczęć transmisji</string>
+    <string name="clear_stream_start_history_summary">Zapomnij zapisane godziny rozpoczęcia transmisji używane w sekcji Wkrótce oczekiwane</string>
+    <string name="clear_stream_start_history_message">Usunąć zapisane godziny rozpoczęcia transmisji? Sekcja Wkrótce oczekiwane odbuduje się z ostatnich transmisji, dopóki jest włączona.</string>
+    <string name="stream_start_history_cleared">Historia rozpoczęć transmisji wyczyszczona</string>
+    <string name="following_recently_offline_window">Okres sekcji Niedawno offline</string>
+    <string name="following_recently_offline_window_summary">Jak długo kanał pozostaje w sekcji Niedawno offline po zakończeniu transmisji</string>
 </resources>

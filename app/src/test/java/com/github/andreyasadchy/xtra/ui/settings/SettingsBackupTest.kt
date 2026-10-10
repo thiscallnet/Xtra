@@ -3,6 +3,8 @@ package com.github.andreyasadchy.xtra.ui.settings
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import com.github.andreyasadchy.xtra.model.ChannelStreamStart
+import com.github.andreyasadchy.xtra.repository.StreamStartsBackup
 import com.github.andreyasadchy.xtra.util.C
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -160,6 +162,52 @@ class SettingsBackupTest {
             SettingsBackup.validateProxyConfiguration(restored.proxy)
         } finally {
             directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `archive round trip carries stream start history alongside proxy`() {
+        val directory = Files.createTempDirectory("xtra-stream-starts-backup").toFile()
+        try {
+            val database = directory.resolve("source.db").apply { writeBytes("SQLite format 3\u0000payload".toByteArray()) }
+            val proxy = directory.resolve("proxy.json").apply { writeText("{\"enabled\":false}") }
+            val starts = listOf(
+                ChannelStreamStart("123", 1_700_000_000_000L),
+                ChannelStreamStart("456", 1_700_086_400_000L),
+            )
+            val streamStarts = directory.resolve("stream-starts.json")
+            StreamStartsBackup.write(streamStarts, starts)
+            val archive = ByteArrayOutputStream()
+            SettingsBackup.writeArchive(
+                output = archive,
+                preferences = mapOf("columns" to 3),
+                settingsSchemaVersion = 27,
+                database = database,
+                databaseSchemaVersion = 52,
+                proxy = proxy,
+                streamStarts = streamStarts,
+                appVersionCode = 400,
+            )
+
+            val restored = SettingsBackup.extractArchive(
+                ByteArrayInputStream(archive.toByteArray()),
+                directory.resolve("restored").apply { mkdirs() },
+            )
+            assertEquals(starts.toSet(), StreamStartsBackup.read(restored.streamStarts!!).toSet())
+            assertEquals(proxy.readText(), restored.proxy!!.readText())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `stream start history validation rejects a malformed row`() {
+        val file = Files.createTempFile("xtra-stream-starts", ".json").toFile()
+        try {
+            file.writeText("{\"version\":1,\"starts\":[[\"123\"]]}")
+            StreamStartsBackup.read(file)
+        } finally {
+            file.delete()
         }
     }
 

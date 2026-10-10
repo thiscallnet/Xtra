@@ -13,6 +13,7 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.UpcomingStream
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.model.VideoHistory
+import com.github.andreyasadchy.xtra.repository.ChannelStreamStartsRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
@@ -50,6 +51,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
+import java.time.ZoneId
 import kotlin.time.Clock
 import kotlin.time.Instant
 
@@ -64,6 +66,7 @@ class FollowingOverviewViewModel(
     private val metadataCache: MetadataCache,
     private val recommendationsRepository: RecommendationsRepository,
     private val playerRepository: PlayerRepository,
+    private val channelStreamStartsRepository: ChannelStreamStartsRepository,
 ) : ViewModel() {
 
     private val applicationContext = applicationContext
@@ -76,6 +79,10 @@ class FollowingOverviewViewModel(
     private var lastRecommendationsRefreshAt = 0L
     private var lastRecentVideosRefreshAt = 0L
     private var lastUpcomingStreamsRefreshAt = 0L
+    private var lastChannelVodsRefreshAt = 0L
+    private var lastOfflineWindowMs = 0L
+    private var channelVodsJob: Job? = null
+    private var channelVodsGeneration = 0L
 
     val liveStreams: Flow<List<Stream>> = combine(accountId, streamSort) { userId, sort -> userId to sort }.flatMapLatest { (userId, sort) ->
         streamFeedCache.activeItemsFlow(
@@ -112,6 +119,22 @@ class FollowingOverviewViewModel(
     private val _upcomingStreamsResolved = MutableStateFlow(false)
     val upcomingStreamsResolved: StateFlow<Boolean> = _upcomingStreamsResolved
 
+    private val _recentlyOfflineVideos = MutableStateFlow<List<Video>>(emptyList())
+    val recentlyOfflineVideos: Flow<List<Video>> = combine(_recentlyOfflineVideos, allLiveChannelIds) { videos, liveChannelIds ->
+        videos.filterNot { it.channelId in liveChannelIds }
+    }
+
+    private val _expectedStreams = MutableStateFlow<List<UpcomingStream>>(emptyList())
+    val expectedStreams: Flow<List<UpcomingStream>> = combine(_expectedStreams, allLiveChannelIds) { expected, liveChannelIds ->
+        expected.filterNot { it.channelId in liveChannelIds }
+    }
+
+    private val _channelVodsLoading = MutableStateFlow(false)
+    val channelVodsLoading: StateFlow<Boolean> = _channelVodsLoading
+
+    private val _channelVodsResolved = MutableStateFlow(false)
+    val channelVodsResolved: StateFlow<Boolean> = _channelVodsResolved
+
     private val _overviewSectionKeys = MutableStateFlow(readOverviewSectionKeys())
     val overviewSectionKeys: StateFlow<List<String>> = _overviewSectionKeys
 
@@ -135,6 +158,15 @@ class FollowingOverviewViewModel(
     private val _recommendationAuthMode = MutableStateFlow(RecommendationAuthMode.ANONYMOUS)
     val recommendationAuthMode: StateFlow<RecommendationAuthMode> = _recommendationAuthMode
 
+    init {
+        viewModelScope.launch {
+            channelStreamStartsRepository.cleared.collect {
+                lastChannelVodsRefreshAt = 0L
+                _expectedStreams.value = emptyList()
+            }
+        }
+    }
+
     fun syncCurrentAccount() {
         val newAccountId = readCurrentUserId()
         if (accountId.value != newAccountId) {
@@ -144,6 +176,8 @@ class FollowingOverviewViewModel(
             lastRecommendationsRefreshAt = 0L
             lastRecentVideosRefreshAt = 0L
             lastUpcomingStreamsRefreshAt = 0L
+            lastChannelVodsRefreshAt = 0L
+            cancelChannelVods()
         }
         streamSort.value = readStreamSort()
     }
@@ -161,7 +195,12 @@ class FollowingOverviewViewModel(
             (force || now - lastRecentVideosRefreshAt >= RECENT_VIDEOS_TTL_MS)
         val upcomingStreamsDue = FollowingOverviewSections.UPCOMING in keys &&
             (force || now - lastUpcomingStreamsRefreshAt >= UPCOMING_STREAMS_TTL_MS)
-        if (!force && !keysChanged && !recommendationsDue && !recentVideosDue && !upcomingStreamsDue) {
+        val channelVodsVisible = FollowingOverviewSections.RECENTLY_OFFLINE in keys ||
+                FollowingOverviewSections.EXPECTED_SOON in keys
+        val channelVodsDue = channelVodsVisible &&
+            (force || keysChanged || readRecentlyOfflineWindowMs() != lastOfflineWindowMs ||
+                now - lastChannelVodsRefreshAt >= CHANNEL_VODS_TTL_MS)
+        if (!force && !keysChanged && !recommendationsDue && !recentVideosDue && !upcomingStreamsDue && !channelVodsDue) {
             return
         }
         _overviewSectionKeys.value = keys
@@ -173,6 +212,12 @@ class FollowingOverviewViewModel(
         }
         if (recentVideosDue) lastRecentVideosRefreshAt = now
         if (upcomingStreamsDue) lastUpcomingStreamsRefreshAt = now
+        if (!channelVodsVisible) {
+            cancelChannelVods()
+        } else if (channelVodsDue) {
+            lastChannelVodsRefreshAt = now
+            refreshChannelVods()
+        }
         refreshOverviewContent(
             reloadRecentVideos = recentVideosDue,
             reloadUpcomingStreams = upcomingStreamsDue,
@@ -282,6 +327,98 @@ class FollowingOverviewViewModel(
         }
     }
 
+    private fun refreshChannelVods() {
+        val keys = _overviewSectionKeys.value
+        val showRecentlyOffline = FollowingOverviewSections.RECENTLY_OFFLINE in keys
+        val showExpectedSoon = FollowingOverviewSections.EXPECTED_SOON in keys
+        val generation = ++channelVodsGeneration
+        channelVodsJob?.cancel()
+        val requestAccountId = accountId.value
+        val offlineWindowMs = readRecentlyOfflineWindowMs()
+        lastOfflineWindowMs = offlineWindowMs
+        _channelVodsLoading.value = true
+        channelVodsJob = viewModelScope.launch {
+            try {
+                val channels = if (showExpectedSoon) loadFollowedChannels() else null
+                val vods = loadRecentFollowedVideos(CHANNEL_VODS_LIMIT) {
+                    channels ?: loadFollowedChannels()
+                } ?: return@launch
+                val nowMs = System.currentTimeMillis()
+                val liveChannelIds = allLiveChannelIds.first()
+                val recentlyOffline = if (showRecentlyOffline) {
+                    recentlyOfflineVideos(vods, liveChannelIds, nowMs, offlineWindowMs, RECENTLY_OFFLINE_LIMIT)
+                } else null
+                val expectedStreams = if (showExpectedSoon) {
+                    channelStreamStartsRepository.recordStartTimes(vods.mapNotNull { video ->
+                        val channelId = video.channelId ?: return@mapNotNull null
+                        val startedAt = video.createdAt?.let(Instant::parseOrNull)?.toEpochMilliseconds()
+                            ?: return@mapNotNull null
+                        channelId to startedAt
+                    })
+                    // Without the followed list the previous predictions stay in place.
+                    channels?.let {
+                        val followedChannelIds = it.mapTo(hashSetOf()) { channel -> channel.id }
+                        val starts = channelStreamStartsRepository
+                            .startsSince(nowMs - EXPECTED_LOOKBACK_MS)
+                            .filter { start -> start.channelId in followedChannelIds }
+                        val channelsById = it.associateBy { channel -> channel.id }
+                        predictExpectedStarts(starts, liveChannelIds, nowMs, EXPECTED_HORIZON_MS, ZoneId.systemDefault())
+                            .mapNotNull { expected ->
+                                val channel = channelsById[expected.channelId] ?: return@mapNotNull null
+                                UpcomingStream(
+                                    id = "expected:${channel.id}",
+                                    channelId = channel.id,
+                                    channelLogin = channel.login,
+                                    channelName = channel.name,
+                                    channelImageURL = channel.imageURL,
+                                    title = null,
+                                    gameName = null,
+                                    startTimeMillis = expected.expectedAtMs,
+                                    endTimeMillis = null,
+                                    isRecurring = false,
+                                    isPredicted = true,
+                                )
+                            }
+                    }
+                } else null
+                if (isCurrentChannelVodsRequest(generation, requestAccountId)) {
+                    recentlyOffline?.let { _recentlyOfflineVideos.value = it }
+                    expectedStreams?.let { _expectedStreams.value = it }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } finally {
+                // A failed fetch keeps the last published shelves and still resolves the loading state.
+                if (isCurrentChannelVodsRequest(generation, requestAccountId)) {
+                    _channelVodsLoading.value = false
+                    _channelVodsResolved.value = true
+                }
+            }
+        }
+    }
+
+    private fun cancelChannelVods() {
+        channelVodsGeneration++
+        channelVodsJob?.cancel()
+        channelVodsJob = null
+        _recentlyOfflineVideos.value = emptyList()
+        _expectedStreams.value = emptyList()
+        _channelVodsLoading.value = false
+        _channelVodsResolved.value = false
+    }
+
+    private fun isCurrentChannelVodsRequest(generation: Long, requestAccountId: String?): Boolean {
+        return channelVodsGeneration == generation && accountId.value == requestAccountId
+    }
+
+    private fun readRecentlyOfflineWindowMs(): Long {
+        val hours = applicationContext.prefs()
+            .getString(C.UI_RECENTLY_OFFLINE_WINDOW_HOURS, null)
+            ?.toLongOrNull()
+            ?: DEFAULT_RECENTLY_OFFLINE_WINDOW_HOURS
+        return hours * 3_600_000L
+    }
+
     private fun cancelOverviewContent() {
         overviewContentGeneration++
         overviewContentJob?.cancel()
@@ -299,6 +436,7 @@ class FollowingOverviewViewModel(
     }
 
     private suspend fun loadRecentFollowedVideos(
+        limit: Int = RECENT_VOD_LIMIT,
         followedChannelsLoader: suspend () -> List<FollowedChannel>?,
     ): List<Video>? {
         val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -311,7 +449,7 @@ class FollowingOverviewViewModel(
                     headers = gqlHeaders,
                     sort = VideoSort.TIME,
                     type = listOf(BroadcastType.ARCHIVE),
-                    first = RECENT_VOD_LIMIT,
+                    first = limit,
                     after = null,
                 )
                 response.data?.user?.followedVideos?.edges
@@ -321,7 +459,7 @@ class FollowingOverviewViewModel(
                 return mergeRecentVideosWithSupplement(
                     remoteVideos,
                     loadLocalFollowedVideos(remoteVideos, localChannels, networkLibrary),
-                    RECENT_VOD_LIMIT,
+                    limit,
                 ) ?: return null
             }
 
@@ -329,7 +467,7 @@ class FollowingOverviewViewModel(
                 val response = graphQLRepository.loadFollowedVideos(
                     networkLibrary = networkLibrary,
                     headers = gqlHeaders,
-                    limit = RECENT_VOD_LIMIT,
+                    limit = limit,
                     cursor = null,
                 )
                 response.data?.currentUser?.followedVideos?.edges
@@ -339,7 +477,7 @@ class FollowingOverviewViewModel(
                 return mergeRecentVideosWithSupplement(
                     remoteVideos,
                     loadLocalFollowedVideos(remoteVideos, localChannels, networkLibrary),
-                    RECENT_VOD_LIMIT,
+                    limit,
                 ) ?: return null
             }
         }
@@ -351,7 +489,7 @@ class FollowingOverviewViewModel(
             networkLibrary = networkLibrary,
             headers = helixHeaders,
         ) ?: return null
-        return mergeRecentVideos(emptyList(), videos, RECENT_VOD_LIMIT)
+        return mergeRecentVideos(emptyList(), videos, limit)
     }
 
     private suspend fun loadLocalFollowedVideos(
@@ -761,6 +899,12 @@ class FollowingOverviewViewModel(
         private const val UPCOMING_SEGMENTS_PER_CHANNEL = 3
         private const val UPCOMING_STREAM_LIMIT = 20
         private const val UPCOMING_STREAMS_TTL_MS = 15 * 60_000L
+        private const val RECENTLY_OFFLINE_LIMIT = 20
+        private const val CHANNEL_VODS_LIMIT = 100
+        private const val CHANNEL_VODS_TTL_MS = 10 * 60_000L
+        private const val EXPECTED_LOOKBACK_MS = 28L * 24 * 60 * 60_000L
+        private const val EXPECTED_HORIZON_MS = 12L * 60 * 60_000L
+        private const val DEFAULT_RECENTLY_OFFLINE_WINDOW_HOURS = 24L
 
         val FollowingOverviewViewModelFactory = viewModelFactory {
             initializer {
@@ -776,6 +920,7 @@ class FollowingOverviewViewModel(
                     xtraModule.metadataCache,
                     xtraModule.recommendationsRepository,
                     xtraModule.playerRepository,
+                    xtraModule.channelStreamStartsRepository,
                 )
             }
         }

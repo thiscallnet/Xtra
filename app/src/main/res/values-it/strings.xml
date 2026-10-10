@@ -1488,4 +1488,21 @@
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">%1$s di ritardo sulla diretta</string>
     <string name="chat_edge_padding">Margine della chat</string>
+    <string name="following_recently_offline">Offline di recente</string>
+    <string name="following_no_recently_offline">I canali che segui e che hanno terminato da poco una diretta appariranno qui.</string>
+    <string name="following_expected_soon">Attesi a breve</string>
+    <string name="following_no_expected_soon">I canali che di solito vanno in diretta a quest’ora appariranno qui.</string>
+    <string name="following_expected_start">Di solito verso le %1$s</string>
+    <string name="following_ended_ago">Terminata %1$s</string>
+    <string name="recently_offline_window_6h">6 ore</string>
+    <string name="recently_offline_window_12h">12 ore</string>
+    <string name="recently_offline_window_24h">24 ore</string>
+    <string name="recently_offline_window_48h">48 ore</string>
+    <string name="recently_offline_window_7d">7 giorni</string>
+    <string name="clear_stream_start_history">Cancella cronologia degli inizi delle dirette</string>
+    <string name="clear_stream_start_history_summary">Dimentica gli orari di inizio salvati usati da «Attesi a breve»</string>
+    <string name="clear_stream_start_history_message">Eliminare gli orari di inizio delle dirette salvati? «Attesi a breve» si ricostruisce dalle dirette recenti finché è attivo.</string>
+    <string name="stream_start_history_cleared">Cronologia degli inizi delle dirette cancellata</string>
+    <string name="following_recently_offline_window">Periodo di «Offline di recente»</string>
+    <string name="following_recently_offline_window_summary">Per quanto tempo un canale resta in «Offline di recente» dopo la fine della diretta</string>
 </resources>

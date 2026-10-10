@@ -178,6 +178,20 @@
         <item>15</item>
     </string-array>
 
+    <string-array name="recentlyOfflineWindowEntries">
+        <item>@string/recently_offline_window_6h</item>
+        <item>@string/recently_offline_window_12h</item>
+        <item>@string/recently_offline_window_24h</item>
+        <item>@string/recently_offline_window_48h</item>
+        <item>@string/recently_offline_window_7d</item>
+    </string-array>
+    <string-array name="recentlyOfflineWindowValues" translatable="false">
+        <item>6</item>
+        <item>12</item>
+        <item>24</item>
+        <item>48</item>
+        <item>168</item>
+    </string-array>
     <string-array name="chatEdgePaddingEntries" translatable="false">
         <item>1 dp</item>
         <item>8 dp</item>

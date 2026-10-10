@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.repository.streamfeed
 import android.os.SystemClock
 import android.util.Log
 import com.github.andreyasadchy.xtra.BuildConfig
+import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedPage
 import com.github.andreyasadchy.xtra.repository.datasource.StreamFeedCursor
@@ -45,6 +46,7 @@ class StreamFeedRefreshCoordinator(
     private val elapsedRealtimeMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val debugLoggingEnabled: Boolean = BuildConfig.DEBUG,
     maintenanceScope: CoroutineScope? = null,
+    private val onFollowedStreamsRefreshed: (suspend (List<Stream>) -> Unit)? = null,
 ) {
     private val maintenanceScope = maintenanceScope
         ?: CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -178,6 +180,15 @@ class StreamFeedRefreshCoordinator(
                     completedAt,
                 )
                 successfulAtByFeed[spec.key.value] = completedAt
+                if (spec.key.value.startsWith("followed:")) {
+                    try {
+                        onFollowedStreamsRefreshed?.invoke(page.items)
+                    } catch (error: CancellationException) {
+                        throw error
+                    } catch (_: Exception) {
+                        // Start history is best effort and must not fail the feed refresh.
+                    }
+                }
                 if (shouldPrefetchTail(
                         reason = reason,
                         cachedItemCount = cachedItemCount,

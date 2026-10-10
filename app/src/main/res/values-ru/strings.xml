@@ -1488,4 +1488,21 @@
     <string name="system_media_video">Видео</string>
     <string name="system_media_behind_live">%1$s позади эфира</string>
     <string name="chat_edge_padding">Отступ чата от края</string>
+    <string name="following_recently_offline">Недавно завершили</string>
+    <string name="following_no_recently_offline">Каналы, на которые вы подписаны и которые недавно завершили трансляцию, появятся здесь.</string>
+    <string name="following_expected_soon">Скоро в эфире</string>
+    <string name="following_no_expected_soon">Каналы, которые обычно начинают трансляцию в это время, появятся здесь.</string>
+    <string name="following_expected_start">Обычно около %1$s</string>
+    <string name="following_ended_ago">Завершено %1$s</string>
+    <string name="recently_offline_window_6h">6 часов</string>
+    <string name="recently_offline_window_12h">12 часов</string>
+    <string name="recently_offline_window_24h">24 часа</string>
+    <string name="recently_offline_window_48h">48 часов</string>
+    <string name="recently_offline_window_7d">7 дней</string>
+    <string name="clear_stream_start_history">Очистить историю начала трансляций</string>
+    <string name="clear_stream_start_history_summary">Забыть сохранённое время начала трансляций, используемое для раздела «Скоро в эфире»</string>
+    <string name="clear_stream_start_history_message">Удалить сохранённое время начала трансляций? Раздел «Скоро в эфире» заново формируется по недавним трансляциям, пока он включён.</string>
+    <string name="stream_start_history_cleared">История начала трансляций очищена</string>
+    <string name="following_recently_offline_window">Период раздела «Недавно завершили»</string>
+    <string name="following_recently_offline_window_summary">Как долго канал остаётся в разделе «Недавно завершили» после окончания трансляции</string>
 </resources>

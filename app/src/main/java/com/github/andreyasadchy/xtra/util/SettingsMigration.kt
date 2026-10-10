@@ -367,6 +367,8 @@ object SettingsMigration {
         C.DEBUG_EVENT_SUB_CHAT,
         C.DEBUG_PLAYER_MENU_PLAYLIST_TAGS,
         "delete_recent_searches",
+        "clear_stream_start_history",
+        C.UI_RECENTLY_OFFLINE_WINDOW_HOURS,
         "delete_video_positions",
         "import_app_downloads",
         "player_disable_background_video",

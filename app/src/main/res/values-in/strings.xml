@@ -1489,4 +1489,21 @@
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">%1$s di belakang siaran langsung</string>
     <string name="chat_edge_padding">Margin tepi obrolan</string>
+    <string name="following_recently_offline">Baru Saja Offline</string>
+    <string name="following_no_recently_offline">Kanal yang Anda ikuti dan baru saja mengakhiri streaming akan muncul di sini.</string>
+    <string name="following_expected_soon">Segera Tayang</string>
+    <string name="following_no_expected_soon">Kanal yang biasanya live pada waktu ini akan muncul di sini.</string>
+    <string name="following_expected_start">Biasanya sekitar %1$s</string>
+    <string name="following_ended_ago">Berakhir %1$s</string>
+    <string name="recently_offline_window_6h">6 jam</string>
+    <string name="recently_offline_window_12h">12 jam</string>
+    <string name="recently_offline_window_24h">24 jam</string>
+    <string name="recently_offline_window_48h">48 jam</string>
+    <string name="recently_offline_window_7d">7 hari</string>
+    <string name="clear_stream_start_history">Hapus riwayat waktu mulai streaming</string>
+    <string name="clear_stream_start_history_summary">Lupakan waktu mulai streaming tersimpan yang digunakan untuk Segera Tayang</string>
+    <string name="clear_stream_start_history_message">Hapus waktu mulai streaming tersimpan? Segera Tayang dibangun ulang dari streaming terbaru selama diaktifkan.</string>
+    <string name="stream_start_history_cleared">Riwayat waktu mulai streaming dihapus</string>
+    <string name="following_recently_offline_window">Jangka waktu Baru Saja Offline</string>
+    <string name="following_recently_offline_window_summary">Berapa lama kanal tetap di Baru Saja Offline setelah streaming berakhir</string>
 </resources>
