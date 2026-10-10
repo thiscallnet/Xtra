@@ -3312,7 +3312,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private fun requestLiveRewindStateSync(controller: MediaController, reason: String) {
         if (videoType != STREAM) return
         val mediaId = controller.currentMediaItem?.mediaId ?: return
-        beginLiveRewindStateSync()
         liveRewindStateSyncJob?.cancel()
         val generation = ++liveRewindStateSyncGeneration
         scheduleLiveRewindStateSyncPolling(controller, mediaId, generation, reason)
@@ -3337,7 +3336,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 if (!isCurrentLiveRewindStateSync(controller, mediaId, generation)) return@launch
                 val serviceState = readLiveRewindServiceState(controller)
                 if (!isCurrentLiveRewindStateSync(controller, mediaId, generation)) return@launch
-                val resolved = serviceState?.let(::applyLiveRewindServiceState) == true
+                val resolved = serviceState?.let { applyLiveRewindServiceState(it, markPending = false) } == true
                 logLiveRewindStateSync(reason, serviceState, resolved, controller)
                 if (resolved) return@launch
                 if (attempt == LIVE_REWIND_STATE_SYNC_POLL_ATTEMPTS - 1 && BuildConfig.DEBUG) {

@@ -56,8 +56,8 @@ class HudTimelineContent @JvmOverloads constructor(
         addView(scrubPreview)
     }
 
-    fun setLiveRewindEnabled(enabled: Boolean) {
-        if (liveRewindEnabled == enabled) return
+    fun setLiveRewindEnabled(enabled: Boolean): Boolean {
+        if (liveRewindEnabled == enabled) return false
         liveRewindEnabled = enabled
         if (!enabled) clearLiveRewindPreview()
         findViewById<TextView>(com.github.andreyasadchy.xtra.R.id.position)?.let { position ->
@@ -69,6 +69,7 @@ class HudTimelineContent @JvmOverloads constructor(
             duration.setPadding(0, 0, 0, 0)
         }
         requestLayout()
+        return true
     }
 
     fun setLiveRewindPreview(text: CharSequence, fraction: Float) {
