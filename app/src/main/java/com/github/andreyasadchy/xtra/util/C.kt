@@ -258,6 +258,7 @@ object C {
     const val PLAYER_FORWARD = "playerForwardV2"
     const val PLAYER_BACKGROUND_PLAYBACK = "player_background_playback"
     const val PLAYER_PICTURE_IN_PICTURE = "player_picture_in_picture"
+    const val PLAYER_PIP_CHAT = "player_pip_chat"
     const val PLAYER_BACKGROUND_AUDIO = "player_background_audio"
     const val PLAYER_BACKGROUND_AUDIO_LOCKED = "player_background_audio_locked"
     const val PLAYER_BACKGROUND_AUDIO_PIP_CLOSED = "player_background_audio_pip_closed"

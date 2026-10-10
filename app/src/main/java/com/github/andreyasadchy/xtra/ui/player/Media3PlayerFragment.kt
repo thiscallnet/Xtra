@@ -8,6 +8,7 @@ import android.app.PictureInPictureParams
 import android.app.RemoteAction
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -166,6 +167,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var isPortrait = false
     var isMaximized = true
     private var isChatOpen = true
+    private var pipChatRequested = false
+    private var pipChatPreferenceListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     private var isKeyboardShown = false
     private var resizeMode = 0
     private var chatWidthLandscape = 0
@@ -666,6 +669,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         qualityLabelSingleLine = null
         super.onViewCreated(view, savedInstanceState)
+        // Settings open over a live player, so a changed switch has to reach the window request now.
+        pipChatPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == C.PLAYER_PIP_CHAT) refreshPipParams()
+        }.also { requireContext().prefs().registerOnSharedPreferenceChangeListener(it) }
         if (videoType == STREAM) {
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -2482,6 +2489,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
         }
         requireContext().prefs().edit { putBoolean(C.KEY_CHAT_OPENED, false) }
+        refreshPipParams()
     }
 
     fun showChat() {
@@ -2499,6 +2507,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
         }
         requireContext().prefs().edit { putBoolean(C.KEY_CHAT_OPENED, true) }
+        refreshPipParams()
         if (requireView().findViewById<Button>(R.id.btnDown)?.isVisible == false) {
             requireView().findViewById<RecyclerView>(R.id.recyclerView)?.let { recyclerView ->
                 recyclerView.adapter?.itemCount?.let { recyclerView.scrollToPosition(it - 1) }
@@ -3466,8 +3475,44 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         return quality?.name != AUDIO_ONLY_QUALITY && quality?.name != CHAT_ONLY_QUALITY
     }
 
+    private fun isInPictureInPicture(): Boolean = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
+        else -> false
+    }
+
+    /** Live chat can ride under the video only while portrait chat is on screen to begin with. */
+    private fun canShowChatInPictureInPicture(): Boolean =
+        videoType == STREAM &&
+            isPortrait &&
+            isMaximized &&
+            isChatOpen &&
+            chatFragment?.supportsPipMode() == true &&
+            !requireContext().isTelevision() &&
+            requireContext().prefs().let { it.getBoolean(C.PLAYER_PIP_CHAT, true) && it.isChatEnabled() }
+
+    private fun refreshPipParams() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isAdded && _binding != null && !isInPictureInPicture()) {
+            setPipActions(pipPlaying)
+        }
+    }
+
+    /** Switches an already shrunk window between the chat layout and the video-only one. */
+    private fun applyPictureInPictureChat() {
+        if (pipChatRequested) {
+            setChatLayoutVisibility(View.VISIBLE)
+            chatFragment?.setPipMode(true)
+        } else if (isPortrait) {
+            setChatLayoutVisibility(View.GONE)
+        } else {
+            hideChatLayout()
+        }
+    }
+
     protected fun setPipActions(playing: Boolean, autoEnterEnabled: Boolean? = null) {
         pipPlaying = playing
+        // The window keeps the shape it was entered with; only a fresh request may change it.
+        if (!isInPictureInPicture()) pipChatRequested = canShowChatInPictureInPicture()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
             requireContext().prefs().getBoolean(C.PLAYER_PICTURE_IN_PICTURE, true)
@@ -3513,12 +3558,22 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 ))
                 if (binding.playerLayout.width > 0 && binding.playerLayout.height > 0) {
                     val aspectRatio = binding.playerLayout.width.toFloat() / binding.playerLayout.height
-                    if (aspectRatio in 0.42f..2.39f) {
-                        setAspectRatio(Rational(binding.playerLayout.width, binding.playerLayout.height))
-                    }
                     val sourceRect = Rect()
-                    if (binding.playerLayout.getGlobalVisibleRect(sourceRect) && sourceRect.width() > 0 && sourceRect.height() > 0) {
-                        setSourceRectHint(sourceRect)
+                    if (pipChatRequested) {
+                        setAspectRatio(PIP_CHAT_ASPECT_RATIO)
+                        // The window is video plus chat, so hint the matching slice from the top.
+                        if (binding.slidingLayout.getGlobalVisibleRect(sourceRect) && sourceRect.width() > 0) {
+                            val height = (sourceRect.width() * PIP_CHAT_ASPECT_RATIO.denominator / PIP_CHAT_ASPECT_RATIO.numerator)
+                            sourceRect.bottom = minOf(sourceRect.bottom, sourceRect.top + height)
+                            if (sourceRect.height() > 0) setSourceRectHint(sourceRect)
+                        }
+                    } else {
+                        if (aspectRatio in 0.42f..2.39f) {
+                            setAspectRatio(Rational(binding.playerLayout.width, binding.playerLayout.height))
+                        }
+                        if (binding.playerLayout.getGlobalVisibleRect(sourceRect) && sourceRect.width() > 0 && sourceRect.height() > 0) {
+                            setSourceRectHint(sourceRect)
+                        }
                     }
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -3543,11 +3598,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             else -> false
         }
         if (isInPIPMode) {
-            if (isPortrait) {
-                setChatLayoutVisibility(View.GONE)
-            } else {
-                hideChatLayout()
-            }
+            applyPictureInPictureChat()
             useController = false
         }
     }
@@ -4821,6 +4872,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 if (isInteractionLocked) {
                     setInteractionLocked(true, force = true)
                 }
+                refreshPipParams()
             }
             (childFragmentManager.findFragmentByTag("closeOnPip") as? PlayerSettingsDialog?)?.dismiss()
         }
@@ -4844,11 +4896,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     slidingLayout.scaleY = 1f
                     syncDismissButton()
                 }
-                if (isPortrait) {
-                    setChatLayoutVisibility(View.GONE)
-                } else {
-                    hideChatLayout()
-                }
+                applyPictureInPictureChat()
                 useController = false
                 hideController(force = true)
                 // player dialog
@@ -4859,8 +4907,10 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 (chatFragment?.childFragmentManager?.findFragmentByTag("imageDialog") as? BottomSheetDialogFragment)?.dismiss()
                 (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
             } else {
+                chatFragment?.setPipMode(false)
                 (activity as? MainActivity)?.onPlayerEnteredPlayback(isLive = videoType == STREAM)
                 useController = true
+                refreshPipParams()
             }
         }
     }
@@ -4917,6 +4967,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             backPressedCallback.remove()
             useController = false
             hideController(true)
+            refreshPipParams()
             fun animate() {
                 // A tap can maximize again before this deferred animation runs.
                 if (isMaximized || view == null) return
@@ -5006,6 +5057,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     showChatLayout()
                 }
             }
+            slidingLayout.post { refreshPipParams() }
             slidingLayout.animate().apply {
                 translationX(0f)
                 translationY(0f)
@@ -5234,6 +5286,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     override fun onDestroyView() {
+        pipChatPreferenceListener?.let { context?.prefs()?.unregisterOnSharedPreferenceChangeListener(it) }
+        pipChatPreferenceListener = null
         swipeGestureController?.release(restoreBrightness = activity?.isChangingConfigurations != true)
         swipeGestureController = null
         interactionLockBackCallback?.remove()
@@ -5278,6 +5332,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     companion object {
         private const val LIVE_DOT_MUTED_TAG = "live_dot_muted"
+        private val PIP_CHAT_ASPECT_RATIO = Rational(9, 16)
         private const val CONTROLLER_ANIMATION_DURATION_MS = 250L
         private const val CONTROLLER_AUTO_HIDE_DELAY_MS = 3_000L
         protected const val AUTO_QUALITY = "auto"

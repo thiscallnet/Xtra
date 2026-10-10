@@ -20,7 +20,7 @@
         android:importantForAccessibility="no"
         android:visibility="gone" />
 
-    <LinearLayout
+    <com.github.andreyasadchy.xtra.ui.view.FirstChildOnlyLinearLayout
         android:id="@+id/chatContentColumn"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -29,7 +29,8 @@
         android:orientation="vertical"
         tools:visibility="visible">
 
-        <FrameLayout
+        <com.github.andreyasadchy.xtra.ui.view.FirstChildOnlyFrameLayout
+            android:id="@+id/chatViewportFrame"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1">
@@ -115,7 +116,7 @@
                 android:visibility="gone"
                 tools:visibility="visible" />
 
-        </FrameLayout>
+        </com.github.andreyasadchy.xtra.ui.view.FirstChildOnlyFrameLayout>
 
         <LinearLayout
             android:id="@+id/replyView"
@@ -428,7 +429,7 @@
                 app:tabPaddingStart="0dp" />
         </LinearLayout>
 
-    </LinearLayout>
+    </com.github.andreyasadchy.xtra.ui.view.FirstChildOnlyLinearLayout>
 
     <include layout="@layout/view_drop_callout" />
 

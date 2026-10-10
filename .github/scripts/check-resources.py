@@ -149,6 +149,9 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "remove_emoji_from_favorites",
     "added_emoji_to_favorites",
     "removed_emoji_from_favorites",
+    # Picture-in-Picture chat setting ships with the default English wording until translated.
+    "pip_chat",
+    "pip_chat_summary",
     "reorder_favorite_item",
     "move_favorite_item_before",
     "move_favorite_item_after",

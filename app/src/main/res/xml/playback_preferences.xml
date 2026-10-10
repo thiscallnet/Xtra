@@ -15,6 +15,7 @@
 
     <PreferenceCategory android:title="@string/settings_background_playback" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_picture_in_picture" android:summary="@string/picture_in_picture_summary" android:title="@string/picture_in_picture" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:dependency="player_picture_in_picture" android:key="player_pip_chat" android:summary="@string/pip_chat_summary" android:title="@string/pip_chat" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="settings_background_playback" android:summary="@string/settings_background_playback_summary" android:title="@string/settings_background_playback" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:dependency="settings_background_playback" android:key="player_keep_playing_after_task_removed" android:summary="@string/keep_playing_after_task_removed_summary" android:title="@string/settings_continue_after_closing" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:key="settings_mix_audio" android:summary="@string/settings_mix_audio_summary" android:title="@string/settings_mix_audio" app:iconSpaceReserved="false" />
