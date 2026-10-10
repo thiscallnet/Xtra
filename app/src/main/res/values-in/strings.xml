@@ -56,7 +56,6 @@
     <string name="are_you_sure">Apakah anda yakin ingin manghapus video ini?</string>
     <string name="token_expired">Sesi anda telah berakhir. Silahkan masuk lagi</string>
     <string name="no_connection">Tidak ada koneksi internet</string>
-    <string name="connection_restored">Kembali online</string>
     <string name="notification_downloads_channel_title">Unduhan</string>
     <string name="storage_permission_title">Aplikasi membutuhkan izin akses penyimpanan</string>
     <string name="storage_permission_message">Izin akses penyimpanan dibutuhkan untuk mengunduh video.</string>

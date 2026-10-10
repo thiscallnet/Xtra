@@ -97,7 +97,6 @@
     <string name="are_you_sure">Naozaj chcete odstrániť toto video?</string>
     <string name="token_expired">Platnosť vašej relácie vypršala. Prihláste sa znova.</string>
     <string name="no_connection">Žiadne internetové pripojenie</string>
-    <string name="connection_restored">Späť online</string>
     <string name="notification_downloads_channel_title">Sťahovanie</string>
     <string name="storage_permission_title">Vyžaduje sa povolenie na ukladanie</string>
     <string name="storage_permission_message">Na sťahovanie videí sa vyžaduje povolenie na úložisko.</string>

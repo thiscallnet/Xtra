@@ -57,7 +57,6 @@
     <string name="are_you_sure">Bu videoyu silmek istediğinizden emin misiniz?</string>
     <string name="token_expired">Oturumunuzun süresi doldu. Lütfen tekrar giriş yapın</string>
     <string name="no_connection">İnternet bağlantısı yok</string>
-    <string name="connection_restored">Tekrar çevrimiçi</string>
     <string name="notification_downloads_channel_title">İndirmeler</string>
     <string name="storage_permission_title">Uygulamanın depolama iznine ihtiyacı var</string>
     <string name="storage_permission_message">Videoları indirmek için depolama izni gereklidir.</string>

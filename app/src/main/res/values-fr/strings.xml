@@ -56,7 +56,6 @@
     <string name="are_you_sure">Voulez-vous vraiment supprimer cette vidéo ?</string>
     <string name="token_expired">Votre session a expiré. Veuillez vous reconnecter.</string>
     <string name="no_connection">Aucune connexion Internet</string>
-    <string name="connection_restored">Retour en ligne</string>
     <string name="notification_downloads_channel_title">Téléchargements</string>
     <string name="storage_permission_title">L\'application a besoin d\'une autorisation de stockage</string>
     <string name="storage_permission_message">Une autorisation de stockage est requise pour télécharger des vidéos.</string>

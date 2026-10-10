@@ -56,7 +56,6 @@
     <string name="are_you_sure">Sind Sie sicher, dass Sie dieses Video löschen möchten?</string>
     <string name="token_expired">Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an</string>
     <string name="no_connection">Keine Internetverbindung</string>
-    <string name="connection_restored">Wieder online</string>
     <string name="notification_downloads_channel_title">Downloads</string>
     <string name="storage_permission_title">Die App benötigt Speicherberechtigung</string>
     <string name="storage_permission_message">Zum Herunterladen von Videos ist eine Speicherberechtigung erforderlich.</string>

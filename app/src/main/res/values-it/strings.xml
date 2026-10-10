@@ -56,7 +56,6 @@
     <string name="are_you_sure">Sei sicuro di voler eliminare questo video?</string>
     <string name="token_expired">La tua sessione è scaduta. Si prega di accedere nuovamente</string>
     <string name="no_connection">Nessuna connessione Internet</string>
-    <string name="connection_restored">Tornato online</string>
     <string name="notification_downloads_channel_title">Download</string>
     <string name="storage_permission_title">L\'app ha bisogno dell\'autorizzazione di archiviazione</string>
     <string name="storage_permission_message">È necessaria l\'autorizzazione di archiviazione per scaricare i video.</string>

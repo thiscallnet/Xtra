@@ -56,7 +56,6 @@
     <string name="are_you_sure">Вы действительно хотите удалить это видео?</string>
     <string name="token_expired">Ваш сеанс истёк. Пожалуйста, авторизуйтесь</string>
     <string name="no_connection">Отсутствует Интернет-соединение</string>
-    <string name="connection_restored">Соединение восстановлено</string>
     <string name="notification_downloads_channel_title">Загрузки</string>
     <string name="storage_permission_title">Приложению необходимо разрешение</string>
     <string name="storage_permission_message">Для скачивания видео необходимо разрешение на доступ к памяти.</string>

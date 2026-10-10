@@ -56,7 +56,6 @@
     <string name="are_you_sure">Tem certeza que deseja apagar este vídeo?</string>
     <string name="token_expired">Sua sessão expirou. Entre novamente</string>
     <string name="no_connection">Sem conexão com a internet</string>
-    <string name="connection_restored">Conexão restaurada</string>
     <string name="notification_downloads_channel_title">Baixados</string>
     <string name="storage_permission_title">O aplicativo precisa de permissão de armazenamento</string>
     <string name="storage_permission_message">A permissão de armazenamento é necessária para baixar vídeos.</string>

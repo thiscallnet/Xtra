@@ -56,7 +56,6 @@
     <string name="are_you_sure">您確定想要刪除此影片嗎？</string>
     <string name="token_expired">您的會話已過期。請再次登入</string>
     <string name="no_connection">沒有網路連接</string>
-    <string name="connection_restored">重新上線</string>
     <string name="notification_downloads_channel_title">下載</string>
     <string name="storage_permission_title">此應用程式需要儲存空間權限</string>
     <string name="storage_permission_message">下載影片需要儲存空間權限。</string>
