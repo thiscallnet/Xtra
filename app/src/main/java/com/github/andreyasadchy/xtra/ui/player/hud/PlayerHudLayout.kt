@@ -160,6 +160,8 @@ class PlayerHudLayout @JvmOverloads constructor(
         updateInteractionAccessibility()
     }
 
+    fun hudOrientation(): HudOrientation = orientation
+
     fun setHudOrientation(value: HudOrientation) {
         orientation = value
         profile = store.load().profile(value)
@@ -211,10 +213,15 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     fun setLiveRewindEnabled(enabled: Boolean) {
-        findViewById<HudTimelineContent>(R.id.timelineContent)?.apply {
-            setLiveRewindEnabled(enabled)
+        val timelineChanged = findViewById<HudTimelineContent>(R.id.timelineContent)
+            ?.setLiveRewindEnabled(enabled) == true
+        if (editing) {
+            if (timelineChanged) requestLayout()
+            return
         }
-        if (!editing) availability = runtimeAvailability()
+        val next = runtimeAvailability()
+        if (!timelineChanged && next == availability) return
+        availability = next
         requestLayout()
     }
 

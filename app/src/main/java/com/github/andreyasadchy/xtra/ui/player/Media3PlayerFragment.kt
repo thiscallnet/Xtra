@@ -476,11 +476,25 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         updateLiveRewindUi()
     }
 
-    protected fun applyLiveRewindServiceState(state: LiveRewindServiceState): Boolean {
+    /**
+     * [markPending] is only for a (re)connect, where the rewind owner is truly
+     * unknown and the live chrome must stay hidden. Routine reconciliation must
+     * not blank the HUD while playback is in a known state.
+     */
+    protected fun applyLiveRewindServiceState(
+        state: LiveRewindServiceState,
+        markPending: Boolean = true,
+    ): Boolean {
+        val previousMode = livePlaybackMode
+        val previousSwitching = liveRewindSwitching
+        val previousPending = liveRewindStateSyncPending
+        val previousReturning = liveRewindReturningLive
         if (liveRewindSwitchJob?.isActive == true) {
             liveRewindSwitching = true
-            liveRewindStateSyncPending = true
-            updateLiveRewindUi()
+            if (markPending) liveRewindStateSyncPending = true
+            if (previousSwitching != liveRewindSwitching || previousPending != liveRewindStateSyncPending) {
+                updateLiveRewindUi()
+            }
             return false
         }
         if (state.active && !state.vodId.isNullOrBlank()) {
@@ -493,10 +507,14 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             liveRewindStateSyncPending = false
             liveRewindReturningLive = false
             if (livePlaybackMode is LivePlaybackMode.Live) pausedLivePositionMs = null
-        } else {
+        } else if (markPending) {
             liveRewindStateSyncPending = true
         }
-        updateLiveRewindUi()
+        if (previousMode != livePlaybackMode || previousSwitching != liveRewindSwitching ||
+            previousPending != liveRewindStateSyncPending || previousReturning != liveRewindReturningLive
+        ) {
+            updateLiveRewindUi()
+        }
         return state.isResolved
     }
 
@@ -2252,10 +2270,16 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun refreshHudLayout() {
-        binding.playerControls.root.setHudOrientation(
-            if (isPortrait) HudOrientation.PORTRAIT else HudOrientation.LANDSCAPE,
-        )
-        binding.playerControls.root.refreshAvailability()
+        val hud = binding.playerControls.root
+        val orientation = if (isPortrait) HudOrientation.PORTRAIT else HudOrientation.LANDSCAPE
+        // Re-applying the same orientation reloads the stored profile and forces
+        // a full HUD relayout, which flickers when called per rewind transition.
+        if (hud.hudOrientation() != orientation) {
+            hud.setHudOrientation(orientation)
+            hud.refreshAvailability()
+        } else {
+            hud.refreshAvailabilityIfChanged()
+        }
     }
 
     fun canShowHudActionInOverflow(id: HudElementId): Boolean =
