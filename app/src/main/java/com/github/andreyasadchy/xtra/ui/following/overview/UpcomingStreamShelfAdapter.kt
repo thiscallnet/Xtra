@@ -1,11 +1,13 @@
 package com.github.andreyasadchy.xtra.ui.following.overview
 
+import android.graphics.drawable.GradientDrawable
 import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.ColorUtils
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.navigation.fragment.findNavController
 import androidx.recyclerview.widget.DiffUtil
@@ -53,7 +55,7 @@ class UpcomingStreamShelfAdapter(
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         holder.beginImageBind(getItem(position))
-        holder.bind(getItem(position), showPreview = position == 0)
+        holder.bind(getItem(position))
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
@@ -78,7 +80,6 @@ class UpcomingStreamShelfAdapter(
         private val imageRequests = FeedImageRequestBag()
         private var boundItemId: String? = null
         private var boundItem: UpcomingStream? = null
-        private var showPreview = false
 
         init {
             // The parent section can detach without changing this nested list's children.
@@ -87,6 +88,13 @@ class UpcomingStreamShelfAdapter(
                 override fun onViewAttachedToWindow(view: View) = resumeImageWork()
                 override fun onViewDetachedFromWindow(view: View) = cancelImageRequests()
             })
+            // Keep text readable over the banner in both light and dark themes.
+            val surface = MaterialColors.getColor(binding.root,
+                com.google.android.material.R.attr.colorSurface)
+            binding.previewScrim.background = GradientDrawable(
+                GradientDrawable.Orientation.LEFT_RIGHT,
+                intArrayOf(ColorUtils.setAlphaComponent(surface, 0xCC), ColorUtils.setAlphaComponent(surface, 0x80)),
+            )
             TvFocusHelper.install(binding.root)
             binding.root.setOnClickListener { boundItem?.let(onUpcomingClick) }
             binding.avatar.setOnClickListener { boundItem?.let(::openChannel) }
@@ -115,13 +123,12 @@ class UpcomingStreamShelfAdapter(
         }
 
         fun resumeImageWork() {
-            boundItem?.let { bind(it, showPreview) }
+            boundItem?.let(::bind)
         }
 
-        fun bind(item: UpcomingStream, showPreview: Boolean) {
+        fun bind(item: UpcomingStream) {
             val context = binding.root.context
             boundItem = item
-            this.showPreview = showPreview
             val avatarPlaceholder = ContextCompat.getDrawable(context, R.drawable.baseline_person_black_24)
                 ?.mutate()?.also {
                     DrawableCompat.setTint(it, MaterialColors.getColor(binding.avatar,
@@ -174,8 +181,12 @@ class UpcomingStreamShelfAdapter(
             // Predicted cards have no title or category, so they skip the tall scheduled-card minimum.
             binding.cardContent.minimumHeight = if (item.isPredicted) 0 else (160 * context.resources.displayMetrics.density).toInt()
 
-            val previewUrl = item.previewImageURL?.takeIf { showPreview && it.isNotBlank() }
-            binding.previewHost.visibility = if (previewUrl == null) View.GONE else View.INVISIBLE
+            val previewUrl = item.previewImageURL?.takeIf(String::isNotBlank)
+            binding.previewHost.visibility = when {
+                previewUrl == null -> View.GONE
+                binding.previewImage.drawable != null && binding.previewImage.tag == "xtra:upcoming-preview:${item.id}|$previewUrl" -> View.VISIBLE
+                else -> View.INVISIBLE
+            }
             if (previewUrl != null) {
                 val previewKey = "xtra:upcoming-preview:${item.id}|$previewUrl"
                 if (binding.previewImage.tag != previewKey) {
