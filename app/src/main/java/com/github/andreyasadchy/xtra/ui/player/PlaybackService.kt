@@ -2834,7 +2834,18 @@ class PlaybackService : MediaSessionService() {
         )
         setLiveRewindSessionState(transitioning = true)
         return try {
-            val activePlayer = setPlaybackSource(player, createVodMediaSource(uri))
+            // The recording is a growing HLS window. Seeking after prepare() is lost
+            // on its placeholder timeline and playback starts at the live end, so the
+            // requested position must be the source's start position.
+            val activePlayer = setPlaybackSource(
+                player,
+                createVodMediaSource(uri),
+                if (extras.containsKey(PLAYBACK_POSITION)) {
+                    extras.getLong(PLAYBACK_POSITION)
+                } else {
+                    Media3C.TIME_UNSET
+                },
+            )
             if (retainStartupRollback && previousPlayback != null) {
                 systemReplayRollback = player.currentMediaItem?.mediaId to previousPlayback
             }
@@ -2842,7 +2853,6 @@ class PlaybackService : MediaSessionService() {
             activePlayer.setPlaybackSpeed(prefs().getFloat(C.PLAYER_SPEED, 1f))
             activePlayer.prepare()
             activePlayer.playWhenReady = extras.getBoolean(PLAY_WHEN_READY, true)
-            activePlayer.seekTo(extras.getLong(PLAYBACK_POSITION))
             clearLiveClipState()
             setLiveRewindSessionState(active = true, vodId = vodId)
             Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
