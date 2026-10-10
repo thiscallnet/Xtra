@@ -2073,6 +2073,8 @@ Metadata text</string>
     <string name="use_background_audio">Play audio in the background</string>
     <string name="use_background_audio_summary">Continue audio when Xtra is minimized.</string>
     <string name="background_playback_settings">Background playback</string>
+    <string name="pip_chat">Chat in Picture-in-Picture</string>
+    <string name="pip_chat_summary">Show live chat under the video in a taller floating window. Chat is read-only there.</string>
     <string name="picture_in_picture_summary">Show the player in a floating window when leaving Xtra.</string>
     <string name="use_background_audio_locked_summary">Continue audio when the screen is locked.</string>
     <string name="avoid_rounded_corners">Avoid rounded screen corners</string>

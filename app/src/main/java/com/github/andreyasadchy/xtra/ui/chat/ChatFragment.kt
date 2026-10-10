@@ -496,12 +496,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         applyChatBackgroundAppearance()
+        // A rebuilt view while the window is still in PiP must come back chrome-free.
+        applyPipChrome()
         // Settings opens over a player that is never paused, so onResume would not
         // pick up a changed edge padding until the player is reopened.
         chatEdgePaddingListener?.let { requireContext().prefs().unregisterOnSharedPreferenceChangeListener(it) }
         chatEdgePaddingListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == C.CHAT_EDGE_PADDING && isAdded) {
-                chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
+                chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext(), pipMode))
             }
         }.also { requireContext().prefs().registerOnSharedPreferenceChangeListener(it) }
         chatV2ViewportState = restoreChatV2ViewportState(savedInstanceState)
@@ -792,7 +794,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         true,
                     )
                     viewModel.setChatUsernameRecommendationsEnabled(usernameRecommendationsEnabled)
-                    val chatStyle = resolveChatRenderStyle(requireContext())
+                    val chatStyle = resolveChatRenderStyle(requireContext(), pipMode)
                     val chatSurface = MaterialColors.getColor(
                         requireView(),
                         com.google.android.material.R.attr.colorSurface,
@@ -2064,7 +2066,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onResume() {
         super.onResume()
         applyChatBackgroundAppearance()
-        chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext()))
+        chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext(), pipMode))
         if (chatV2RendererVisible) chatV2Renderer?.setVisible(true)
         val args = requireArguments()
         val channelId = args.getString(KEY_CHANNEL_ID)
@@ -2113,6 +2115,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 
+    private var pipMode = false
+
     fun isActive(): Boolean? {
         if (useChatV2) {
             val app = requireContext().applicationContext as XtraApp
@@ -2158,6 +2162,29 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onPause() {
         chatV2Renderer?.setVisible(false)
         super.onPause()
+    }
+
+    /**
+     * Read-only compact presentation for the picture-in-picture window: message list only, with a
+     * smaller style. Clearing it restores the normal chat untouched.
+     */
+    fun setPipMode(enabled: Boolean) {
+        if (pipMode == enabled) return
+        pipMode = enabled
+        applyPipChrome()
+        val context = context ?: return
+        chatV2Renderer?.refreshStyle(resolveChatRenderStyle(context, enabled))
+        if (enabled) chatV2Renderer?.jumpToNewest()
+    }
+
+    /** Only the v2 renderer has a compact style and tail follow, so PiP chat needs it. */
+    fun supportsPipMode() = chatV2Renderer != null
+
+    private fun applyPipChrome() {
+        _binding?.let {
+            it.chatContentColumn.firstChildOnly = pipMode
+            it.chatViewportFrame.firstChildOnly = pipMode
+        }
     }
 
     fun setV2RendererVisible(visible: Boolean) {

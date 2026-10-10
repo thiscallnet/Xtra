@@ -67,23 +67,34 @@ internal fun resolveChatSizing(context: Context): ChatSizing {
     return ChatSizing(textSp, dpToPx(emoteDp), dpToPx(badgeDp))
 }
 
-internal fun resolveChatRenderStyle(context: Context): ChatRenderStyle {
+internal fun resolveChatRenderStyle(context: Context, pip: Boolean = false): ChatRenderStyle {
     val prefs = context.prefs()
     val sizing = resolveChatSizing(context)
+    val pipScale = if (pip) PIP_CHAT_SCALE else 1f
     return ChatRenderStyle(
-        textSizeSp = sizing.textSizeSp,
-        emoteHeightPx = sizing.emoteHeightPx,
-        badgeHeightPx = sizing.badgeHeightPx,
+        textSizeSp = if (pip) {
+            // Shrink, but keep legible, and never end up larger than the user's own size.
+            (sizing.textSizeSp * pipScale).coerceAtLeast(PIP_CHAT_MIN_TEXT_SP).coerceAtMost(sizing.textSizeSp)
+        } else {
+            sizing.textSizeSp
+        },
+        emoteHeightPx = (sizing.emoteHeightPx * pipScale).roundToInt().coerceAtLeast(1),
+        badgeHeightPx = (sizing.badgeHeightPx * pipScale).roundToInt().coerceAtLeast(1),
         animateGifs = prefs.getBoolean(C.ANIMATED_EMOTES, true),
         showBadges = prefs.getBoolean(C.CHAT_SHOW_BADGES, true),
         enableOverlayEmotes = prefs.getBoolean(C.CHAT_ZERO_WIDTH, true),
         firstMessageVisibility = prefs.getString(C.CHAT_FIRST_MSG_VISIBILITY, "0")?.toIntOrNull() ?: 0,
         boldNames = prefs.getBoolean(C.CHAT_BOLD_NAMES, false),
-        showTimestamps = prefs.getBoolean(C.CHAT_TIMESTAMPS, false),
+        showTimestamps = !pip && prefs.getBoolean(C.CHAT_TIMESTAMPS, false),
         timestampFormat = prefs.getString(C.CHAT_TIMESTAMP_FORMAT, "0"),
         gifDisplayMode = ChatGifDisplayMode.fromPreference(
             prefs.getString(C.CHAT_GIF_DISPLAY, "large"),
         ),
-        edgePaddingDp = chatEdgePaddingDp(context),
+        edgePaddingDp = if (pip) PIP_CHAT_EDGE_PADDING_DP else chatEdgePaddingDp(context),
     )
 }
+
+/** The floating window is a fraction of the screen, so chat shrinks with it but never below legible. */
+private const val PIP_CHAT_SCALE = 0.85f
+private const val PIP_CHAT_MIN_TEXT_SP = 11f
+private const val PIP_CHAT_EDGE_PADDING_DP = 4

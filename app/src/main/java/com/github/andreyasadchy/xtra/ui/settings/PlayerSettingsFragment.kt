@@ -76,6 +76,7 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
         }
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || !requireActivity().packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
             findPreference<SwitchPreferenceCompat>(C.PLAYER_PICTURE_IN_PICTURE)?.isVisible = false
+            findPreference<SwitchPreferenceCompat>(C.PLAYER_PIP_CHAT)?.isVisible = false
         }
         findPreference<SwitchPreferenceCompat>(C.SETTINGS_BACKGROUND_PLAYBACK)?.setOnPreferenceChangeListener { _, value ->
             val enabled = value as Boolean
