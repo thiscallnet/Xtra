@@ -2,12 +2,15 @@ package com.github.andreyasadchy.xtra.ui.search
 
 import android.content.res.Configuration
 import android.os.Bundle
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SearchView
+import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
@@ -23,6 +26,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.withResumed
 import androidx.navigation.fragment.findNavController
 import androidx.navigation.ui.AppBarConfiguration
+import androidx.navigation.ui.NavigationUI
 import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.RecyclerView
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -32,7 +36,8 @@ import com.github.andreyasadchy.xtra.databinding.DialogUserResultBinding
 import com.github.andreyasadchy.xtra.databinding.FragmentSearchBinding
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
-import com.github.andreyasadchy.xtra.model.ui.RecentSearch
+import com.github.andreyasadchy.xtra.model.ui.ranked
+import com.github.andreyasadchy.xtra.model.ui.SearchHistoryItem
 import com.github.andreyasadchy.xtra.ui.drops.DropFiltersBottomSheet
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
@@ -52,6 +57,7 @@ import com.github.andreyasadchy.xtra.util.configureForSmoothPaging
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
+import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 import kotlinx.coroutines.Job
@@ -89,12 +95,14 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     private var initialQuery: String? = null
     private var initialTab = -1
     private var streamTabPosition = -1
-    private var initialQueryPending = false
     private var queryBeforeDropsFilters: String? = null
     private var suppressQuerySearch = false
-    private var searchTabKeys: List<String> = emptyList()
     private lateinit var streamSuggestionsAdapter: SearchStreamSuggestionsHeaderAdapter
-    private lateinit var recentSearchesAdapter: SearchRecentQueryAdapter
+    private lateinit var recentSearchesAdapter: SearchRowAdapter
+    private var searchTabKeys: List<String> = emptyList()
+    private var showCategories = false
+    private var categoriesHidden = false
+    private var backToAll: OnBackPressedCallback? = null
     private var lookupDialog: AlertDialog? = null
     private var lookupBinding: DialogUserResultBinding? = null
     private var restoredLookup: UserLookupRequest? = null
@@ -171,20 +179,8 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             applyDropsFilters(result.parcelableArrayList<DropStreamFilter>(DropFiltersBottomSheet.FILTERS_KEY).orEmpty())
         }
         with(binding) {
-            val tabList = requireContext().prefs().getString(C.UI_SEARCH_TABS, null).let { tabPref ->
-                val defaultTabs = C.DEFAULT_SEARCH_TABS.split(',')
-                if (tabPref != null) {
-                    val list = tabPref.split(',').filter { item ->
-                        defaultTabs.find { it.first() == item.first() } != null
-                    }.toMutableList()
-                    defaultTabs.forEachIndexed { index, item ->
-                        if (list.find { it.first() == item.first() } == null) {
-                            list.add(index, item)
-                        }
-                    }
-                    list
-                } else defaultTabs
-            }
+            val tabList = SearchTabs.resolve(requireContext().prefs().getString(C.UI_SEARCH_TABS, null))
+            showCategories = requireContext().prefs().getBoolean(C.UI_SEARCH_SHOW_CATEGORIES, false)
             val configuredTabs = tabList.mapNotNull {
                 val split = it.split(':')
                 val key = split[0]
@@ -199,12 +195,13 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 configuredTabs,
                 this@SearchPagerFragment.dropsFilters.isNotEmpty(),
             )
-            searchTabKeys = tabs
             streamSuggestionsAdapter = SearchStreamSuggestionsHeaderAdapter(this@SearchPagerFragment)
-            recentSearchesAdapter = SearchRecentQueryAdapter(
-                onClick = ::openRecentSearch,
-                onDelete = viewModel::deleteRecentSearch,
+            searchTabKeys = tabs
+            recentSearchesAdapter = SearchRowAdapter(
+                onOpen = { SearchHistoryRecorder.open(this@SearchPagerFragment, it.item) },
+                onRemove = ::removeHistory,
             )
+            recentSearchesClear.setOnClickListener { clearHistory() }
             searchSuggestions.apply {
                 layoutManager = LinearLayoutManager(requireContext())
                 itemAnimator = null
@@ -227,13 +224,21 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             }
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.recentSearches.collectLatest {
+                    viewModel.history.collectLatest {
                         updateLandingContent()
+                        viewModel.refreshLive(it)
                     }
                 }
             }
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.live.collectLatest { updateLandingContent() }
+                }
+            }
             streamTabPosition = tabs.indexOf("1")
-            if (tabs.size <= 1) {
+            val allAvailable = SearchTabs.ALL in tabs
+            categoriesHidden = allAvailable && !showCategories
+            if (tabs.size <= 1 || categoriesHidden) {
                 tabLayout.visibility = View.GONE
             } else {
                 if (tabs.size >= 5) {
@@ -249,6 +254,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 }
 
                 override fun onPageSelected(position: Int) {
+                    backToAll?.isEnabled = categoriesHidden && tabs.getOrNull(position) != SearchTabs.ALL
                     updateDropsFilterVisibility(position)
                     searchCurrent(binding.searchView.query.toString())
                     viewPager.doOnLayout {
@@ -268,6 +274,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             if (firstLaunch) {
                 val requestedTab = initialTab.toString().takeIf { it in tabs }
                 val defaultItem = requestedTab
+                    ?: SearchTabs.ALL.takeIf { categoriesHidden }
                     ?: tabList.find { it.split(':')[1] != "0" }?.split(':')?.get(0)
                     ?: "2"
                 viewPager.setCurrentItem(
@@ -277,12 +284,24 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
                 firstLaunch = false
             }
             viewPager.configureForSmoothPaging()
+            // Categories are reached from "See all" in All, so swiping between them is off unless shown.
+            viewPager.isUserInputEnabled = !categoriesHidden
+            backToAll = object : OnBackPressedCallback(false) {
+                override fun handleOnBackPressed() {
+                    openTab(SearchTabs.ALL)
+                }
+            }.also { requireActivity().onBackPressedDispatcher.addCallback(viewLifecycleOwner, it) }
+            // The restored page is only applied after layout, so read it then.
+            viewPager.post {
+                backToAll?.isEnabled = categoriesHidden && tabs.getOrNull(viewPager.currentItem) != SearchTabs.ALL
+            }
             TabLayoutMediator(tabLayout, viewPager) { tab, position ->
                 tab.text = when (tabs.getOrNull(position)) {
                     "0" -> getString(R.string.videos)
                     "1" -> getString(R.string.streams)
                     "2" -> getString(R.string.channels)
                     "3" -> getString(R.string.games)
+                    "4" -> getString(R.string.search_all)
                     else -> getString(R.string.channels)
                 }
             }.attach()
@@ -294,6 +313,13 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
             val navController = findNavController()
             val appBarConfiguration = AppBarConfiguration(setOf(R.id.rootGamesFragment, R.id.rootTopFragment, R.id.followPagerFragment, R.id.followMediaFragment, R.id.savedPagerFragment, R.id.savedMediaFragment))
             toolbar.setupWithNavController(navController, appBarConfiguration)
+            toolbar.setNavigationOnClickListener {
+                if (backToAll?.isEnabled == true) {
+                    openTab(SearchTabs.ALL)
+                } else {
+                    NavigationUI.navigateUp(navController, appBarConfiguration)
+                }
+            }
             toolbar.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
                     R.id.searchUser -> {
@@ -309,7 +335,6 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     }
 
     override fun initialize() {
-        initialQueryPending = initialQuery?.isNotBlank() == true
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
             private var job: Job? = null
 
@@ -356,61 +381,68 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     override fun onResume() {
         super.onResume()
         viewModel.refreshCachedSuggestions()
+        viewModel.refreshLive(viewModel.history.value)
         if (_binding != null) updateLandingContent()
     }
 
     private fun searchCurrent(query: String) {
         val fragment = currentFragment ?: return
-        val isInitialQuery = initialQueryPending && query == initialQuery
-        if (isInitialQuery) {
-            (fragment as? StreamSearchFragment)?.searchWithoutSaving(query)
-                ?: (fragment as? Searchable)?.search(query)
-            initialQueryPending = false
-        } else {
-            (fragment as? Searchable)?.search(query)
-        }
+        (fragment as? Searchable)?.search(query)
     }
 
-    fun setQuery(query: String?) {
-        binding.searchView.setQuery(query, true)
+    /** Whether the user has this search tab turned on ("0" videos, "1" streams, "2" channels, "3" games, "4" all). */
+    fun isTabEnabled(key: String) = key in searchTabKeys
+
+    fun openTab(key: String) {
+        val position = searchTabKeys.indexOf(key)
+        if (_binding != null && position >= 0) binding.viewPager.setCurrentItem(position, !categoriesHidden)
     }
 
-    private fun openRecentSearch(item: RecentSearch) {
-        val tabKey = when (item.type) {
-            RecentSearch.TYPE_VIDEO -> "0"
-            RecentSearch.TYPE_STREAM -> "1"
-            RecentSearch.TYPE_CHANNEL -> "2"
-            RecentSearch.TYPE_GAME -> "3"
-            else -> return
+    /**
+     * Turns a tab's "nothing here" text into a shortcut to the All tab, so a query typed into the
+     * wrong category is one tap from finding what it matches elsewhere.
+     */
+    fun bindEmptyHint(view: android.widget.TextView, ownKey: String) {
+        val canSuggestAll = ownKey != "4" && isTabEnabled("4") &&
+            _binding != null && !binding.searchView.query.isNullOrBlank()
+        view.setText(if (canSuggestAll) R.string.search_empty_try_all else R.string.nothing_here)
+        view.setOnClickListener(if (canSuggestAll) View.OnClickListener { openTab("4") } else null)
+        view.isClickable = canSuggestAll
+    }
+
+    private fun removeHistory(item: SearchHistoryItem) {
+        viewModel.removeHistory(item)
+        showHistoryUndo(getString(R.string.search_history_removed, item.title), listOf(item))
+    }
+
+    private fun clearHistory() {
+        val all = viewModel.history.value
+        viewModel.clearHistory()
+        showHistoryUndo(getString(R.string.search_history_cleared), all)
+    }
+
+    private fun showHistoryUndo(message: String, removed: List<SearchHistoryItem>) {
+        // Top-anchored: the floating mini player covers a bottom snackbar's Undo button.
+        val snackbar = Snackbar.make(binding.coordinatorLayout, message, Snackbar.LENGTH_LONG)
+            .setAction(R.string.search_history_undo) { viewModel.restoreHistory(removed) }
+        (snackbar.view.layoutParams as? CoordinatorLayout.LayoutParams)?.let {
+            it.gravity = Gravity.TOP
+            it.topMargin = binding.appBar.bottom
+            snackbar.view.layoutParams = it
         }
-        val position = searchTabKeys.indexOf(tabKey)
-        if (position < 0) return
-        suppressQuerySearch = true
-        binding.searchView.setQuery(item.query, false)
-        suppressQuerySearch = false
-        binding.viewPager.setCurrentItem(position, false)
-        updateSearchLandingVisibility()
-        binding.viewPager.post { searchCurrent(item.query) }
+        snackbar.show()
     }
 
     private fun updateLandingContent() {
         if (_binding == null || !::recentSearchesAdapter.isInitialized) return
-        val availableTypes = searchTabKeys.mapNotNull { key ->
-            when (key) {
-                "0" -> RecentSearch.TYPE_VIDEO
-                "1" -> RecentSearch.TYPE_STREAM
-                "2" -> RecentSearch.TYPE_CHANNEL
-                "3" -> RecentSearch.TYPE_GAME
-                else -> null
-            }
-        }.toSet()
         val items = if (requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-            viewModel.recentSearches.value.filter { it.type in availableTypes }.take(8)
+            viewModel.history.value.ranked().take(MAX_LANDING_ITEMS)
         } else {
             emptyList()
         }
-        recentSearchesAdapter.submitList(items)
-        binding.recentSearchesTitle.isVisible = items.isNotEmpty()
+        val live = viewModel.live.value
+        recentSearchesAdapter.submitList(items.map { searchEntry(requireContext(), it, live, removable = true) })
+        binding.recentSearchesHeader.isVisible = items.isNotEmpty()
         val showIntro = viewModel.cachedSuggestions.value.isEmpty() && items.isEmpty()
         binding.searchLandingTitle.isVisible = showIntro
         binding.searchLandingSummary.isVisible = showIntro
@@ -437,7 +469,6 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
 
     private fun clearDropsFiltersForTextSearch() {
         queryBeforeDropsFilters = null
-        initialQueryPending = false
         applyDropsFilters(emptyList(), restorePreviousQuery = false)
     }
 
@@ -451,7 +482,6 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         }
         dropsFilters = nextFilters
         updateSearchLandingVisibility()
-        if (nextFilters.isNotEmpty()) initialQueryPending = false
         renderDropsFilters()
         if (dropsFilters.isNotEmpty() && streamTabPosition >= 0 &&
             binding.viewPager.currentItem != streamTabPosition
@@ -480,7 +510,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
         }
         childFragmentManager.fragments
             .filterIsInstance<StreamSearchFragment>()
-            .forEach { it.searchWithoutSaving(query) }
+            .forEach { it.search(query) }
         updateSearchLandingVisibility()
     }
 
@@ -661,6 +691,7 @@ class SearchPagerFragment : BaseNetworkFragment(), FragmentHost {
     }
 
     companion object {
+        private const val MAX_LANDING_ITEMS = 10
         const val INITIAL_QUERY = "initial_search_query"
         const val INITIAL_TAB = "initial_search_tab"
         const val DROPS_FILTER_ENABLED = "drops_filter_enabled"

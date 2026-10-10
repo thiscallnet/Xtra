@@ -16,7 +16,6 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.RecyclerView
-import androidx.recyclerview.widget.ConcatAdapter
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
@@ -24,7 +23,6 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
 import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
-import com.github.andreyasadchy.xtra.ui.search.RecentSearchAdapter
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.search.Searchable
 import com.github.andreyasadchy.xtra.ui.view.GridPage
@@ -43,9 +41,8 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     private val binding get() = _binding!!
     private val viewModel: StreamSearchViewModel by viewModels { StreamSearchViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
-    private var recentSearchAdapter = RecentSearchAdapter({ (parentFragment as? SearchPagerFragment)?.setQuery(it.query) }, { viewModel.deleteRecentSearch(it) })
     private lateinit var suggestionsHeaderAdapter: SearchStreamSuggestionsHeaderAdapter
-    private lateinit var landingAdapter: ConcatAdapter
+    private lateinit var landingAdapter: RecyclerView.Adapter<*>
     private val initialDropsFilters: List<DropStreamFilter>
         get() = arguments?.parcelableArrayList<DropStreamFilter>(FILTERS).orEmpty()
 
@@ -63,7 +60,7 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
                         tags = arrayOf(it)
                     )
                 )
-            })
+            }, recordSearchHistory = true)
         } else {
             StreamsAdapter(this, {
                 findNavController().navigate(
@@ -71,13 +68,13 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
                         tags = arrayOf(it)
                     )
                 )
-            })
+            }, recordSearchHistory = true)
         }
         suggestionsHeaderAdapter = SearchStreamSuggestionsHeaderAdapter(this)
-        landingAdapter = ConcatAdapter(suggestionsHeaderAdapter, recentSearchAdapter)
+        landingAdapter = suggestionsHeaderAdapter
         setAdapter(binding.recyclerView, pagingAdapter)
         binding.recyclerView.usePageGrid(GridPage.SEARCH_STREAMS) {
-            binding.recyclerView.adapter !is RecentSearchAdapter
+            binding.recyclerView.adapter === pagingAdapter
         }
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             if (activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
@@ -113,16 +110,8 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
                         val hasActiveSearch = viewModel.query.value.isNotBlank() ||
                             viewModel.dropsFilters.value.isNotEmpty()
                         updatePagingState(binding, pagingAdapter, loadState, showEmpty = hasActiveSearch)
+                        (parentFragment as? SearchPagerFragment)?.bindEmptyHint(nothingHere, "1")
                         updateDisplayedAdapter()
-                    }
-                }
-            }
-        }
-        if (requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.recentSearches.collectLatest {
-                        recentSearchAdapter.submitList(it)
                     }
                 }
             }
@@ -131,14 +120,6 @@ class StreamSearchFragment : PagedListFragment(), Searchable {
     }
 
     override fun search(query: String) {
-        val changed = viewModel.setQuery(query)
-        updateDisplayedAdapter()
-        if (changed && query.isNotBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-            viewModel.saveRecentSearch(query)
-        }
-    }
-
-    fun searchWithoutSaving(query: String) {
         viewModel.setQuery(query)
         updateDisplayedAdapter()
     }

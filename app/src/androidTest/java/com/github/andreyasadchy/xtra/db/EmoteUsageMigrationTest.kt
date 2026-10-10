@@ -48,6 +48,7 @@ class EmoteUsageMigrationTest {
                 EmoteUsageMigrations.FROM_51,
                 StreamFeedMigrations.FROM_52,
                 StreamFeedMigrations.FROM_53,
+                SearchHistoryMigrations.FROM_54,
             )
             .build()
         val db = checkNotNull(database)

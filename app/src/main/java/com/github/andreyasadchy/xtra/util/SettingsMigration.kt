@@ -98,6 +98,7 @@ object SettingsMigration {
         C.UI_CHANNEL_TABS,
         C.UI_GAME_TABS,
         C.UI_SEARCH_TABS,
+        C.UI_SEARCH_SHOW_CATEGORIES,
         C.UI_NAME_DISPLAY,
         C.UI_STORE_RECENT_SEARCHES,
         C.UI_THEME_ROUNDED_CORNERS,

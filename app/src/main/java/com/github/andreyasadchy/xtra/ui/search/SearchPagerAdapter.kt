@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.search
 import androidx.fragment.app.Fragment
 import androidx.viewpager2.adapter.FragmentStateAdapter
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
+import com.github.andreyasadchy.xtra.ui.search.all.AllSearchFragment
 import com.github.andreyasadchy.xtra.ui.search.channels.ChannelSearchFragment
 import com.github.andreyasadchy.xtra.ui.search.games.GameSearchFragment
 import com.github.andreyasadchy.xtra.ui.search.streams.StreamSearchFragment
@@ -21,6 +22,7 @@ class SearchPagerAdapter(
             "1" -> StreamSearchFragment.newInstance(dropsFilters)
             "2" -> ChannelSearchFragment()
             "3" -> GameSearchFragment()
+            "4" -> AllSearchFragment()
             else -> ChannelSearchFragment()
         }
     }

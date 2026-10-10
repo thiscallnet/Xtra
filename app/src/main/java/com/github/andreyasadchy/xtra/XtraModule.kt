@@ -12,6 +12,7 @@ import androidx.room.migration.Migration
 import com.github.andreyasadchy.xtra.db.AppDatabase
 import com.github.andreyasadchy.xtra.db.ChannelStreamStartsDatabase
 import com.github.andreyasadchy.xtra.db.MetadataCacheMigrations
+import com.github.andreyasadchy.xtra.db.SearchHistoryMigrations
 import com.github.andreyasadchy.xtra.db.StreamFeedMigrations
 import com.github.andreyasadchy.xtra.db.GameFeedMigrations
 import com.github.andreyasadchy.xtra.db.NotificationMigrations
@@ -41,7 +42,7 @@ import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
 import com.github.andreyasadchy.xtra.repository.preload.StreamMedia3Runtime
 import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfigurationStore
-import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
+import com.github.andreyasadchy.xtra.repository.SearchHistoryRepository
 import com.github.andreyasadchy.xtra.repository.StreamCreatedAtHydrator
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.SavedFiltersRepository
@@ -576,6 +577,7 @@ class XtraModule(application: Application) {
                 EmoteUsageMigrations.FROM_51,
                 StreamFeedMigrations.FROM_52,
                 StreamFeedMigrations.FROM_53,
+                SearchHistoryMigrations.FROM_54,
             )
         }.build()
 
@@ -696,8 +698,8 @@ class XtraModule(application: Application) {
         EmoteUsageRepository(database.emoteUsage())
     }
 
-    val recentSearchesRepository by lazy {
-        RecentSearchesRepository(database.recentSearches())
+    val searchHistoryRepository by lazy {
+        SearchHistoryRepository(database.searchHistory())
     }
 
     val savedFiltersRepository by lazy {
