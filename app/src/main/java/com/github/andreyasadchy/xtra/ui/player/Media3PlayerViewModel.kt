@@ -149,6 +149,8 @@ class Media3PlayerViewModel(
     var vaftLogicalQuality: VideoQuality? = null
     var vaftVerifiedRendition: VideoQuality? = null
     var vaftWindowActive = false
+    var vaftAdActive = false
+    var vaftPrimaryUri: String? = null
 
     val videoResult = MutableStateFlow<String?>(null)
     var backupQualities: List<String>? = null

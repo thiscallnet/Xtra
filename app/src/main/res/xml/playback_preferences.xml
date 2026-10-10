@@ -23,6 +23,7 @@
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_avoid_ads" android:summary="@string/settings_alternate_streams_summary" android:title="@string/settings_alternate_streams" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="continuity" android:dependency="player_avoid_ads" android:entries="@array/vaftPlaybackPriorityEntries" android:entryValues="@array/vaftPlaybackPriorityValues" android:key="player_vaft_playback_priority" android:title="@string/settings_vaft_playback_priority" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:dependency="player_avoid_ads" android:key="player_hide_ads" android:summary="@string/settings_hide_switching_summary" android:title="@string/settings_hide_switching" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:dependency="player_avoid_ads" android:key="player_vaft_ad_preview" android:summary="@string/settings_vaft_ad_preview_summary" android:title="@string/settings_vaft_ad_preview" app:iconSpaceReserved="false" />
 
     <PreferenceCategory android:title="@string/settings_watch_history" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_use_videopositions" android:summary="@string/settings_remember_position_summary" android:title="@string/settings_remember_position" app:iconSpaceReserved="false" />

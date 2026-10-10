@@ -1413,6 +1413,10 @@ Metadata text</string>
     <string name="settings_vaft_priority_live">Stay close to live</string>
     <string name="settings_vaft_priority_continuity_summary">Preserve every moment: keep continuous playback during source switches, even if delay builds up. Unavailable media can still be missed.</string>
     <string name="settings_vaft_priority_live_summary">Stay close to live: skip ahead when delay builds up in live playback. Some moments may be missed.</string>
+    <string name="settings_vaft_ad_preview">Show ad stream preview</string>
+    <string name="settings_vaft_ad_preview_summary">While VAFT is replacing an ad, show a small movable preview of the original stream to confirm what it contains. Drag it to reposition.</string>
+    <string name="vaft_ad_preview_label">Original</string>
+    <string name="vaft_ad_preview_unavailable">Unavailable</string>
     <string name="avoid_twitch_ads_summary">Uses alternate Twitch playback sources when needed and automatically returns to your preferred source when appropriate.</string>
     <string name="waiting_vaft">Switching playback source…</string>
     <string name="show_playlist_tags">Show playlist tags</string>
