@@ -56,7 +56,6 @@
     <string name="are_you_sure">Estás seguro/a de que queres eliminar este vídeo?</string>
     <string name="token_expired">A túa sesión caducou. Inicia sesión de novo.</string>
     <string name="no_connection">Sen conexión a Internet</string>
-    <string name="connection_restored">Conexión restablecida</string>
     <string name="notification_downloads_channel_title">Descargas</string>
     <string name="storage_permission_title">Permiso de almacenamento necesario</string>
     <string name="storage_permission_message">O permiso de almacenamento é necesario para descargar vídeos.</string>

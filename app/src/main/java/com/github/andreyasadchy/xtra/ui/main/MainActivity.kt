@@ -428,7 +428,7 @@ class MainActivity : AppCompatActivity() {
                         if (viewModel.isNetworkAvailable.value != isNetworkAvailable) {
                             viewModel.isNetworkAvailable.value = isNetworkAvailable
                             if (initialized) {
-                                showNetworkFeedback(isNetworkAvailable, showRestored = true)
+                                showNetworkFeedback(isNetworkAvailable)
                             } else {
                                 initialized = true
                                 if (!isNetworkAvailable) {
@@ -1077,7 +1077,7 @@ class MainActivity : AppCompatActivity() {
         super.onDestroy()
     }
 
-    private fun showNetworkFeedback(isNetworkAvailable: Boolean, showRestored: Boolean = false) {
+    private fun showNetworkFeedback(isNetworkAvailable: Boolean) {
         if (!isNetworkAvailable) {
             if (networkSnackbar == null) {
                 networkSnackbar = makeNavigationSnackbar(
@@ -1089,9 +1089,6 @@ class MainActivity : AppCompatActivity() {
         } else {
             networkSnackbar?.dismiss()
             networkSnackbar = null
-            if (showRestored) {
-                makeNavigationSnackbar(R.string.connection_restored, Snackbar.LENGTH_SHORT).show()
-            }
         }
     }
 

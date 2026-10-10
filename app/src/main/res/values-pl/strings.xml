@@ -76,7 +76,6 @@
     <string name="are_you_sure">Czy na pewno chcesz usunąć ten film?</string>
     <string name="token_expired">Twoja sesja wygasła. Zaloguj się ponownie.</string>
     <string name="no_connection">Brak połączenia z Internetem</string>
-    <string name="connection_restored">Powrót do trybu online</string>
     <string name="notification_downloads_channel_title">Pobrane</string>
     <string name="storage_permission_title">Wymagane pozwolenie na przechowywanie</string>
     <string name="storage_permission_message">Do pobierania filmów wymagane jest pozwolenie na przechowywanie.</string>

@@ -158,7 +158,6 @@
     <string name="are_you_sure">Are you sure you want to delete this video?</string>
     <string name="token_expired">Your session has expired. Please log in again.</string>
     <string name="no_connection">No Internet connection</string>
-    <string name="connection_restored">Back online</string>
     <string name="notification_downloads_channel_title">Downloads</string>
     <string name="storage_permission_title">Storage permission required</string>
     <string name="storage_permission_message">Storage permission is required to download videos.</string>

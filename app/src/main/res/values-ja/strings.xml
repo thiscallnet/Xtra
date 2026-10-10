@@ -56,7 +56,6 @@
     <string name="are_you_sure">この動画を削除してもよろしいですか？</string>
     <string name="token_expired">セッションが期限切れになりました。もう一度ログインしてください</string>
     <string name="no_connection">インターネット接続なし</string>
-    <string name="connection_restored">オンラインに復帰しました</string>
     <string name="notification_downloads_channel_title">ダウンロード</string>
     <string name="storage_permission_title">ストレージの権限が必要です</string>
     <string name="storage_permission_message">動画をダウンロードするにはストレージの権限が必要です。</string>

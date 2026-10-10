@@ -97,7 +97,6 @@
     <string name="are_you_sure">Opravdu chcete toto video smazat?</string>
     <string name="token_expired">Vaše relace vypršela. Přihlaste se prosím znovu.</string>
     <string name="no_connection">Žádné připojení k internetu</string>
-    <string name="connection_restored">Zpět online</string>
     <string name="notification_downloads_channel_title">Stahování</string>
     <string name="storage_permission_title">Je vyžadováno oprávnění k ukládání</string>
     <string name="storage_permission_message">Ke stahování videí je vyžadováno oprávnění k úložišti.</string>

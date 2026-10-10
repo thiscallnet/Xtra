@@ -56,7 +56,6 @@
     <string name="are_you_sure">您确定想要删除此视频吗？</string>
     <string name="token_expired">您的会话已过期。请再次登录</string>
     <string name="no_connection">没有网络连接</string>
-    <string name="connection_restored">重新上线</string>
     <string name="notification_downloads_channel_title">下载</string>
     <string name="storage_permission_title">此应用程序需要储存空间权限</string>
     <string name="storage_permission_message">下载视频需要储存空间权限。</string>
