@@ -37,7 +37,7 @@ Do not use `Xtra Contributors`, `xtra@users.noreply.github.com`, or another shar
 
 ### Scope
 
-- GitHub APK releases share an Android version code within a data compatibility group. Before changing persisted schemas or settings formats, follow `docs/release-compatibility.md` and raise `defaultVersionCode` if earlier releases cannot safely read the resulting data. Keep the GitHub build number independent.
+- Never change `defaultVersionCode`, including for persisted schema or settings format changes. Those changes are forward-only; we do not raise the version code to support downgrades (see `docs/release-compatibility.md`). Keep the GitHub build number independent.
 
 - Keep fixes focused. Preserve existing user-facing settings and defaults when the request is for an internal backup, fallback, or performance change.
 - For UI changes, inspect screenshots or recordings before reporting success. Check for truncation, clipping, overlap, flicker, alignment, unexpected spacing, and controls that look present but do not work.

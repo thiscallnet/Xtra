@@ -20,8 +20,8 @@ import com.github.andreyasadchy.xtra.model.ui.GameSort
 import com.github.andreyasadchy.xtra.model.ui.LocalChannelFollow
 import com.github.andreyasadchy.xtra.model.ui.LocalGameFollow
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
-import com.github.andreyasadchy.xtra.model.ui.RecentSearch
 import com.github.andreyasadchy.xtra.model.ui.SavedFilter
+import com.github.andreyasadchy.xtra.model.ui.SearchHistoryItem
 import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
 
 @Database(
@@ -43,7 +43,7 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         NotificationEvent::class,
         TranslatedChannel::class,
         SavedFilter::class,
-        RecentSearch::class,
+        SearchHistoryItem::class,
         PlaybackState::class,
         ViewingSession::class,
         ViewingInterval::class,
@@ -53,14 +53,14 @@ import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
         GameFeedState::class,
         MetadataCacheEntry::class,
     ],
-    version = 54,
+    version = 55,
     exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
     companion object {
-        const val VERSION = 54
-        const val IDENTITY_HASH = "ca2943e6a37ec0b11e2a5ed3c062aa91"
+        const val VERSION = 55
+        const val IDENTITY_HASH = "f5c1a07061d418a66e64a88784ca33a4"
     }
 
     abstract fun offlineVideos(): OfflineVideosDao
@@ -80,7 +80,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun notificationEvents(): NotificationEventsDao
     abstract fun translatedChannels(): TranslatedChannelsDao
     abstract fun savedFilters(): SavedFiltersDao
-    abstract fun recentSearches(): RecentSearchesDao
+    abstract fun searchHistory(): SearchHistoryDao
     abstract fun playbackStates(): PlaybackStatesDao
     abstract fun viewingStats(): ViewingStatsDao
     abstract fun streamFeedDao(): StreamFeedDao

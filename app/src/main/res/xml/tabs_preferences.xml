@@ -10,4 +10,5 @@
     <Preference android:key="ui_channel_tabs_dialog" android:title="@string/channel_tabs" app:iconSpaceReserved="false" />
     <Preference android:key="ui_game_tabs_dialog" android:title="@string/game_tabs" app:iconSpaceReserved="false" />
     <Preference android:key="ui_search_tabs_dialog" android:title="@string/search_tabs" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="ui_search_show_categories" android:summary="@string/search_show_categories_summary" android:title="@string/search_show_categories" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

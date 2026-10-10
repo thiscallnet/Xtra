@@ -24,7 +24,6 @@ import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
 import com.github.andreyasadchy.xtra.ui.common.VideosAdapter
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
-import com.github.andreyasadchy.xtra.ui.search.RecentSearchAdapter
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.search.Searchable
 import com.github.andreyasadchy.xtra.ui.view.GridPage
@@ -44,7 +43,6 @@ class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchab
     private val viewModel: VideoSearchViewModel by viewModels { VideoSearchViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Video, out RecyclerView.ViewHolder>
     private lateinit var videoPreviewViewportController: StreamPreloadViewportController
-    private var recentSearchAdapter = RecentSearchAdapter({ (parentFragment as? SearchPagerFragment)?.setQuery(it.query) }, { viewModel.deleteRecentSearch(it) })
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -78,11 +76,9 @@ class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchab
                 TwitchApiHelper.getGQLHeaders(requireContext()),
                 TwitchApiHelper.getHelixHeaders(requireContext()),
             )
-        })
+        }, recordSearchHistory = true)
         setAdapter(binding.recyclerView, pagingAdapter)
-        binding.recyclerView.usePageGrid(GridPage.SEARCH_VIDEOS) {
-            binding.recyclerView.adapter !is RecentSearchAdapter
-        }
+        binding.recyclerView.usePageGrid(GridPage.SEARCH_VIDEOS) { true }
         videoPreviewViewportController = StreamPreloadViewportController(
             fragment = this,
             coordinator = null,
@@ -129,22 +125,7 @@ class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchab
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     pagingAdapter.loadStateFlow.collectLatest { loadState ->
                         updatePagingState(binding, pagingAdapter, loadState, showEmpty = viewModel.query.value.isNotBlank())
-                        if (viewModel.query.value.isBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-                            setDisplayedAdapter(recentSearchAdapter)
-                        } else {
-                            if (recyclerView.adapter is RecentSearchAdapter) {
-                                setDisplayedAdapter(pagingAdapter)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.recentSearches.collectLatest {
-                        recentSearchAdapter.submitList(it)
+                        (parentFragment as? SearchPagerFragment)?.bindEmptyHint(nothingHere, "0")
                     }
                 }
             }
@@ -168,15 +149,7 @@ class VideoSearchFragment : PagedListFragment(), PagerScrollStateAware, Searchab
     }
 
     override fun search(query: String) {
-        val changed = viewModel.setQuery(query)
-        if (changed && query.isNotBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-            viewModel.saveRecentSearch(query)
-        }
-    }
-
-    private fun setDisplayedAdapter(adapter: RecyclerView.Adapter<*>) {
-        binding.recyclerView.setTemporarilySingleColumn(adapter is RecentSearchAdapter)
-        binding.recyclerView.adapter = adapter
+        viewModel.setQuery(query)
     }
 
     override fun onNetworkRestored() {

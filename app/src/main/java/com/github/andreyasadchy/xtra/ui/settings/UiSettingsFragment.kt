@@ -11,6 +11,7 @@ import com.github.andreyasadchy.xtra.model.ui.SettingsDragListItem
 import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
 import com.github.andreyasadchy.xtra.util.isTelevision
+import com.github.andreyasadchy.xtra.ui.search.SearchTabs
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
@@ -187,20 +188,7 @@ class UiSettingsFragment : MaterialPreferenceFragment() {
             true
         }
         findPreference<Preference>("ui_search_tabs_dialog")?.setOnPreferenceClickListener { preference ->
-            val tabList = requireContext().prefs().getString(C.UI_SEARCH_TABS, null).let { tabPref ->
-                val defaultTabs = C.DEFAULT_SEARCH_TABS.split(',')
-                if (tabPref != null) {
-                    val list = tabPref.split(',').filter { item ->
-                        defaultTabs.find { it.first() == item.first() } != null
-                    }.toMutableList()
-                    defaultTabs.forEachIndexed { index, item ->
-                        if (list.find { it.first() == item.first() } == null) {
-                            list.add(index, item)
-                        }
-                    }
-                    list
-                } else defaultTabs
-            }
+            val tabList = SearchTabs.resolve(requireContext().prefs().getString(C.UI_SEARCH_TABS, null))
             val tabs = tabList.map {
                 val split = it.split(':')
                 SettingsDragListItem(
@@ -210,6 +198,7 @@ class UiSettingsFragment : MaterialPreferenceFragment() {
                         "1" -> getString(R.string.streams)
                         "2" -> getString(R.string.channels)
                         "3" -> getString(R.string.games)
+                        "4" -> getString(R.string.search_all)
                         else -> getString(R.string.channels)
                     },
                     default = split[1] != "0",

@@ -17,6 +17,7 @@ import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.drops.StreamDropsBottomSheet
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.search.SearchHistoryRecorder
 import com.github.andreyasadchy.xtra.ui.multiview.MultiviewFragment
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
@@ -33,6 +34,7 @@ class StreamsAdapter(
     private val selectTag: (String) -> Unit,
     private val showGame: Boolean = true,
     private val onStreamClick: ((Stream) -> Unit)? = null,
+    private val recordSearchHistory: Boolean = false,
     private val shelfCardSizing: Boolean = false,
     private val featuredCarousel: Boolean = false,
 ) : PagingDataAdapter<Stream, StreamsAdapter.PagingViewHolder>(
@@ -496,6 +498,7 @@ class StreamsAdapter(
         }
 
         private fun openStream(stream: Stream) {
+            if (recordSearchHistory) SearchHistoryRecorder.channel(fragment.requireContext(), stream)
             if (onStreamClick != null) {
                 onStreamClick.invoke(stream)
             } else {
@@ -504,6 +507,7 @@ class StreamsAdapter(
         }
 
         private fun openChannel(stream: Stream) {
+            if (recordSearchHistory) SearchHistoryRecorder.channel(fragment.requireContext(), stream)
             if (onStreamClick != null) {
                 onStreamClick.invoke(stream)
             } else {
@@ -521,6 +525,7 @@ class StreamsAdapter(
 
         private fun openGame(stream: Stream) {
             if (showGame && !stream.gameName.isNullOrBlank()) {
+                if (recordSearchHistory) SearchHistoryRecorder.game(fragment.requireContext(), stream)
                 if (onStreamClick != null) {
                     onStreamClick.invoke(stream)
                 } else {

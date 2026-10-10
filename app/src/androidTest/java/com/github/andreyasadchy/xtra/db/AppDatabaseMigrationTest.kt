@@ -192,6 +192,9 @@ class AppDatabaseMigrationTest {
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_videos_channel_id ON videos(channel_id)")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_video_history_updatedAt ON video_history(updatedAt)")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_video_history_channelId ON video_history(channelId)")
+                    // Databases at version 48 still have the keyword history table that version 55 replaces;
+                    // the test starts from the current schema, so recreate it here.
+                    db.execSQL("CREATE TABLE IF NOT EXISTS recent_search (id INTEGER NOT NULL, query TEXT NOT NULL, type TEXT NOT NULL, lastSearched INTEGER NOT NULL, PRIMARY KEY (id))")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_recent_search_type_lastSearched ON recent_search(type, lastSearched)")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_recent_search_query_type ON recent_search(query, type)")
                     db.execSQL("CREATE INDEX IF NOT EXISTS index_bookmarks_videoId ON bookmarks(videoId)")
@@ -204,6 +207,7 @@ class AppDatabaseMigrationTest {
                 EmoteUsageMigrations.FROM_51,
                 StreamFeedMigrations.FROM_52,
                 StreamFeedMigrations.FROM_53,
+                SearchHistoryMigrations.FROM_54,
             )
             .build()
             .also { it.openHelper.writableDatabase }

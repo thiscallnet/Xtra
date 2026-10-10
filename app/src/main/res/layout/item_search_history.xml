@@ -11,16 +11,42 @@
     android:minHeight="64dp"
     android:orientation="horizontal"
     android:paddingStart="16dp"
-    android:paddingTop="6dp"
+    android:paddingTop="8dp"
     android:paddingEnd="8dp"
-    android:paddingBottom="6dp">
+    android:paddingBottom="8dp">
 
-    <ImageView
-        android:layout_width="24dp"
-        android:layout_height="24dp"
-        android:importantForAccessibility="no"
-        android:src="@drawable/baseline_history_black_24"
-        android:tint="?attr/colorOnSurfaceVariant" />
+    <FrameLayout
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:clipChildren="false">
+
+        <ImageView
+            android:id="@+id/image"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop"
+            tools:src="@tools:sample/avatars" />
+
+        <TextView
+            android:id="@+id/liveBadge"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginBottom="0dp"
+            android:background="@drawable/bg_live_badge"
+            android:paddingStart="5dp"
+            android:paddingTop="1dp"
+            android:paddingEnd="5dp"
+            android:paddingBottom="1dp"
+            android:text="@string/live"
+            android:textColor="@android:color/white"
+            android:textSize="9sp"
+            android:textAllCaps="true"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:visibility="visible" />
+    </FrameLayout>
 
     <LinearLayout
         android:layout_width="0dp"
@@ -30,23 +56,23 @@
         android:orientation="vertical">
 
         <TextView
-            android:id="@+id/query"
+            android:id="@+id/title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
-            android:textAppearance="?attr/textAppearanceBodyLarge"
-            tools:text="Recent search" />
+            android:textAppearance="?attr/textAppearanceTitleMedium"
+            tools:text="Gorgc" />
 
         <TextView
-            android:id="@+id/type"
+            android:id="@+id/subtitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:maxLines="1"
             android:textAppearance="?attr/textAppearanceBodySmall"
             android:textColor="?attr/colorOnSurfaceVariant"
-            tools:text="Channels" />
+            tools:text="Channel" />
     </LinearLayout>
 
     <ImageButton

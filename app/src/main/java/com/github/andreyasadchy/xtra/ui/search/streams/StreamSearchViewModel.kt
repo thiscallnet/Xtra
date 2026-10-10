@@ -13,11 +13,9 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.DropStreamFilter
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.searchQueries
-import com.github.andreyasadchy.xtra.model.ui.RecentSearch
 import com.github.andreyasadchy.xtra.repository.DropsRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
-import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.datasource.SearchStreamsDataSource
 import com.github.andreyasadchy.xtra.repository.datasource.withHelixBroadcasterTypes
@@ -33,7 +31,6 @@ import kotlinx.coroutines.launch
 
 class StreamSearchViewModel(
     private val applicationContext: Context,
-    private val recentSearchesRepository: RecentSearchesRepository,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
     private val dropsRepository: DropsRepository,
@@ -44,7 +41,6 @@ class StreamSearchViewModel(
     val query: StateFlow<String> = _query
     private val _dropsFilters = MutableStateFlow<List<DropStreamFilter>>(emptyList())
     val dropsFilters: StateFlow<List<DropStreamFilter>> = _dropsFilters
-    val recentSearches = recentSearchesRepository.getAll(RecentSearch.TYPE_STREAM)
     val cachedSuggestions = MutableStateFlow<List<Stream>>(emptyList())
     private var cachedSuggestionRequest = 0L
 
@@ -99,22 +95,6 @@ class StreamSearchViewModel(
         }
     }
 
-    fun saveRecentSearch(query: String) {
-        if (query.isNotBlank()) {
-            viewModelScope.launch {
-                recentSearchesRepository.getItem(query, RecentSearch.TYPE_STREAM)?.let {
-                    recentSearchesRepository.delete(it)
-                }
-                recentSearchesRepository.save(RecentSearch(query, RecentSearch.TYPE_STREAM, System.currentTimeMillis()))
-            }
-        }
-    }
-
-    fun deleteRecentSearch(item: RecentSearch) {
-        viewModelScope.launch {
-            recentSearchesRepository.delete(item)
-        }
-    }
 
     companion object {
         val StreamSearchViewModelFactory = viewModelFactory {
@@ -123,7 +103,6 @@ class StreamSearchViewModel(
                 val xtraModule = application.xtraModule
                 StreamSearchViewModel(
                     application.applicationContext,
-                    xtraModule.recentSearchesRepository,
                     xtraModule.graphQLRepository,
                     xtraModule.helixRepository,
                     xtraModule.dropsRepository,

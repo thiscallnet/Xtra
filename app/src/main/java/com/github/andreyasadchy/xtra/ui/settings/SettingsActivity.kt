@@ -40,6 +40,7 @@ import com.github.andreyasadchy.xtra.ui.appearance.makeBackdropAwareChrome
 import com.github.andreyasadchy.xtra.ui.following.FollowingTabs
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.util.isTelevision
+import com.github.andreyasadchy.xtra.ui.search.SearchTabs
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.XtraApp
@@ -384,9 +385,13 @@ class SettingsActivity : AppCompatActivity() {
             C.UI_SAVED_TABS -> mapOf("0" to getString(R.string.bookmarks), "1" to getString(R.string.downloads), "2" to getString(R.string.filters), "3" to getString(R.string.clips))
             C.UI_CHANNEL_TABS -> mapOf("0" to getString(R.string.suggestions), "1" to getString(R.string.videos), "2" to getString(R.string.clips), "3" to getString(R.string.chat), "4" to getString(R.string.about))
             C.UI_GAME_TABS -> mapOf("0" to getString(R.string.videos), "1" to getString(R.string.live), "2" to getString(R.string.clips))
-            else -> mapOf("0" to getString(R.string.videos), "1" to getString(R.string.streams), "2" to getString(R.string.channels), "3" to getString(R.string.games))
+            else -> mapOf("4" to getString(R.string.search_all), "0" to getString(R.string.videos), "1" to getString(R.string.streams), "2" to getString(R.string.channels), "3" to getString(R.string.games))
         }
-        val stored = prefs().getString(prefKey, null)
+        val stored = if (prefKey == C.UI_SEARCH_TABS) {
+            SearchTabs.resolve(prefs().getString(prefKey, null)).joinToString(",")
+        } else {
+            prefs().getString(prefKey, null)
+        }
         val values = (stored ?: defaults).split(',').mapNotNull { value ->
             val parts = value.split(':')
             if (parts.size == 3 && labels.containsKey(parts[0])) {

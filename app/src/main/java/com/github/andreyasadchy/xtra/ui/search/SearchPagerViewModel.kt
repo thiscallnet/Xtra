@@ -9,16 +9,21 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
-import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
+import com.github.andreyasadchy.xtra.repository.SearchHistoryRepository
+import com.github.andreyasadchy.xtra.repository.BookmarksRepository
+import com.github.andreyasadchy.xtra.repository.LocalChannelFollowsRepository
+import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
+import com.github.andreyasadchy.xtra.repository.datasource.FollowedChannelsDataSource
+import androidx.paging.PagingSource
+import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.repository.datasource.withHelixBroadcasterTypes
-import com.github.andreyasadchy.xtra.model.ui.RecentSearch
+import com.github.andreyasadchy.xtra.model.ui.SearchHistoryItem
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -32,8 +37,11 @@ class SearchPagerViewModel(
     private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
-    private val recentSearchesRepository: RecentSearchesRepository,
+    private val searchHistoryRepository: SearchHistoryRepository,
     private val recommendationsRepository: RecommendationsRepository,
+    private val localChannelFollowsRepository: LocalChannelFollowsRepository,
+    private val offlineVideosRepository: OfflineVideosRepository,
+    private val bookmarksRepository: BookmarksRepository,
 ) : ViewModel() {
 
     data class UserLookupRequest(val byId: Boolean, val input: String)
@@ -49,17 +57,102 @@ class SearchPagerViewModel(
     val userLookup = _userLookup.asStateFlow()
     private var userLookupJob: Job? = null
     val cachedSuggestions = MutableStateFlow<List<Stream>>(emptyList())
-    val recentSearches = combine(
-        recentSearchesRepository.getAll(RecentSearch.TYPE_STREAM),
-        recentSearchesRepository.getAll(RecentSearch.TYPE_CHANNEL),
-        recentSearchesRepository.getAll(RecentSearch.TYPE_GAME),
-        recentSearchesRepository.getAll(RecentSearch.TYPE_VIDEO),
-    ) { streams, channels, games, videos ->
-        (streams + channels + games + videos)
-            .sortedByDescending(RecentSearch::lastSearched)
-            .take(8)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
+    /** Everything the user opened from search; callers rank it with [ranked]. */
+    val history = searchHistoryRepository.getAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), emptyList())
     private var cachedSuggestionRequest = 0L
+
+    /** Viewer counts of channels that are live right now; last known value is kept on failures. */
+    private val _live = MutableStateFlow<LiveChannels>(emptyMap())
+    val live = _live.asStateFlow()
+    private var liveJob: Job? = null
+
+    /** Followed channels (account and local) as searchable entries; loaded on first use. */
+    private val _followed = MutableStateFlow<List<SearchHistoryItem>>(emptyList())
+    val followed = _followed.asStateFlow()
+    private var followedLoaded = false
+
+    private var liveKeys: Set<String> = emptySet()
+
+    /** [force] re-checks even when the channels are the same (e.g. when the page is shown again). */
+    fun refreshLive(items: List<SearchHistoryItem>, force: Boolean = false) {
+        val channels = items.filter { it.isChannel }
+        if (channels.isEmpty()) {
+            liveJob?.cancel()
+            liveKeys = emptySet()
+            _live.value = emptyMap()
+            return
+        }
+        val keys = channels.map { it.refId }.toSet()
+        if (!force && keys == liveKeys) return
+        liveKeys = keys
+        liveJob?.cancel()
+        liveJob = viewModelScope.launch {
+            val networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+            val headers = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+            val ids = channels.filter { it.refId != it.slug }.map { it.refId }.distinct()
+            val logins = channels.filter { it.refId == it.slug }.map { it.refId }.distinct()
+            val found = mutableMapOf<String, Int>()
+            try {
+                var complete = true
+                suspend fun collect(ids: List<String>?, logins: List<String>?) {
+                    val users = graphQLRepository.loadQueryUsersStream(networkLibrary, headers, ids, logins).data?.users
+                    if (users == null) {
+                        complete = false
+                        return
+                    }
+                    users.forEach { user ->
+                            val viewers = user?.stream?.viewersCount ?: return@forEach
+                            user.id?.let { found[it] = viewers }
+                            user.login?.let { found[it.lowercase()] = viewers }
+                        }
+                }
+                ids.chunked(100).forEach { collect(it, null) }
+                logins.chunked(100).forEach { collect(null, it) }
+                // A throttled or errored answer must not wipe badges that were right a moment ago.
+                if (complete) _live.value = found else liveKeys = emptySet()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                // Offline or throttled: keep what we showed before instead of dropping every badge.
+            }
+        }
+    }
+
+    fun ensureFollowedLoaded() {
+        if (followedLoaded) return
+        followedLoaded = true
+        viewModelScope.launch {
+            try {
+                val source = FollowedChannelsDataSource(
+                    sort = "login",
+                    order = "asc",
+                    userId = applicationContext.tokenPrefs().getString(C.USER_ID, null),
+                    localChannelFollowsRepository = localChannelFollowsRepository,
+                    offlineVideosRepository = offlineVideosRepository,
+                    bookmarksRepository = bookmarksRepository,
+                    gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true),
+                    graphQLRepository = graphQLRepository,
+                    helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext),
+                    helixRepository = helixRepository,
+                    networkLibrary = applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                )
+                val page = source.load(PagingSource.LoadParams.Refresh(null, FOLLOWED_LIMIT, false))
+                if (page is PagingSource.LoadResult.Page) {
+                    _followed.value = page.data.mapNotNull {
+                        SearchHistoryItem.channel(it.id, it.login, it.name, it.profileImage)
+                            ?.let { item -> SearchHistoryItem(item.kind, item.refId, item.title, item.slug, item.imageUrl, 0, 0L) }
+                    }
+                } else {
+                    followedLoaded = false
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                followedLoaded = false
+            }
+        }
+    }
 
     fun refreshCachedSuggestions() {
         val request = ++cachedSuggestionRequest
@@ -81,8 +174,16 @@ class SearchPagerViewModel(
         }
     }
 
-    fun deleteRecentSearch(item: RecentSearch) {
-        viewModelScope.launch { recentSearchesRepository.delete(item) }
+    fun removeHistory(item: SearchHistoryItem) {
+        viewModelScope.launch { searchHistoryRepository.delete(item) }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch { searchHistoryRepository.deleteAll() }
+    }
+
+    fun restoreHistory(items: List<SearchHistoryItem>) {
+        if (items.isNotEmpty()) viewModelScope.launch { searchHistoryRepository.restore(items) }
     }
 
     fun loadUserResult(request: UserLookupRequest, networkLibrary: String?, gqlHeaders: Map<String, String>) {
@@ -128,6 +229,8 @@ class SearchPagerViewModel(
     }
 
     companion object {
+        private const val FOLLOWED_LIMIT = 100
+
         val SearchPagerViewModelFactory = viewModelFactory {
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
@@ -136,8 +239,11 @@ class SearchPagerViewModel(
                     application.applicationContext,
                     xtraModule.graphQLRepository,
                     xtraModule.helixRepository,
-                    xtraModule.recentSearchesRepository,
+                    xtraModule.searchHistoryRepository,
                     xtraModule.recommendationsRepository,
+                    xtraModule.localChannelFollowsRepository,
+                    xtraModule.offlineVideosRepository,
+                    xtraModule.bookmarksRepository,
                 )
             }
         }
