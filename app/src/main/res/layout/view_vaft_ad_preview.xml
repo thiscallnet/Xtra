@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<merge xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/vaftAdPreviewPlayer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAccessibility="no"
+        app:resize_mode="fit"
+        app:surface_type="texture_view"
+        app:use_controller="false" />
+
+    <TextView
+        android:id="@+id/vaftAdPreviewLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:background="#99000000"
+        android:ellipsize="end"
+        android:maxLines="1"
+        android:paddingHorizontal="4dp"
+        android:text="@string/vaft_ad_preview_label"
+        android:textColor="@android:color/white"
+        android:textSize="9sp" />
+
+</merge>

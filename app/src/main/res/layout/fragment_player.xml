@@ -75,6 +75,13 @@
                 android:id="@+id/playerControls"
                 layout="@layout/player_layout" />
 
+            <com.github.andreyasadchy.xtra.ui.player.VaftAdPreviewView
+                android:id="@+id/vaftAdPreview"
+                android:layout_width="128dp"
+                android:layout_height="72dp"
+                android:layout_gravity="top|start"
+                android:visibility="gone" />
+
             <FrameLayout
                 android:id="@+id/liveTapSeekFeedbackOverlay"
                 android:layout_width="match_parent"

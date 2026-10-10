@@ -229,6 +229,10 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 val captureId = args.getString(PlaybackService.VAFT_HANDOFF_FRAME_CAPTURE_ID)
                 reconcileVaftFrameCaptureResult(args)
                 viewModel.vaftRequired = args.getBoolean(PlaybackService.SUPPRESS_VAFT_OUTPUT)
+                viewModel.vaftAdActive = args.getBoolean(PlaybackService.VAFT_WINDOW_ACTIVE) ||
+                    args.getBoolean(PlaybackService.VAFT_ALTERNATE_ACTIVE)
+                args.getString(PlaybackService.VAFT_PRIMARY_URI)?.let { viewModel.vaftPrimaryUri = it }
+                updateVaftAdPreview()
                 updateVaftEntryFrameState(controller, args)
                 if (captureId != vaftFrameCaptureRequestId && vaftFrameCaptureRequestId != null) {
                     vaftFrameCaptureRequestId = null
@@ -367,6 +371,27 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 "visibleRowsToken=${qualityCatalogRowsToken(visibleQualities)} " +
                 "loading=${loading || !currentCatalog || visibleQualities.isNullOrEmpty()}",
         )
+    }
+
+    override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        updateVaftAdPreview()
+    }
+
+    /** Plays the original stream in a tiny view while VAFT is replacing it, if the setting is on. */
+    private fun updateVaftAdPreview() {
+        val preview = view?.findViewById<VaftAdPreviewView>(R.id.vaftAdPreview) ?: return
+        val uri = viewModel.vaftPrimaryUri
+        val inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && requireActivity().isInPictureInPictureMode
+        val prefs = requireContext().prefs()
+        val allowed = videoType == STREAM && !inPip && isAdded &&
+            lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) &&
+            prefs.isVaftEnabled() && prefs.getBoolean(C.PLAYER_VAFT_AD_PREVIEW, false)
+        when {
+            allowed && viewModel.vaftAdActive && !uri.isNullOrBlank() -> preview.show(xtraModule.streamMedia3Runtime, uri)
+            allowed -> preview.releaseSoon()
+            else -> preview.release()
+        }
     }
 
     protected override suspend fun qualityMenuHeader(): RadioButtonDialogFragment.Header? {
@@ -1100,6 +1125,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     override fun onStart() {
         super.onStart()
+        updateVaftAdPreview()
         logVideoSurfaceBinding("on_start", player, videoOutputView)
         controllerFuture?.let { MediaController.releaseFuture(it) }
         val future = MediaController.Builder(
@@ -5875,6 +5901,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     }
 
     override fun onStop() {
+        view?.findViewById<VaftAdPreviewView>(R.id.vaftAdPreview)?.release()
         cancelLiveRewindStateSync()
         logVideoSurfaceBinding("on_stop", player, view?.let { videoOutputView })
         super.onStop()

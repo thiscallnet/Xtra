@@ -338,6 +338,7 @@ class PlaybackService : MediaSessionService() {
             putBoolean(VAFT_ALTERNATE_ACTIVE, vaftAlternateActive)
             putBoolean(SUPPRESS_VAFT_OUTPUT, vaftOutputSuppressed)
             putString(VAFT_SOURCE_URI, vaftAuthoritativeUri)
+            putString(VAFT_PRIMARY_URI, liveStreamUri)
             putString(VAFT_HANDOFF_FRAME_CAPTURE_ID, vaftHandoffFrameCaptureId)
             putString(VAFT_HANDOFF_FRAME_CAPTURE_RESOLVED_ID, vaftHandoffFrameCaptureResolvedId)
             putBoolean(VAFT_HANDOFF_FRAME_CAPTURE_ACCEPTED, vaftHandoffFrameCaptureAccepted)
@@ -1177,6 +1178,7 @@ class PlaybackService : MediaSessionService() {
                                     putBoolean(VAFT_ALTERNATE_ACTIVE, vaftAlternateActive)
                                     putBoolean(SUPPRESS_VAFT_OUTPUT, vaftOutputSuppressed)
                                     putString(VAFT_SOURCE_URI, vaftAuthoritativeUri)
+                                    putString(VAFT_PRIMARY_URI, liveStreamUri)
                                     putString(SYSTEM_AUDIO_PRIMARY_SOURCE_URI, liveStreamExtras?.getString(URI))
                                     putString(VAFT_HANDOFF_FRAME_CAPTURE_ID, vaftHandoffFrameCaptureId)
                                     putString(VAFT_HANDOFF_FRAME_CAPTURE_RESOLVED_ID, vaftHandoffFrameCaptureResolvedId)
@@ -1683,6 +1685,7 @@ class PlaybackService : MediaSessionService() {
                                     putBoolean(VAFT_ALTERNATE_ACTIVE, vaftAlternateActive)
                                     putBoolean(SUPPRESS_VAFT_OUTPUT, vaftOutputSuppressed)
                                     putString(VAFT_SOURCE_URI, vaftAuthoritativeUri)
+                                    putString(VAFT_PRIMARY_URI, liveStreamUri)
                                     vaftVerifiedRendition?.let { putString(VAFT_VERIFIED_RENDITION, xtraModule.json.encodeToString(it)) }
                                     vaftLogicalQuality?.let { putString(VAFT_LOGICAL_QUALITY, xtraModule.json.encodeToString(it)) }
                                     vaftCurrentPlayerType?.let { putString(VAFT_PLAYER_TYPE, it) }
@@ -6748,6 +6751,7 @@ class PlaybackService : MediaSessionService() {
         const val VAFT_CONTROLLED_FEED = "vaftControlledFeed"
         const val VAFT_PLAYBACK_STATE_CHANGED = "vaftPlaybackStateChanged"
         const val VAFT_SOURCE_URI = "vaftSourceUri"
+        const val VAFT_PRIMARY_URI = "vaftPrimaryUri"
         const val REWIND_VIDEO_ID = "rewindVideoId"
         const val LIVE_REWIND_ACTIVE = "liveRewindActive"
         const val LIVE_REWIND_TRANSITIONING = "liveRewindTransitioning"
