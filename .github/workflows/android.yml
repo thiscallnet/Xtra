@@ -82,6 +82,17 @@ jobs:
       uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       with:
         cache-provider: 'basic'
+    - name: Configure Gradle memory
+      shell: bash
+      run: |
+        # One shared daemon sized for lint/tests, with Kotlin compiled inside it instead of a
+        # second JVM. Default daemons plus a separate Kotlin daemon per phase exhausted the
+        # 15 GB runner.
+        mkdir -p "$HOME/.gradle"
+        {
+          echo "org.gradle.jvmargs=-Xmx5g -Dfile.encoding=UTF-8"
+          echo "kotlin.compiler.execution.strategy=in-process"
+        } >> "$HOME/.gradle/gradle.properties"
     - name: Determine application version
       id: version
       shell: bash
@@ -130,7 +141,10 @@ jobs:
       run: python3 .github/scripts/check-resources.py
 
     - name: Check Android API compatibility
-      run: ./gradlew :app:lintRelease --console=plain
+      run: |
+        ./gradlew :app:lintRelease --console=plain
+        # The release build runs its own JVM; free the shared daemon first.
+        ./gradlew --stop
 
     - name: Build with Gradle
       id: build
