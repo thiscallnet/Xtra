@@ -15,21 +15,28 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.paging.PagingDataAdapter
+import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
+import com.github.andreyasadchy.xtra.model.ui.SearchHistoryItem
 import com.github.andreyasadchy.xtra.ui.common.GamesAdapter
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
-import com.github.andreyasadchy.xtra.ui.search.RecentSearchAdapter
+import com.github.andreyasadchy.xtra.ui.search.SearchHistoryRecorder
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
+import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel
+import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel.Companion.SearchPagerViewModelFactory
+import com.github.andreyasadchy.xtra.ui.search.SearchRowAdapter
 import com.github.andreyasadchy.xtra.ui.search.Searchable
+import com.github.andreyasadchy.xtra.ui.search.matchRows
 import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.search.games.GameSearchViewModel.Companion.GameSearchViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 class GameSearchFragment : PagedListFragment(), Searchable {
@@ -40,7 +47,8 @@ class GameSearchFragment : PagedListFragment(), Searchable {
     private val binding get() = _binding!!
     private val viewModel: GameSearchViewModel by viewModels { GameSearchViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Game, out RecyclerView.ViewHolder>
-    private var recentSearchAdapter = RecentSearchAdapter({ (parentFragment as? SearchPagerFragment)?.setQuery(it.query) }, { viewModel.deleteRecentSearch(it) })
+    private val pagerViewModel: SearchPagerViewModel by viewModels({ requireParentFragment() }) { SearchPagerViewModelFactory }
+    private val matchesAdapter = SearchRowAdapter({ SearchHistoryRecorder.open(this, it.item) })
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -49,17 +57,15 @@ class GameSearchFragment : PagedListFragment(), Searchable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        pagingAdapter = GamesAdapter(this) {
+        pagingAdapter = GamesAdapter(this, recordSearchHistory = true) {
             findNavController().navigate(
                 GamesFragmentDirections.actionGlobalGamesFragment(
                     tags = arrayOf(it)
                 )
             )
         }
-        setAdapter(binding.recyclerView, pagingAdapter)
-        binding.recyclerView.usePageGrid(GridPage.SEARCH_GAMES) {
-            binding.recyclerView.adapter !is RecentSearchAdapter
-        }
+        setAdapter(binding.recyclerView, ConcatAdapter(matchesAdapter, pagingAdapter))
+        binding.recyclerView.usePageGrid(GridPage.SEARCH_GAMES) { true }
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             if (activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                 val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -70,6 +76,7 @@ class GameSearchFragment : PagedListFragment(), Searchable {
     }
 
     override fun initialize() {
+        if (requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) observeMatches()
         with(binding) {
             setupPagingControls(binding, pagingAdapter)
             viewLifecycleOwner.lifecycleScope.launch {
@@ -82,23 +89,8 @@ class GameSearchFragment : PagedListFragment(), Searchable {
             viewLifecycleOwner.lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
                     pagingAdapter.loadStateFlow.collectLatest { loadState ->
-                        updatePagingState(binding, pagingAdapter, loadState, showEmpty = viewModel.query.value.isNotBlank())
-                        if (viewModel.query.value.isBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-                            setDisplayedAdapter(recentSearchAdapter)
-                        } else {
-                            if (recyclerView.adapter is RecentSearchAdapter) {
-                                setDisplayedAdapter(pagingAdapter)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if (requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.recentSearches.collectLatest {
-                        recentSearchAdapter.submitList(it)
+                        updatePagingState(binding, pagingAdapter, loadState, showEmpty = viewModel.query.value.isNotBlank() && matchesAdapter.itemCount == 0)
+                        (parentFragment as? SearchPagerFragment)?.bindEmptyHint(nothingHere, "3")
                     }
                 }
             }
@@ -106,15 +98,20 @@ class GameSearchFragment : PagedListFragment(), Searchable {
     }
 
     override fun search(query: String) {
-        val changed = viewModel.setQuery(query)
-        if (changed && query.isNotBlank() && requireContext().prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)) {
-            viewModel.saveRecentSearch(query)
-        }
+        viewModel.setQuery(query)
     }
 
-    private fun setDisplayedAdapter(adapter: RecyclerView.Adapter<*>) {
-        binding.recyclerView.setTemporarilySingleColumn(adapter is RecentSearchAdapter)
-        binding.recyclerView.adapter = adapter
+    private fun observeMatches() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                combine(pagerViewModel.history, viewModel.query) { history, query ->
+                    matchRows(
+                        requireContext(), query, history, emptyList(), emptyMap(),
+                        setOf(SearchHistoryItem.KIND_GAME), MAX_MATCHES,
+                    )
+                }.collectLatest { matchesAdapter.submitList(it) }
+            }
+        }
     }
 
     override fun onNetworkRestored() {
@@ -124,6 +121,10 @@ class GameSearchFragment : PagedListFragment(), Searchable {
     override fun onDestroyView() {
         super.onDestroyView()
         _binding = null
+    }
+
+    private companion object {
+        const val MAX_MATCHES = 3
     }
 }
 

@@ -24,7 +24,7 @@ import com.github.andreyasadchy.xtra.repository.NotificationsRepository
 import com.github.andreyasadchy.xtra.repository.NotificationUserSyncResult
 import com.github.andreyasadchy.xtra.repository.OfflineVideosRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
-import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
+import com.github.andreyasadchy.xtra.repository.SearchHistoryRepository
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationSchedulerResult
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationNotifier
@@ -56,7 +56,7 @@ class SettingsViewModel(
     private val applicationContext: Context,
     private val playerRepository: PlayerRepository,
     private val offlineVideosRepository: OfflineVideosRepository,
-    private val recentSearchesRepository: RecentSearchesRepository,
+    private val searchHistoryRepository: SearchHistoryRepository,
     private val notificationsRepository: NotificationsRepository,
     private val appDatabase: AppDatabase,
     private val viewingStatsRecorder: ViewingStatsRecorder,
@@ -74,7 +74,7 @@ class SettingsViewModel(
 
     fun deleteRecentSearches() {
         viewModelScope.launch {
-            recentSearchesRepository.deleteAll()
+            searchHistoryRepository.deleteAll()
         }
     }
 
@@ -697,7 +697,7 @@ class SettingsViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                SettingsViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.recentSearchesRepository, xtraModule.notificationsRepository, xtraModule.database, xtraModule.viewingStatsRecorder, xtraModule.channelStreamStartsRepository)
+                SettingsViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.offlineVideosRepository, xtraModule.searchHistoryRepository, xtraModule.notificationsRepository, xtraModule.database, xtraModule.viewingStatsRecorder, xtraModule.channelStreamStartsRepository)
             }
         }
     }

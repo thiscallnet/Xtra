@@ -20,6 +20,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentGamesListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Tag
+import com.github.andreyasadchy.xtra.ui.search.SearchHistoryRecorder
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.ui.view.GridRecyclerView
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
@@ -33,6 +34,7 @@ import kotlinx.coroutines.launch
 class GamesAdapter(
     private val fragment: Fragment,
     private val adaptSingleColumn: Boolean = false,
+    private val recordSearchHistory: Boolean = false,
     private val selectTag: (Tag) -> Unit,
 ) : PagingDataAdapter<Game, GamesAdapter.PagingViewHolder>(
     object : DiffUtil.ItemCallback<Game>() {
@@ -98,6 +100,7 @@ class GamesAdapter(
         init {
             binding.root.setOnClickListener {
                 boundGame?.let { game ->
+                    if (recordSearchHistory) SearchHistoryRecorder.game(fragment.requireContext(), game)
                     fragment.findNavController().navigate(GamePagerFragmentDirections.actionGlobalGamePagerFragment(
                         gameId = game.id,
                         gameSlug = game.slug,

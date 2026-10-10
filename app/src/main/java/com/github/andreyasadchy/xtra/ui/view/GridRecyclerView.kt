@@ -50,7 +50,7 @@ class GridRecyclerView : RecyclerView {
                 val wrappedAdapter = (adapter as? ConcatAdapter)
                     ?.getWrappedAdapterAndPosition(position)
                     ?.first
-                return if (wrappedAdapter is LoadStateAdapter<*>) {
+                return if (wrappedAdapter is LoadStateAdapter<*> || wrappedAdapter is FullSpanItems) {
                     gridLayoutManager.spanCount
                 } else {
                     1
@@ -293,3 +293,6 @@ class GridRecyclerView : RecyclerView {
         // Material 3 cards provide their own separation.
     }
 }
+
+/** Adapters implementing this span every grid column, e.g. pinned list rows above a card grid. */
+interface FullSpanItems

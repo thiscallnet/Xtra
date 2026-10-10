@@ -18,6 +18,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentSearchChannelsListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
+import com.github.andreyasadchy.xtra.ui.search.SearchHistoryRecorder
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
@@ -50,6 +51,7 @@ class ChannelSearchAdapter(
                 if (item != null) {
                     val context = fragment.requireContext()
                     root.setOnClickListener {
+                        SearchHistoryRecorder.channel(context, item)
                         fragment.findNavController().navigate(
                             ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
                                 channelId = item.id,

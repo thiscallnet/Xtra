@@ -13,14 +13,12 @@ import androidx.paging.PagingConfig
 import androidx.paging.cachedIn
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.Bookmark
-import com.github.andreyasadchy.xtra.model.ui.RecentSearch
 import com.github.andreyasadchy.xtra.model.ui.User
 import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.repository.BookmarksRepository
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
-import com.github.andreyasadchy.xtra.repository.RecentSearchesRepository
 import com.github.andreyasadchy.xtra.repository.datasource.SearchVideosDataSource
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
@@ -43,7 +41,6 @@ import java.util.concurrent.ExecutorService
 
 class VideoSearchViewModel(
     applicationContext: Context,
-    private val recentSearchesRepository: RecentSearchesRepository,
     playerRepository: PlayerRepository,
     private val bookmarksRepository: BookmarksRepository,
     private val graphQLRepository: GraphQLRepository,
@@ -55,7 +52,6 @@ class VideoSearchViewModel(
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query
-    val recentSearches = recentSearchesRepository.getAll(RecentSearch.TYPE_VIDEO)
     val positions = playerRepository.loadVideoPositions()
     val bookmarks = bookmarksRepository.getAllFlow()
 
@@ -80,22 +76,6 @@ class VideoSearchViewModel(
         return true
     }
 
-    fun saveRecentSearch(query: String) {
-        if (query.isNotBlank()) {
-            viewModelScope.launch {
-                recentSearchesRepository.getItem(query, RecentSearch.TYPE_VIDEO)?.let {
-                    recentSearchesRepository.delete(it)
-                }
-                recentSearchesRepository.save(RecentSearch(query, RecentSearch.TYPE_VIDEO, System.currentTimeMillis()))
-            }
-        }
-    }
-
-    fun deleteRecentSearch(item: RecentSearch) {
-        viewModelScope.launch {
-            recentSearchesRepository.delete(item)
-        }
-    }
 
     fun saveBookmark(filesDir: String, video: Video, networkLibrary: String?, gqlHeaders: Map<String, String>, helixHeaders: Map<String, String>) {
         viewModelScope.launch {
@@ -271,7 +251,7 @@ class VideoSearchViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                VideoSearchViewModel(application.applicationContext, xtraModule.recentSearchesRepository, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.httpExecutor, xtraModule.okHttpClient)
+                VideoSearchViewModel(application.applicationContext, xtraModule.playerRepository, xtraModule.bookmarksRepository, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.httpEngine, xtraModule.httpExecutor, xtraModule.okHttpClient)
             }
         }
     }

@@ -12,12 +12,10 @@ version codes cannot be installed over the new group without uninstalling first.
 ## Maintaining a compatibility group
 
 `defaultVersionCode` in `app/build.gradle.kts` is the Android installation and data
-compatibility boundary. Keep it constant for compatible releases. Increase it
-before publishing any change that an earlier release cannot safely read, including
-Room schema changes without supported reverse migrations, incompatible settings
-formats, or new irreversible persisted state. A higher boundary allows upgrades
-but prevents users from installing older, incompatible releases over their data.
-Never decrease it or reuse a previous boundary.
+compatibility boundary. Do not change it. Schema and settings changes (including
+Room migrations) are forward-only: a newer release upgrades older data, and
+downgrading to a release that cannot read that data is not supported. We do not
+raise the version code to make downgrades safe.
 
 `ciBuildNumber` is the independent GitHub Actions run number. It identifies the
 release in BuildConfig, the manifest, diagnostics, and release metadata. It must

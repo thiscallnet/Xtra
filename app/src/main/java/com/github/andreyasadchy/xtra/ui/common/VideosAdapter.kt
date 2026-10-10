@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.model.ui.Video
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.search.SearchHistoryRecorder
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.util.isTelevision
 import kotlinx.coroutines.CoroutineScope
@@ -41,6 +42,7 @@ class VideosAdapter(
     private val saveBookmark: (Video) -> Unit,
     private val showGame: Boolean = true,
     private val showChannel: Boolean = true,
+    private val recordSearchHistory: Boolean = false,
 ) : PagingDataAdapter<Video, VideosAdapter.PagingViewHolder>(
     object : DiffUtil.ItemCallback<Video>() {
         override fun areItemsTheSame(oldItem: Video, newItem: Video): Boolean =
@@ -386,6 +388,7 @@ class VideosAdapter(
         }
 
         private fun openVideo(video: Video) {
+            if (recordSearchHistory) SearchHistoryRecorder.video(fragment.requireContext(), video)
             val position = video.id?.toLongOrNull()?.let { positions[it] }
             val startFromBeginning = position != null &&
                     video.durationSeconds != null &&
@@ -400,6 +403,7 @@ class VideosAdapter(
 
         private fun openChannel(video: Video) {
             if (!showChannel) return
+            if (recordSearchHistory) SearchHistoryRecorder.channel(fragment.requireContext(), video)
             fragment.findNavController().navigate(
                 ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
                     channelId = video.channelId,
@@ -412,6 +416,7 @@ class VideosAdapter(
 
         private fun openGame(video: Video) {
             if (!showGame || video.gameName.isNullOrBlank()) return
+            if (recordSearchHistory) SearchHistoryRecorder.game(fragment.requireContext(), video)
             fragment.findNavController().navigate(
                 GamePagerFragmentDirections.actionGlobalGamePagerFragment(
                     gameId = video.gameId,
