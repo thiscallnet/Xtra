@@ -26,6 +26,8 @@ import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
 import com.github.andreyasadchy.xtra.util.isTelevision
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -76,7 +78,12 @@ class ClipsAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
-        val binding = FragmentVideosListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val inflater = LayoutInflater.from(parent.context)
+        val binding = if (parent.context.prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
+            FragmentVideosListItemBinding.bind(inflater.inflate(R.layout.fragment_videos_list_item_compact, parent, false))
+        } else {
+            FragmentVideosListItemBinding.inflate(inflater, parent, false)
+        }
         return PagingViewHolder(binding, fragment, showGame, showChannel)
     }
 

@@ -469,7 +469,7 @@
     <string name="settings_density_compact">Compact</string>
     <string name="settings_browsing_streams_videos">Streams &amp; videos</string>
     <string name="settings_displayed_information">Displayed information</string>
-    <string name="settings_stream_card_style">Stream card style</string>
+    <string name="settings_stream_card_style">Media card style</string>
     <string name="settings_stream_sort">Default stream sorting</string>
     <string name="settings_stream_card_compact">Compact</string>
     <string name="settings_stream_card_followed_compact">Compact for followed channels only</string>
