@@ -98,12 +98,31 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
-        <com.github.andreyasadchy.xtra.ui.main.UnlimitedBottomNavigationView
-            android:id="@+id/navBar"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:minHeight="?attr/bottomNavigationHeight"
-            app:labelVisibilityMode="labeled" />
+            android:orientation="horizontal">
+
+            <com.github.andreyasadchy.xtra.ui.main.UnlimitedBottomNavigationView
+                android:id="@+id/navBar"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:minHeight="?attr/bottomNavigationHeight"
+                app:labelVisibilityMode="labeled" />
+
+            <ImageButton
+                android:id="@+id/bottomSearch"
+                android:layout_width="56dp"
+                android:layout_height="?attr/bottomNavigationHeight"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/search"
+                android:padding="16dp"
+                android:src="@drawable/baseline_search_black_24"
+                android:visibility="gone"
+                app:tint="?attr/colorOnSurfaceVariant"
+                tools:visibility="visible" />
+        </LinearLayout>
     </LinearLayout>
 
     <FrameLayout

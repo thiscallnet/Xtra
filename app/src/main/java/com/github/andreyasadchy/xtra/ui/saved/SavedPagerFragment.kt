@@ -250,8 +250,9 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
 
     private fun setDownloadsActionsVisible(isDownloads: Boolean) {
         val toolbar = _binding?.toolbar ?: return
-        toolbar.menu.findItem(R.id.search).isVisible = !isDownloads
-        toolbar.menu.findItem(R.id.searchOverflow).isVisible = isDownloads
+        val showTopSearch = !(requireActivity() as MainActivity).hasBottomSearchShortcut()
+        toolbar.menu.findItem(R.id.search).isVisible = showTopSearch && !isDownloads
+        toolbar.menu.findItem(R.id.searchOverflow).isVisible = showTopSearch && isDownloads
         toolbar.menu.findItem(R.id.importFolders).isVisible = isDownloads
         toolbar.menu.findItem(R.id.importFiles).isVisible = isDownloads
     }

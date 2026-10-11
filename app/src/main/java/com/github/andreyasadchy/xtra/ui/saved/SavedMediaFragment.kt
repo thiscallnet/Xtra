@@ -99,8 +99,9 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
             fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let { liftTargetConnector?.connect(it) }
             if (fragment is Sortable) fragment.setupSortBar(binding.sortBar) else binding.sortBar.root.visibility = View.GONE
             val isDownloads = fragment is DownloadsFragment
-            binding.toolbar.menu.findItem(R.id.search).isVisible = !isDownloads
-            binding.toolbar.menu.findItem(R.id.searchOverflow).isVisible = isDownloads
+            val showTopSearch = !(requireActivity() as MainActivity).hasBottomSearchShortcut()
+            binding.toolbar.menu.findItem(R.id.search).isVisible = showTopSearch && !isDownloads
+            binding.toolbar.menu.findItem(R.id.searchOverflow).isVisible = showTopSearch && isDownloads
             binding.toolbar.menu.findItem(R.id.importFolders).isVisible = isDownloads
             binding.toolbar.menu.findItem(R.id.importFiles).isVisible = isDownloads
         }

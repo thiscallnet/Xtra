@@ -440,7 +440,7 @@ class DropsFragment : Fragment(), Scrollable {
             binding.toolbar.inflateMenu(R.menu.top_menu)
         }
         binding.toolbar.menu.findItem(R.id.search)?.apply {
-            isVisible = true
+            isVisible = !(requireActivity() as MainActivity).hasBottomSearchShortcut()
             setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         }
         binding.toolbar.menu.findItem(R.id.settings)?.apply {

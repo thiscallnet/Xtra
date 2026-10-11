@@ -224,6 +224,8 @@ class MainActivity : AppCompatActivity() {
         val showNavigation = isTv || hasNavigationDestinations
         binding.tvNavigationContainer.isVisible = useNavigationRail && showNavigation
         binding.navBarContainer.isVisible = !useNavigationRail && showNavigation
+        updateBottomSearchVisibility()
+        allToolbarViews().forEach(::updateTopSearchVisibility)
         binding.tvSearch.isVisible = isTv
         binding.tvAccount.isVisible = isTv
         binding.tvSettings.isVisible = isTv
@@ -249,6 +251,20 @@ class MainActivity : AppCompatActivity() {
         binding.tvNavRail.labelVisibilityMode = NavigationBarView.LABEL_VISIBILITY_LABELED
         binding.mainNavigationDivider.isVisible = !useNavigationRail &&
             prefs.getString(C.SETTINGS_UI_STYLE, "expressive") != "expressive"
+    }
+
+    private fun updateBottomSearchVisibility() {
+        binding.bottomSearch.isVisible = binding.navBarContainer.isVisible &&
+            (!::navController.isInitialized || navController.currentDestination?.id != R.id.searchPagerFragment)
+    }
+
+    fun hasBottomSearchShortcut(): Boolean = !useNavigationRail && hasNavigationDestinations
+
+    private fun updateTopSearchVisibility(toolbar: Toolbar) {
+        val showTopSearch = !hasBottomSearchShortcut()
+        val isDownloads = toolbar.menu.findItem(R.id.importFiles)?.isVisible == true
+        toolbar.menu.findItem(R.id.search)?.isVisible = showTopSearch && !isDownloads
+        toolbar.menu.findItem(R.id.searchOverflow)?.isVisible = showTopSearch && isDownloads
     }
 
     //Lifecycle methods
@@ -320,6 +336,9 @@ class MainActivity : AppCompatActivity() {
             leavePlayerForBrowsing()
             navController.navigate(R.id.action_global_searchPagerFragment)
         }
+        binding.bottomSearch.setOnClickListener {
+            navController.navigate(R.id.action_global_searchPagerFragment)
+        }
         binding.tvAccount.setOnClickListener { openTvAccount() }
         binding.tvSettings.setOnClickListener {
             settingsResultLauncher?.launch(Intent(this, com.github.andreyasadchy.xtra.ui.settings.SettingsActivity::class.java))
@@ -337,6 +356,7 @@ class MainActivity : AppCompatActivity() {
                     SettingsUpdateIndicator.update(it, this@MainActivity)
                     ProfileMenuBinder.bind(it, this@MainActivity)
                     TwitchInboxMenuBinder.bind(it, this@MainActivity)
+                    updateTopSearchVisibility(it)
                 }
             }
         }.also {
@@ -1901,6 +1921,7 @@ class MainActivity : AppCompatActivity() {
             ?: enabledNavigationDestinations.firstOrNull()?.id
         committedBottomNavigationDestinationId?.let(::selectCommittedBottomNavigationItem)
         navController.addOnDestinationChangedListener { _, destination, _ ->
+            updateBottomSearchVisibility()
             navigationDestinationId(destination)?.let { destinationId ->
                 committedBottomNavigationDestinationId = destinationId
                 rootNavigationView().post {
@@ -1945,6 +1966,7 @@ class MainActivity : AppCompatActivity() {
             SettingsUpdateIndicator.update(toolbar, this)
             ProfileMenuBinder.bind(toolbar, this)
             TwitchInboxMenuBinder.bind(toolbar, this)
+            updateTopSearchVisibility(toolbar)
         }
     }
 
