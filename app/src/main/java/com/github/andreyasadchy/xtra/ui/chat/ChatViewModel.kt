@@ -135,6 +135,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.currentCoroutineContext
@@ -146,6 +147,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -8121,7 +8123,19 @@ class ChatViewModel(
         }
     }
 
+    init {
+        // Once a channel's emotes are known, quietly cache the picker images in the background.
+        viewModelScope.launch {
+            pickerCatalogUpdates.collectLatest {
+                delay(PICKER_WARM_DELAY_MILLIS)
+                val emotes = withContext(Dispatchers.Default) { currentPickerEmotes() }
+                EmotePickerImageLoader.warm(applicationContext, emotes, "4")
+            }
+        }
+    }
+
     companion object {
+        private const val PICKER_WARM_DELAY_MILLIS = 2_000L
         private const val DROPS_REFRESH_MILLIS = 60_000L
         private const val DROPS_SESSION_PROGRESS_STALE_MILLIS = DROPS_REFRESH_MILLIS * 2
         private const val DROPS_RETRY_MILLIS = 120_000L

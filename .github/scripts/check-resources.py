@@ -853,6 +853,11 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "account_benefits_loading",
     "account_connection_error",
     "account_live_label",
+    # Emote picker animation switch and Twitch tab empty states use default English copy until localized.
+    "chat_animate_picker_emotes",
+    "chat_animate_picker_emotes_summary",
+    "twitch_emotes_login_required",
+    "twitch_emotes_empty",
 }
 
 

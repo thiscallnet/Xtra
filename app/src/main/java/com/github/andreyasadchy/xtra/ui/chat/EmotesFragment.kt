@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.ui.chat.ChatViewModel.Companion.ChatViewMod
 import com.github.andreyasadchy.xtra.ui.view.GridAutofitLayoutManager
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.snackbar.Snackbar
@@ -569,6 +570,12 @@ class EmotesFragment : Fragment() {
                 null -> ""
             }
             binding.emptyState.isVisible = thirdPartyPickerState !is ChatViewModel.ThirdPartyPickerState.Ready
+        } else if (section == EmotePickerSection.TWITCH && list.isEmpty()) {
+            val loggedIn = !requireContext().tokenPrefs().getString(C.USER_ID, null).isNullOrBlank()
+            binding.emptyState.setText(
+                if (loggedIn) R.string.twitch_emotes_empty else R.string.twitch_emotes_login_required,
+            )
+            binding.emptyState.isVisible = true
         } else {
             binding.emptyState.isVisible = false
         }

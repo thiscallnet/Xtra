@@ -10,6 +10,7 @@ import android.os.StrictMode
 import androidx.core.content.edit
 import coil3.ImageLoader
 import coil3.PlatformContext
+import coil3.disk.DiskCache
 import coil3.SingletonImageLoader
 import coil3.annotation.ExperimentalCoilApi
 import coil3.network.NetworkClient
@@ -25,7 +26,8 @@ import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.settings.SettingsRestoreCoordinator
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.MainLooperStallWatchdog
-import com.github.andreyasadchy.xtra.util.coil.CacheControlCacheStrategy
+import com.github.andreyasadchy.xtra.util.coil.EmoteCacheStrategy
+import com.github.andreyasadchy.xtra.util.coil.EmoteRoutingDiskCache
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.repository.auth.AuthSessionStore
@@ -42,6 +44,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.filter
 import okio.Buffer
+import okio.Path.Companion.toOkioPath
 import org.conscrypt.Conscrypt
 import java.security.Security
 
@@ -49,6 +52,8 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
 
     companion object {
         lateinit var INSTANCE: Application
+        private const val EMOTE_DISK_CACHE_BYTES = 512L * 1024 * 1024
+        private const val OTHER_IMAGE_DISK_CACHE_BYTES = 256L * 1024 * 1024
     }
 
     lateinit var xtraModule: XtraModule
@@ -259,6 +264,20 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
     @OptIn(ExperimentalCoilApi::class)
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         return ImageLoader.Builder(context).apply {
+            // Emotes keep Coil's original folder (so the existing cache survives) and get their own
+            // budget; everything else lives next to it and cannot evict them.
+            diskCache {
+                EmoteRoutingDiskCache(
+                    emotes = DiskCache.Builder()
+                        .directory(context.cacheDir.resolve("coil3_disk_cache").toOkioPath())
+                        .maxSizeBytes(EMOTE_DISK_CACHE_BYTES)
+                        .build(),
+                    other = DiskCache.Builder()
+                        .directory(context.cacheDir.resolve("coil3_other_disk_cache").toOkioPath())
+                        .maxSizeBytes(OTHER_IMAGE_DISK_CACHE_BYTES)
+                        .build(),
+                )
+            }
             if (BuildConfig.DEBUG) {
                 logger(DebugLogger())
             }
@@ -317,13 +336,13 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                     }
                                 }
                             },
-                            cacheStrategy = { CacheControlCacheStrategy() }
+                            cacheStrategy = { EmoteCacheStrategy() }
                         ))
                     }
                     else -> {
                         add(OkHttpNetworkFetcherFactory(
                             callFactory = { xtraModule.okHttpClient.value },
-                            cacheStrategy = { CacheControlCacheStrategy() }
+                            cacheStrategy = { EmoteCacheStrategy() }
                         ))
                     }
                 }

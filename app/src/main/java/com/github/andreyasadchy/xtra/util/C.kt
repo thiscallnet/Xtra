@@ -355,6 +355,7 @@ object C {
     const val CHAT_USERNAME_RECOMMENDATIONS = "chat_username_recommendations"
     const val CHAT_COMPACT_TWITCH_EMOTE_GROUPS = "chat_compact_twitch_emote_groups"
     const val CHAT_COMPACT_PICKER_ITEM_SIZE = "chat_compact_picker_item_size"
+    const val CHAT_ANIMATE_PICKER_EMOTES = "chat_animate_picker_emotes"
     const val CHAT_DISABLE = "chat_disable"
     const val CHAT_POINTS_COLLECT = "chat_points_collect"
     const val CHAT_POINTS_NOTIFY = "chat_points_notify"

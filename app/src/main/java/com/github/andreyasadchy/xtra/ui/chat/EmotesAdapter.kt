@@ -238,7 +238,7 @@ class EmotesAdapter(
                         item.name,
                     )
                     emote.isFocusable = true
-                    val imageUrl = EmotePickerImageLoader.urlFor(item, emoteQuality)
+                    val imageUrl = EmotePickerImageLoader.urlFor(fragment.requireContext(), item, emoteQuality)
                     // Rebinds (scroll, list resubmission) must not reload an
                     // image that is already displayed.
                     val alreadyLoaded = emote.getTag(R.id.emote_image_url_key) == imageUrl && emote.drawable != null
