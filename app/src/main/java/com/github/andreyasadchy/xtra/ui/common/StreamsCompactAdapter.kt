@@ -255,7 +255,6 @@ class StreamsCompactAdapter(
                     } else {
                         title.visibility = View.GONE
                     }
-                    titleScroll.scrollTo(0, 0)
                     if (showGame && item.gameName != null) {
                         gameName.visibility = View.VISIBLE
                         gameName.text = item.gameName
@@ -299,7 +298,6 @@ class StreamsCompactAdapter(
                     title.visibility = View.GONE
                     gameName.visibility = View.GONE
                     username.setVerifiedPartnerName(null, null)
-                    titleScroll.scrollTo(0, 0)
                     viewers.visibility = View.GONE
                     clearStreamTags(tagViews)
                     tagsLayout.visibility = View.GONE
@@ -324,7 +322,6 @@ class StreamsCompactAdapter(
                 } else {
                     title.visibility = View.GONE
                 }
-                titleScroll.scrollTo(0, 0)
                 if (presentation.viewerLabel != null) {
                     viewers.visibility = View.VISIBLE
                     viewers.text = presentation.viewerLabel

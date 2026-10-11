@@ -21,11 +21,14 @@
             <ImageView
                 android:id="@+id/thumbnail"
                 style="@style/Thumbnail"
+                android:layout_width="0dp"
+                android:layout_height="0dp"
                 android:importantForAccessibility="no"
                 android:visibility="gone"
-                app:layout_constraintEnd_toEndOf="parent"
+                app:layout_constraintDimensionRatio="H,16:9"
                 app:layout_constraintStart_toStartOf="parent"
                 app:layout_constraintTop_toTopOf="parent"
+                app:layout_constraintWidth_percent="0.42"
                 tools:src="@tools:sample/backgrounds/scenic"
                 tools:visibility="visible" />
 
@@ -145,19 +148,17 @@
                 style="@style/UserPicture"
                 android:layout_width="40dp"
                 android:layout_height="40dp"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="10dp"
                 android:layout_marginTop="8dp"
-                android:layout_marginBottom="8dp"
                 android:contentDescription="@string/open_channel"
                 android:visibility="gone"
-                app:layout_constraintBottom_toBottomOf="parent"
-                app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toBottomOf="@id/thumbnail"
-                app:layout_constraintVertical_bias="0.0"
+                app:layout_constraintStart_toEndOf="@id/thumbnail"
+                app:layout_constraintTop_toTopOf="parent"
                 tools:src="@tools:sample/backgrounds/scenic"
                 tools:visibility="visible" />
 
             <LinearLayout
+                android:id="@+id/layout1"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
@@ -165,36 +166,22 @@
                 android:layout_marginEnd="8dp"
                 android:layout_marginBottom="7dp"
                 android:orientation="vertical"
-                app:layout_constraintBottom_toBottomOf="parent"
+                app:layout_constraintBottom_toBottomOf="@id/thumbnail"
                 app:layout_constraintEnd_toEndOf="parent"
                 app:layout_constraintStart_toEndOf="@id/userImage"
-                app:layout_constraintTop_toBottomOf="@id/thumbnail">
+                app:layout_constraintTop_toTopOf="parent">
 
-                <com.github.andreyasadchy.xtra.ui.view.DirectionalHorizontalScrollView
-                    android:id="@+id/titleScroll"
+                <TextView
+                    android:id="@+id/title"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:importantForAccessibility="no"
-                    android:overScrollMode="never"
-                    android:scrollbars="none"
-                    android:fadingEdgeLength="20dp"
-                    android:requiresFadingEdge="horizontal">
-
-                    <TextView
-                        android:id="@+id/title"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:ellipsize="none"
-                        android:includeFontPadding="false"
-                        android:importantForAccessibility="yes"
-                        android:maxLines="1"
-                        android:singleLine="true"
-                        android:textAppearance="?attr/textAppearanceTitleMedium"
-                        android:textStyle="bold"
-                        android:visibility="gone"
-                        tools:text="WHAT!! SAY SO NOT ! gasp shock disc..."
-                        tools:visibility="visible" />
-                </com.github.andreyasadchy.xtra.ui.view.DirectionalHorizontalScrollView>
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textAppearance="?attr/textAppearanceTitleMedium"
+                    android:textStyle="bold"
+                    android:visibility="gone"
+                    tools:text="WHAT!! SAY SO NOT ! gasp shock disc..."
+                    tools:visibility="visible" />
 
                 <TextView
                     android:id="@+id/username"
