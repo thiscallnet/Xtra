@@ -67,6 +67,7 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
         streamsAdapter = FollowingStreamsListAdapter(
             fragment = this,
             selectTag = selectTag,
+            compact = requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled",
         )
         setAdapter(binding.recyclerView, streamsAdapter)
         binding.recyclerView.usePageGrid(GridPage.FOLLOWED_STREAMS)
