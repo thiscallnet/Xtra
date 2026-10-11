@@ -133,7 +133,7 @@ class TopStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAwar
                 WindowInsetsCompat.CONSUMED
             }
         }
-        pagingAdapter = if (requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") == "all") {
+        pagingAdapter = if (requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
             StreamsCompactAdapter(this, { addTag(it) })
         } else {
             StreamsAdapter(this, { addTag(it) })

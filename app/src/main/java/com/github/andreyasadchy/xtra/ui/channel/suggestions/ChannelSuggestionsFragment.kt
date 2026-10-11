@@ -23,8 +23,11 @@ import com.github.andreyasadchy.xtra.ui.channel.suggestions.ChannelSuggestionsVi
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
+import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
 import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.top.TopStreamsFragmentDirections
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -42,13 +45,18 @@ class ChannelSuggestionsFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        pagingAdapter = StreamsCompactAdapter(this, {
+        val selectTag: (String) -> Unit = {
             findNavController().navigate(
                 TopStreamsFragmentDirections.actionGlobalTopFragment(
                     tags = arrayOf(it)
                 )
             )
-        })
+        }
+        pagingAdapter = if (requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
+            StreamsCompactAdapter(this, selectTag)
+        } else {
+            StreamsAdapter(this, selectTag)
+        }
         setAdapter(binding.recyclerView, pagingAdapter)
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             if (activity?.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {

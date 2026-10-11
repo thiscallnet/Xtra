@@ -63,7 +63,7 @@ class StreamSearchViewModel(
     val flow = combine(_query, _dropsFilters) { query, dropsFilters -> query to dropsFilters }
         .flatMapLatest { (query, dropsFilters) ->
         Pager(
-            if (applicationContext.prefs().getString(C.COMPACT_STREAMS, "disabled") == "all") {
+            if (applicationContext.prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
                 PagingConfig(pageSize = 30, prefetchDistance = 10, initialLoadSize = 30)
             } else {
                 PagingConfig(pageSize = 30, prefetchDistance = 3, initialLoadSize = 30)

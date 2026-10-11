@@ -53,7 +53,7 @@ class TopStreamsViewModel(
     val flow = filter.flatMapLatest {
         streamFeedPager.flow(
             spec = createSpec(it ?: Filter(null, null, null)),
-            config = if (applicationContext.prefs().getString(C.COMPACT_STREAMS, "disabled") == "all") {
+            config = if (applicationContext.prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
                 PagingConfig(pageSize = 30, prefetchDistance = 10, initialLoadSize = 30)
             } else {
                 PagingConfig(pageSize = 30, prefetchDistance = 3, initialLoadSize = 30)

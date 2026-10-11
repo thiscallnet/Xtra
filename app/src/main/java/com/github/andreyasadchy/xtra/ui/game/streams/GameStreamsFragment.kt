@@ -62,7 +62,7 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        pagingAdapter = if (requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") == "all") {
+        pagingAdapter = if (requireContext().prefs().getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
             StreamsCompactAdapter(this, { addTag(it) }, showGame = false)
         } else {
             StreamsAdapter(this, { addTag(it) }, showGame = false)

@@ -471,6 +471,10 @@ object SettingsMigration {
         // marker already says current; AndroidX ListPreference requires a
         // String and reads the raw SharedPreferences value directly.
         normalizeCaptionIntervalPreference(preferences)
+        // "Compact for followed channels only" was removed; Compact now applies to every stream list.
+        if (preferences.getString(C.COMPACT_STREAMS, null) == "followed") {
+            preferences.edit { putString(C.COMPACT_STREAMS, "all") }
+        }
         if (!preferences.contains(C.CHAT_RECENT)) {
             // chat_history_preferences.xml enables recent history by default. Seed the
             // key here because this app does not initialize PreferenceManager defaults.
