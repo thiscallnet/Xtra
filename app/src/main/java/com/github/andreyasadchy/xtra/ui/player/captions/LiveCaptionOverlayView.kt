@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.player.captions
 import android.content.Context
 import android.content.SharedPreferences
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Typeface
 import android.util.AttributeSet
@@ -21,7 +22,11 @@ import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.math.ceil
 import kotlin.math.roundToInt
 
-/** A fixed two-row caption panel whose text rolls upward one complete line at a time. */
+/**
+ * A fixed-width, two-row roll-up caption window. Rows are left-aligned inside the window so
+ * words append without shifting earlier text, and each row carries its own tight background.
+ * Complete rows roll upward one at a time.
+ */
 class LiveCaptionOverlayView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -59,6 +64,20 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private val topLine = createLineView()
     private val bottomLine = createLineView()
     private val incomingLine = createLineView().apply { visibility = View.INVISIBLE }
+    private val lineViews = listOf(topLine, bottomLine, incomingLine)
+    private var lineBackgrounds: List<GradientDrawable?> = listOf(null, null, null)
+
+    /** Receives a pixel measurer so the caption text state breaks rows exactly where this view would. */
+    var onLineMeasurerChanged: (((String) -> Boolean) -> Unit)? = null
+        set(value) {
+            field = value
+            measurerKey = null
+            post { publishMeasurer() }
+        }
+    private var measurerKey: String? = null
+    private var textScale = 1f
+    private var fadingOut = false
+    private var rollTarget: CaptionUpdate? = null
 
     private var currentLines = listOf("", "")
     private var rawLines = listOf("", "")
@@ -120,7 +139,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     }
 
     fun submitCaption(text: String, lineShiftToken: Long) {
-        val normalizedLines = formatCaptionTextForDisplay(text)
+        val normalizedLines = text
             .lineSequence()
             .map(String::trim)
             .filter(String::isNotEmpty)
@@ -144,9 +163,9 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             // the newest worker result when the gesture ends.
             positioningUpdate = update
         } else if (normalizedLines.all(String::isBlank)) {
-            clearCaption()
+            fadeOutAndClear()
         } else if (animationRunning) {
-            pendingUpdate = update
+            if (!absorbIntoRoll(update)) pendingUpdate = update
         } else {
             applyUpdate(update)
         }
@@ -154,6 +173,10 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
 
     fun clearCaption() {
         pendingUpdate = null
+        rollTarget = null
+        animate().cancel()
+        fadingOut = false
+        alpha = 1f
         cancelLineAnimations()
         animationRunning = false
         currentLines = listOf("", "")
@@ -167,11 +190,37 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         visibility = View.GONE
     }
 
+    private fun fadeOutAndClear() {
+        if (visibility != View.VISIBLE) {
+            clearCaption()
+            return
+        }
+        if (fadingOut) return
+        fadingOut = true
+        pendingUpdate = null
+        animate().cancel()
+        animate().alpha(0f).setDuration(FADE_OUT_MS).withEndAction { clearCaption() }.start()
+    }
+
+    private fun showPanel() {
+        if (fadingOut) {
+            animate().cancel()
+            fadingOut = false
+            alpha = 1f
+        }
+        if (visibility != View.VISIBLE) {
+            alpha = 0f
+            visibility = View.VISIBLE
+            animate().alpha(1f).setDuration(FADE_IN_MS).start()
+        }
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        updateTextScale(widthMeasureSpec, heightMeasureSpec)
         val lineHeight = ceil(topLine.paint.fontMetrics.run { descent - ascent }).toInt()
         val desiredHeight = paddingTop + paddingBottom + lineHeight * 2
         val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
-        val widthFraction = captionWidthFraction()
+        val widthFraction = captionWidthFraction(availableWidth)
         val desiredWidth = if (availableWidth > 0) {
             (availableWidth * widthFraction).toInt()
         } else {
@@ -180,15 +229,50 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         val resolvedWidth = resolveSize(desiredWidth, widthMeasureSpec)
         val resolvedHeight = resolveSize(desiredHeight, heightMeasureSpec)
         val rowHeight = ((resolvedHeight - paddingTop - paddingBottom) / 2).coerceAtLeast(1)
-        listOf(topLine, bottomLine, incomingLine).forEach { line ->
+        lineViews.forEach { line ->
             line.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, rowHeight).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
+                gravity = Gravity.START
             }
         }
         super.onMeasure(
             MeasureSpec.makeMeasureSpec(resolvedWidth, MeasureSpec.EXACTLY),
             MeasureSpec.makeMeasureSpec(resolvedHeight, MeasureSpec.EXACTLY),
         )
+        if (measurerKeyFor(resolvedWidth) != measurerKey) post { publishMeasurer() }
+    }
+
+    /** Text follows the video height, like YouTube: bigger in fullscreen, smaller in a portrait player. */
+    private fun updateTextScale(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val availableWidth = MeasureSpec.getSize(widthMeasureSpec)
+        val availableHeight = MeasureSpec.getSize(heightMeasureSpec)
+        if (availableWidth <= 0 || availableHeight <= 0) return
+        val videoHeight = minOf(availableHeight.toFloat(), availableWidth * 9f / 16f)
+        val scale = (videoHeight / dp(REFERENCE_VIDEO_HEIGHT_DP)).coerceIn(MIN_TEXT_SCALE, MAX_TEXT_SCALE)
+        if (scale != textScale) {
+            textScale = scale
+            currentStyle?.let(::applyTextSize)
+        }
+    }
+
+    private fun applyTextSize(style: LiveCaptionStyle) {
+        lineViews.forEach { it.textSize = style.fontSizeSp * textScale }
+    }
+
+    private fun measurerKeyFor(panelWidth: Int): String {
+        val textWidth = panelWidth - paddingLeft - paddingRight - topLine.paddingLeft - topLine.paddingRight
+        return "${topLine.textSize}|$textWidth|${currentStyle?.fontFamily}"
+    }
+
+    private fun publishMeasurer() {
+        val listener = onLineMeasurerChanged ?: return
+        if (width <= 0) return
+        val key = measurerKeyFor(width)
+        if (key == measurerKey) return
+        measurerKey = key
+        val maxWidth = captionContentWidth()
+        // A private copy: the live paint is mutated on the main thread, the measurer runs on the worker.
+        val paint = Paint(topLine.paint)
+        listener { paint.measureText(it) <= maxWidth }
     }
 
     override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
@@ -211,7 +295,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private fun applyUpdate(update: CaptionUpdate) {
         applyStyle(update.style)
         val fittedUpdate = update.copy(lines = fitCaptionLines(update.lines))
-        visibility = View.VISIBLE
+        showPanel()
         if (BuildConfig.DEBUG) Log.d("LiveCaptionOverlay", "overlay_rendered attached=${windowToken != null} size=${width}x$height visible=$visibility")
 
         val shouldRoll = fittedUpdate.lineShiftToken != currentLineShiftToken &&
@@ -236,12 +320,26 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         }
     }
 
+    /** A partial that only grows the incoming row is shown live instead of waiting for the roll to end. */
+    private fun absorbIntoRoll(update: CaptionUpdate): Boolean {
+        val target = rollTarget ?: return false
+        if (update.style != currentStyle || update.lineShiftToken != target.lineShiftToken) return false
+        val fitted = update.copy(lines = fitCaptionLines(update.lines))
+        if (fitted.lines[0] != target.lines[0]) return false
+        rollTarget = fitted
+        rawLines = update.lines
+        incomingLine.text = fitted.lines[1]
+        refreshLineBackgrounds()
+        return true
+    }
+
     private fun animateLineRoll(update: CaptionUpdate) {
         animationRunning = true
+        rollTarget = update
         val rowHeight = contentRowHeight().toFloat()
         incomingLine.text = update.lines[1]
         incomingLine.visibility = View.VISIBLE
-        incomingLine.alpha = 1f
+        incomingLine.alpha = 0f
         refreshLineBackgrounds()
         incomingLine.translationY = rowHeight * 2f
 
@@ -256,12 +354,15 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
             .start()
         incomingLine.animate()
             .translationY(rowHeight)
+            .alpha(1f)
             .setDuration(update.style.animationDurationMs)
             .withEndAction {
-                currentLines = update.lines
-                currentLineShiftToken = update.lineShiftToken
-                topLine.text = update.lines[0]
-                bottomLine.text = update.lines[1]
+                val target = rollTarget ?: update
+                rollTarget = null
+                currentLines = target.lines
+                currentLineShiftToken = target.lineShiftToken
+                topLine.text = target.lines[0]
+                bottomLine.text = target.lines[1]
                 incomingLine.text = ""
                 incomingLine.visibility = View.INVISIBLE
                 refreshLineBackgrounds()
@@ -282,16 +383,25 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         // Keep the panel itself transparent. YouTube-style captions have a
         // small background behind each rendered line, not a wide empty box.
         background = null
-        alpha = 1f
         val typeface = if (style.fontFamily == "system") {
             Typeface.DEFAULT
         } else {
             Typeface.create(style.fontFamily, Typeface.NORMAL)
         }
-        listOf(topLine, bottomLine, incomingLine).forEach { line ->
+        lineViews.forEach { line ->
             line.typeface = typeface
-            line.textSize = style.fontSizeSp
             line.setTextColor(withOpacity(style.textColor, style.opacity))
+        }
+        applyTextSize(style)
+        lineBackgrounds = lineViews.map {
+            if (Color.alpha(style.backgroundColor) == 0) {
+                null
+            } else {
+                GradientDrawable().apply {
+                    setColor(withOpacity(style.backgroundColor, style.opacity))
+                    cornerRadius = dp(2).toFloat()
+                }
+            }
         }
         refreshLineBackgrounds(style)
         requestLayout()
@@ -333,6 +443,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
         positioningUpdate = null
         cancelLineAnimations()
         animationRunning = false
+        rollTarget = null
         dragStartRawX = rawX
         dragStartRawY = rawY
         dragStartTranslationX = translationX
@@ -387,9 +498,9 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
 
     private fun resetLinePositions() {
         val rowHeight = contentRowHeight()
-        listOf(topLine, bottomLine, incomingLine).forEach { line ->
+        lineViews.forEach { line ->
             line.layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, rowHeight).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
+                gravity = Gravity.START
             }
             line.alpha = 1f
         }
@@ -401,9 +512,7 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     private fun contentRowHeight(): Int = ((height - paddingTop - paddingBottom) / 2).coerceAtLeast(1)
 
     private fun cancelLineAnimations() {
-        topLine.animate().cancel()
-        bottomLine.animate().cancel()
-        incomingLine.animate().cancel()
+        lineViews.forEach { it.animate().cancel() }
     }
 
     private fun updateAccessibilityText() {
@@ -412,29 +521,34 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
 
     private fun createLineView(): TextView = TextView(context).apply {
         setTextColor(android.graphics.Color.WHITE)
-        gravity = Gravity.CENTER
+        gravity = Gravity.START or Gravity.CENTER_VERTICAL
         includeFontPadding = false
         maxLines = 1
         // The caption state already constrains the rolling window by words.
         // TextView ellipsizing would replace the last spoken word with "…" on
         // narrow displays, which is especially confusing for live speech.
         ellipsize = null
-        setPadding(dp(10), 0, dp(10), 0)
+        setPadding(dp(8), 0, dp(8), 0)
         importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private fun captionWidthFraction(): Float = preferences
+    /** "Auto" is a narrower window on wide (landscape) players, where full-width lines are hard to track. */
+    private fun captionWidthFraction(parentWidth: Int): Float = preferences
         .getString(C.PLAYER_LIVE_CAPTION_WIDTH, "auto")
         ?.toFloatOrNull()
         ?.div(100f)
         ?.coerceIn(0.5f, 1f)
-        ?: 0.92f
+        ?: if (parentWidth > dp(WIDE_PLAYER_DP)) 0.7f else 0.92f
 
     private fun captionContentWidth(): Float {
         val parentWidth = (parent as? ViewGroup)?.width ?: width
-        val panelWidth = if (parentWidth > 0) parentWidth * captionWidthFraction() else width.toFloat()
+        val panelWidth = if (parentWidth > 0) {
+            parentWidth * captionWidthFraction(parentWidth)
+        } else {
+            width.toFloat()
+        }
         val textPadding = topLine.paddingLeft + topLine.paddingRight
         return (panelWidth - textPadding).coerceAtLeast(1f)
     }
@@ -510,18 +624,18 @@ class LiveCaptionOverlayView @JvmOverloads constructor(
     )
 
     private fun refreshLineBackgrounds(style: LiveCaptionStyle? = currentStyle) {
-        val activeStyle = style ?: return
-        listOf(topLine, bottomLine, incomingLine).forEach { line ->
-            line.background = if (
-                line.text.isNullOrBlank() || Color.alpha(activeStyle.backgroundColor) == 0
-            ) {
-                null
-            } else {
-                GradientDrawable().apply {
-                    setColor(withOpacity(activeStyle.backgroundColor, activeStyle.opacity))
-                    cornerRadius = dp(4).toFloat()
-                }
-            }
+        if (style == null) return
+        lineViews.forEachIndexed { index, line ->
+            line.background = if (line.text.isNullOrBlank()) null else lineBackgrounds[index]
         }
+    }
+
+    private companion object {
+        const val FADE_IN_MS = 120L
+        const val FADE_OUT_MS = 200L
+        const val REFERENCE_VIDEO_HEIGHT_DP = 280
+        const val MIN_TEXT_SCALE = 0.9f
+        const val MAX_TEXT_SCALE = 1.4f
+        const val WIDE_PLAYER_DP = 600
     }
 }

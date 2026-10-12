@@ -18,78 +18,29 @@ data class LiveCaptionState(
     }
 }
 
-private const val MAX_CAPTION_CHARACTERS = 72
-private const val MAX_CAPTION_WORDS = 14
-private const val MAX_DISPLAY_LINE_CHARACTERS = 36
+private const val DEFAULT_MAX_LINE_CHARACTERS = 36
 
-internal fun limitCaptionText(text: String): String {
-    val words = text.trim().split(Regex("\\s+")).filter(String::isNotEmpty)
-    if (words.isEmpty()) return ""
-
-    return words
-        .takeLast(MAX_CAPTION_WORDS)
-        .joinToString(" ")
-        .let { candidate ->
-            if (candidate.length <= MAX_CAPTION_CHARACTERS) {
-                candidate
-            } else {
-                candidate.takeLast(MAX_CAPTION_CHARACTERS)
-                    .substringAfter(' ', "")
-                    .ifBlank { candidate.takeLast(MAX_CAPTION_CHARACTERS) }
-            }
-        }
-}
-
-/** Keeps the live window to two short rolling lines, like a live-caption display. */
-internal fun formatCaptionTextForDisplay(text: String): String {
-    val normalized = text.trim()
-    if (normalized.isEmpty()) return ""
-
-    // The state machine normally gives us already-laid-out lines. Preserve those
-    // line breaks: re-wrapping the whole ASR hypothesis on every partial is what
-    // made previously readable words jump between lines.
-    if (normalized.contains('\n')) {
-        return normalized
-            .lineSequence()
-            .map(String::trim)
-            .filter(String::isNotEmpty)
-            .toList()
-            .takeLast(2)
-            .joinToString("\n")
-    }
-
-    val lines = mutableListOf<String>()
-    var current = ""
-    limitCaptionText(normalized).split(Regex("\\s+"))
-        .filter(String::isNotEmpty)
-        .forEach { word ->
-            val candidate = if (current.isEmpty()) word else "$current $word"
-            if (current.isNotEmpty() && candidate.length > MAX_DISPLAY_LINE_CHARACTERS) {
-                lines += current
-                current = word
-            } else {
-                current = candidate
-            }
-        }
-    if (current.isNotEmpty()) lines += current
-    return lines.takeLast(2).joinToString("\n")
-}
+/**
+ * The newest hypothesis words are still likely to be rewritten by the recognizer, so they are
+ * held back until later words confirm them.
+ */
+private const val UNSTABLE_TAIL_WORDS = 2
 
 /**
  * Small, transcript-free text state used by the manager and JVM tests.
  *
- * Partial ASR results are cumulative hypotheses. The active partial portion is
- * replaceable so decoder corrections are visible, while finalized rolling lines
- * remain fixed until a complete line rolls away.
+ * Partial ASR results are cumulative hypotheses that the recognizer keeps rewriting. Like
+ * YouTube's live captions, the display is append-only: a word is shown once, only after it
+ * is stable, and is never changed afterwards. Existing text only moves up when a row rolls.
  */
 internal class CaptionTextStateMachine {
-    private data class DisplayedWord(
-        val text: String,
-        val activePartial: Boolean,
-    )
+    private val displayedLines = ArrayDeque<MutableList<String>>()
 
-    private val displayedLines = ArrayDeque<MutableList<DisplayedWord>>()
-    private var activeHypothesis: List<String> = emptyList()
+    /** Words of the current utterance that are already on screen, in order. */
+    private val committedPrefix = mutableListOf<String>()
+
+    /** Whether a candidate row fits the caption window. The view supplies a pixel measurer. */
+    private var lineFits: (String) -> Boolean = { it.length <= DEFAULT_MAX_LINE_CHARACTERS }
 
     var visibleText: String = ""
         private set
@@ -99,18 +50,15 @@ internal class CaptionTextStateMachine {
 
     fun updatePartial(text: String) {
         val words = words(text)
-        if (words.isEmpty()) return
-
-        replaceActivePartial(words)
+        commit(words, (words.size - UNSTABLE_TAIL_WORDS).coerceAtLeast(0))
         updateVisibleText()
     }
 
     fun finalize(text: String) {
         val words = words(text)
-        if (words.isNotEmpty()) {
-            replaceActivePartial(words)
-        }
-        markPartialWordsFinal()
+        // A final shorter than the words already shown is ignored rather than re-appended.
+        if (words.size >= committedPrefix.size) appendStable(words, words.size)
+        committedPrefix.clear()
         updateVisibleText()
     }
 
@@ -121,105 +69,63 @@ internal class CaptionTextStateMachine {
         }
     }
 
+    /** Re-flows the visible words into rows that fit the new measurer without signalling a roll. */
+    fun setLineFits(fits: (String) -> Boolean) {
+        lineFits = fits
+        val words = displayedLines.flatten()
+        if (words.isEmpty()) return
+        displayedLines.clear()
+        // Rows that no longer fit roll away and bump the token, so the view animates them instead of jumping.
+        words.forEach(::appendWord)
+        updateVisibleText()
+    }
+
     fun reset() {
         displayedLines.clear()
-        activeHypothesis = emptyList()
+        committedPrefix.clear()
         visibleText = ""
     }
 
-    private fun replaceActivePartial(words: List<String>) {
-        val previousVisibleActiveWords = displayedLines
-            .asSequence()
-            .flatMap { line -> line.asSequence() }
-            .filter { it.activePartial }
-            .map { it.text }
-            .toList()
-        val stablePrefixLength = activeHypothesis
-            .zip(words)
-            .takeWhile { (previous, next) -> previous == next }
-            .count()
-
-        // Streaming recognizers return cumulative hypotheses. Keep the
-        // common visible prefix in place and replace only the changing suffix.
-        // The full hypothesis is retained separately because the display may
-        // already have rolled older words above its two-line window.
-        val hiddenPrefixLength =
-            (activeHypothesis.size - previousVisibleActiveWords.size).coerceAtLeast(0)
-        val visiblePrefixLength =
-            (stablePrefixLength - hiddenPrefixLength)
-                .coerceIn(0, previousVisibleActiveWords.size)
-
-        var preserved = 0
-        displayedLines.forEach { line ->
-            line.removeAll { word ->
-                if (!word.activePartial) {
-                    false
-                } else if (preserved < visiblePrefixLength) {
-                    preserved++
-                    false
-                } else {
-                    true
-                }
-            }
+    /** Appends hypothesis words that are not on screen yet; words already shown are never revised. */
+    private fun commit(words: List<String>, stableCount: Int) {
+        if (words.size < committedPrefix.size) {
+            // A shorter hypothesis that still matches what is shown is a temporary rewrite; keep waiting.
+            if (words == committedPrefix.subList(0, words.size)) return
+            // Otherwise the recognizer restarted the utterance without a final result.
+            committedPrefix.clear()
         }
-        val lines = displayedLines.iterator()
-        while (lines.hasNext()) {
-            if (lines.next().isEmpty()) lines.remove()
-        }
-        words.drop(stablePrefixLength).forEach { appendWord(it, activePartial = true) }
-        activeHypothesis = words
+        appendStable(words, stableCount)
     }
 
-    private fun appendWord(text: String, activePartial: Boolean) {
+    private fun appendStable(words: List<String>, stableCount: Int) {
+        for (index in committedPrefix.size until stableCount) {
+            appendWord(words[index])
+            committedPrefix += words[index]
+        }
+    }
+
+    private fun appendWord(text: String) {
         val currentLine = displayedLines.lastOrNull()
         val startsNewLine = currentLine != null &&
             currentLine.isNotEmpty() &&
-            formatWords(currentLine.map { it.text } + text).length > MAX_DISPLAY_LINE_CHARACTERS
+            !lineFits(currentLine.joinToString(" ") + " " + text)
         val destination = if (currentLine == null || startsNewLine) {
-            mutableListOf<DisplayedWord>().also(displayedLines::addLast)
+            mutableListOf<String>().also(displayedLines::addLast)
         } else {
             currentLine
         }
-        destination += DisplayedWord(text, activePartial)
+        destination += text
         while (displayedLines.size > 2) {
             displayedLines.removeFirst()
             lineShiftToken++
         }
     }
 
-    private fun markPartialWordsFinal() {
-        displayedLines.forEach { line ->
-            line.replaceAll { word ->
-                word.copy(activePartial = false)
-            }
-        }
-        activeHypothesis = emptyList()
-    }
-
     private fun updateVisibleText() {
-        visibleText = displayedLines.joinToString("\n") { line ->
-            formatWords(line.map { it.text })
-        }
+        visibleText = displayedLines.joinToString("\n") { it.joinToString(" ") }
     }
 
     private fun words(text: String): List<String> = text.trim()
         .split(Regex("\\s+"))
         .filter(String::isNotEmpty)
-
-    private fun formatWords(words: List<String>): String {
-        if (words.isEmpty()) return ""
-        val lines = mutableListOf<String>()
-        var current = ""
-        words.forEach { word ->
-            val candidate = if (current.isEmpty()) word else "$current $word"
-            if (current.isNotEmpty() && candidate.length > MAX_DISPLAY_LINE_CHARACTERS) {
-                lines += current
-                current = word
-            } else {
-                current = candidate
-            }
-        }
-        if (current.isNotEmpty()) lines += current
-        return lines.joinToString("\n")
-    }
 }

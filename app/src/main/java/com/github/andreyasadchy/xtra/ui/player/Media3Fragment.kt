@@ -979,6 +979,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             )
         }
 
+        binding.liveCaptionView.onLineMeasurerChanged = { fits ->
+            xtraModule.liveCaptionManager.setCaptionLineFits(fits)
+        }
         viewLifecycleOwner.lifecycleScope.launch {
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     xtraModule.liveCaptionManager.state.collect { state ->

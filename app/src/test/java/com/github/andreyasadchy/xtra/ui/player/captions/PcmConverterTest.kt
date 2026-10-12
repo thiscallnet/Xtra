@@ -62,8 +62,8 @@ class CaptionTextStateMachineTest {
         val captions = CaptionTextStateMachine()
 
         captions.updatePartial("hello")
-        captions.updatePartial("hello guys")
-        assertEquals("hello guys", captions.visibleText)
+        captions.updatePartial("hello guys today")
+        assertEquals("hello", captions.visibleText)
 
         captions.finalize("hello guys today")
         assertEquals("hello guys today", captions.visibleText)
@@ -94,16 +94,6 @@ class CaptionTextStateMachineTest {
     }
 
     @Test
-    fun displayCaptionIsLimitedToTwoRollingLines() {
-        val displayed = formatCaptionTextForDisplay(
-            "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen",
-        )
-
-        assertTrue(displayed.lines().size <= 2)
-        assertTrue(displayed.length <= 73)
-    }
-
-    @Test
     fun wordsStayInPlaceUntilAThirdLineRollsAway() {
         val captions = CaptionTextStateMachine()
 
@@ -128,14 +118,14 @@ class CaptionTextStateMachineTest {
         val captions = CaptionTextStateMachine()
 
         captions.updatePartial(
-            "one two three four five six seven eight nine ten eleven twelve",
+            "one two three four five six seven eight nine ten eleven twelve thirteen fourteen",
         )
         val before = captions.visibleText.lines()
         val shiftBefore = captions.lineShiftToken
 
         captions.updatePartial(
-            "one two three four five six seven eight nine ten eleven twelve " +
-                "thirteen fourteen fifteen sixteen",
+            "one two three four five six seven eight nine ten eleven twelve thirteen fourteen " +
+                "fifteen sixteen seventeen eighteen",
         )
         val after = captions.visibleText.lines()
 
@@ -146,36 +136,14 @@ class CaptionTextStateMachineTest {
     }
 
     @Test
-    fun finalCorrectionReplacesStaleActiveWords() {
+    fun shownWordsAreNeverRevisedByLaterHypotheses() {
         val captions = CaptionTextStateMachine()
 
-        captions.updatePartial("I bought item")
-        captions.finalize("I bought the item")
-
+        captions.updatePartial("I bought item now")
+        captions.updatePartial("I brought the item now today")
         assertEquals("I bought the item", captions.visibleText)
-    }
-
-    @Test
-    fun revisedPartialStillAppendsLaterWords() {
-        val captions = CaptionTextStateMachine()
-
-        captions.updatePartial("I bought item")
-        captions.updatePartial("I bought the item")
-        captions.updatePartial("I bought the item today")
-
-        assertEquals("I bought the item today", captions.visibleText)
-    }
-
-    @Test
-    fun consecutivePartialPrefixStaysFixedWhileSuffixCanBeCorrected() {
-        val captions = CaptionTextStateMachine()
-
-        captions.updatePartial("I bought item")
-        captions.updatePartial("I bought the item")
-        assertEquals("I bought the item", captions.visibleText)
-        captions.updatePartial("I brought the item")
-
-        assertEquals("I brought the item", captions.visibleText)
+        captions.finalize("I brought the item now today please")
+        assertEquals("I bought the item now today please", captions.visibleText)
     }
 
     @Test
@@ -191,7 +159,6 @@ class CaptionTextStateMachineTest {
 
         val shifts = partials.map { partial ->
             captions.updatePartial(partial)
-            assertTrue(captions.visibleText.contains(partial.substringAfterLast(' ')))
             captions.lineShiftToken
         }
 

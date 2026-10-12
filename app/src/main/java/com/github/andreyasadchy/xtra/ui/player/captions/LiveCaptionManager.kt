@@ -678,6 +678,20 @@ class LiveCaptionManager(
         )
     }
 
+    /** Lets the caption view decide, in pixels, where rows break. Re-flows what is on screen. */
+    fun setCaptionLineFits(fits: (String) -> Boolean) {
+        val output = synchronized(captionTextLock) {
+            captionText.setLineFits(fits)
+            CaptionTextOutput(captionText.visibleText, captionText.lineShiftToken)
+        }
+        if (enabled.get() && output.text.isNotEmpty() && output.text != stateMutable.value.text) {
+            stateMutable.value = stateMutable.value.copy(
+                text = output.text,
+                lineShiftToken = output.lineShiftToken,
+            )
+        }
+    }
+
     private fun resetCaptionText(): Long = synchronized(captionTextLock) {
         captionText.reset()
         captionText.lineShiftToken
