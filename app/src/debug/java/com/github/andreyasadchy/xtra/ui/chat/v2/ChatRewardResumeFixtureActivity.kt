@@ -96,7 +96,8 @@ class ChatRewardResumeFixtureActivity : AppCompatActivity() {
                 val distinct = messages.map { it.id }.toSet().size
                 duplicatePublication = duplicatePublication || distinct != messages.size
                 val colors = messages.map { it.user?.color }
-                status.text = "${messages.size} rows, $distinct unique message IDs. ${if (!duplicatePublication && messages.size == 2 && colors.all { it == 0xFFE8712A.toInt() }) "PASS" else "Waiting / duplicate"}"
+                val expectedColor = if (intent.getBooleanExtra("no_input", false)) null else 0xFFE8712A.toInt()
+                status.text = "${messages.size} rows, $distinct unique message IDs. ${if (!duplicatePublication && messages.size == 2 && colors.all { it == expectedColor }) "PASS" else "Waiting / duplicate"}"
                 Log.i("RewardResumeFixture", "rows=${messages.size} unique=$distinct colors=$colors")
             },
         )
@@ -123,11 +124,27 @@ class ChatRewardResumeFixtureActivity : AppCompatActivity() {
         scope.launch {
             delay(3_000)
             val occurredAt = 1_791_456_000_000L
+            val chats = ArrayList<ChatEvent>()
+            val notices = ArrayList<ChatEvent>()
             repeat(2) { index ->
                 val at = occurredAt + index * 1_000
-                val input = if (intent.getBooleanExtra("same_text", false)) "Same viewer input" else "Viewer input ${index + 1}"
-                val chat = TwitchChatEventParser.fromIrc(
-                    ChatUtils.parseIRCMessage("@id=chat-$index;user-id=fixture-viewer;display-name=FixtureViewer;color=#E8712A;custom-reward-id=tts;tmi-sent-ts=$at :fixtureviewer!fixtureviewer@fixtureviewer.tmi.twitch.tv PRIVMSG #fixture :$input"),
+                val chatAt = at + intent.getLongExtra("clock_skew_ms", 0)
+                val input = when {
+                    intent.getBooleanExtra("no_input", false) -> ""
+                    intent.getBooleanExtra("same_text", false) -> "Same viewer input"
+                    else -> "Viewer input ${index + 1}"
+                }
+                val chat = if (intent.getBooleanExtra("chat_eventsub", false)) {
+                    TwitchChatEventParser.fromEventSub(
+                        JSONObject().put("message_id", "chat-$index").put("broadcaster_user_id", key.channelId)
+                            .put("chatter_user_id", "fixture-viewer").put("chatter_user_login", "fixtureviewer")
+                            .put("chatter_user_name", "FixtureViewer").put("color", "#E8712A")
+                            .put("channel_points_custom_reward_id", "tts")
+                            .put("message", JSONObject().put("text", input)),
+                        Instant.ofEpochMilli(chatAt).toString(),
+                    )
+                } else TwitchChatEventParser.fromIrc(
+                    ChatUtils.parseIRCMessage("@id=chat-$index;user-id=fixture-viewer;display-name=FixtureViewer;color=#E8712A;custom-reward-id=tts;tmi-sent-ts=$chatAt :fixtureviewer!fixtureviewer@fixtureviewer.tmi.twitch.tv PRIVMSG #fixture :$input"),
                     key.channelId,
                 )!!
                 val notice = if (intent.getBooleanExtra("eventsub", false)) {
@@ -149,15 +166,27 @@ class ChatRewardResumeFixtureActivity : AppCompatActivity() {
                         key.channelId,
                     )
                 }
-                if (intent.getBooleanExtra("notice_first", false)) {
-                    session.submit(key, notice)
-                    session.submit(key, chat)
-                } else {
-                    session.submit(key, chat)
-                    session.submit(key, notice)
+                if (!intent.getBooleanExtra("no_input", false)) chats += chat
+                notices += notice
+            }
+            val events = when {
+                chats.isEmpty() -> notices
+                intent.getBooleanExtra("batch_sources", false) ->
+                    if (intent.getBooleanExtra("notice_first", false)) notices + chats else chats + notices
+                else -> chats.zip(notices).flatMap { (chat, notice) ->
+                    if (intent.getBooleanExtra("notice_first", false)) listOf(notice, chat) else listOf(chat, notice)
                 }
             }
-            Log.i("RewardResumeFixture", "canonical_rows=${session.snapshot().size}")
+            events.forEach { session.submit(key, it) }
+            if (intent.getBooleanExtra("redelivery", false)) {
+                (chats + notices).forEach { session.submit(key, it) }
+            }
+            val recent = if (intent.getBooleanExtra("reconcile", false)) {
+                (chats + notices).map { (it as ChatEvent.Message).message }
+            } else emptyList()
+            // The acknowledgement also drains ingress before checking the canonical tail.
+            session.reconcile(key, recent)
+            Log.i("RewardResumeFixture", "canonical_rows=${session.snapshot().size} ids=${session.snapshot().map { it.id.value }}")
             if (mode == "hidden") {
                 delay(1_000)
                 renderer.setVisible(true)

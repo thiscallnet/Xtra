@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
-import kotlin.math.abs
 
 sealed interface TimelineOperation {
     data class Append(val items: List<ChatMessage>) : TimelineOperation
@@ -342,24 +341,32 @@ class ChatTimelineStore(
         return moderation?.let { message.copy(moderation = it) } ?: message
     }
 
-    /** Hermes and chat.message can describe the same redemption without sharing an ID. */
+    /**
+     * Pair the oldest unmatched input and notice in the retained tail. Twitch supplies no
+     * shared ID: chat has a message ID, while Hermes/EventSub supplies a redemption ID.
+     * Their timestamps describe different stages of processing, so timestamp proximity
+     * cannot decide whether they are the same redemption. Each source contributes once;
+     * same-source events and already paired rows must remain separate.
+     */
     private fun duplicateRewardIndex(message: ChatMessage, existing: Collection<ChatMessage>): Int {
         val redemptionId = message.rewardRedemptionId
         if (redemptionId != null) {
-            val matchingId = existing.indexOfFirst { it.rewardRedemptionId == redemptionId }
+            val matchingId = existing.indexOfFirst {
+                it.channelId == message.channelId && it.rewardRedemptionId == redemptionId
+            }
             if (matchingId >= 0) return matchingId
         }
 
         val rewardId = message.rewardId ?: return -1
         val userId = message.user?.id ?: return -1
         return existing.indexOfFirst { other ->
-            other.rewardId == rewardId &&
+            other.channelId == message.channelId &&
+                other.rewardId == rewardId &&
                 other.user?.id == userId &&
-                abs(other.timestampMs - message.timestampMs) <= REWARD_DUPLICATE_WINDOW_MS &&
                 other.rawText.orEmpty() == message.rawText.orEmpty() &&
                 !other.rewardSourcesMerged && !message.rewardSourcesMerged &&
                 // Each input pairs with one notice. Repeated identical inputs and separate
-                // notices are distinct redemptions even inside the matching time window.
+                // notices are distinct redemptions even when their input is identical.
                 isSyntheticRedemption(other) != isSyntheticRedemption(message) &&
                 !message.rawText.isNullOrBlank() &&
                 (other.rewardRedemptionId == null || message.rewardRedemptionId == null)
@@ -452,7 +459,6 @@ class ChatTimelineStore(
 
     private companion object {
         const val MODERATION_TOMBSTONE_LIMIT = 4096
-        const val REWARD_DUPLICATE_WINDOW_MS = 3_000L
         // At the measured 11.7 messages/sec this covers roughly 90 seconds while retaining at
         // most 1,024 append records. Collectors outside that window safely request a full tail.
         const val TIMELINE_CHANGE_HISTORY_LIMIT = 1024
