@@ -67,19 +67,33 @@ internal fun resolveChatSizing(context: Context): ChatSizing {
     return ChatSizing(textSp, dpToPx(emoteDp), dpToPx(badgeDp))
 }
 
-internal fun resolveChatRenderStyle(context: Context, pip: Boolean = false): ChatRenderStyle {
+internal fun resolveChatRenderStyle(
+    context: Context,
+    pip: Boolean = false,
+    viewportWidthPx: Int = 0,
+): ChatRenderStyle {
     val prefs = context.prefs()
     val sizing = resolveChatSizing(context)
-    val pipScale = if (pip) PIP_CHAT_SCALE else 1f
+    val metrics = context.resources.displayMetrics
+    val widthDp = if (viewportWidthPx > 0) viewportWidthPx / metrics.density
+        else context.resources.configuration.screenWidthDp.toFloat()
+    val textSizeSp = if (pip) {
+        // Use the floating window's dp width, including when the user resizes it.
+        // Large normal-chat preferences must not turn PiP into a single oversized row.
+        val scale = (widthDp / PIP_CHAT_REFERENCE_WIDTH_DP).coerceIn(0.65f, 0.85f)
+        (sizing.textSizeSp * scale).coerceIn(PIP_CHAT_MIN_TEXT_SP, PIP_CHAT_MAX_TEXT_SP)
+            .coerceAtMost(sizing.textSizeSp)
+    } else sizing.textSizeSp
+    val pipScale = if (pip) textSizeSp / sizing.textSizeSp.coerceAtLeast(1f) else 1f
+    fun imageHeight(sizePx: Int, maximumDp: Float): Int {
+        val scaled = sizePx * pipScale
+        return (if (pip) scaled.coerceAtMost(maximumDp * metrics.density) else scaled)
+            .roundToInt().coerceAtLeast(1)
+    }
     return ChatRenderStyle(
-        textSizeSp = if (pip) {
-            // Shrink, but keep legible, and never end up larger than the user's own size.
-            (sizing.textSizeSp * pipScale).coerceAtLeast(PIP_CHAT_MIN_TEXT_SP).coerceAtMost(sizing.textSizeSp)
-        } else {
-            sizing.textSizeSp
-        },
-        emoteHeightPx = (sizing.emoteHeightPx * pipScale).roundToInt().coerceAtLeast(1),
-        badgeHeightPx = (sizing.badgeHeightPx * pipScale).roundToInt().coerceAtLeast(1),
+        textSizeSp = textSizeSp,
+        emoteHeightPx = imageHeight(sizing.emoteHeightPx, 22f),
+        badgeHeightPx = imageHeight(sizing.badgeHeightPx, 12f),
         animateGifs = prefs.getBoolean(C.ANIMATED_EMOTES, true),
         showBadges = prefs.getBoolean(C.CHAT_SHOW_BADGES, true),
         enableOverlayEmotes = prefs.getBoolean(C.CHAT_ZERO_WIDTH, true),
@@ -94,7 +108,7 @@ internal fun resolveChatRenderStyle(context: Context, pip: Boolean = false): Cha
     )
 }
 
-/** The floating window is a fraction of the screen, so chat shrinks with it but never below legible. */
-private const val PIP_CHAT_SCALE = 0.85f
-private const val PIP_CHAT_MIN_TEXT_SP = 11f
+private const val PIP_CHAT_REFERENCE_WIDTH_DP = 240f
+private const val PIP_CHAT_MIN_TEXT_SP = 10f
+private const val PIP_CHAT_MAX_TEXT_SP = 12f
 private const val PIP_CHAT_EDGE_PADDING_DP = 4

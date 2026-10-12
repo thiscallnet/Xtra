@@ -5356,7 +5356,8 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     companion object {
         private const val LIVE_DOT_MUTED_TAG = "live_dot_muted"
-        private val PIP_CHAT_ASPECT_RATIO = Rational(9, 16)
+        // A 16:9 video takes 56% of this window, leaving the rest for compact chat.
+        private val PIP_CHAT_ASPECT_RATIO = Rational(1, 1)
         private const val CONTROLLER_ANIMATION_DURATION_MS = 250L
         private const val CONTROLLER_AUTO_HIDE_DELAY_MS = 3_000L
         protected const val AUTO_QUALITY = "auto"

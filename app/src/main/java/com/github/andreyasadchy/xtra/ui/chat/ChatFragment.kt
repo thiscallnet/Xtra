@@ -503,7 +503,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         chatEdgePaddingListener?.let { requireContext().prefs().unregisterOnSharedPreferenceChangeListener(it) }
         chatEdgePaddingListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
             if (key == C.CHAT_EDGE_PADDING && isAdded) {
-                chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext(), pipMode))
+                chatV2Renderer?.refreshStyle(resolveCurrentChatRenderStyle())
             }
         }.also { requireContext().prefs().registerOnSharedPreferenceChangeListener(it) }
         chatV2ViewportState = restoreChatV2ViewportState(savedInstanceState)
@@ -543,8 +543,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                 }
             }
         }
-        binding.recyclerView.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+        binding.recyclerView.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, _, oldRight, _ ->
             updateCompactOverlayMode(bottom - top)
+            if (pipMode && right - left != oldRight - oldLeft) {
+                chatV2Renderer?.refreshStyle(resolveCurrentChatRenderStyle())
+            }
         }
         binding.chatTopOverlays.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             updatePinnedMessageOverlayWidth()
@@ -794,7 +797,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         true,
                     )
                     viewModel.setChatUsernameRecommendationsEnabled(usernameRecommendationsEnabled)
-                    val chatStyle = resolveChatRenderStyle(requireContext(), pipMode)
+                    val chatStyle = resolveCurrentChatRenderStyle()
                     val chatSurface = MaterialColors.getColor(
                         requireView(),
                         com.google.android.material.R.attr.colorSurface,
@@ -2066,7 +2069,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     override fun onResume() {
         super.onResume()
         applyChatBackgroundAppearance()
-        chatV2Renderer?.refreshStyle(resolveChatRenderStyle(requireContext(), pipMode))
+        chatV2Renderer?.refreshStyle(resolveCurrentChatRenderStyle())
         if (chatV2RendererVisible) chatV2Renderer?.setVisible(true)
         val args = requireArguments()
         val channelId = args.getString(KEY_CHANNEL_ID)
@@ -2116,6 +2119,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     private var pipMode = false
+
+    private fun resolveCurrentChatRenderStyle() = resolveChatRenderStyle(
+        requireContext(), pipMode, _binding?.recyclerView?.width ?: 0,
+    )
 
     fun isActive(): Boolean? {
         if (useChatV2) {
@@ -2172,8 +2179,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         if (pipMode == enabled) return
         pipMode = enabled
         applyPipChrome()
-        val context = context ?: return
-        chatV2Renderer?.refreshStyle(resolveChatRenderStyle(context, enabled))
+        if (context == null) return
+        chatV2Renderer?.refreshStyle(resolveCurrentChatRenderStyle())
         if (enabled) chatV2Renderer?.jumpToNewest()
     }
 
