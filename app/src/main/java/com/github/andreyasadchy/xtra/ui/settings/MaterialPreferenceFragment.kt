@@ -11,6 +11,8 @@ import androidx.fragment.app.DialogFragment
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
+import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceGroup
 import androidx.preference.Preference
 import androidx.preference.PreferenceFragmentCompat
 import com.github.andreyasadchy.xtra.R
@@ -24,11 +26,21 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        if (requireContext().usesExpressiveInterface()) {
-            val inset = (8 * resources.displayMetrics.density).toInt()
-            listView.setPadding(inset, inset, inset, listView.paddingBottom)
+        val expressive = requireContext().usesExpressiveInterface()
+        if (expressive) {
+            val density = resources.displayMetrics.density
+            val inset = (16 * density).toInt()
+            listView.setPadding(inset, (8 * density).toInt(), inset, listView.paddingBottom)
             listView.clipToPadding = false
+            setDivider(null)
+            listView.addItemDecoration(
+                SettingsCardDecoration(
+                    MaterialColors.getColor(listView, com.google.android.material.R.attr.colorSurfaceContainerLow),
+                    20 * density,
+                ),
+            )
         }
+        preferenceScreen?.let { applySettingIcons(it, expressive) }
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
             val insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
             listView.updatePadding(bottom = insets.bottom)
@@ -36,6 +48,32 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
         }
         (requireActivity() as? SettingsActivity)?.getSelectedSearchItem()?.let { key ->
             listView.post { scrollToPreference(key) }
+        }
+    }
+
+    private fun applySettingIcons(group: PreferenceGroup, expressive: Boolean) {
+        for (i in 0 until group.preferenceCount) {
+            val pref = group.getPreference(i)
+            if (pref is PreferenceCategory) {
+                if (expressive) {
+                    SettingsIcons.forCategory(pref.title) { getString(it) }?.let { icon ->
+                        pref.layoutResource = R.layout.preference_category_badge
+                        pref.setIcon(icon)
+                    }
+                }
+                applySettingIcons(pref, expressive)
+                continue
+            }
+            if (pref.icon != null || pref is PreferenceGroup) continue
+            if (pref.layoutResource != 0 && pref.javaClass.name.contains("Preview", ignoreCase = true)) continue
+            val page = SettingsIcons.forPage(pref.key)
+            if (page != null && expressive && pref.javaClass == Preference::class.java) {
+                pref.layoutResource = R.layout.preference_badge
+                pref.setIcon(page)
+            } else {
+                pref.setIcon(page ?: SettingsIcons.forSetting(pref.key))
+            }
+            pref.isIconSpaceReserved = false
         }
     }
 

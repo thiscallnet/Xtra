@@ -269,7 +269,7 @@ class SettingsHomeFragment : Fragment() {
                 SettingsItem(R.string.settings_section_appearance, R.drawable.ic_settings_appearance, R.string.settings_home_appearance_summary) {
                     navigate(SettingsNavGraphDirections.actionGlobalThemeSettingsFragment())
                 },
-                SettingsItem(R.string.settings_home_browsing, R.drawable.ic_settings_data, R.string.settings_home_browsing_summary) {
+                SettingsItem(R.string.settings_home_browsing, R.drawable.ic_pref_dashboard, R.string.settings_home_browsing_summary) {
                     navigate(SettingsNavGraphDirections.actionGlobalUiSettingsFragment())
                 },
             ),

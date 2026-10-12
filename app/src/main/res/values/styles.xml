@@ -264,6 +264,7 @@
     <style name="ModernPreferenceTheme" parent="@style/PreferenceTheme">
         <item name="android:listPreferredItemHeightSmall">56dp</item>
         <item name="android:listPreferredItemHeight">64dp</item>
+        <item name="android:tint">@color/preference_icon_tint</item>
         <item name="preferenceCategoryTitleTextColor">?attr/colorPrimary</item>
     </style>
 
