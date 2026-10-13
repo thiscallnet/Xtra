@@ -3330,11 +3330,13 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private fun onHudVisibilityChanged(visible: Boolean) {
         if (!visible) {
             stopLiveRewindTicker()
+            stopStreamUptimeTicker()
             return
         }
         if (liveRewindVod != null && isLiveRewindEnabled()) {
             startLiveRewindTicker()
         }
+        if (streamUptimeWasLive) startStreamUptimeTicker()
     }
 
     private fun scheduleControllerHide() {
@@ -3625,6 +3627,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             applyPictureInPictureChat()
             useController = false
         }
+        if (streamUptimeWasLive) startStreamUptimeTicker()
     }
 
     private fun isLiveRewindEnabled(): Boolean =
@@ -3779,7 +3782,17 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             stopStreamUptimeTicker()
             return
         }
+        val uptimeEnabled = requireContext().prefs().getBoolean(C.UI_UPTIME, true)
+        if (!uptimeEnabled) hideStreamUptime()
+        if (!uptimeEnabled || !isMaximized || !useController ||
+            _binding?.playerControls?.root?.isVisible != true ||
+            hudVisibility.state == PlayerHudVisibilityController.State.HIDDEN
+        ) {
+            stopStreamUptimeTicker()
+            return
+        }
         if (streamUptimeTickerJob?.isActive == true) return
+        if (BuildConfig.DEBUG) Log.d("XtraUptimeTicker", "event=start")
         streamUptimeTickerJob = viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (isActive) {
@@ -3791,6 +3804,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun stopStreamUptimeTicker() {
+        if (BuildConfig.DEBUG && streamUptimeTickerJob != null) Log.d("XtraUptimeTicker", "event=stop")
         streamUptimeTickerJob?.cancel()
         streamUptimeTickerJob = null
     }
@@ -3843,6 +3857,9 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     private fun updateStreamUptime() {
         if (videoType != PlaybackContract.STREAM) return
+        if (BuildConfig.DEBUG) {
+            Log.d("XtraUptimeTicker", "event=update hudVisible=${binding.playerControls.root.isVisible} enabled=${requireContext().prefs().getBoolean(C.UI_UPTIME, true)}")
+        }
         if (isLiveRewindAvailable()) {
             stopStreamUptimeTicker()
             return
