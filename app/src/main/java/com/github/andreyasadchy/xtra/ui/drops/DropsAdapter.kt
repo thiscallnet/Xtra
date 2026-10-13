@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.drops
 
 import android.content.Context
 import android.text.format.DateUtils
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.appcompat.widget.PopupMenu
@@ -15,6 +16,7 @@ import coil3.request.error
 import coil3.request.fallback
 import coil3.request.placeholder
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.ItemDropBinding
 import com.github.andreyasadchy.xtra.databinding.ItemDropRewardBinding
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
@@ -249,14 +251,17 @@ class DropsAdapter(
                 campaign.endTime.formatCampaignTime(binding.root.context)
                     ?.let { binding.root.context.getString(R.string.source_vod_end, it) },
             ).joinToString(" · ")
-            val rewards = campaign.drops.flatMap { drop ->
-                drop.benefits.ifEmpty {
-                    listOf(TwitchDropBenefit(drop.name ?: "Drop", null))
+            val rewardsVisible = expanded && !detailsLoading
+            val rewards = if (rewardsVisible) {
+                campaign.drops.flatMap { drop ->
+                    drop.benefits.ifEmpty {
+                        listOf(TwitchDropBenefit(drop.name ?: "Drop", null))
+                    }
                 }
-            }
+            } else emptyList()
             bindRewards(
                 rewards,
-                visible = expanded && !detailsLoading,
+                visible = rewardsVisible,
                 onImageClick = onImageClick,
             )
             binding.detailsLoading.isVisible = expanded && detailsLoading
@@ -314,7 +319,14 @@ class DropsAdapter(
             onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
         ) {
             binding.rewardStrip.removeAllViews()
-            rewards.distinctBy { it.name to it.imageUrl }.forEach { reward ->
+            binding.rewardScroll.isVisible = visible && rewards.isNotEmpty()
+            if (!binding.rewardScroll.isVisible) {
+                if (BuildConfig.DEBUG) Log.d("XtraDropRewards", "event=skip visible=$visible count=0")
+                return
+            }
+            val distinctRewards = rewards.distinctBy { it.name to it.imageUrl }
+            if (BuildConfig.DEBUG) Log.d("XtraDropRewards", "event=build visible=$visible count=${distinctRewards.size}")
+            distinctRewards.forEach { reward ->
                 val rewardBinding = ItemDropRewardBinding.inflate(
                     LayoutInflater.from(binding.root.context),
                     binding.rewardStrip,
@@ -336,7 +348,6 @@ class DropsAdapter(
                 rewardBinding.image.loadDropImage(reward.imageUrl, TwitchDropImageSource.ORIGINAL)
                 binding.rewardStrip.addView(rewardBinding.root)
             }
-            binding.rewardScroll.isVisible = visible && rewards.isNotEmpty()
         }
     }
 
