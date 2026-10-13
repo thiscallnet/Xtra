@@ -41,8 +41,7 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
         }
     }
 
-    private fun showSpeedOptionsDialog() {
-        val items = readSpeedItems()
+    private fun showSpeedOptionsDialog(items: MutableList<SettingsDragListItem> = readSpeedItems()) {
         val listAdapter = SettingsDragListAdapter().apply {
             showVisibilityToggle = true
         }
@@ -115,9 +114,6 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
     }
 
     private fun showCustomSpeedDialog(items: MutableList<SettingsDragListItem>) {
-        // Opening the custom-speed dialog dismisses the editor. Keep its current in-memory state
-        // before opening the second dialog.
-        saveSpeeds(items)
         val input = android.widget.EditText(requireContext()).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             hint = "> 0 and ≤ 16"
@@ -128,6 +124,9 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
             .setPositiveButton(android.R.string.ok, null)
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+        dialog.setOnDismissListener {
+            if (isResumed) showSpeedOptionsDialog(items)
+        }
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val value = input.text.toString().toFloatOrNull()
             if (value == null || !value.isFinite() || value <= 0f || value > 16f) {
@@ -135,7 +134,6 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
             } else {
                 if (items.none { it.key.toFloatOrNull() == value }) {
                     items.add(SettingsDragListItem(value.toString(), "${value}×", default = false, enabled = true))
-                    saveSpeeds(items)
                 }
                 dialog.dismiss()
             }
