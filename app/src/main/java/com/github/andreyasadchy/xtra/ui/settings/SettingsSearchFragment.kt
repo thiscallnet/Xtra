@@ -15,7 +15,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
-import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceGroup
 import androidx.preference.PreferenceManager
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreferenceCompat
@@ -130,45 +130,48 @@ class SettingsSearchFragment : Fragment() {
             ).plus(if (developerVisible) listOf(
                 Triple(R.xml.developer_preferences, SettingsNavDirections(R.id.developerSettingsFragment), "Developer options"),
             ) else emptyList()).forEach { item ->
-                preferenceManager.inflateFromResource(requireContext(), item.first, null).forEach {
-                    if (!it.isVisible) return@forEach
-                    when (it) {
-                        is SwitchPreferenceCompat -> {
-                            list.add(SettingsSearchItem(
-                                navDirections = item.second,
-                                location = item.third,
-                                key = it.key,
-                                title = it.title,
-                                summary = it.summary,
-                                value = if (it.isChecked) {
-                                    getString(R.string.enabled_setting)
-                                } else {
-                                    getString(R.string.disabled_setting)
-                                }
-                            ))
-                        }
-                        is SeekBarPreference -> {
-                            list.add(SettingsSearchItem(
-                                navDirections = item.second,
-                                location = item.third,
-                                key = it.key,
-                                title = it.title,
-                                summary = it.summary,
-                                value = it.value.toString()
-                            ))
-                        }
-                        is PreferenceCategory -> {}
-                        else -> {
-                            list.add(SettingsSearchItem(
-                                navDirections = item.second,
-                                location = item.third,
-                                key = it.key,
-                                title = it.title,
-                                summary = it.summary,
-                            ))
+                fun addPreferences(group: PreferenceGroup) {
+                    group.forEach {
+                        if (!it.isVisible) return@forEach
+                        when (it) {
+                            is PreferenceGroup -> addPreferences(it)
+                            is SwitchPreferenceCompat -> {
+                                list.add(SettingsSearchItem(
+                                    navDirections = item.second,
+                                    location = item.third,
+                                    key = it.key,
+                                    title = it.title,
+                                    summary = it.summary,
+                                    value = if (it.isChecked) {
+                                        getString(R.string.enabled_setting)
+                                    } else {
+                                        getString(R.string.disabled_setting)
+                                    }
+                                ))
+                            }
+                            is SeekBarPreference -> {
+                                list.add(SettingsSearchItem(
+                                    navDirections = item.second,
+                                    location = item.third,
+                                    key = it.key,
+                                    title = it.title,
+                                    summary = it.summary,
+                                    value = it.value.toString()
+                                ))
+                            }
+                            else -> {
+                                list.add(SettingsSearchItem(
+                                    navDirections = item.second,
+                                    location = item.third,
+                                    key = it.key,
+                                    title = it.title,
+                                    summary = it.summary,
+                                ))
+                            }
                         }
                     }
                 }
+                addPreferences(preferenceManager.inflateFromResource(requireContext(), item.first, null))
             }
             preferences = list
         }
