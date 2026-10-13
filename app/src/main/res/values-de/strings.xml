@@ -1504,4 +1504,8 @@
     <string name="stream_start_history_cleared">Stream-Startverlauf gelöscht</string>
     <string name="following_recently_offline_window">Zeitraum für „Kürzlich offline“</string>
     <string name="following_recently_offline_window_summary">Wie lange ein Kanal nach Ende seines Streams unter „Kürzlich offline“ bleibt</string>
+    <string name="alternate_streams_notice_title">Weiterschauen</string>
+    <string name="alternate_streams_notice_message">Alternative Streams helfen bei Unterbrechungen.\n\nIn VAFT einschalten oder ausgeschaltet lassen. Diese Meldung kommt nur einmal.</string>
+    <string name="alternate_streams_notice_settings">VAFT öffnen</string>
+    <string name="alternate_streams_notice_understand">Verstanden</string>
 </resources>

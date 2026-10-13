@@ -1504,4 +1504,8 @@
     <string name="stream_start_history_cleared">Cronologia degli inizi delle dirette cancellata</string>
     <string name="following_recently_offline_window">Periodo di «Offline di recente»</string>
     <string name="following_recently_offline_window_summary">Per quanto tempo un canale resta in «Offline di recente» dopo la fine della diretta</string>
+    <string name="alternate_streams_notice_title">Continua a guardare</string>
+    <string name="alternate_streams_notice_message">Gli stream alternativi possono aiutare in caso di interruzioni.\n\nAttivali nelle impostazioni VAFT o lasciali disattivati. Questo messaggio appare solo una volta.</string>
+    <string name="alternate_streams_notice_settings">Impostazioni VAFT</string>
+    <string name="alternate_streams_notice_understand">Ho capito</string>
 </resources>

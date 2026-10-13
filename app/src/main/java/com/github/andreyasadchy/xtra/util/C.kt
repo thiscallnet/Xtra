@@ -272,6 +272,7 @@ object C {
     const val PLAYER_MOVE_FREELY = "player_move_freely"
     const val PLAYER_KEEP_CHAT_OPEN = "player_keep_chat_open"
     const val PLAYER_VAFT_ENABLED = "player_avoid_ads"
+    const val PLAYER_VAFT_AD_NOTICE_SEEN = "player_vaft_ad_notice_seen"
     const val PLAYER_VAFT_PLAYBACK_PRIORITY = "player_vaft_playback_priority"
     const val VAFT_PRIORITY_CONTINUITY = "continuity"
     const val VAFT_PRIORITY_LIVE = "live"

@@ -1504,4 +1504,8 @@
     <string name="stream_start_history_cleared">開播歷史已清除</string>
     <string name="following_recently_offline_window">「最近離線」時間範圍</string>
     <string name="following_recently_offline_window_summary">頻道結束直播後在「最近離線」中保留的時長</string>
+    <string name="alternate_streams_notice_title">繼續觀看</string>
+    <string name="alternate_streams_notice_message">備用串流可以幫助減少播放中斷。\n\n你可以在 VAFT 設定中開啟，也可以保持關閉。這則訊息只會顯示一次。</string>
+    <string name="alternate_streams_notice_settings">VAFT 設定</string>
+    <string name="alternate_streams_notice_understand">我知道了</string>
 </resources>

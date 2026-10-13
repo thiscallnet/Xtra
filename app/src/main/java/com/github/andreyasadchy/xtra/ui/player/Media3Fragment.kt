@@ -983,6 +983,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             xtraModule.liveCaptionManager.setCaptionLineFits(fits)
         }
         viewLifecycleOwner.lifecycleScope.launch {
+            viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                while (!requireContext().prefs().getBoolean(C.PLAYER_VAFT_AD_NOTICE_SEEN, false)) {
+                    checkForAlternateStreamsNotice()
+                    delay(1_000L)
+                }
+            }
+        }
+        viewLifecycleOwner.lifecycleScope.launch {
                 viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                     xtraModule.liveCaptionManager.state.collect { state ->
                         val nextCaptionText = if (videoType == STREAM && state.enabled) state.text else ""
@@ -3407,6 +3415,30 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
 
     override fun changeVolume(volume: Float) {
         player?.volume = volume
+    }
+
+    private fun canShowAlternateStreamsNotice(): Boolean =
+        isResumed && view != null && isMaximized &&
+            !(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && requireActivity().isInPictureInPictureMode) &&
+            videoType == STREAM && !isLiveRewindActiveOrSwitching() &&
+            player?.isPlaying == true && !requireContext().prefs().isVaftEnabled() &&
+            !requireContext().prefs().getBoolean(C.PLAYER_VAFT_AD_NOTICE_SEEN, false) &&
+            !childFragmentManager.isStateSaved && childFragmentManager.fragments.none { it is androidx.fragment.app.DialogFragment }
+
+    private suspend fun checkForAlternateStreamsNotice() {
+        if (!canShowAlternateStreamsNotice()) return
+        val controller = player ?: return
+        val mediaId = controller.currentMediaItem?.mediaId ?: return
+        val response = try {
+            controller.sendCustomCommand(SessionCommand(PlaybackService.CHECK_STREAM_AD, Bundle.EMPTY), Bundle.EMPTY).awaitFuture()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            return
+        }
+        if (player !== controller || player?.currentMediaItem?.mediaId != mediaId || !canShowAlternateStreamsNotice()) return
+        if (response.resultCode == SessionResult.RESULT_SUCCESS && response.extras.getBoolean(PlaybackService.RESULT)) {
+            AlternateStreamsNoticeDialog().showNow(childFragmentManager, AlternateStreamsNoticeDialog.TAG)
+        }
     }
 
     override fun updateProgress() {
@@ -5895,7 +5927,6 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 val value = get()
                 if (continuation.isActive) continuation.resume(value)
             } catch (error: Throwable) {
-                if (error is CancellationException) throw error
                 if (continuation.isActive) continuation.resumeWithException(error)
             }
         }, ContextCompat.getMainExecutor(requireContext()))

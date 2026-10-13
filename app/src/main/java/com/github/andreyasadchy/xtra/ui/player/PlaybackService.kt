@@ -1045,6 +1045,7 @@ class PlaybackService : MediaSessionService() {
                             add(SessionCommand(SET_SLEEP_TIMER, Bundle.EMPTY))
                             add(SessionCommand(GET_SLEEP_TIMER, Bundle.EMPTY))
                             add(SessionCommand(CHECK_VAFT, Bundle.EMPTY))
+                            add(SessionCommand(CHECK_STREAM_AD, Bundle.EMPTY))
                             add(SessionCommand(GET_QUALITIES, Bundle.EMPTY))
                             add(SessionCommand(GET_DURATION, Bundle.EMPTY))
                             add(SessionCommand(GET_ERROR_CODE, Bundle.EMPTY))
@@ -1654,6 +1655,26 @@ class PlaybackService : MediaSessionService() {
                             GET_SLEEP_TIMER -> {
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
                                     putLong(RESULT, sleepTimerEndTime)
+                                }))
+                            }
+                            CHECK_STREAM_AD -> {
+                                val currentPlayer = playbackPlayer
+                                val playlist = (currentPlayer?.currentManifest as? HlsManifest)?.mediaPlaylist
+                                val adPlaying = currentPlayer != null && playlist != null && currentPlayer.isPlaying &&
+                                    resumptionState?.type == PlaybackContract.STREAM && !prefs().isVaftEnabled() &&
+                                    !liveRewindActive && !liveRewindTransitioning && !vaftSourceSwitching &&
+                                    !vaftAlternateActive && !isCasting() &&
+                                    TwitchVaftDetector.visibleBoundaries(playlist).any { boundary ->
+                                        classifyVaftBoundary(
+                                            currentPlayer, playlist, boundary,
+                                            allowSourceRelativeClock = true,
+                                            allowMediaSequence = true,
+                                            snapshotStartTimeUs = playlist.startTimeUs,
+                                            snapshotMediaSequence = playlist.mediaSequence,
+                                        ) == VaftPlaybackBoundaryPhase.ACTIVE
+                                    }
+                                Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS, Bundle().apply {
+                                    putBoolean(RESULT, adPlaying)
                                 }))
                             }
                             CHECK_VAFT -> {
@@ -6670,6 +6691,7 @@ class PlaybackService : MediaSessionService() {
         const val SET_SLEEP_TIMER = "setSleepTimer"
         const val GET_SLEEP_TIMER = "getSleepTimer"
         const val CHECK_VAFT = "checkVaft"
+        const val CHECK_STREAM_AD = "checkStreamAd"
         const val GET_QUALITIES = "getQualities"
         const val CONTROLLED_PRIMARY_QUALITIES = "controlledPrimaryQualities"
         const val CONTROLLED_SELECTION_NAMES = "controlledSelectionNames"

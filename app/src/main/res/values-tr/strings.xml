@@ -1505,4 +1505,8 @@
     <string name="stream_start_history_cleared">Yayın başlangıç geçmişi temizlendi</string>
     <string name="following_recently_offline_window">Yakın Zamanda Çevrimdışı Olanlar süresi</string>
     <string name="following_recently_offline_window_summary">Yayını bittikten sonra bir kanalın Yakın Zamanda Çevrimdışı Olanlar bölümünde ne kadar kalacağı</string>
+    <string name="alternate_streams_notice_title">İzlemeye devam edin</string>
+    <string name="alternate_streams_notice_message">Alternatif yayınlar kesintilerde yardımcı olabilir.\n\nVAFT ayarlarından açın veya kapalı bırakın. Bu mesaj yalnızca bir kez gösterilir.</string>
+    <string name="alternate_streams_notice_settings">VAFT ayarları</string>
+    <string name="alternate_streams_notice_understand">Anladım</string>
 </resources>

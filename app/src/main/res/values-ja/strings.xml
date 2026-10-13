@@ -1504,4 +1504,8 @@
     <string name="stream_start_history_cleared">配信開始履歴を消去しました</string>
     <string name="following_recently_offline_window">「最近オフラインになった配信」の期間</string>
     <string name="following_recently_offline_window_summary">配信終了後、チャンネルが「最近オフラインになった配信」に残る期間</string>
+    <string name="alternate_streams_notice_title">視聴を続ける</string>
+    <string name="alternate_streams_notice_message">代替ストリームは、配信の中断を減らすのに役立ちます。\n\nVAFT設定で有効にするか、無効のままにできます。このメッセージは一度だけ表示されます。</string>
+    <string name="alternate_streams_notice_settings">VAFT設定</string>
+    <string name="alternate_streams_notice_understand">わかりました</string>
 </resources>

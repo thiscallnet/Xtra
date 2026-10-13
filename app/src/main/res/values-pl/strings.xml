@@ -1502,4 +1502,8 @@
     <string name="stream_start_history_cleared">Historia rozpoczęć transmisji wyczyszczona</string>
     <string name="following_recently_offline_window">Okres sekcji Niedawno offline</string>
     <string name="following_recently_offline_window_summary">Jak długo kanał pozostaje w sekcji Niedawno offline po zakończeniu transmisji</string>
+    <string name="alternate_streams_notice_title">Oglądaj dalej</string>
+    <string name="alternate_streams_notice_message">Alternatywne strumienie mogą pomóc przy przerwach.\n\nWłącz je w ustawieniach VAFT lub zostaw wyłączone. Ten komunikat pojawi się tylko raz.</string>
+    <string name="alternate_streams_notice_settings">Ustawienia VAFT</string>
+    <string name="alternate_streams_notice_understand">Rozumiem</string>
 </resources>

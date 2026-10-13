@@ -471,6 +471,11 @@ object SettingsMigration {
         // marker already says current; AndroidX ListPreference requires a
         // String and reads the raw SharedPreferences value directly.
         normalizeCaptionIntervalPreference(preferences)
+        // The alternate-stream default applies to every install without a saved choice.
+        // The separate output-hiding preference must not disable source switching.
+        if (!preferences.contains(C.PLAYER_VAFT_ENABLED)) {
+            preferences.edit { putBoolean(C.PLAYER_VAFT_ENABLED, true) }
+        }
         // "Compact for followed channels only" was removed; Compact now applies to every stream list.
         if (preferences.getString(C.COMPACT_STREAMS, null) == "followed") {
             preferences.edit { putString(C.COMPACT_STREAMS, "all") }

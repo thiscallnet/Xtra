@@ -1504,4 +1504,8 @@
     <string name="stream_start_history_cleared">Histórico de início de transmissões limpo</string>
     <string name="following_recently_offline_window">Período de “Offline recentemente”</string>
     <string name="following_recently_offline_window_summary">Por quanto tempo um canal permanece em “Offline recentemente” depois que a transmissão termina</string>
+    <string name="alternate_streams_notice_title">Continue assistindo</string>
+    <string name="alternate_streams_notice_message">Os fluxos alternativos podem ajudar com as interrupções.\n\nAtive nas configurações VAFT ou deixe desativados. Esta mensagem aparece só uma vez.</string>
+    <string name="alternate_streams_notice_settings">Ajustes VAFT</string>
+    <string name="alternate_streams_notice_understand">Entendi</string>
 </resources>

@@ -1504,4 +1504,8 @@
     <string name="stream_start_history_cleared">Historique des débuts de stream effacé</string>
     <string name="following_recently_offline_window">Période « Récemment hors ligne »</string>
     <string name="following_recently_offline_window_summary">Durée pendant laquelle une chaîne reste dans « Récemment hors ligne » après la fin de son stream</string>
+    <string name="alternate_streams_notice_title">Continuer à regarder</string>
+    <string name="alternate_streams_notice_message">Les flux alternatifs peuvent aider en cas de coupure.\n\nActivez-les dans les réglages VAFT ou laissez-les désactivés. Ce message ne sera affiché qu\'une fois.</string>
+    <string name="alternate_streams_notice_settings">Réglages VAFT</string>
+    <string name="alternate_streams_notice_understand">Je comprends</string>
 </resources>

@@ -2212,9 +2212,6 @@ class MainActivity : AppCompatActivity() {
                     prefs.contains(C.PLAYER_VAFT_ENABLED) && !prefs.contains(C.PLAYER_HIDE_VAFT_OUTPUT) -> {
                         putBoolean(C.PLAYER_HIDE_VAFT_OUTPUT, prefs.getBoolean(C.PLAYER_VAFT_ENABLED, false))
                     }
-                    !prefs.contains(C.PLAYER_VAFT_ENABLED) && prefs.contains(C.PLAYER_HIDE_VAFT_OUTPUT) -> {
-                        putBoolean(C.PLAYER_VAFT_ENABLED, prefs.getBoolean(C.PLAYER_HIDE_VAFT_OUTPUT, false))
-                    }
                 }
                 putInt(C.SETTINGS_VERSION, 14)
             }

@@ -4904,6 +4904,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     override fun onPictureInPictureModeChanged(isInPictureInPictureMode: Boolean) {
         if (isInPictureInPictureMode) {
+            (childFragmentManager.findFragmentByTag(AlternateStreamsNoticeDialog.TAG) as? AlternateStreamsNoticeDialog)?.dismiss()
             swipeGestureController?.endSession(restoreBrightness = true)
         }
         with(binding) {

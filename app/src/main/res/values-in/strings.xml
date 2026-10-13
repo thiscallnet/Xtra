@@ -1505,4 +1505,8 @@
     <string name="stream_start_history_cleared">Riwayat waktu mulai streaming dihapus</string>
     <string name="following_recently_offline_window">Jangka waktu Baru Saja Offline</string>
     <string name="following_recently_offline_window_summary">Berapa lama kanal tetap di Baru Saja Offline setelah streaming berakhir</string>
+    <string name="alternate_streams_notice_title">Lanjut menonton</string>
+    <string name="alternate_streams_notice_message">Streaming alternatif dapat membantu saat ada gangguan.\n\nAktifkan di pengaturan VAFT atau biarkan nonaktif. Pesan ini hanya muncul sekali.</string>
+    <string name="alternate_streams_notice_settings">Pengaturan VAFT</string>
+    <string name="alternate_streams_notice_understand">Mengerti</string>
 </resources>

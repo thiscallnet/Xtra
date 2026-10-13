@@ -1527,4 +1527,8 @@
     <string name="stream_start_history_cleared">História začiatkov streamov vymazaná</string>
     <string name="following_recently_offline_window">Okno sekcie Nedávno offline</string>
     <string name="following_recently_offline_window_summary">Ako dlho kanál zostane v sekcii Nedávno offline po skončení streamu</string>
+    <string name="alternate_streams_notice_title">Pozerajte ďalej</string>
+    <string name="alternate_streams_notice_message">Alternatívne streamy môžu pomôcť pri prerušení.\n\nZapnite ich v nastaveniach VAFT alebo ich nechajte vypnuté. Táto správa sa zobrazí iba raz.</string>
+    <string name="alternate_streams_notice_settings">Nastavenia VAFT</string>
+    <string name="alternate_streams_notice_understand">Rozumiem</string>
 </resources>

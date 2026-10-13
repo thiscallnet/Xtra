@@ -1504,4 +1504,8 @@
     <string name="stream_start_history_cleared">تم مسح سجل بدء البث</string>
     <string name="following_recently_offline_window">فترة «انقطع البث مؤخرًا»</string>
     <string name="following_recently_offline_window_summary">المدة التي تبقى فيها القناة ضمن «انقطع البث مؤخرًا» بعد انتهاء بثها</string>
+    <string name="alternate_streams_notice_title">واصل المشاهدة</string>
+    <string name="alternate_streams_notice_message">يمكن للبث البديل أن يساعد عند حدوث انقطاع.\n\nيمكنك تشغيله من إعدادات VAFT أو تركه مغلقًا. تظهر هذه الرسالة مرة واحدة فقط.</string>
+    <string name="alternate_streams_notice_settings">إعدادات VAFT</string>
+    <string name="alternate_streams_notice_understand">فهمت</string>
 </resources>

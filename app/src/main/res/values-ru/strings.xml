@@ -1504,4 +1504,8 @@
     <string name="stream_start_history_cleared">История начала трансляций очищена</string>
     <string name="following_recently_offline_window">Период раздела «Недавно завершили»</string>
     <string name="following_recently_offline_window_summary">Как долго канал остаётся в разделе «Недавно завершили» после окончания трансляции</string>
+    <string name="alternate_streams_notice_title">Смотрите дальше</string>
+    <string name="alternate_streams_notice_message">Альтернативные потоки помогают при перебоях.\n\nВключите их в настройках VAFT или оставьте выключенными. Это сообщение появится только один раз.</string>
+    <string name="alternate_streams_notice_settings">Настройки VAFT</string>
+    <string name="alternate_streams_notice_understand">Понятно</string>
 </resources>

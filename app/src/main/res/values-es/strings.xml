@@ -1509,4 +1509,8 @@
     <string name="stream_start_history_cleared">Historial de inicios de stream borrado</string>
     <string name="following_recently_offline_window">Ventana de «Recientemente sin conexión»</string>
     <string name="following_recently_offline_window_summary">Cuánto tiempo permanece un canal en «Recientemente sin conexión» tras terminar su stream</string>
+    <string name="alternate_streams_notice_title">Sigue viendo</string>
+    <string name="alternate_streams_notice_message">Las transmisiones alternativas pueden ayudar con las interrupciones.\n\nActívalas en los ajustes de VAFT o déjalas desactivadas. Este mensaje solo aparece una vez.</string>
+    <string name="alternate_streams_notice_settings">Ajustes de VAFT</string>
+    <string name="alternate_streams_notice_understand">Entendido</string>
 </resources>

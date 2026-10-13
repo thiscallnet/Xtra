@@ -496,6 +496,10 @@
     <string name="settings_recover_streams">Recover interrupted streams</string>
     <string name="settings_recover_streams_summary">Try to resume live playback automatically after an interruption.</string>
     <string name="settings_alternate_streams">Use alternate streams</string>
+    <string name="alternate_streams_notice_title">Keep watching</string>
+    <string name="alternate_streams_notice_message">Alternate streams can help with interruptions.\n\nTurn them on in VAFT settings, or leave them off. This message only shows once.</string>
+    <string name="alternate_streams_notice_settings">VAFT settings</string>
+    <string name="alternate_streams_notice_understand">I understand</string>
     <string name="settings_alternate_streams_summary">Switch playback sources when the primary stream is interrupted.</string>
     <string name="settings_hide_switching">Hide playback while switching</string>
     <string name="settings_hide_switching_summary">Hide video and audio until playback can resume normally.</string>
