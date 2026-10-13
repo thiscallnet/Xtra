@@ -60,6 +60,7 @@ class DownloadsFragment : PagedListFragment(), Scrollable {
     private val viewModel: DownloadsViewModel by viewModels { DownloadsViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<OfflineVideo, out RecyclerView.ViewHolder>
     override var enableNetworkCheck = false
+    override val initializeOfflineOncePerView = true
     private var fileResultLauncher: ActivityResultLauncher<Intent>? = null
     private var chatFileResultLauncher: ActivityResultLauncher<Intent>? = null
     private var videoDownloadService: VideoDownloadService? = null
