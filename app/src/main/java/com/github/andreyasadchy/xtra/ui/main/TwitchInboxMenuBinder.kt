@@ -55,7 +55,7 @@ object TwitchInboxMenuBinder {
             cachedNotificationSummary = null
             cachedWhisperSummary = null
             hasCachedSummary = false
-            boundToolbars.keys.toList().forEach { boundToolbar ->
+            boundToolbars.keys.forEach { boundToolbar ->
                 boundToolbar.menu.findItem(R.id.twitchNotifications)?.isVisible = false
                 boundToolbar.menu.findItem(R.id.whispers)?.isVisible = false
             }
@@ -80,7 +80,7 @@ object TwitchInboxMenuBinder {
     }
 
     private fun applyCachedBadges() {
-        boundToolbars.keys.toList().forEach(::applyCachedBadges)
+        boundToolbars.keys.forEach(::applyCachedBadges)
     }
 
     private fun applyCachedBadges(toolbar: Toolbar) {

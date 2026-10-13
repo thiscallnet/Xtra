@@ -41,7 +41,10 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
 
-class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
+class SavedMediaFragment : Fragment(), Scrollable, FragmentHost, SavedSelectionHost {
+
+    override var savedSelectionChrome: SavedSelectionChrome? = null
+        private set
 
     private var _binding: FragmentMediaBinding? = null
     private val binding get() = _binding!!
@@ -50,11 +53,13 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
     private var fileResultLauncher: ActivityResultLauncher<Intent>? = null
 
     private var previousItem = -1
+    private var selectedFragment: Fragment? = null
     private var tabSwitcher: FragmentTabSwitcher? = null
     private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
 
     override val currentFragment: Fragment?
-        get() = childFragmentManager.findFragmentById(R.id.fragmentContainer)
+        get() = selectedFragment?.takeIf { it.isAdded && !it.isHidden }
+            ?: childFragmentManager.fragments.lastOrNull { it.id == R.id.fragmentContainer && !it.isHidden }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,10 +100,14 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
+        savedSelectionChrome = SavedSelectionChrome(this, binding.toolbar, binding.appBar)
+        binding.toolbar.inflateMenu(R.menu.saved_select_menu)
         tabSwitcher = FragmentTabSwitcher(childFragmentManager, R.id.fragmentContainer) { fragment ->
+            selectedFragment = fragment
             fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let { liftTargetConnector?.connect(it) }
             if (fragment is Sortable) fragment.setupSortBar(binding.sortBar) else binding.sortBar.root.visibility = View.GONE
             val isDownloads = fragment is DownloadsFragment
+            binding.toolbar.menu.findItem(R.id.selectSavedItems).isVisible = fragment is SavedSelectablePage
             val showTopSearch = !(requireActivity() as MainActivity).hasBottomSearchShortcut()
             binding.toolbar.menu.findItem(R.id.search).isVisible = showTopSearch && !isDownloads
             binding.toolbar.menu.findItem(R.id.searchOverflow).isVisible = showTopSearch && isDownloads
@@ -115,6 +124,10 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
             toolbar.menu.findItem(R.id.login).title = if (isLoggedIn) getString(R.string.log_out) else getString(R.string.log_in)
             toolbar.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
+                    R.id.selectSavedItems -> {
+                        (currentFragment as? SavedSelectablePage)?.startSavedSelection()
+                        true
+                    }
                     R.id.search, R.id.searchOverflow -> {
                         findNavController().navigate(SearchPagerFragmentDirections.actionGlobalSearchPagerFragment())
                         true
@@ -199,6 +212,8 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
                     val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
                     val position = tabs.indexOf(defaultItem).takeIf { it != -1 } ?: tabs.indexOf("1").takeIf { it != -1 } ?: 0
                     showTab(tabs, position)
+                } else if (previousItem in tabs.indices) {
+                    showTab(tabs, previousItem)
                 }
                 if (previousItem <= tabs.lastIndex) {
                     setText(adapter.getItem(previousItem).toString(), false)
@@ -233,6 +248,7 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
                 toolbar.updateLayoutParams<ViewGroup.MarginLayoutParams> {
                     topMargin = insets.top
                 }
+                savedSelectionChrome?.setTopInset(insets.top)
                 windowInsets
             }
         }
@@ -250,6 +266,7 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
 
     private fun showTab(tabs: List<String>, position: Int) {
         if (position !in tabs.indices) return
+        savedSelectionChrome?.finish()
         previousItem = position
         tabSwitcher?.show("media_$position") { onSpinnerItemSelected(tabs, position) }
     }
@@ -265,6 +282,9 @@ class SavedMediaFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        selectedFragment = null
+        savedSelectionChrome?.close()
+        savedSelectionChrome = null
         liftTargetConnector?.disconnect()
         liftTargetConnector = null
         tabSwitcher = null

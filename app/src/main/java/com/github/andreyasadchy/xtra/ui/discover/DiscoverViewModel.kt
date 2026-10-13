@@ -12,26 +12,30 @@ import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
-import com.github.andreyasadchy.xtra.repository.RecommendationSource
 import com.github.andreyasadchy.xtra.repository.RecommendationsRepository
 import com.github.andreyasadchy.xtra.repository.datasource.withHelixBroadcasterTypes
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedCache
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedSpec
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedSpecs
+import com.github.andreyasadchy.xtra.repository.gamefeed.GameRefreshDecision
 import com.github.andreyasadchy.xtra.repository.gamefeed.toGame
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
+import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshDecision
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedCache
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpec
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedSpecs
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedFreshnessPolicy
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
+import com.github.andreyasadchy.xtra.ui.common.SectionStatus
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewLoadingType
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSection
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -52,6 +56,7 @@ data class DiscoverSectionState<T>(
     val refreshing: Boolean = false,
     val hasLoadedOnce: Boolean = false,
     val error: Throwable? = null,
+    val sourceGame: Game? = null,
 )
 
 data class DiscoverState(
@@ -103,6 +108,11 @@ class DiscoverViewModel(
     private var currentTrendingSpec: StreamFeedSpec? = null
     private var lastVisibleRefreshAt = 0L
     private var recommendationsRefreshGeneration = 0L
+    private var topStreamsJob: Job? = null
+    private var topGamesJob: Job? = null
+    private var recommendationsJob: Job? = null
+    private var trendingRefreshJob: Job? = null
+    private var trendingRefreshKey: String? = null
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val state: StateFlow<DiscoverState> = combine(
@@ -112,26 +122,32 @@ class DiscoverViewModel(
         trendingStreamsSection,
     ) { topStreams, recommendations, topGames, trendingStreams ->
         val trendingGame = topGames.data.firstOrNull()
+        val trending: DiscoverSectionState<List<Stream>> = when {
+            trendingGame == null -> DiscoverSectionState(emptyList<Stream>(), topGames.refreshing, topGames.hasLoadedOnce, topGames.error)
+            trendingStreams.sourceGame?.let { it.id == trendingGame.id && it.slug == trendingGame.slug && it.name == trendingGame.name } == true -> trendingStreams
+            else -> DiscoverSectionState(emptyList(), refreshing = true)
+        }
         val topChannelIds = topStreams.data.mapNotNull { it.channelId }.toSet()
         val recommendedStreams = recommendations.data.filterNot { stream ->
             stream.channelId?.let(topChannelIds::contains) == true
         }
         val sections = listOf(
-            section(KEY_BIG_EVENTS, R.string.trending, streams = topStreams.data, isLoading = topStreams.isLoading()),
-            section(KEY_RECOMMENDED, R.string.discover_live_channels, streams = recommendedStreams, isLoading = recommendations.isLoading()),
+            section(KEY_BIG_EVENTS, R.string.trending, streams = topStreams.data, isLoading = topStreams.isLoading(), status = topStreams.status()),
+            section(KEY_RECOMMENDED, R.string.discover_live_channels, streams = recommendedStreams, isLoading = recommendations.isLoading(), status = recommendations.status()),
             section(
                 key = KEY_TRENDING,
                 titleRes = R.string.discover_trending,
                 title = trendingGame?.name?.let { applicationContext.getString(R.string.discover_trending_category, it) },
-                streams = trendingStreams.data,
-                isLoading = trendingStreams.isLoading(),
+                streams = trending.data,
+                isLoading = trending.isLoading(),
+                status = trending.status(),
             ),
-            section(KEY_CATEGORIES, R.string.discover_categories, games = topGames.data, loadingType = FollowingOverviewLoadingType.GAME, isLoading = topGames.isLoading()),
+            section(KEY_CATEGORIES, R.string.discover_categories, games = topGames.data, loadingType = FollowingOverviewLoadingType.GAME, isLoading = topGames.isLoading(), status = topGames.status()),
         )
         DiscoverState(
             sections = sections,
             trendingGame = trendingGame,
-            isLoading = sections.any { it.isLoading },
+            isLoading = topStreams.refreshing || recommendations.refreshing || topGames.refreshing || trending.refreshing,
             hasError = topStreams.data.isEmpty() &&
                 recommendations.data.isEmpty() &&
                 topGames.data.isEmpty() &&
@@ -148,7 +164,6 @@ class DiscoverViewModel(
                     current.copy(
                         data = items,
                         hasLoadedOnce = current.hasLoadedOnce || items.isNotEmpty(),
-                        error = if (items.isNotEmpty()) null else current.error,
                     )
                 }
             }
@@ -159,7 +174,6 @@ class DiscoverViewModel(
                     current.copy(
                         data = items.map { it.toGame() },
                         hasLoadedOnce = current.hasLoadedOnce || items.isNotEmpty(),
-                        error = if (items.isNotEmpty()) null else current.error,
                     )
                 }
             }
@@ -192,42 +206,49 @@ class DiscoverViewModel(
 
     private fun refreshTopStreams(reason: RefreshReason, force: Boolean) {
         if (!force && streamFeedRefreshCoordinator.isFreshInMemory(topStreamsSpec)) return
-        viewModelScope.launch {
-            topStreamsSection.update { current ->
-                if (current.hasLoadedOnce) current else current.copy(refreshing = true)
-            }
+        if (topStreamsJob?.isActive == true) return
+        topStreamsJob = viewModelScope.launch {
+            topStreamsSection.update { it.copy(refreshing = true) }
             try {
-                if (force) streamFeedRefreshCoordinator.forceRefresh(topStreamsSpec, reason)
+                val result = if (force) streamFeedRefreshCoordinator.forceRefresh(topStreamsSpec, reason)
                 else streamFeedRefreshCoordinator.maybeRefresh(topStreamsSpec, reason)
-                topStreamsSection.update { current -> current.copy(refreshing = false, hasLoadedOnce = current.hasLoadedOnce || current.data.isNotEmpty(), error = if (current.data.isNotEmpty()) null else current.error) }
+                completeStreamRefresh(topStreamsSection, result.decision)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                topStreamsSection.update { current -> current.copy(refreshing = false, error = if (current.data.isEmpty()) error else null) }
+                topStreamsSection.update { current -> current.copy(refreshing = false, error = error) }
             }
         }
     }
 
     private fun refreshTopGames(reason: RefreshReason, force: Boolean) {
         if (!force && gameFeedRefreshCoordinator.isFreshInMemory(topGamesSpec)) return
-        viewModelScope.launch {
-            topGamesSection.update { current ->
-                if (current.hasLoadedOnce) current else current.copy(refreshing = true)
-            }
+        if (topGamesJob?.isActive == true) return
+        topGamesJob = viewModelScope.launch {
+            topGamesSection.update { it.copy(refreshing = true) }
             try {
-                if (force) gameFeedRefreshCoordinator.forceRefresh(topGamesSpec, reason)
+                val result = if (force) gameFeedRefreshCoordinator.forceRefresh(topGamesSpec, reason)
                 else gameFeedRefreshCoordinator.maybeRefresh(topGamesSpec, reason)
-                topGamesSection.update { current -> current.copy(refreshing = false, hasLoadedOnce = current.hasLoadedOnce || current.data.isNotEmpty(), error = if (current.data.isNotEmpty()) null else current.error) }
+                topGamesSection.update { current -> current.copy(
+                    refreshing = false,
+                    hasLoadedOnce = current.hasLoadedOnce || result.decision == GameRefreshDecision.REFRESH || result.decision == GameRefreshDecision.SKIP_FRESH,
+                    error = when (result.decision) {
+                        GameRefreshDecision.SKIP_BACKOFF -> current.error ?: IllegalStateException("Category refresh deferred")
+                        GameRefreshDecision.SKIP_DEBOUNCED, GameRefreshDecision.JOIN -> current.error ?: if (!current.hasLoadedOnce && current.data.isEmpty()) IllegalStateException("Categories not loaded") else null
+                        else -> null
+                    },
+                ) }
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
-                topGamesSection.update { current -> current.copy(refreshing = false, error = if (current.data.isEmpty()) error else null) }
+                topGamesSection.update { current -> current.copy(refreshing = false, error = error) }
             }
         }
     }
 
     private fun refreshRecommendations() {
-        viewModelScope.launch {
+        if (recommendationsJob?.isActive == true) return
+        recommendationsJob = viewModelScope.launch {
             recommendationsMutex.withLock {
                 recommendationsSection.update { it.copy(refreshing = true) }
                 try {
@@ -241,8 +262,8 @@ class DiscoverViewModel(
                         helixRepository = helixRepository,
                     )
                     recommendationsSection.update { current ->
-                        if (result.source == RecommendationSource.UNAVAILABLE && current.data.isNotEmpty()) {
-                            current.copy(refreshing = false, hasLoadedOnce = true, error = null)
+                        if (result.isFailure) {
+                            current.copy(refreshing = false, error = IllegalStateException("Recommendations unavailable"))
                         } else {
                             val recommendationsChanged = !result.isCacheHit ||
                                 !recommendationStreamsSame(current.data, streams)
@@ -269,7 +290,7 @@ class DiscoverViewModel(
                 } catch (error: CancellationException) {
                     throw error
                 } catch (error: Throwable) {
-                    recommendationsSection.update { current -> current.copy(refreshing = false, error = if (current.data.isEmpty()) error else null) }
+                    recommendationsSection.update { current -> current.copy(refreshing = false, error = error) }
                 }
             }
         }
@@ -283,25 +304,21 @@ class DiscoverViewModel(
     }
 
     private suspend fun refreshTrendingNow(spec: StreamFeedSpec, reason: RefreshReason, force: Boolean) {
-        trendingStreamsSection.update { current ->
-            if (current.hasLoadedOnce) current else current.copy(refreshing = true)
-        }
+        if (trendingRefreshKey == spec.key.value && trendingRefreshJob?.isActive == true) return
+        val job = currentCoroutineContext()[Job]
+        trendingRefreshKey = spec.key.value
+        trendingRefreshJob = job
+        trendingStreamsSection.update { it.copy(refreshing = true) }
         try {
-            if (force) streamFeedRefreshCoordinator.forceRefresh(spec, reason)
+            val result = if (force) streamFeedRefreshCoordinator.forceRefresh(spec, reason)
             else streamFeedRefreshCoordinator.maybeRefresh(spec, reason)
-            trendingStreamsSection.update { current ->
-                current.copy(
-                    refreshing = false,
-                    hasLoadedOnce = current.hasLoadedOnce || current.data.isNotEmpty(),
-                    error = if (current.data.isNotEmpty()) null else current.error,
-                )
-            }
+            if (currentTrendingSpec?.key == spec.key) completeStreamRefresh(trendingStreamsSection, result.decision)
         } catch (error: CancellationException) {
             throw error
         } catch (error: Throwable) {
-            trendingStreamsSection.update { current ->
-                current.copy(refreshing = false, error = if (current.data.isEmpty()) error else null)
-            }
+            if (currentTrendingSpec?.key == spec.key) trendingStreamsSection.update { it.copy(refreshing = false, error = error) }
+        } finally {
+            if (trendingRefreshJob === job) trendingRefreshJob = null
         }
     }
 
@@ -320,7 +337,7 @@ class DiscoverViewModel(
                 }
                 return@collectLatest
             }
-            trendingStreamsSection.value = DiscoverSectionState(emptyList(), refreshing = true)
+            trendingStreamsSection.value = DiscoverSectionState(emptyList(), refreshing = true, sourceGame = game)
             coroutineScope {
                 // Both the refresh and the Room bootstrap collector are children
                 // of collectLatest. Switching the trending game cancels both;
@@ -331,7 +348,6 @@ class DiscoverViewModel(
                         current.copy(
                             data = items,
                             hasLoadedOnce = current.hasLoadedOnce || items.isNotEmpty(),
-                            error = if (items.isNotEmpty()) null else current.error,
                         )
                     }
                 }
@@ -359,6 +375,7 @@ class DiscoverViewModel(
         games: List<Game> = emptyList(),
         isLoading: Boolean = false,
         loadingType: FollowingOverviewLoadingType = FollowingOverviewLoadingType.STREAM,
+        status: SectionStatus? = null,
     ) = FollowingOverviewSection(
         key = key,
         titleRes = titleRes,
@@ -370,9 +387,39 @@ class DiscoverViewModel(
         loadingType = loadingType,
         showSeeAll = key == KEY_TRENDING || key == KEY_CATEGORIES,
         isFeatured = key == KEY_BIG_EVENTS,
+        status = status,
     )
 
     private fun <T> DiscoverSectionState<List<T>>.isLoading(): Boolean = refreshing && !hasLoadedOnce && data.isEmpty()
+
+    private fun <T> DiscoverSectionState<List<T>>.status(): SectionStatus? = when {
+        refreshing && (hasLoadedOnce || data.isNotEmpty() || error != null) -> SectionStatus(true, data.isNotEmpty())
+        error != null -> SectionStatus(false, data.isNotEmpty())
+        else -> null
+    }
+
+    private fun completeStreamRefresh(section: MutableStateFlow<DiscoverSectionState<List<Stream>>>, decision: RefreshDecision) {
+        section.update { current -> current.copy(
+            refreshing = false,
+            hasLoadedOnce = current.hasLoadedOnce || decision == RefreshDecision.REFRESH || decision == RefreshDecision.SKIP_FRESH,
+            error = when (decision) {
+                RefreshDecision.SKIP_BACKOFF -> current.error ?: IllegalStateException("Stream refresh deferred")
+                RefreshDecision.SKIP_DEBOUNCED, RefreshDecision.JOIN -> current.error ?: if (!current.hasLoadedOnce && current.data.isEmpty()) IllegalStateException("Streams not loaded") else null
+                else -> null
+            },
+        ) }
+    }
+
+    fun retrySection(key: String) {
+        when (key) {
+            KEY_BIG_EVENTS -> if (topStreamsSection.value.error != null) refreshTopStreams(RefreshReason.USER_PULL, force = true)
+            KEY_RECOMMENDED -> if (recommendationsSection.value.error != null) refreshRecommendations()
+            KEY_CATEGORIES -> if (topGamesSection.value.error != null) refreshTopGames(RefreshReason.USER_PULL, force = true)
+            KEY_TRENDING -> currentTrendingSpec?.let { spec ->
+                if (trendingStreamsSection.value.error != null) refreshTrending(spec, RefreshReason.USER_PULL, force = true)
+            } ?: if (topGamesSection.value.error != null) refreshTopGames(RefreshReason.USER_PULL, force = true) else Unit
+        }
+    }
 
     companion object {
         const val KEY_BIG_EVENTS = "discover_big_events"

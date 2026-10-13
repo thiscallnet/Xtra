@@ -30,6 +30,8 @@ import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
+import com.github.andreyasadchy.xtra.ui.saved.SavedItemSelection
+import com.github.andreyasadchy.xtra.ui.saved.SavedSelectionCard
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -45,6 +47,7 @@ class DownloadsAdapter(
     private val updateChatUrl: (OfflineVideo) -> Unit,
     private val shareVideo: (OfflineVideo) -> Unit,
     private val deleteVideo: (OfflineVideo) -> Unit,
+    private val selection: SavedItemSelection,
 ) : PagingDataAdapter<OfflineVideo, DownloadsAdapter.PagingViewHolder>(
     object : DiffUtil.ItemCallback<OfflineVideo>() {
         override fun areItemsTheSame(oldItem: OfflineVideo, newItem: OfflineVideo): Boolean {
@@ -63,6 +66,30 @@ class DownloadsAdapter(
 
     override fun onBindViewHolder(holder: PagingViewHolder, position: Int) {
         holder.bind(getItem(position))
+        holder.bindSelection(peek(position))
+    }
+
+    override fun onBindViewHolder(holder: PagingViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it === SavedItemSelection.PAYLOAD }) holder.bindSelection(peek(position))
+        else super.onBindViewHolder(holder, position, payloads)
+    }
+
+    fun canSelect(item: OfflineVideo): Boolean = DownloadsViewModel.canSelectForDeletion(item) &&
+        activeVideoDownloads.orEmpty().none { it.id == item.id } && activeStreamDownloads.orEmpty().none { it.id == item.id }
+
+    private var selectionPositions: Map<Int, Int> = emptyMap()
+
+    init {
+        addOnPagesUpdatedListener {
+            val current = snapshot()
+            selectionPositions = current.items.mapIndexed { index, item -> item.id to index + current.placeholdersBefore }.toMap()
+            selection.refreshLoadedItems()
+        }
+    }
+
+    fun notifySelectionChanged(id: String?) {
+        if (id == null) notifyItemRangeChanged(0, itemCount, SavedItemSelection.PAYLOAD)
+        else id.toIntOrNull()?.let(selectionPositions::get)?.let { notifyItemChanged(it, SavedItemSelection.PAYLOAD) }
     }
 
     var activeVideoDownloads: List<DownloadProgress>? = null
@@ -153,6 +180,13 @@ class DownloadsAdapter(
                 }
                 status.visibility = View.VISIBLE
             }
+            if (selection.active) {
+                options.isClickable = false
+                (root.getTag(R.id.saved_selection_card) as? SavedSelectionCard)?.bind(selection, item.id.toString(), canSelect(item))
+                if (!canSelect(item) && item.id.toString() in selection.selectedIds) root.post {
+                    if (selection.active && !canSelect(item)) selection.unselect(item.id.toString())
+                }
+            }
         }
     }
 
@@ -160,7 +194,14 @@ class DownloadsAdapter(
         private val binding: FragmentDownloadsListItemBinding,
         private val fragment: Fragment,
     ) : RecyclerView.ViewHolder(binding.root) {
+        private val selectionCard = SavedSelectionCard(binding.root).also { binding.root.setTag(R.id.saved_selection_card, it) }
+
+        fun bindSelection(item: OfflineVideo?) {
+            if (item != null) selectionCard.bind(selection, item.id.toString(), canSelect(item))
+        }
+
         fun bind(item: OfflineVideo?) {
+            selectionCard.prepareForBind()
             with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
@@ -186,6 +227,7 @@ class DownloadsAdapter(
                     val position = item.lastWatchPosition
                     val startFromBeginning = position != null && videoDuration != null && videoDuration > 0 && position >= videoDuration
                     root.setOnClickListener {
+                        if (selection.click(item.id.toString(), canSelect(item))) return@setOnClickListener
                         if (item.status == OfflineVideo.STATUS_FAILED) {
                             resumeDownload(item)
                         } else {
@@ -196,7 +238,7 @@ class DownloadsAdapter(
                         }
                     }
                     root.setOnLongClickListener {
-                        deleteVideo(item)
+                        if (!selection.click(item.id.toString(), canSelect(item))) deleteVideo(item)
                         true
                     }
                     if (item.thumbnail?.toUri()?.scheme == ContentResolver.SCHEME_CONTENT) {

@@ -32,6 +32,9 @@ interface OfflineVideosDao {
     @Query("SELECT * FROM videos WHERE channel_id = :id")
     fun getByUserId(id: String): List<OfflineVideo>
 
+    @Query("SELECT id FROM videos WHERE url = :uri OR chatUrl = :uri")
+    fun getMediaReferenceIds(uri: String): List<Int>
+
     @Query("SELECT * FROM videos WHERE lower(url) LIKE '%.m3u8'")
     fun getPlaylists(): List<OfflineVideo>
 

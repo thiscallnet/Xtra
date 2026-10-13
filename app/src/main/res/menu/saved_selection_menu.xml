@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/savedDeleteSelected" android:title="@string/delete" android:icon="@drawable/baseline_delete_black_24" app:showAsAction="always" />
+    <item android:id="@+id/savedSelectLoaded" android:title="@string/saved_select_loaded" app:showAsAction="never" />
+    <item android:id="@+id/savedClearSelection" android:title="@string/saved_clear_selection" app:showAsAction="never" />
+</menu>

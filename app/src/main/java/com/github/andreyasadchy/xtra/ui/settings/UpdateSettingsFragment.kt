@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
@@ -36,6 +37,7 @@ import com.github.andreyasadchy.xtra.ui.update.UpdateUiModel
 import com.github.andreyasadchy.xtra.ui.update.UpdateUiStatus
 import com.github.andreyasadchy.xtra.util.updater.UpdateDiagnostics
 import com.github.andreyasadchy.xtra.util.updater.UpdateReleaseHistory
+import com.github.andreyasadchy.xtra.util.updater.UpdateRelease
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.util.updater.UpdateCheckFrequency
@@ -53,6 +55,7 @@ class UpdateSettingsFragment : Fragment() {
     private val binding get() = _binding!!
     private var technicalDetailsExpanded = false
     private var visibleHistoryCount = INITIAL_HISTORY_COUNT
+    private var renderedNotes: NotesContent? = null
     private lateinit var updateNotificationPermissionLauncher: ActivityResultLauncher<String>
     private val repository
         get() = (requireContext().applicationContext as XtraApp).xtraModule.updateRepository
@@ -288,23 +291,7 @@ class UpdateSettingsFragment : Fragment() {
         binding.secondaryButton.visibility = if (secondary == null) View.GONE else View.VISIBLE
         binding.secondaryButton.text = actionText(secondary)
         binding.updateOverflowButton.visibility = if (model.overflowActions.isEmpty()) View.GONE else View.VISIBLE
-        val showNotes = model.showReleaseNotes && release != null
-        binding.whatsNewTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
-        binding.notesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
-        val currentNotes = if (showNotes) {
-            UpdateReleaseHistory.notesForUpdate(
-                historyComplete = repository.releaseHistoryComplete.value,
-                cumulativeReleases = repository.releasesSinceInstalled(release),
-                latestRelease = release,
-            )
-        } else {
-            emptyList()
-        }
-        if (showNotes) {
-            UpdateNotesBinder.bindHistory(binding.notesContainer, currentNotes)
-        } else {
-            binding.notesContainer.removeAllViews()
-        }
+        renderNotes(model)
         binding.lastCheckedText.text = getString(
             R.string.last_successful_update_check,
             UpdateTimeFormatter.format(requireContext(), repository.lastSuccessfulCheck),
@@ -317,9 +304,40 @@ class UpdateSettingsFragment : Fragment() {
         binding.technicalDetailsToggle.text = getString(
             if (technicalDetailsExpanded) R.string.hide_technical_details else R.string.update_diagnostics,
         )
+    }
+
+    private fun renderNotes(model: UpdateUiModel) {
+        val content = NotesContent(
+            release = model.release,
+            showNotes = model.showReleaseNotes,
+            history = repository.releaseHistory.value,
+            historyComplete = repository.releaseHistoryComplete.value,
+            visibleHistoryCount = visibleHistoryCount,
+        )
+        if (content == renderedNotes) return
+        val release = content.release
+        val showNotes = model.showReleaseNotes && release != null
+        binding.whatsNewTitle.visibility = if (showNotes) View.VISIBLE else View.GONE
+        binding.notesContainer.visibility = if (showNotes) View.VISIBLE else View.GONE
+        val currentNotes = if (showNotes) {
+            UpdateReleaseHistory.notesForUpdate(
+                historyComplete = content.historyComplete,
+                cumulativeReleases = repository.releasesSinceInstalled(release),
+                latestRelease = release,
+            )
+        } else {
+            emptyList()
+        }
+        if (showNotes) {
+            if (BuildConfig.DEBUG) Log.d("XtraUpdateNotes", "event=bind section=current count=${currentNotes.size}")
+            UpdateNotesBinder.bindHistory(binding.notesContainer, currentNotes)
+        } else {
+            binding.notesContainer.removeAllViews()
+        }
         val currentNoteIds = currentNotes.mapTo(hashSetOf()) { it.id }
         val recent = repository.recentReleases(release).filterNot { it.id in currentNoteIds }
         binding.recentUpdatesCard.visibility = if (recent.isEmpty()) View.GONE else View.VISIBLE
+        if (BuildConfig.DEBUG) Log.d("XtraUpdateNotes", "event=bind section=recent count=${recent.take(visibleHistoryCount).size}")
         UpdateNotesBinder.bindHistory(
             binding.recentUpdatesContainer,
             recent.take(visibleHistoryCount),
@@ -330,7 +348,16 @@ class UpdateSettingsFragment : Fragment() {
             if (hasMoreHistory) R.string.update_release_notes_earlier
             else R.string.update_release_notes_earlier_expanded,
         )
+        renderedNotes = content
     }
+
+    private data class NotesContent(
+        val release: UpdateRelease?,
+        val showNotes: Boolean,
+        val history: List<UpdateRelease>,
+        val historyComplete: Boolean,
+        val visibleHistoryCount: Int,
+    )
 
     private fun showUpdateOverflowMenu() {
         val menu = PopupMenu(requireContext(), binding.updateOverflowButton)
@@ -363,6 +390,7 @@ class UpdateSettingsFragment : Fragment() {
         (value * resources.displayMetrics.density).toInt()
 
     override fun onDestroyView() {
+        renderedNotes = null
         _binding = null
         super.onDestroyView()
     }

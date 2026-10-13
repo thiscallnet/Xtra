@@ -29,26 +29,35 @@ import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.view.GridRecyclerView
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
+import com.github.andreyasadchy.xtra.ui.saved.installSavedDeleteFeedback
+import com.github.andreyasadchy.xtra.ui.saved.SavedItemSelection
+import com.github.andreyasadchy.xtra.ui.saved.SavedSelectablePage
+import com.github.andreyasadchy.xtra.ui.saved.SavedSelectionHost
 import com.github.andreyasadchy.xtra.ui.saved.bookmarks.BookmarksViewModel.Companion.BookmarksViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.prefs
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
 
-class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, BookmarksSortDialog.OnFilter {
+class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, BookmarksSortDialog.OnFilter, SavedSelectablePage {
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
     private val viewModel: BookmarksViewModel by viewModels { BookmarksViewModelFactory }
     private lateinit var adapter: ListAdapter<Bookmark, out RecyclerView.ViewHolder>
+    private lateinit var selection: SavedItemSelection
     private var bookmarksEmpty = true
     private var sortBarBinding: SortBarBinding? = null
     override var enableNetworkCheck = false
+    override val initializeOfflineOncePerView = true
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -57,6 +66,8 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        selection = SavedItemSelection(savedInstanceState)
+        installSavedDeleteFeedback(view, viewModel.deleteFailed, viewModel::acknowledgeDeleteFailure)
         binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
         binding.nothingHere.textAlignment = View.TEXT_ALIGNMENT_CENTER
         adapter = BookmarksAdapter(this, {
@@ -94,7 +105,21 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
                 .setPositiveButton(delete) { _, _ -> viewModel.delete(it) }
                 .setNegativeButton(getString(android.R.string.cancel), null)
                 .show()
-        })
+        }, selection)
+        selection.loadedIds = { adapter.currentList.map { it.id.toString() } }
+        selection.hasLoadedItems = { adapter.currentList.isNotEmpty() }
+        selection.onChanged = (adapter as BookmarksAdapter)::notifySelectionChanged
+        selection.onDelete = { ids ->
+            requireActivity().getAlertDialogBuilder()
+                .setTitle(R.string.delete)
+                .setMessage(getString(R.string.saved_delete_bookmarks_message, ids.size))
+                .setNegativeButton(android.R.string.cancel, null)
+                .setPositiveButton(R.string.delete) { _, _ ->
+                    viewModel.deleteSelected(ids)
+                    selection.finish()
+                }.show()
+        }
+        view.post { if (_binding?.root === view && selection.active) startSavedSelection() }
         with(binding) {
             nothingHere.setText(R.string.bookmarks_empty)
             adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
@@ -150,63 +175,40 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
             }
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.flow.collectLatest { list ->
-                    val sorted = if (viewModel.order == BookmarksSortDialog.ORDER_ASC) {
-                        when (viewModel.sort) {
-                            BookmarksSortDialog.SORT_EXPIRES_AT -> list.sortedWith(compareBy(nullsLast()) {
-                                if (it.type?.lowercase() == "archive") {
-                                    if (it.createdAt != null) {
-                                        Instant.parseOrNull(it.createdAt)?.takeIf { time -> time.toEpochMilliseconds() > 0 }?.let { time ->
-                                            val userType = it.userType ?: it.userBroadcasterType
-                                            val days = if (userType.isNullOrBlank()) {
-                                                7
-                                            } else {
-                                                when (userType.lowercase()) {
-                                                    "affiliate" -> 14
-                                                    else -> 60 // Partners, Prime, Turbo
-                                                }
-                                            }
-                                            val timeLeft = (time + days.days) - Clock.System.now()
-                                            if (timeLeft.isPositive()) {
-                                                timeLeft.inWholeSeconds
-                                            } else null
-                                        }
-                                    } else null
-                                } else null
-                            })
-                            BookmarksSortDialog.SORT_CREATED_AT -> list.sortedWith(compareBy(nullsLast()) {
-                                it.createdAt?.let { createdAt -> Instant.parseOrNull(createdAt)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } }
-                            })
-                            else -> list.sortedWith(compareBy(nullsLast()) { it.id })
+                    val sort = viewModel.sort
+                    val ascending = viewModel.order == BookmarksSortDialog.ORDER_ASC
+                    val sorted = withContext(Dispatchers.Default) {
+                        if (sort != BookmarksSortDialog.SORT_EXPIRES_AT && sort != BookmarksSortDialog.SORT_CREATED_AT) {
+                            var comparisons = 0
+                            return@withContext list.sortedWith { left, right ->
+                                if (++comparisons % 1024 == 0) ensureActive()
+                                if (ascending) left.id.compareTo(right.id) else right.id.compareTo(left.id)
+                            }
                         }
-                    } else {
-                        when (viewModel.sort) {
-                            BookmarksSortDialog.SORT_EXPIRES_AT -> list.sortedWith(compareByDescending(nullsFirst()) {
-                                if (it.type?.lowercase() == "archive") {
-                                    if (it.createdAt != null) {
-                                        Instant.parseOrNull(it.createdAt)?.takeIf { time -> time.toEpochMilliseconds() > 0 }?.let { time ->
-                                            val userType = it.userType ?: it.userBroadcasterType
-                                            val days = if (userType.isNullOrBlank()) {
-                                                7
-                                            } else {
-                                                when (userType.lowercase()) {
-                                                    "affiliate" -> 14
-                                                    else -> 60 // Partners, Prime, Turbo
-                                                }
-                                            }
-                                            val timeLeft = (time + days.days) - Clock.System.now()
-                                            if (timeLeft.isPositive()) {
-                                                timeLeft.inWholeSeconds
-                                            } else null
-                                        }
-                                    } else null
-                                } else null
-                            })
-                            BookmarksSortDialog.SORT_CREATED_AT -> list.sortedWith(compareByDescending(nullsFirst()) {
-                                it.createdAt?.let { createdAt -> Instant.parseOrNull(createdAt)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 } }
-                            })
-                            else -> list.sortedWith(compareByDescending(nullsFirst()) { it.id })
+                        val now = Clock.System.now()
+                        val keyed = list.map { bookmark ->
+                            ensureActive()
+                            val key = when (sort) {
+                                BookmarksSortDialog.SORT_EXPIRES_AT -> bookmarkExpirationKey(bookmark, now)
+                                BookmarksSortDialog.SORT_CREATED_AT -> bookmark.createdAt?.let {
+                                    Instant.parseOrNull(it)?.toEpochMilliseconds()?.takeIf { ms -> ms > 0 }
+                                }
+                                else -> bookmark.id.toLong()
+                            }
+                            bookmark to key
                         }
+                        val comparator = if (ascending) {
+                            compareBy<Pair<Bookmark, Long?>, Long?>(nullsLast()) { it.second }
+                        } else {
+                            compareByDescending<Pair<Bookmark, Long?>, Long?>(nullsFirst()) { it.second }
+                        }
+                        var comparisons = 0
+                        keyed.sortedWith { left, right ->
+                            if (++comparisons % 1024 == 0) ensureActive()
+                            comparator.compare(left, right)
+                        }.map { it.first }
                     }
+                    selection.retain(sorted.mapTo(HashSet()) { it.id.toString() })
                     adapter.submitList(sorted)
                     bookmarksEmpty = sorted.isEmpty()
                     binding.nothingHere.isVisible = bookmarksEmpty
@@ -233,6 +235,27 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
                     }
                 }
             }
+        }
+    }
+
+    private fun bookmarkExpirationKey(bookmark: Bookmark, now: Instant): Long? {
+        if (bookmark.type?.lowercase() != "archive") return null
+        val createdAt = bookmark.createdAt?.let(Instant::parseOrNull)
+            ?.takeIf { it.toEpochMilliseconds() > 0 } ?: return null
+        val userType = bookmark.userType ?: bookmark.userBroadcasterType
+        val retentionDays = when {
+            userType.isNullOrBlank() -> 7
+            userType.lowercase() == "affiliate" -> 14
+            else -> 60 // Partners, Prime, Turbo
+        }
+        val timeLeft = createdAt + retentionDays.days - now
+        return timeLeft.takeIf { it.isPositive() }?.inWholeSeconds
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh remote metadata on return without registering the view's collectors again.
+        if (requireContext().prefs().getBoolean(C.UI_BOOKMARK_TIME_LEFT, true)) {
             viewModel.updateUsers(
                 requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                 TwitchApiHelper.getGQLHeaders(requireContext()),
@@ -284,6 +307,15 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
                 }
             }
         }
+    }
+
+    override fun startSavedSelection() {
+        selection.start((parentFragment as? SavedSelectionHost)?.savedSelectionChrome)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (this::selection.isInitialized) selection.save(outState)
+        super.onSaveInstanceState(outState)
     }
 
     override fun scrollToTop() {

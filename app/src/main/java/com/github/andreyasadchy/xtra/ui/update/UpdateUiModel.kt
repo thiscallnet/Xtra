@@ -66,7 +66,11 @@ data class UpdateErrorUi(
 
 fun UpdateState.toUiModel(selectedAsset: UpdateSelectedAssetInfo? = null): UpdateUiModel {
     val model = when (this) {
-    UpdateState.Idle -> UpdateUiModel(UpdateUiStatus.IDLE, primaryAction = UpdateUiAction.Check)
+    UpdateState.Idle -> UpdateUiModel(
+        UpdateUiStatus.IDLE,
+        titleRes = R.string.settings_updates,
+        primaryAction = UpdateUiAction.Check,
+    )
     UpdateState.Checking -> UpdateUiModel(
         UpdateUiStatus.CHECKING,
         titleRes = R.string.update_checking,

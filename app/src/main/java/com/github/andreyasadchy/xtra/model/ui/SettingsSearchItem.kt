@@ -2,7 +2,7 @@ package com.github.andreyasadchy.xtra.model.ui
 
 import androidx.navigation.NavDirections
 
-class SettingsSearchItem(
+data class SettingsSearchItem(
     val navDirections: NavDirections,
     val location: String? = null,
     val key: String? = null,

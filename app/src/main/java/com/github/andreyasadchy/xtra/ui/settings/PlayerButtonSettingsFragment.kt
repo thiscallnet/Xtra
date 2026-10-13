@@ -41,17 +41,17 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
         }
     }
 
-    private fun showSpeedOptionsDialog() {
-        val items = readSpeedItems()
+    private fun showSpeedOptionsDialog(items: MutableList<SettingsDragListItem> = readSpeedItems()) {
         val listAdapter = SettingsDragListAdapter().apply {
             showVisibilityToggle = true
+            onMoveItem = { from, to ->
+                Collections.rotate(items.subList(minOf(from, to), maxOf(from, to) + 1), if (from < to) -1 else 1)
+            }
         }
         val itemTouchHelper = ItemTouchHelper(
             object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
                 override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
-                    Collections.swap(items, viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
-                    listAdapter.notifyItemMoved(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
-                    return true
+                    return listAdapter.moveItem(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
                 }
 
                 override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) = Unit
@@ -71,7 +71,7 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
             orientation = LinearLayout.VERTICAL
             addView(TextView(context).apply {
                 setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_BodyMedium)
-                text = "Drag to reorder. Uncheck to hide."
+                setText(R.string.settings_speed_reorder_help)
                 // Leave room for the editable list on short landscape screens.
                 isVisible = resources.configuration.screenHeightDp >= 400
                 val padding = (24 * resources.displayMetrics.density).toInt()
@@ -115,9 +115,6 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
     }
 
     private fun showCustomSpeedDialog(items: MutableList<SettingsDragListItem>) {
-        // Opening the custom-speed dialog dismisses the editor. Keep its current in-memory state
-        // before opening the second dialog.
-        saveSpeeds(items)
         val input = android.widget.EditText(requireContext()).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             hint = "> 0 and ≤ 16"
@@ -128,6 +125,9 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
             .setPositiveButton(android.R.string.ok, null)
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+        dialog.setOnDismissListener {
+            if (isResumed) showSpeedOptionsDialog(items)
+        }
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
             val value = input.text.toString().toFloatOrNull()
             if (value == null || !value.isFinite() || value <= 0f || value > 16f) {
@@ -135,7 +135,6 @@ class PlayerButtonSettingsFragment : MaterialPreferenceFragment() {
             } else {
                 if (items.none { it.key.toFloatOrNull() == value }) {
                     items.add(SettingsDragListItem(value.toString(), "${value}×", default = false, enabled = true))
-                    saveSpeeds(items)
                 }
                 dialog.dismiss()
             }

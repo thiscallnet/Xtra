@@ -25,6 +25,8 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
@@ -67,6 +69,32 @@ class BookmarksViewModel(
     fun delete(bookmark: Bookmark) {
         viewModelScope.launch {
             bookmarksRepository.delete(bookmark)
+        }
+    }
+
+    private var bulkDeleteJob: Job? = null
+    private val _deleteFailed = MutableStateFlow(false)
+    val deleteFailed = _deleteFailed.asStateFlow()
+    fun acknowledgeDeleteFailure() { _deleteFailed.value = false }
+
+    fun deleteSelected(ids: Set<String>) {
+        if (bulkDeleteJob?.isActive == true) return
+        bulkDeleteJob = viewModelScope.launch {
+            var failed = false
+            try {
+                for (bookmark in bookmarksRepository.getAll().filter { it.id.toString() in ids }) {
+                    try {
+                        bookmarksRepository.delete(bookmark)
+                    } catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        failed = true
+                    }
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                failed = true
+            }
+            if (failed) _deleteFailed.value = true
         }
     }
 

@@ -2065,6 +2065,7 @@ Tap to search everywhere</string>
     <string name="search_drops_filter_select">Select Drop filter</string>
     <string name="search_drops_filter_apply">Apply filters</string>
     <string name="drops_search_hint">Search Drops</string>
+    <string name="drops_search_active">Search Drops: %1$s</string>
     <string name="drops_search_no_matches">No Drops match your search</string>
     <string name="stream_drops_available_summary">%1$d Drops available · %2$d in progress</string>
     <string name="stream_drops_campaign_image">Campaign artwork for %s</string>
@@ -2312,7 +2313,7 @@ Tap to search everywhere</string>
     <string name="notification_watch_streak_channel_title">Watch streak recovery</string>
     <string name="notification_watch_streak_channel_description">Reminders about Twitch watch streaks that may be lost.</string>
     <string name="player_viewers_suffix">for %1$s viewers</string>
-    <string name="settings_tabs_preview_help">Drag to reorder. Use the checkbox to show or hide an item. The home icon marks the default.</string>
+    <string name="settings_tabs_preview_help">Drag or use the reorder button to move items. Use the checkbox to show or hide an item. The home icon marks the default.</string>
     <string name="settings_sections_preview_help">The preview shows the visible shelves in their current order.</string>
     <string name="settings_playback_speed_options_summary">Choose and reorder speed values</string>
     <string name="settings_double_tap_chat_summary">Toggle chat with a double tap while watching.</string>
@@ -2476,4 +2477,29 @@ Tap to search everywhere</string>
     <string name="system_media_replay_30">Replay 30s</string>
     <string name="system_media_video">Video</string>
     <string name="system_media_behind_live">%1$s behind live</string>
+    <string name="settings_invalid_value">Enter a valid value.</string>
+    <string name="settings_number_range">Enter a number from %1$s to %2$s.</string>
+    <string name="settings_whole_number_range">Enter a whole number from %1$s to %2$s.</string>
+    <string name="settings_move_up">Move up</string>
+    <string name="settings_move_down">Move down</string>
+    <string name="settings_speed_reorder_help">Drag or use the reorder button to move items. Uncheck to hide.</string>
+    <string name="viewer_filter_hint">Find a username</string>
+    <string name="viewer_filter_scope">Usernames returned by Twitch: %1$d</string>
+    <string name="viewer_filter_no_matches">No matching usernames in this list.</string>
+    <string name="section_loading">Loading…</string>
+    <string name="section_refreshing">Refreshing…</string>
+    <string name="section_stale">Couldn’t refresh. Showing earlier results.</string>
+    <string name="section_retry">Retry %1$s</string>
+    <string name="whisper_jump_latest">Jump to latest</string>
+    <string name="whisper_new_messages">New messages</string>
+    <string name="saved_select_items">Select items</string>
+    <string name="saved_selected_count">%1$d selected</string>
+    <string name="saved_select_loaded">Select loaded items</string>
+    <string name="saved_clear_selection">Clear selection</string>
+    <string name="saved_cancel_selection">Cancel selection</string>
+    <string name="saved_delete_bookmarks_message">Remove %1$d selected bookmarks? Videos will remain available.</string>
+    <string name="saved_delete_downloads_message">Remove %1$d selected downloads? Choose whether to keep their media files.</string>
+    <string name="saved_delete_clips_message">Delete %1$d selected clip files? This cannot be undone.</string>
+    <string name="saved_download_selection_limit">Only completed or failed downloads can be selected.</string>
+    <string name="saved_delete_failed">Some items could not be deleted. They remain in the list.</string>
 </resources>

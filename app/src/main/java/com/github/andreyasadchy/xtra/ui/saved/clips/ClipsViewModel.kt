@@ -17,11 +17,13 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 
 data class LocalClip(
     val uri: Uri,
@@ -33,7 +35,8 @@ data class LocalClip(
 
 class ClipsViewModel(private val context: Context) : ViewModel() {
 
-    private val _clips = MutableStateFlow<List<LocalClip>>(emptyList())
+    // Null means no successful catalog read yet; an empty list means a successful empty read.
+    private val _clips = MutableStateFlow<List<LocalClip>?>(null)
     val clips = _clips.asStateFlow()
 
     private val _isLoading = MutableStateFlow(false)
@@ -47,8 +50,18 @@ class ClipsViewModel(private val context: Context) : ViewModel() {
     )
     val sortMode = _sortMode.asStateFlow()
 
+    private var refreshJob: Job? = null
+    private var refreshGeneration = 0
+    private var deleteJob: Job? = null
+    private val _deleteFailed = MutableStateFlow(false)
+    val deleteFailed = _deleteFailed.asStateFlow()
+    fun acknowledgeDeleteFailure() { _deleteFailed.value = false }
+
     fun refresh() {
-        viewModelScope.launch {
+        if (deleteJob?.isActive == true) return
+        val generation = ++refreshGeneration
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             _isLoading.value = true
             _hasError.value = false
             try {
@@ -57,7 +70,7 @@ class ClipsViewModel(private val context: Context) : ViewModel() {
                 if (e is CancellationException) throw e
                 _hasError.value = true
             } finally {
-                _isLoading.value = false
+                if (generation == refreshGeneration) _isLoading.value = false
             }
         }
     }
@@ -75,17 +88,43 @@ class ClipsViewModel(private val context: Context) : ViewModel() {
 
     fun autoplayEnabled(): Boolean = context.prefs().getBoolean(C.CLIP_LIBRARY_AUTOPLAY, true)
 
-    fun delete(clip: LocalClip) {
-        viewModelScope.launch(Dispatchers.IO) {
-            context.contentResolver.delete(clip.uri, null, null)
-            refresh()
-        }
-    }
+    fun delete(clip: LocalClip) = deleteSelected(setOf(clip.uri.toString()))
 
-    fun deleteAll() {
-        viewModelScope.launch(Dispatchers.IO) {
-            queryClips().forEach { context.contentResolver.delete(it.uri, null, null) }
-            refresh()
+    fun deleteSelected(ids: Set<String>) = deleteMatching(ids)
+
+    fun deleteAll() = deleteMatching(null)
+
+    private fun deleteMatching(ids: Set<String>?) {
+        if (deleteJob?.isActive == true) return
+        refreshGeneration += 1
+        refreshJob?.cancel()
+        deleteJob = viewModelScope.launch {
+            _isLoading.value = true
+            _hasError.value = false
+            try {
+                withContext(Dispatchers.IO) {
+                    val targets = queryClips().filter { ids == null || it.uri.toString() in ids }
+                    var failed = false
+                    for (clip in targets) {
+                        try {
+                            context.contentResolver.delete(clip.uri, null, null)
+                        } catch (error: Exception) {
+                            if (error is CancellationException) throw error
+                            failed = true
+                        }
+                    }
+                    val remaining = queryClips()
+                    val targetUris = targets.mapTo(HashSet()) { it.uri }
+                    if (failed || remaining.any { it.uri in targetUris }) _deleteFailed.value = true
+                    _clips.value = remaining
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                _deleteFailed.value = true
+                _hasError.value = true
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
@@ -121,13 +160,14 @@ class ClipsViewModel(private val context: Context) : ViewModel() {
         }
 
         val results = mutableListOf<LocalClip>()
-        resolver.query(
+        val cursor = resolver.query(
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
             projection,
             selection,
             selectionArgs,
             "${MediaStore.Video.Media.DATE_MODIFIED} DESC",
-        )?.use { cursor ->
+        ) ?: throw IOException("Unable to read the clip library")
+        cursor.use {
             val idIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media._ID)
             val nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DISPLAY_NAME)
             val durationIndex = cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION)

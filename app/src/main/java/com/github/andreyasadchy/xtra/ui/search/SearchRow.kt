@@ -9,6 +9,7 @@ import com.github.andreyasadchy.xtra.model.ui.ranked
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.ui.common.SectionStatus
 
 /** One line of a search list: a section title, a channel/category/video, or a "try elsewhere" footer. */
 sealed interface SearchRow {
@@ -16,6 +17,10 @@ sealed interface SearchRow {
 
     data class Header(val title: String, val actionText: String? = null, val actionKey: String? = null) : SearchRow {
         override val key get() = "header:$title"
+    }
+
+    data class Status(val section: String, val title: String, val status: SectionStatus) : SearchRow {
+        override val key get() = "status:$section"
     }
 
     data class Entry(
@@ -28,6 +33,7 @@ sealed interface SearchRow {
         /** Set for live stream and video results, which open the player instead of a page. */
         val stream: Stream? = null,
         val video: Video? = null,
+        val roundAvatar: Boolean? = null,
     ) : SearchRow {
         override val key get() = "$section:${item.kind}:${item.refId}"
     }
@@ -79,7 +85,8 @@ internal fun searchEntry(
             )
         }
     }
-    return SearchRow.Entry(item, parts.joinToString(" · "), viewers != null || forceLive, removable, section)
+    return SearchRow.Entry(item, parts.joinToString(" · "), viewers != null || forceLive, removable, section,
+        roundAvatar = context.prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true).takeIf { item.isChannel })
 }
 
 /** True when both entries are the same channel/category (id or login/slug match). */

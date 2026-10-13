@@ -89,4 +89,5 @@ data class GameRefreshResult(
     val feedKey: GameFeedKey,
     val reason: RefreshReason,
     val decision: GameRefreshDecision,
+    val joined: Boolean = false,
 )

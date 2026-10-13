@@ -1,6 +1,8 @@
 package com.github.andreyasadchy.xtra.ui.drops
 
 import android.content.Intent
+import android.content.res.Configuration
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -8,14 +10,17 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.MenuItem
 import android.view.ViewTreeObserver
+import android.widget.LinearLayout
 import androidx.appcompat.widget.SearchView
 import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.content.edit
 import androidx.core.view.isVisible
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.updateLayoutParams
 import androidx.core.view.updatePadding
+import androidx.core.view.doOnLayout
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -42,8 +47,10 @@ import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.prefs
+import com.github.andreyasadchy.xtra.util.isTelevision
 import com.google.android.material.snackbar.Snackbar
 import com.google.android.material.appbar.AppBarLayout
+import com.google.android.material.color.MaterialColors
 import kotlinx.coroutines.launch
 
 class DropsFragment : Fragment(), Scrollable {
@@ -70,6 +77,8 @@ class DropsFragment : Fragment(), Scrollable {
     private var dropsQuery = ""
     private var requestedCampaignId: String? = null
     private var campaignNavigationHandled = false
+    private var compactHeaderApplied: Boolean? = null
+    private var imeWasVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,6 +101,19 @@ class DropsFragment : Fragment(), Scrollable {
                 setDragCallback(object : AppBarLayout.Behavior.DragCallback() {
                     override fun canDrag(appBarLayout: AppBarLayout) = true
                 })
+            }
+        }
+        val header = binding.toolbar.parent as LinearLayout
+        header.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (isCompactLandscape() && bottom - top != oldBottom - oldTop && oldBottom > oldTop) {
+                val behavior = (binding.appBar.layoutParams as CoordinatorLayout.LayoutParams)
+                    .behavior as AppBarLayout.Behavior
+                val previousRange = (oldBottom - oldTop - header.minimumHeight).coerceAtLeast(0)
+                // A newly loaded or wrapped summary changes the range. Keep an already
+                // collapsed header anchored to its toolbar, without closing a dragged-open one.
+                if (previousRange > 0 && behavior.topAndBottomOffset <= -previousRange) {
+                    binding.appBar.setExpanded(false, false)
+                }
             }
         }
         // The window's observer survives this view. Register only while attached
@@ -126,6 +148,18 @@ class DropsFragment : Fragment(), Scrollable {
                     navController.navigate(SearchPagerFragmentDirections.actionGlobalSearchPagerFragment())
                     true
                 }
+                R.id.dropsSearch -> {
+                    val currentBinding = binding
+                    currentBinding.appBar.setExpanded(true, false)
+                    currentBinding.appBar.doOnLayout {
+                        if (_binding === currentBinding) {
+                            currentBinding.searchView.requestFocus()
+                            WindowCompat.getInsetsController(requireActivity().window, currentBinding.searchView)
+                                .show(WindowInsetsCompat.Type.ime())
+                        }
+                    }
+                    true
+                }
                 R.id.settings -> {
                     activity.settingsResultLauncher?.launch(Intent(activity, SettingsActivity::class.java))
                     true
@@ -135,6 +169,17 @@ class DropsFragment : Fragment(), Scrollable {
         }
         val baseRecyclerBottomPadding = binding.recyclerView.paddingBottom
         ViewCompat.setOnApplyWindowInsetsListener(view) { _, windowInsets ->
+            val imeVisible = windowInsets.isVisible(WindowInsetsCompat.Type.ime())
+            val imeClosed = imeWasVisible && !imeVisible
+            imeWasVisible = imeVisible
+            activity.setDropsFilterKeyboardVisible(
+                isResumed && isCompactLandscape() && imeVisible && binding.searchView.hasFocus(),
+            )
+            if (imeClosed && isCompactLandscape() && binding.searchView.hasFocus()) {
+                binding.searchView.clearFocus()
+                binding.root.requestFocus()
+                binding.appBar.setExpanded(false, false)
+            }
             val insets = windowInsets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
             )
@@ -154,10 +199,18 @@ class DropsFragment : Fragment(), Scrollable {
         binding.tabs.addTab(binding.tabs.newTab().setText(R.string.drops_social_badge_tab))
         binding.searchView.setQuery(dropsQuery, false)
         binding.searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-            override fun onQueryTextSubmit(query: String): Boolean = false
+            override fun onQueryTextSubmit(query: String): Boolean {
+                if (isCompactLandscape()) {
+                    binding.searchView.clearFocus()
+                    binding.root.requestFocus()
+                    binding.appBar.setExpanded(false, true)
+                }
+                return false
+            }
 
             override fun onQueryTextChange(newText: String): Boolean {
                 dropsQuery = newText.trim()
+                updateDropsSearchAction()
                 render(viewModel.uiState.value)
                 return true
             }
@@ -234,6 +287,64 @@ class DropsFragment : Fragment(), Scrollable {
                 }
             }
         }
+        updateCompactHeader()
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (_binding != null) {
+            updateCompactHeader()
+            if (::adapter.isInitialized) adapter.refreshSectionSpacing()
+            ensureToolbarMenu()
+        }
+    }
+
+    private fun isCompactLandscape(): Boolean = resources.configuration.let {
+        !requireContext().isTelevision() &&
+            it.orientation == Configuration.ORIENTATION_LANDSCAPE && it.screenHeightDp < 480
+    }
+
+    private fun updateCompactHeader() {
+        val compact = isCompactLandscape()
+        if (compactHeaderApplied == compact) return
+        val wasCompact = compactHeaderApplied == true
+        compactHeaderApplied = compact
+        val currentBinding = binding
+        // Give closed filters a non-editable focus destination. Otherwise returning
+        // from the image viewer can focus the hidden field and reopen the keyboard.
+        currentBinding.root.isFocusableInTouchMode = compact
+        currentBinding.root.setDefaultFocusHighlightEnabled(false)
+        val header = currentBinding.toolbar.parent as LinearLayout
+        header.removeView(currentBinding.toolbar)
+        header.removeView(currentBinding.tabs)
+        if (compact) {
+            header.addView(currentBinding.toolbar)
+            header.addView(currentBinding.tabs)
+        } else {
+            header.addView(currentBinding.toolbar, 0)
+            header.addView(currentBinding.tabs, 1)
+        }
+        header.minimumHeight = 0
+        header.updateLayoutParams<AppBarLayout.LayoutParams> {
+            scrollFlags = AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL or
+                AppBarLayout.LayoutParams.SCROLL_FLAG_ENTER_ALWAYS or
+                if (compact) AppBarLayout.LayoutParams.SCROLL_FLAG_EXIT_UNTIL_COLLAPSED else 0
+        }
+        if (compact) {
+            header.doOnLayout {
+                if (_binding === currentBinding && compactHeaderApplied == true) {
+                    header.minimumHeight = currentBinding.toolbar.height + currentBinding.tabs.height
+                    val editing = imeWasVisible && currentBinding.searchView.hasFocus()
+                    if (!editing) {
+                        currentBinding.searchView.clearFocus()
+                        currentBinding.root.requestFocus()
+                    }
+                    currentBinding.appBar.setExpanded(editing, false)
+                }
+            }
+        } else if (wasCompact) {
+            currentBinding.appBar.setExpanded(true, false)
+        }
     }
 
     fun focusNotification(campaignId: String?, dropId: String?) {
@@ -276,8 +387,10 @@ class DropsFragment : Fragment(), Scrollable {
         }
         adapter.setClaimingDropId(state.claimingDropId)
         adapter.setCampaignDetailsLoading(state.campaignDetailsLoading)
-        adapter.submitList(rows)
-        focusRequestedCampaign(rows)
+        val pageBinding = binding
+        adapter.submitList(rows) {
+            if (_binding === pageBinding) focusRequestedCampaign(rows)
+        }
         val loading = when (selectedTab) {
             TAB_ALL_CAMPAIGNS -> !state.campaignsLoaded && state.campaignsRefreshing
             else -> !state.inventory.loaded && state.inventory.refreshing
@@ -418,6 +531,11 @@ class DropsFragment : Fragment(), Scrollable {
     }
 
     override fun onPause() {
+        (activity as? MainActivity)?.setDropsFilterKeyboardVisible(false)
+        if (_binding != null && isCompactLandscape()) {
+            binding.searchView.clearFocus()
+            binding.root.requestFocus()
+        }
         stopObservingStateContainer()
         super.onPause()
     }
@@ -443,11 +561,28 @@ class DropsFragment : Fragment(), Scrollable {
             isVisible = !(requireActivity() as MainActivity).hasBottomSearchShortcut()
             setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         }
+        if (isCompactLandscape() && binding.toolbar.menu.findItem(R.id.dropsSearch) == null) {
+            binding.toolbar.inflateMenu(R.menu.drops_search_menu)
+        }
+        updateDropsSearchAction()
         binding.toolbar.menu.findItem(R.id.settings)?.apply {
             isVisible = true
             setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS)
         }
         binding.toolbar.invalidate()
+    }
+
+    private fun updateDropsSearchAction() {
+        binding.toolbar.menu.findItem(R.id.dropsSearch)?.apply {
+            isVisible = isCompactLandscape()
+            title = if (dropsQuery.isBlank()) getString(R.string.drops_search_hint)
+                else getString(R.string.drops_search_active, dropsQuery)
+            iconTintList = ColorStateList.valueOf(MaterialColors.getColor(
+                binding.toolbar,
+                if (dropsQuery.isBlank()) androidx.appcompat.R.attr.colorControlNormal
+                else androidx.appcompat.R.attr.colorPrimary,
+            ))
+        }
     }
 
     private fun filterRows(rows: List<DropsRow>, query: String): List<DropsRow> {
@@ -473,6 +608,8 @@ class DropsFragment : Fragment(), Scrollable {
     }
 
     override fun onDestroyView() {
+        compactHeaderApplied = null
+        imeWasVisible = false
         stopObservingStateContainer()
         _binding?.root?.removeOnAttachStateChangeListener(stateContainerAttachListener)
         _binding = null

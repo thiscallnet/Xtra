@@ -26,6 +26,16 @@ class PlayerViewerListViewModel(
     private val _hasError = MutableStateFlow(false)
     val hasError: StateFlow<Boolean> = _hasError
     private var loading = false
+    private val completedProfileLogins = mutableSetOf<String>()
+    private val _profiles = MutableStateFlow<Map<String, ChannelViewer>>(emptyMap())
+    val profiles: StateFlow<Map<String, ChannelViewer>> = _profiles
+
+    fun hasLoadedProfile(login: String): Boolean = login.lowercase() in completedProfileLogins
+
+    fun recordProfiles(requested: List<ChannelViewer>, enriched: List<ChannelViewer>) {
+        completedProfileLogins.addAll(requested.map { it.login.lowercase() })
+        _profiles.value = _profiles.value + enriched.associateBy { it.login.lowercase() }
+    }
 
     fun loadViewerList(channelLogin: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
         if (_viewerList.value == null && !loading) {

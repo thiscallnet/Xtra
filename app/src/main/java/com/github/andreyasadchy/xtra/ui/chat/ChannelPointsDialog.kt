@@ -29,6 +29,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.RecyclerView
 import coil3.imageLoader
+import coil3.request.Disposable
 import coil3.request.ImageRequest
 import coil3.request.CachePolicy
 import coil3.request.crossfade
@@ -46,6 +47,7 @@ import com.github.andreyasadchy.xtra.model.ui.ChannelPointReward
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardInput
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardRedemption
 import com.github.andreyasadchy.xtra.model.ui.WatchStreak
+import com.github.andreyasadchy.xtra.model.ui.WatchStreakReward
 import com.github.andreyasadchy.xtra.ui.view.GridAutofitLayoutManager
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -160,6 +162,16 @@ class ChannelPointsDialog : DialogFragment() {
     private var predictionAmountWatcher: TextWatcher? = null
     private var channelPointsBalanceAnimator: ChannelPointsBalanceAnimator? = null
     private var lastChannelPointsBalance: Int? = null
+    private var lastRewardCatalog: RewardCatalog? = null
+    private var lastStreakContent: StreakContent? = null
+    private var balanceIconBound = false
+    private var lastBalanceIconUrl: String? = null
+    private var lastBalanceIconTint = 0
+    private var balanceIconRequest: Disposable? = null
+    private val rewardImageRequests = mutableListOf<Disposable>()
+
+    private data class RewardCatalog(val rewards: List<ChannelPointReward>, val iconUrl: String?)
+    private data class StreakContent(val streak: WatchStreak?, val rewards: List<WatchStreakReward>)
 
     private data class RewardInputContent(
         val input: EditText,
@@ -281,11 +293,15 @@ class ChannelPointsDialog : DialogFragment() {
             channelPointsBalanceAnimator?.cancel()
             lastChannelPointsBalance = null
         }
-        setChannelPointsIcon(
-            binding.balanceIcon,
-            points?.iconUrl,
-            MaterialColors.getColor(binding.balanceIcon, androidx.appcompat.R.attr.colorControlNormal),
-        )
+        val iconUrl = points?.iconUrl
+        val iconTint = MaterialColors.getColor(binding.balanceIcon, androidx.appcompat.R.attr.colorControlNormal)
+        if (!balanceIconBound || lastBalanceIconUrl != iconUrl || lastBalanceIconTint != iconTint) {
+            balanceIconRequest?.dispose()
+            balanceIconRequest = setChannelPointsIcon(binding.balanceIcon, iconUrl, iconTint)
+            balanceIconBound = true
+            lastBalanceIconUrl = iconUrl
+            lastBalanceIconTint = iconTint
+        }
 
         val displayedPrediction = historicalPrediction ?: state.prediction
         val displayedOngoingPrediction = if (historicalPrediction == null) {
@@ -359,6 +375,10 @@ class ChannelPointsDialog : DialogFragment() {
         points: ChannelPoints?,
         numberFormat: NumberFormat,
     ) {
+        val streakRewards = points?.watchStreakRewards.orEmpty()
+        lastStreakContent?.let {
+            if (it.streak == streak && it.rewards == streakRewards) return
+        }
         binding.streakNoticeCard.isVisible = false
         binding.streakSummary.isVisible = streak != null
         binding.streakLabel.isVisible = streak != null
@@ -422,7 +442,6 @@ class ChannelPointsDialog : DialogFragment() {
             }
         }
 
-        val streakRewards = points?.watchStreakRewards.orEmpty()
         binding.streakRewardsTitle.isVisible = streakRewards.isNotEmpty()
         binding.streakRewards.isVisible = streakRewards.isNotEmpty()
         binding.streakRewards.removeAllViews()
@@ -441,16 +460,23 @@ class ChannelPointsDialog : DialogFragment() {
                 ),
             )
         }
+        lastStreakContent = StreakContent(streak, streakRewards.toList())
     }
 
     private fun renderRewards(points: ChannelPoints?, numberFormat: NumberFormat) {
         val rewards = points?.rewards.orEmpty()
+        lastRewardCatalog?.let {
+            if (it.rewards == rewards && it.iconUrl == points?.iconUrl) return
+        }
+        rewardImageRequests.forEach(Disposable::dispose)
+        rewardImageRequests.clear()
         binding.rewardsTitle.isVisible = rewards.isNotEmpty()
         binding.rewardsList.isVisible = rewards.isNotEmpty()
         binding.rewardsList.removeAllViews()
         rewards.forEachIndexed { index, reward ->
             addRewardCard(index, reward, numberFormat, points?.iconUrl)
         }
+        lastRewardCatalog = RewardCatalog(rewards.toList(), points?.iconUrl)
     }
 
     private fun addRewardCard(
@@ -503,7 +529,7 @@ class ChannelPointsDialog : DialogFragment() {
                     .crossfade(true)
                     .target(image)
                     .build(),
-            )
+            ).let(rewardImageRequests::add)
         }
         content.addView(image)
         content.addView(TextView(requireContext()).apply {
@@ -527,7 +553,7 @@ class ChannelPointsDialog : DialogFragment() {
         }
         cost.addView(ImageView(requireContext()).apply {
             layoutParams = LinearLayout.LayoutParams(dp(14), dp(14))
-            setChannelPointsIcon(this, pointsIconUrl, Color.WHITE)
+            setChannelPointsIcon(this, pointsIconUrl, Color.WHITE)?.let(rewardImageRequests::add)
         })
         cost.addView(TextView(requireContext()).apply {
             layoutParams = LinearLayout.LayoutParams(
@@ -694,10 +720,10 @@ class ChannelPointsDialog : DialogFragment() {
         }
     }
 
-    private fun setChannelPointsIcon(image: ImageView, imageUrl: String?, fallbackTint: Int) {
+    private fun setChannelPointsIcon(image: ImageView, imageUrl: String?, fallbackTint: Int): Disposable? {
         image.setImageResource(R.drawable.ic_channel_points_default)
         image.imageTintList = ColorStateList.valueOf(fallbackTint)
-        if (!imageUrl.isNullOrBlank()) {
+        return if (!imageUrl.isNullOrBlank()) {
             image.imageTintList = null
             requireContext().imageLoader.enqueue(
                 ImageRequest.Builder(requireContext())
@@ -707,7 +733,7 @@ class ChannelPointsDialog : DialogFragment() {
                     .target(image)
                     .build(),
             )
-        }
+        } else null
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
@@ -1290,6 +1316,14 @@ class ChannelPointsDialog : DialogFragment() {
     }
 
     override fun onDestroyView() {
+        rewardImageRequests.forEach(Disposable::dispose)
+        rewardImageRequests.clear()
+        balanceIconRequest?.dispose()
+        balanceIconRequest = null
+        balanceIconBound = false
+        lastBalanceIconUrl = null
+        lastRewardCatalog = null
+        lastStreakContent = null
         predictionAmountWatcher?.let { binding.predictionBetAmount.removeTextChangedListener(it) }
         predictionAmountWatcher = null
         channelPointsBalanceAnimator?.cancel()

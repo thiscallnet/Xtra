@@ -10,6 +10,7 @@ import android.text.TextPaint
 import android.text.TextUtils
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -258,12 +259,14 @@ class ViewingActivityChartView @JvmOverloads constructor(
                 return true
             }
             MotionEvent.ACTION_UP -> {
-                if (dragging && (!moved || horizontalGesture)) selectAt(event.x)
+                if (dragging && (!moved || horizontalGesture)) {
+                    selectAt(event.x)
+                    performClick()
+                }
                 dragging = false
                 horizontalGesture = false
                 moved = false
                 parent?.requestDisallowInterceptTouchEvent(false)
-                performClick()
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -275,6 +278,21 @@ class ViewingActivityChartView @JvmOverloads constructor(
             }
         }
         return true
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (buckets.isNotEmpty()) {
+            val index = when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_LEFT -> if (selectedIndex < 0) buckets.lastIndex else (selectedIndex - 1).coerceAtLeast(0)
+                KeyEvent.KEYCODE_DPAD_RIGHT -> if (selectedIndex < 0) 0 else (selectedIndex + 1).coerceAtMost(buckets.lastIndex)
+                else -> null
+            }
+            if (index != null) {
+                selectIndex(index)
+                return true
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun performAccessibilityAction(action: Int, arguments: android.os.Bundle?): Boolean {
@@ -304,6 +322,7 @@ class ViewingActivityChartView @JvmOverloads constructor(
 
     override fun performClick(): Boolean {
         super.performClick()
+        if (selectedIndex < 0 && buckets.isNotEmpty()) selectIndex(0)
         return true
     }
 

@@ -35,4 +35,5 @@
     <dimen name="phone_chat_overlay_min_height">160dp</dimen>
     <dimen name="statistics_detail_summary_three_column_min_width">480dp</dimen>
     <dimen name="statistics_detail_summary_compact_row_spacing">8dp</dimen>
+    <dimen name="clips_list_icon_width">64dp</dimen>
 </resources>

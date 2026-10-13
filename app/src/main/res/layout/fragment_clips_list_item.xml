@@ -20,7 +20,7 @@
 
         <FrameLayout
             android:id="@+id/clipIconContainer"
-            android:layout_width="112dp"
+            android:layout_width="@dimen/clips_list_icon_width"
             android:layout_height="64dp"
             android:background="@android:color/black"
             app:layout_constraintBottom_toBottomOf="parent"
@@ -71,12 +71,14 @@
 
         </LinearLayout>
 
-        <com.google.android.material.button.MaterialButton
+        <ImageButton
             android:id="@+id/share"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/share"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/share"
+            android:src="@drawable/baseline_share_black_24"
+            app:tint="?attr/colorPrimary"
             app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toStartOf="@id/delete"
             app:layout_constraintTop_toTopOf="parent" />

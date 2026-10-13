@@ -19,6 +19,8 @@ import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
 import com.github.andreyasadchy.xtra.model.ui.SearchHistoryItem
 import com.github.andreyasadchy.xtra.model.ui.ranked
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
+import com.github.andreyasadchy.xtra.ui.common.SectionLoadState
+import com.github.andreyasadchy.xtra.ui.common.SectionStatus
 import com.github.andreyasadchy.xtra.ui.search.SearchHistoryRecorder
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragment
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerViewModel
@@ -125,7 +127,7 @@ class AllSearchFragment : BaseNetworkFragment(), Searchable {
             binding.nothingHere.isVisible = false
             return
         }
-        val remote = state.remote.takeIf { it.query == query } ?: AllSearchViewModel.Remote(query, loading = true)
+        val remote = state.remote.takeIf { it.query == query } ?: AllSearchViewModel.Remote(query)
         val storeHistory = context.prefs().getBoolean(C.UI_STORE_RECENT_SEARCHES, true)
         val compact = context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true)
 
@@ -175,27 +177,32 @@ class AllSearchFragment : BaseNetworkFragment(), Searchable {
                 SearchSection.STREAMS -> Triple(getString(R.string.search_section_streams), "1", streamRows)
                 SearchSection.VIDEOS -> Triple(getString(R.string.search_section_videos), "0", videoRows)
             }
-            if (entries.isEmpty()) return@forEach
+            val stage = remote.stage(section)
+            if (entries.isEmpty() && stage == SectionLoadState.READY) return@forEach
             rows += SearchRow.Header(
                 title,
-                getString(R.string.search_see_all).takeIf { pager()?.isTabEnabled(tab) == true },
+                getString(R.string.search_see_all).takeIf { entries.isNotEmpty() && pager()?.isTabEnabled(tab) == true },
                 "tab:$tab",
+            )
+            if (stage != SectionLoadState.READY) rows += SearchRow.Status(
+                section.name, title, SectionStatus(loading = stage == SectionLoadState.LOADING, hasCachedData = entries.isNotEmpty()),
             )
             rows += entries
         }
-        val hasEntries = rows.isNotEmpty()
+        val hasEntries = rows.any { it is SearchRow.Entry }
         rowAdapter.submitList(rows)
 
-        binding.progressBar.isVisible = remote.loading && !hasEntries
-        binding.errorContainer.isVisible = remote.failed && !remote.loading && !hasEntries
-        binding.retryButton.isVisible = binding.errorContainer.isVisible
-        if (binding.errorContainer.isVisible) binding.errorMessage.setText(R.string.list_load_error)
+        // Each remote section owns its loading/error state even when local matches exist.
+        binding.progressBar.isVisible = false
+        binding.errorContainer.isVisible = false
+        binding.retryButton.isVisible = false
         binding.nothingHere.isVisible = !remote.loading && !remote.failed && !hasEntries
         binding.nothingHere.setText(R.string.search_all_empty)
     }
 
     private fun onRowAction(key: String) {
         if (key.startsWith("tab:")) pager()?.openTab(key.removePrefix("tab:"))
+        if (key.startsWith("retry:")) SearchSection.entries.firstOrNull { it.name == key.removePrefix("retry:") }?.let(viewModel::retry)
     }
 
     private fun pager() = parentFragment as? SearchPagerFragment

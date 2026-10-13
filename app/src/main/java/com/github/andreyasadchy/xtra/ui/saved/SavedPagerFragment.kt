@@ -41,7 +41,10 @@ import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.google.android.material.tabs.TabLayout
 import com.google.android.material.tabs.TabLayoutMediator
 
-class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
+class SavedPagerFragment : Fragment(), Scrollable, FragmentHost, SavedSelectionHost {
+
+    override var savedSelectionChrome: SavedSelectionChrome? = null
+        private set
 
     private var _binding: FragmentMediaPagerBinding? = null
     private val binding get() = _binding!!
@@ -95,6 +98,8 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         liftTargetConnector = RecyclerViewLiftTargetConnector(binding.appBar)
+        savedSelectionChrome = SavedSelectionChrome(this, binding.toolbar, binding.appBar)
+        binding.toolbar.inflateMenu(R.menu.saved_select_menu)
         with(binding) {
             val activity = requireActivity() as MainActivity
             val isLoggedIn = !TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -105,6 +110,10 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
             toolbar.menu.findItem(R.id.login).title = if (isLoggedIn) getString(R.string.log_out) else getString(R.string.log_in)
             toolbar.setOnMenuItemClickListener { menuItem ->
                 when (menuItem.itemId) {
+                    R.id.selectSavedItems -> {
+                        (currentFragment as? SavedSelectablePage)?.startSavedSelection()
+                        true
+                    }
                     R.id.search, R.id.searchOverflow -> {
                         findNavController().navigate(SearchPagerFragmentDirections.actionGlobalSearchPagerFragment())
                         true
@@ -196,6 +205,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
                 }
 
                 override fun onPageSelected(position: Int) {
+                    savedSelectionChrome?.finish()
                     sortBar.root.visibility = View.GONE
                     liftTargetConnector?.disconnect()
                     setDownloadsActionsVisible(tabs.getOrNull(position) == "1")
@@ -246,6 +256,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
             currentBinding.sortBar.root.visibility = View.GONE
         }
         setDownloadsActionsVisible(tabs.getOrNull(position) == "1" && fragment is DownloadsFragment)
+        currentBinding.toolbar.menu.findItem(R.id.selectSavedItems).isVisible = fragment is SavedSelectablePage
     }
 
     private fun setDownloadsActionsVisible(isDownloads: Boolean) {
@@ -263,6 +274,8 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        savedSelectionChrome?.close()
+        savedSelectionChrome = null
         dispatchPagerScrollState(false)
         playerOverlayTabAvoidance?.close()
         playerOverlayTabAvoidance = null

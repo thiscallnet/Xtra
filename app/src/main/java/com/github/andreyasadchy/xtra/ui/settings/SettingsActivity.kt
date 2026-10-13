@@ -20,6 +20,7 @@ import androidx.core.content.edit
 import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.widget.NestedScrollView
 import androidx.core.view.isVisible
 import androidx.core.view.updateLayoutParams
 import androidx.navigation.fragment.NavHostFragment
@@ -268,13 +269,14 @@ class SettingsActivity : AppCompatActivity() {
             C.UI_FOLLOWING_OVERVIEW_SECTIONS -> SettingsLayoutPreview(this, list, SettingsLayoutPreview.Mode.SECTIONS)
             else -> null
         }
+        listAdapter.onMoveItem = { from, to ->
+            Collections.rotate(list.subList(minOf(from, to), maxOf(from, to) + 1), if (from < to) -1 else 1)
+            preview?.refresh()
+        }
         val itemTouchHelper = ItemTouchHelper(
             object : ItemTouchHelper.SimpleCallback(ItemTouchHelper.UP or ItemTouchHelper.DOWN, 0) {
                 override fun onMove(recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder, target: RecyclerView.ViewHolder): Boolean {
-                    Collections.swap(list, viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
-                    listAdapter.notifyItemMoved(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
-                    preview?.refresh()
-                    return true
+                    return listAdapter.moveItem(viewHolder.bindingAdapterPosition, target.bindingAdapterPosition)
                 }
 
                 override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {}
@@ -342,7 +344,7 @@ class SettingsActivity : AppCompatActivity() {
         } ?: recyclerView
         getAlertDialogBuilder()
             .setTitle(title)
-            .setView(dialogView)
+            .setView(NestedScrollView(this).apply { addView(dialogView) })
             .setPositiveButton(getString(android.R.string.ok)) { _, _ ->
                 ensureMinimumVisibleItems(list, listAdapter.minimumVisibleItems)
                 if (showDefaultSelector) promoteDefaultToVisible(list)

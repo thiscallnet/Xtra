@@ -5,9 +5,15 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewConfiguration
+import androidx.appcompat.widget.PopupMenu
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+import androidx.core.view.accessibility.AccessibilityViewCommand
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.ListAdapter
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.SettingsDragListItemBinding
@@ -35,6 +41,16 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
     var showVisibilityToggle = true
     var minimumVisibleItems = 0
     var onItemChanged: (() -> Unit)? = null
+    var onMoveItem: ((Int, Int) -> Unit)? = null
+
+    fun moveItem(from: Int, to: Int): Boolean {
+        val move = onMoveItem ?: return false
+        if (from !in 0 until itemCount || to !in 0 until itemCount || from == to) return false
+        move(from, to)
+        notifyItemMoved(from, to)
+        notifyItemRangeChanged(minOf(from, to), kotlin.math.abs(from - to) + 1, REORDER_PAYLOAD)
+        return true
+    }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
         val binding = SettingsDragListItemBinding.inflate(LayoutInflater.from(parent.context), parent, false)
@@ -43,6 +59,14 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         holder.bind(getItem(position))
+    }
+
+    override fun onBindViewHolder(holder: ViewHolder, position: Int, payloads: MutableList<Any>) {
+        if (payloads.isNotEmpty() && payloads.all { it == REORDER_PAYLOAD }) {
+            holder.bindReorderActions(getItem(position))
+        } else {
+            super.onBindViewHolder(holder, position, payloads)
+        }
     }
 
     inner class ViewHolder(private val binding: SettingsDragListItemBinding) : RecyclerView.ViewHolder(binding.root) {
@@ -59,11 +83,31 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     checkBox.isFocusable = false
                     TvFocusHelper.install(root, focusedScale = 1.02f)
                 }
+                val touchSlop = ViewConfiguration.get(root.context).scaledTouchSlop
+                var downX = 0f
+                var downY = 0f
+                var dragging = false
                 image.setOnTouchListener { view, event ->
-                    if (event.action == MotionEvent.ACTION_DOWN) {
-                        itemTouchHelper?.startDrag(this@ViewHolder)
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            downX = event.x
+                            downY = event.y
+                            dragging = false
+                            view.parent.requestDisallowInterceptTouchEvent(true)
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            if (!dragging && (kotlin.math.abs(event.x - downX) > touchSlop || kotlin.math.abs(event.y - downY) > touchSlop)) {
+                                dragging = true
+                                view.isPressed = false
+                                view.parent.requestDisallowInterceptTouchEvent(false)
+                                itemTouchHelper?.startDrag(this@ViewHolder)
+                            }
+                        }
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                            view.parent.requestDisallowInterceptTouchEvent(false)
+                        }
                     }
-                    false
+                    dragging
                 }
                 text.text = item.text
                 if (cycleGroup != null) {
@@ -125,6 +169,7 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                         setAsDefault.performClick()
                     }
                 }
+                bindReorderActions(item)
                 if (isTv) {
                     checkBox.scaleX = 1.35f
                     checkBox.scaleY = 1.35f
@@ -138,5 +183,66 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                 }
             }
         }
+
+        fun bindReorderActions(item: SettingsDragListItem) = with(binding) {
+            val canMove = onMoveItem != null
+            image.isFocusable = canMove
+            image.importantForAccessibility = if (canMove) View.IMPORTANT_FOR_ACCESSIBILITY_YES else View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            image.contentDescription = if (canMove) root.context.getString(R.string.reorder_favorite_item, item.text) else null
+            image.setOnClickListener(if (canMove) View.OnClickListener { showMoveMenu() } else null)
+            image.isClickable = canMove
+            root.setOnLongClickListener(if (canMove) View.OnLongClickListener { showMoveMenu(); true } else null)
+            root.isLongClickable = canMove
+            ViewCompat.removeAccessibilityAction(root, R.id.settings_move_up)
+            ViewCompat.removeAccessibilityAction(root, R.id.settings_move_down)
+            val position = bindingAdapterPosition
+            if (canMove && position > 0) {
+                ViewCompat.replaceAccessibilityAction(
+                    root,
+                    AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.settings_move_up, null),
+                    root.context.getString(R.string.settings_move_up),
+                    AccessibilityViewCommand { _, _ -> moveBy(-1) },
+                )
+            }
+            if (canMove && position != RecyclerView.NO_POSITION && position < itemCount - 1) {
+                ViewCompat.replaceAccessibilityAction(
+                    root,
+                    AccessibilityNodeInfoCompat.AccessibilityActionCompat(R.id.settings_move_down, null),
+                    root.context.getString(R.string.settings_move_down),
+                    AccessibilityViewCommand { _, _ -> moveBy(1) },
+                )
+            }
+        }
+
+        private fun showMoveMenu() {
+            val position = bindingAdapterPosition
+            if (position == RecyclerView.NO_POSITION || onMoveItem == null) return
+            PopupMenu(binding.root.context, binding.image).apply {
+                menu.add(0, R.id.settings_move_up, 0, R.string.settings_move_up).isEnabled = position > 0
+                menu.add(0, R.id.settings_move_down, 1, R.string.settings_move_down).isEnabled = position < itemCount - 1
+                setOnMenuItemClickListener { item ->
+                    moveBy(if (item.itemId == R.id.settings_move_up) -1 else 1, focusHandle = true)
+                }
+                show()
+            }
+        }
+
+        private fun moveBy(offset: Int, focusHandle: Boolean = false): Boolean {
+            val recycler = binding.root.parent as? RecyclerView
+            val layout = recycler?.layoutManager as? LinearLayoutManager
+            val first = layout?.findFirstVisibleItemPosition() ?: RecyclerView.NO_POSITION
+            val top = layout?.findViewByPosition(first)?.let { it.top - recycler.paddingTop }
+            val from = bindingAdapterPosition
+            if (!moveItem(from, from + offset)) return false
+            // Retain the viewport, rather than anchoring the previously focused row
+            // at its old screen position and hiding the item that replaced it.
+            if (first != RecyclerView.NO_POSITION && top != null) layout.scrollToPositionWithOffset(first, top)
+            if (focusHandle) binding.image.post { binding.image.requestFocus() }
+            return true
+        }
+    }
+
+    companion object {
+        private const val REORDER_PAYLOAD = "reorder"
     }
 }

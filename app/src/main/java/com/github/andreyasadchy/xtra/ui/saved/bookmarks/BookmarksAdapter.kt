@@ -31,6 +31,8 @@ import com.github.andreyasadchy.xtra.ui.common.StreamThumbnailIdleScheduler
 import com.github.andreyasadchy.xtra.ui.common.restoreDecodedMemoryImage
 import com.github.andreyasadchy.xtra.ui.common.thumbnailState
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
+import com.github.andreyasadchy.xtra.ui.saved.SavedItemSelection
+import com.github.andreyasadchy.xtra.ui.saved.SavedSelectionCard
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -46,6 +48,7 @@ class BookmarksAdapter(
     private val showDownloadDialog: (Video) -> Unit,
     private val vodIgnoreUser: (String) -> Unit,
     private val deleteVideo: (Bookmark) -> Unit,
+    private val selection: SavedItemSelection,
 ) : ListAdapter<Bookmark, BookmarksAdapter.PagingViewHolder>(
     object : DiffUtil.ItemCallback<Bookmark>() {
         override fun areItemsTheSame(oldItem: Bookmark, newItem: Bookmark): Boolean =
@@ -55,6 +58,19 @@ class BookmarksAdapter(
                     oldItem.title == newItem.title &&
                     oldItem.duration == newItem.duration
     }) {
+
+    private var selectionPositions: Map<Int, Int> = emptyMap()
+
+    override fun onCurrentListChanged(previousList: MutableList<Bookmark>, currentList: MutableList<Bookmark>) {
+        super.onCurrentListChanged(previousList, currentList)
+        selectionPositions = currentList.mapIndexed { index, item -> item.id to index }.toMap()
+        selection.refreshLoadedItems()
+    }
+
+    fun notifySelectionChanged(id: String?) {
+        if (id == null) notifyItemRangeChanged(0, itemCount, SavedItemSelection.PAYLOAD)
+        else id.toIntOrNull()?.let(selectionPositions::get)?.let { notifyItemChanged(it, SavedItemSelection.PAYLOAD) }
+    }
 
     private val imageLoadScheduler = StreamThumbnailIdleScheduler()
 
@@ -76,6 +92,7 @@ class BookmarksAdapter(
     override fun onBindViewHolder(holder: PagingViewHolder, position: Int) {
         holder.beginImageBind(getItem(position))
         holder.bind(getItem(position))
+        holder.bindSelection(getItem(position))
     }
 
     override fun onBindViewHolder(
@@ -83,8 +100,9 @@ class BookmarksAdapter(
         position: Int,
         payloads: MutableList<Any>,
     ) {
-        if (payloads.isNotEmpty() && payloads.all { it === BOOKMARK_POSITION_CHANGED_PAYLOAD }) {
-            holder.bindPosition(getItem(position))
+        if (payloads.isNotEmpty() && payloads.all { it === BOOKMARK_POSITION_CHANGED_PAYLOAD || it === SavedItemSelection.PAYLOAD }) {
+            if (BOOKMARK_POSITION_CHANGED_PAYLOAD in payloads) holder.bindPosition(getItem(position))
+            holder.bindSelection(getItem(position))
         } else {
             super.onBindViewHolder(holder, position, payloads)
         }
@@ -131,6 +149,7 @@ class BookmarksAdapter(
         private val fragment: Fragment,
     ) : RecyclerView.ViewHolder(binding.root), FeedImageRequestOwner {
         private val imageRequests = FeedImageRequestBag()
+        private val selectionCard = SavedSelectionCard(binding.root)
         private var boundBookmarkId: Int? = null
 
         fun beginImageBind(item: Bookmark?) {
@@ -148,11 +167,15 @@ class BookmarksAdapter(
         }
 
         fun cancelImageWork() {
+            selectionCard.prepareForBind()
             cancelImageRequests()
             boundBookmarkId = null
         }
 
+        fun bindSelection(item: Bookmark) = selectionCard.bind(selection, item.id.toString())
+
         fun bind(item: Bookmark?) {
+            selectionCard.prepareForBind()
             with(binding) {
                 if (item != null) {
                     val context = fragment.requireContext()
@@ -180,6 +203,7 @@ class BookmarksAdapter(
                     val startFromBeginning = position != null && durationSeconds != null && durationSeconds > 0 && position >= (durationSeconds * 1000)
                     val ignore = ignored?.find { it.userId == item.userId } != null
                     root.setOnClickListener {
+                        if (selection.click(item.id.toString())) return@setOnClickListener
                         (fragment.activity as MainActivity).startVideo(
                             Video(
                                 id = item.videoId,
@@ -206,7 +230,7 @@ class BookmarksAdapter(
                         )
                     }
                     root.setOnLongClickListener {
-                        deleteVideo(item)
+                        if (!selection.click(item.id.toString())) deleteVideo(item)
                         true
                     }
                     val thumbnailKey = "xtra:bookmark-thumbnail:${item.id}|${item.thumbnail}"

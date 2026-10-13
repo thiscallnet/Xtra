@@ -25,6 +25,8 @@ import com.github.andreyasadchy.xtra.ui.common.streamIdentity
 import com.github.andreyasadchy.xtra.ui.common.ExpressiveShapeStyling
 import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
 import com.github.andreyasadchy.xtra.ui.common.usesExpressiveInterface
+import com.github.andreyasadchy.xtra.ui.common.SectionStatus
+import com.github.andreyasadchy.xtra.ui.common.bindStatus
 
 data class FollowingOverviewSection(
     val key: String,
@@ -40,6 +42,7 @@ data class FollowingOverviewSection(
     val loadingType: FollowingOverviewLoadingType = FollowingOverviewLoadingType.STREAM,
     val showSeeAll: Boolean = true,
     val isFeatured: Boolean = false,
+    val status: SectionStatus? = null,
 )
 
 class FollowingOverviewAdapter(
@@ -55,6 +58,7 @@ class FollowingOverviewAdapter(
     private val onVideoShelfAttached: ((String, RecyclerView, (Int) -> VideoHistory?) -> Unit)? = null,
     private val onVideoShelfDetached: ((String) -> Unit)? = null,
     private val useFollowedStreamCardLayout: Boolean = false,
+    private val onRetry: (String) -> Unit = {},
 ) : ListAdapter<FollowingOverviewSection, FollowingOverviewAdapter.ViewHolder>(DIFF_CALLBACK) {
 
     private val recycledViewPool = RecyclerView.RecycledViewPool()
@@ -176,7 +180,7 @@ class FollowingOverviewAdapter(
             val hasItems = section.streams.isNotEmpty() || section.games.isNotEmpty() || section.videos.isNotEmpty() || section.scheduledStreams.isNotEmpty()
             val showSkeleton = section.isLoading && !hasItems && !section.hasResolved
             val compactEmptyState = binding.root.context.usesExpressiveInterface() &&
-                !hasItems && !showSkeleton
+                !hasItems && !showSkeleton && section.status == null
             binding.sectionTitle.visibility = if (compactEmptyState) android.view.View.GONE else android.view.View.VISIBLE
             if (compactEmptyState) {
                 val title = section.title ?: binding.root.context.getText(section.titleRes)
@@ -190,7 +194,8 @@ class FollowingOverviewAdapter(
             } else {
                 binding.emptyMessage.setText(section.emptyRes)
             }
-            binding.emptyMessage.visibility = if (hasItems || showSkeleton) android.view.View.GONE else android.view.View.VISIBLE
+            binding.emptyMessage.visibility = if (hasItems || showSkeleton || section.status != null) android.view.View.GONE else android.view.View.VISIBLE
+            binding.sectionStatus.bindStatus(section.status, section.title ?: binding.root.context.getText(section.titleRes)) { onRetry(section.key) }
             binding.shelfRecyclerView.visibility = if (hasItems || showSkeleton) android.view.View.VISIBLE else android.view.View.GONE
             binding.seeAll.visibility = if (hasItems && section.showSeeAll) android.view.View.VISIBLE else android.view.View.GONE
             val nextShelfType = when {
@@ -424,7 +429,8 @@ internal fun followingOverviewSectionContentsSame(
         old.hasResolved != new.hasResolved ||
         old.loadingType != new.loadingType ||
         old.showSeeAll != new.showSeeAll ||
-        old.isFeatured != new.isFeatured
+        old.isFeatured != new.isFeatured ||
+        old.status != new.status
     ) return false
 
     return streamListsSame(old.streams, new.streams) &&

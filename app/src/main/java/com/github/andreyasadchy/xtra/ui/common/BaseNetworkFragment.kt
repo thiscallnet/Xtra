@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -12,6 +13,7 @@ import androidx.fragment.app.activityViewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -31,6 +33,8 @@ abstract class BaseNetworkFragment : Fragment() {
     private val mainViewModel: MainViewModel by activityViewModels { MainViewModelFactory }
 
     protected open var enableNetworkCheck = true
+    /** Offline lists register their subscriptions once; players retain resume activation. */
+    protected open val initializeOfflineOncePerView = false
     /** Cache-backed screens can render Room data before a network is validated. */
     protected open val initializeWithoutNetwork = false
     private var lastIsOnlineState = false
@@ -120,6 +124,9 @@ abstract class BaseNetworkFragment : Fragment() {
                 onNetworkRestored()
                 shouldRestore = false
             }
+        } else if (initializeOfflineOncePerView) {
+            // Offline screens also register collectors and listeners for the view's lifetime.
+            if (!isInitialized) init()
         } else {
             initialize()
         }
@@ -127,9 +134,7 @@ abstract class BaseNetworkFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        if (enableNetworkCheck) {
-            isInitialized = false
-        }
+        isInitialized = false
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -142,8 +147,15 @@ abstract class BaseNetworkFragment : Fragment() {
     }
 
     private fun init() {
+        logViewInitialization()
         initialize()
         isInitialized = true
         created = true
+    }
+
+    private fun logViewInitialization() {
+        if (BuildConfig.DEBUG) {
+            Log.d("XtraUiLifecycle", "event=initialize screen=${javaClass.simpleName} view=${System.identityHashCode(view)}")
+        }
     }
 }

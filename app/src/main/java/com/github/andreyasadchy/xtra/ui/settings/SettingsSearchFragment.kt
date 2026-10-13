@@ -15,7 +15,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.view.updatePadding
 import androidx.fragment.app.Fragment
-import androidx.preference.PreferenceCategory
+import androidx.preference.PreferenceGroup
 import androidx.preference.PreferenceManager
 import androidx.preference.SeekBarPreference
 import androidx.preference.SwitchPreferenceCompat
@@ -31,7 +31,11 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.color.MaterialColors
 
 class SettingsSearchFragment : Fragment() {
+    private var preferenceMetadata: List<SettingsSearchItem>? = null
     private var preferences: List<SettingsSearchItem>? = null
+    private val switchDefaults = mutableMapOf<String, Boolean>()
+    private val sliderDefaults = mutableMapOf<String, Int>()
+    private var indexedDeveloperVisible: Boolean? = null
     private var adapter: SettingsSearchAdapter? = null
     private var savedQuery: String? = null
     private var searchList: RecyclerView? = null
@@ -89,11 +93,25 @@ class SettingsSearchFragment : Fragment() {
             })
         }
         searchList?.adapter = adapter
-        if (preferences == null) {
+        refreshPreferences()
+        search(savedQuery.orEmpty())
+        requireActivity().findViewById<SearchView>(R.id.searchView)?.let {
+            savedQuery?.let { query -> it.setQuery(query, true) }
+            it.requestFocus()
+            WindowCompat.getInsetsController(requireActivity().window, it).show(WindowInsetsCompat.Type.ime())
+        }
+    }
+
+    @SuppressLint("RestrictedApi")
+    private fun refreshPreferences() {
+        val prefs = requireContext().prefs()
+        val developerVisible = prefs.getBoolean(C.SETTINGS_DEVELOPER_UNLOCKED, false) &&
+            prefs.getBoolean(C.SETTINGS_DEVELOPER_ENABLED, false)
+        if (preferenceMetadata == null || indexedDeveloperVisible != developerVisible) {
+            switchDefaults.clear()
+            sliderDefaults.clear()
             val list = mutableListOf<SettingsSearchItem>()
             val preferenceManager = PreferenceManager(requireContext())
-            val developerVisible = requireContext().prefs().getBoolean(C.SETTINGS_DEVELOPER_UNLOCKED, false) &&
-                requireContext().prefs().getBoolean(C.SETTINGS_DEVELOPER_ENABLED, false)
             fun breadcrumb(vararg labels: String): String = labels.joinToString(" / ")
             listOf(
                 Triple(R.xml.live_notification_preferences, SettingsNavGraphDirections.actionGlobalLiveNotificationSettingsFragment(), getString(R.string.settings_general_notifications)),
@@ -131,55 +149,74 @@ class SettingsSearchFragment : Fragment() {
             ).plus(if (developerVisible) listOf(
                 Triple(R.xml.developer_preferences, SettingsNavDirections(R.id.developerSettingsFragment), "Developer options"),
             ) else emptyList()).forEach { item ->
-                preferenceManager.inflateFromResource(requireContext(), item.first, null).forEach {
-                    if (!it.isVisible) return@forEach
-                    if (it.key == C.POCKET_TOUCH_GUARD && !PocketTouchGuard.isSupported(requireContext())) return@forEach
-                    when (it) {
-                        is SwitchPreferenceCompat -> {
-                            list.add(SettingsSearchItem(
-                                navDirections = item.second,
-                                location = item.third,
-                                key = it.key,
-                                title = it.title,
-                                summary = it.summary,
-                                value = if (it.isChecked) {
-                                    getString(R.string.enabled_setting)
-                                } else {
-                                    getString(R.string.disabled_setting)
-                                }
-                            ))
-                        }
-                        is SeekBarPreference -> {
-                            list.add(SettingsSearchItem(
-                                navDirections = item.second,
-                                location = item.third,
-                                key = it.key,
-                                title = it.title,
-                                summary = it.summary,
-                                value = it.value.toString()
-                            ))
-                        }
-                        is PreferenceCategory -> {}
-                        else -> {
-                            list.add(SettingsSearchItem(
-                                navDirections = item.second,
-                                location = item.third,
-                                key = it.key,
-                                title = it.title,
-                                summary = it.summary,
-                            ))
+                fun addPreferences(group: PreferenceGroup) {
+                    group.forEach {
+                        if (!it.isVisible) return@forEach
+                        if (it.key == C.POCKET_TOUCH_GUARD && !PocketTouchGuard.isSupported(requireContext())) return@forEach
+                        when (it) {
+                            is PreferenceGroup -> addPreferences(it)
+                            is SwitchPreferenceCompat -> {
+                                it.key?.let { key -> switchDefaults[key] = it.isChecked }
+                                list.add(SettingsSearchItem(
+                                    navDirections = item.second,
+                                    location = item.third,
+                                    key = it.key,
+                                    title = it.title,
+                                    summary = it.summary,
+                                    value = if (it.isChecked) {
+                                        getString(R.string.enabled_setting)
+                                    } else {
+                                        getString(R.string.disabled_setting)
+                                    }
+                                ))
+                            }
+                            is SeekBarPreference -> {
+                                it.key?.let { key -> sliderDefaults[key] = it.value }
+                                list.add(SettingsSearchItem(
+                                    navDirections = item.second,
+                                    location = item.third,
+                                    key = it.key,
+                                    title = it.title,
+                                    summary = it.summary,
+                                    value = it.value.toString()
+                                ))
+                            }
+                            else -> {
+                                list.add(SettingsSearchItem(
+                                    navDirections = item.second,
+                                    location = item.third,
+                                    key = it.key,
+                                    title = it.title,
+                                    summary = it.summary,
+                                ))
+                            }
                         }
                     }
                 }
+                addPreferences(preferenceManager.inflateFromResource(requireContext(), item.first, null))
             }
-            preferences = list
+            preferenceMetadata = list
+            indexedDeveloperVisible = developerVisible
         }
+        val enabled = getString(R.string.enabled_setting)
+        val disabled = getString(R.string.disabled_setting)
+        preferences = preferenceMetadata.orEmpty().map { item ->
+            val key = item.key
+            val value = when {
+                key != null && switchDefaults.containsKey(key) ->
+                    if (prefs.getBoolean(key, switchDefaults.getValue(key))) enabled else disabled
+                key != null && sliderDefaults.containsKey(key) ->
+                    prefs.getInt(key, sliderDefaults.getValue(key)).toString()
+                else -> item.value
+            }
+            if (value == item.value) item else item.copy(value = value)
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        refreshPreferences()
         search(savedQuery.orEmpty())
-        requireActivity().findViewById<SearchView>(R.id.searchView)?.let {
-            savedQuery?.let { query -> it.setQuery(query, true) }
-            it.requestFocus()
-            WindowCompat.getInsetsController(requireActivity().window, it).show(WindowInsetsCompat.Type.ime())
-        }
     }
 
     fun search(query: String) {
@@ -208,6 +245,8 @@ class SettingsSearchFragment : Fragment() {
 
     override fun onDestroyView() {
         super.onDestroyView()
+        searchList?.adapter = null
+        adapter = null
         searchList = null
         emptyState = null
         (requireActivity() as? SettingsActivity)?.showSearchView(false)

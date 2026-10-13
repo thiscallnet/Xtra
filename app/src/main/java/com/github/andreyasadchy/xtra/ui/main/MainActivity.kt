@@ -208,6 +208,7 @@ class MainActivity : AppCompatActivity() {
     private var lastDeepLinkNavKey: String? = null
     private var lastDeepLinkNavTime = 0L
     private var useNavigationRail = false
+    private var dropsFilterKeyboardVisible = false
     private var hasNavigationDestinations = true
     private var enabledNavigationDestinations: List<RootNavigationDestination> = emptyList()
     private var committedBottomNavigationDestinationId: Int? = null
@@ -223,7 +224,9 @@ class MainActivity : AppCompatActivity() {
         useNavigationRail = isTv || configuration.smallestScreenWidthDp >= 600
         val showNavigation = isTv || hasNavigationDestinations
         binding.tvNavigationContainer.isVisible = useNavigationRail && showNavigation
-        binding.navBarContainer.isVisible = !useNavigationRail && showNavigation
+        val compactDropsFilter = dropsFilterKeyboardVisible &&
+            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE && configuration.screenHeightDp < 480
+        binding.navBarContainer.isVisible = !useNavigationRail && showNavigation && !compactDropsFilter
         updateBottomSearchVisibility()
         allToolbarViews().forEach(::updateTopSearchVisibility)
         binding.tvSearch.isVisible = isTv
@@ -256,6 +259,12 @@ class MainActivity : AppCompatActivity() {
     private fun updateBottomSearchVisibility() {
         binding.bottomSearch.isVisible = binding.navBarContainer.isVisible &&
             (!::navController.isInitialized || navController.currentDestination?.id != R.id.searchPagerFragment)
+    }
+
+    fun setDropsFilterKeyboardVisible(visible: Boolean) {
+        if (dropsFilterKeyboardVisible == visible) return
+        dropsFilterKeyboardVisible = visible
+        updateNavigationPresentation(resources.configuration)
     }
 
     fun hasBottomSearchShortcut(): Boolean = !useNavigationRail && hasNavigationDestinations

@@ -21,6 +21,7 @@ import com.github.andreyasadchy.xtra.databinding.ItemWhisperMessageBinding
 import com.github.andreyasadchy.xtra.model.twitchinbox.LocalSendState
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
 import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperMessage
+import com.github.andreyasadchy.xtra.ui.common.personPlaceholder
 
 class WhisperMessagesAdapter(
     private val peer: TwitchUserSummary,
@@ -61,12 +62,16 @@ class WhisperMessagesAdapter(
                 avatar.contentDescription = if (isMine) null else avatar.context.getString(R.string.view_profile)
                 avatar.setOnClickListener { if (!isMine) onPeerClick(peer) }
                 val sender = if (isMine) currentUser else peer
-                avatar.context.imageLoader.enqueue(
+                val avatarPlaceholder = avatar.personPlaceholder()
+                val avatarUrl = sender?.profileImageUrl?.takeIf { it.isNotBlank() }
+                if (avatarUrl == null) {
+                    avatar.setImageDrawable(avatarPlaceholder)
+                } else avatar.context.imageLoader.enqueue(
                     ImageRequest.Builder(avatar.context)
-                        .data(sender?.profileImageUrl?.takeIf { it.isNotBlank() })
-                        .placeholder(R.drawable.baseline_person_black_24)
-                        .error(R.drawable.baseline_person_black_24)
-                        .crossfade(sender?.profileImageUrl?.isNotBlank() == true)
+                        .data(avatarUrl)
+                        .placeholder(avatarPlaceholder)
+                        .error(avatarPlaceholder)
+                        .crossfade(true)
                         .transformations(CircleCropTransformation())
                         .target(avatar)
                         .build(),

@@ -34,6 +34,7 @@ class FiltersFragment : PagedListFragment(), Scrollable {
     private val viewModel: FiltersViewModel by viewModels { FiltersViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<SavedFilter, out RecyclerView.ViewHolder>
     override var enableNetworkCheck = false
+    override val initializeOfflineOncePerView = true
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)

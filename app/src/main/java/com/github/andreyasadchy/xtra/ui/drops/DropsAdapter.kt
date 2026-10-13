@@ -1,13 +1,17 @@
 package com.github.andreyasadchy.xtra.ui.drops
 
 import android.content.Context
+import android.content.res.Configuration
 import android.text.format.DateUtils
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import androidx.appcompat.widget.PopupMenu
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.view.isVisible
+import androidx.recyclerview.widget.AsyncListDiffer
+import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import coil3.load
 import coil3.request.crossfade
@@ -15,12 +19,14 @@ import coil3.request.error
 import coil3.request.fallback
 import coil3.request.placeholder
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.databinding.ItemDropBinding
 import com.github.andreyasadchy.xtra.databinding.ItemDropRewardBinding
 import com.github.andreyasadchy.xtra.model.ui.TwitchDrop
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropBenefit
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropCampaign
 import com.github.andreyasadchy.xtra.model.ui.TwitchDropImageSource
+import com.github.andreyasadchy.xtra.util.isTelevision
 import kotlin.time.Instant
 
 sealed interface DropsRow {
@@ -37,7 +43,31 @@ class DropsAdapter(
     private val onTrack: (TwitchDrop) -> Unit,
     private val onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
-    private var rows: List<DropsRow> = emptyList()
+    private val differ = AsyncListDiffer(this, object : DiffUtil.ItemCallback<DropsRow>() {
+        override fun areItemsTheSame(oldItem: DropsRow, newItem: DropsRow): Boolean = when {
+            oldItem is DropsRow.Section && newItem is DropsRow.Section -> oldItem.title == newItem.title
+            oldItem is DropsRow.Drop && newItem is DropsRow.Drop -> oldItem.value.id == newItem.value.id
+            oldItem is DropsRow.Campaign && newItem is DropsRow.Campaign -> oldItem.value.id == newItem.value.id
+            else -> false
+        }
+
+        override fun areContentsTheSame(oldItem: DropsRow, newItem: DropsRow) = oldItem == newItem
+
+        override fun getChangePayload(oldItem: DropsRow, newItem: DropsRow): Any? = when {
+            oldItem is DropsRow.Drop && newItem is DropsRow.Drop && oldItem.value.copy(
+                currentMinutesWatched = newItem.value.currentMinutesWatched,
+                requiredMinutesWatched = newItem.value.requiredMinutesWatched,
+                isClaimed = newItem.value.isClaimed,
+                dropInstanceId = newItem.value.dropInstanceId,
+                sessionOnly = newItem.value.sessionOnly,
+            ) == newItem.value -> STATE
+            oldItem is DropsRow.Campaign && newItem is DropsRow.Campaign &&
+                oldItem.value.copy(drops = newItem.value.drops) == newItem.value -> STATE
+            else -> null
+        }
+    })
+    private val rows: List<DropsRow> get() = differ.currentList
+    private var submittedRows: List<DropsRow> = emptyList()
     private var claimingDropId: String? = null
     private var trackedDropId: String? = null
     private val expandedCampaignIds = mutableSetOf<String>()
@@ -46,9 +76,12 @@ class DropsAdapter(
     fun setClaimingDropId(id: String?) {
         if (claimingDropId == id) return
         val changedIds = setOfNotNull(claimingDropId, id)
+        val availabilityChanged = (claimingDropId == null) != (id == null)
         claimingDropId = id
         rows.forEachIndexed { index, row ->
-            if (row is DropsRow.Drop && row.value.id in changedIds) notifyItemChanged(index)
+            if (row is DropsRow.Drop && (row.value.id in changedIds || availabilityChanged && row.value.isClaimable)) {
+                notifyItemChanged(index, STATE)
+            }
         }
     }
 
@@ -57,17 +90,18 @@ class DropsAdapter(
         val changedIds = setOfNotNull(trackedDropId, id)
         trackedDropId = id
         rows.forEachIndexed { index, row ->
-            if (row is DropsRow.Drop && row.value.id in changedIds) notifyItemChanged(index)
+            if (row is DropsRow.Drop && row.value.id in changedIds) notifyItemChanged(index, STATE)
         }
     }
 
     private fun toggleCampaign(campaignId: String) {
+        if (currentCampaign(campaignId) == null) return
         if (!expandedCampaignIds.add(campaignId)) {
             expandedCampaignIds.remove(campaignId)
         }
         rows.indexOfFirst { it is DropsRow.Campaign && it.value.id == campaignId }
             .takeIf { it >= 0 }
-            ?.let(::notifyItemChanged)
+            ?.let { notifyItemChanged(it, STATE) }
         onCampaignClick(campaignId)
     }
 
@@ -75,23 +109,41 @@ class DropsAdapter(
         if (!expandedCampaignIds.add(campaignId)) return
         rows.indexOfFirst { it is DropsRow.Campaign && it.value.id == campaignId }
             .takeIf { it >= 0 }
-            ?.let(::notifyItemChanged)
+            ?.let { notifyItemChanged(it, STATE) }
         onCampaignClick(campaignId)
     }
 
     fun setCampaignDetailsLoading(ids: Set<String>) {
         if (campaignDetailsLoading == ids) return
         val changedIds = campaignDetailsLoading xor ids
-        campaignDetailsLoading = ids
+        campaignDetailsLoading = ids.toSet()
         rows.forEachIndexed { index, row ->
-            if (row is DropsRow.Campaign && row.value.id in changedIds) notifyItemChanged(index)
+            if (row is DropsRow.Campaign && row.value.id in changedIds) notifyItemChanged(index, STATE)
         }
     }
 
-    fun submitList(value: List<DropsRow>) {
-        if (rows == value) return
-        rows = value
-        notifyDataSetChanged()
+    fun submitList(value: List<DropsRow>, onCommitted: (() -> Unit)? = null) {
+        if (submittedRows != value) submittedRows = value.toList()
+        differ.submitList(submittedRows) { onCommitted?.invoke() }
+    }
+
+    private fun claimDrop(drop: TwitchDrop) {
+        if (claimingDropId != null) return
+        // A row can still show the previous model while its diff is in flight.
+        // Never claim a removed row or use credentials from a stale submission.
+        currentDrop(drop.id)?.takeIf { it.isClaimable }?.let(onClaim)
+    }
+
+    private fun currentDrop(id: String): TwitchDrop? =
+        submittedRows.asSequence().filterIsInstance<DropsRow.Drop>().firstOrNull { it.value.id == id }?.value
+
+    private fun currentCampaign(id: String): TwitchDropCampaign? =
+        submittedRows.asSequence().filterIsInstance<DropsRow.Campaign>().firstOrNull { it.value.id == id }?.value
+
+    fun refreshSectionSpacing() {
+        rows.forEachIndexed { index, row ->
+            if (row is DropsRow.Section) notifyItemChanged(index, STATE)
+        }
     }
 
     override fun getItemViewType(position: Int): Int =
@@ -100,14 +152,6 @@ class DropsAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder =
         if (viewType == SECTION) {
             object : RecyclerView.ViewHolder(TextView(parent.context).apply {
-                val density = resources.displayMetrics.density
-                // Align with the cards' 12dp margin plus a 4dp optical inset.
-                setPadding(
-                    (16 * density).toInt(),
-                    (20 * density).toInt(),
-                    (16 * density).toInt(),
-                    (6 * density).toInt(),
-                )
                 setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_TitleSmall)
                 setTextColor(
                     com.google.android.material.color.MaterialColors.getColor(
@@ -121,24 +165,48 @@ class DropsAdapter(
         }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        bind(holder, position, stateOnly = false)
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int, payloads: MutableList<Any>) {
+        bind(holder, position, stateOnly = payloads.isNotEmpty() && payloads.all { it == STATE })
+    }
+
+    private fun bind(holder: RecyclerView.ViewHolder, position: Int, stateOnly: Boolean) {
         when (val row = rows[position]) {
-            is DropsRow.Section -> (holder.itemView as TextView).text = row.title
+            is DropsRow.Section -> (holder.itemView as TextView).apply {
+                val density = resources.displayMetrics.density
+                val compact = resources.configuration.let {
+                    !context.isTelevision() &&
+                        it.orientation == Configuration.ORIENTATION_LANDSCAPE && it.screenHeightDp < 480
+                }
+                // Align with the cards' 12dp margin plus a 4dp optical inset.
+                setPadding(
+                    (16 * density).toInt(),
+                    ((if (compact) 6 else 20) * density).toInt(),
+                    (16 * density).toInt(),
+                    ((if (compact) 4 else 6) * density).toInt(),
+                )
+                text = row.title
+            }
             is DropsRow.Drop -> (holder as DropViewHolder).bind(
                 row.value,
                 claimingDropId,
-                onClaim,
-                onFindStreamsForDrop,
-                onTrack,
+                ::claimDrop,
+                { currentDrop(it.id)?.let(onFindStreamsForDrop) },
+                { currentDrop(it.id)?.let(onTrack) },
                 trackedDropId,
                 onImageClick,
+                bindImages = !stateOnly,
             )
             is DropsRow.Campaign -> (holder as DropViewHolder).bind(
                 row.value,
                 row.value.id in expandedCampaignIds,
                 row.value.id in campaignDetailsLoading,
                 ::toggleCampaign,
-                onFindStreams,
+                { currentCampaign(it.id)?.let(onFindStreams) },
                 onImageClick,
+                bindImage = !stateOnly,
             )
         }
     }
@@ -154,6 +222,7 @@ class DropsAdapter(
             onTrack: (TwitchDrop) -> Unit,
             trackedDropId: String?,
             onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
+            bindImages: Boolean,
         ) {
             binding.title.text = drop.benefits.mapNotNull { it.name }
                 .distinct()
@@ -163,11 +232,13 @@ class DropsAdapter(
                 drop.campaignName,
                 "${drop.currentMinutesWatched}/${drop.requiredMinutesWatched} min",
             ).joinToString(" · ")
-            bindRewards(
-                drop.benefits,
-                visible = drop.benefits.size > 1,
-                onImageClick = onImageClick,
-            )
+            if (bindImages) {
+                bindRewards(
+                    drop.benefits,
+                    visible = drop.benefits.size > 1,
+                    onImageClick = onImageClick,
+                )
+            }
             binding.detailsLoading.isVisible = false
             binding.progress.isVisible = true
             binding.progress.progress = drop.progressPercent
@@ -230,7 +301,7 @@ class DropsAdapter(
                     onImageClick(it, drop.rewardName ?: drop.name, drop.imageSource)
                 }
             }
-            binding.image.loadDropImage(drop.imageUrl, drop.imageSource)
+            if (bindImages) binding.image.loadDropImage(drop.imageUrl, drop.imageSource)
         }
 
         fun bind(
@@ -240,6 +311,7 @@ class DropsAdapter(
             onClick: (String) -> Unit,
             onFindStreams: (TwitchDropCampaign) -> Unit,
             onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
+            bindImage: Boolean,
         ) {
             binding.title.text = campaign.name ?: campaign.gameName ?: binding.root.context.getString(R.string.drops)
             binding.subtitle.text = listOfNotNull(
@@ -249,14 +321,17 @@ class DropsAdapter(
                 campaign.endTime.formatCampaignTime(binding.root.context)
                     ?.let { binding.root.context.getString(R.string.source_vod_end, it) },
             ).joinToString(" · ")
-            val rewards = campaign.drops.flatMap { drop ->
-                drop.benefits.ifEmpty {
-                    listOf(TwitchDropBenefit(drop.name ?: "Drop", null))
+            val rewardsVisible = expanded && !detailsLoading
+            val rewards = if (rewardsVisible) {
+                campaign.drops.flatMap { drop ->
+                    drop.benefits.ifEmpty {
+                        listOf(TwitchDropBenefit(drop.name ?: "Drop", null))
+                    }
                 }
-            }
+            } else emptyList()
             bindRewards(
                 rewards,
-                visible = expanded && !detailsLoading,
+                visible = rewardsVisible,
                 onImageClick = onImageClick,
             )
             binding.detailsLoading.isVisible = expanded && detailsLoading
@@ -305,7 +380,7 @@ class DropsAdapter(
                     onImageClick(it, campaign.gameName ?: campaign.name, campaign.imageSource)
                 }
             }
-            binding.image.loadDropImage(campaign.imageUrl, campaign.imageSource)
+            if (bindImage) binding.image.loadDropImage(campaign.imageUrl, campaign.imageSource)
         }
 
         private fun bindRewards(
@@ -314,7 +389,14 @@ class DropsAdapter(
             onImageClick: (String, String?, TwitchDropImageSource) -> Unit,
         ) {
             binding.rewardStrip.removeAllViews()
-            rewards.distinctBy { it.name to it.imageUrl }.forEach { reward ->
+            binding.rewardScroll.isVisible = visible && rewards.isNotEmpty()
+            if (!binding.rewardScroll.isVisible) {
+                if (BuildConfig.DEBUG) Log.d("XtraDropRewards", "event=skip visible=$visible count=0")
+                return
+            }
+            val distinctRewards = rewards.distinctBy { it.name to it.imageUrl }
+            if (BuildConfig.DEBUG) Log.d("XtraDropRewards", "event=build visible=$visible count=${distinctRewards.size}")
+            distinctRewards.forEach { reward ->
                 val rewardBinding = ItemDropRewardBinding.inflate(
                     LayoutInflater.from(binding.root.context),
                     binding.rewardStrip,
@@ -336,7 +418,6 @@ class DropsAdapter(
                 rewardBinding.image.loadDropImage(reward.imageUrl, TwitchDropImageSource.ORIGINAL)
                 binding.rewardStrip.addView(rewardBinding.root)
             }
-            binding.rewardScroll.isVisible = visible && rewards.isNotEmpty()
         }
     }
 
@@ -346,6 +427,7 @@ class DropsAdapter(
     private companion object {
         const val SECTION = 0
         const val CARD = 1
+        const val STATE = "state"
     }
 }
 

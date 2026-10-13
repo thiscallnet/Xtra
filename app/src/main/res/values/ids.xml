@@ -10,4 +10,7 @@
     <item name="emote_image_url_key" type="id" />
     <item name="autocomplete_image_request" type="id" />
     <item name="chatBubbleContainer" type="id" />
+    <item name="settings_move_up" type="id" />
+    <item name="settings_move_down" type="id" />
+    <item name="saved_selection_card" type="id" />
 </resources>

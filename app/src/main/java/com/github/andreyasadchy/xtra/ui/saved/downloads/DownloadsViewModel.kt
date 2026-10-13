@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.saved.downloads
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.DocumentsContract
 import android.util.JsonReader
 import androidx.core.net.toUri
@@ -25,6 +26,17 @@ import com.github.andreyasadchy.xtra.util.m3u8.Segment
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.FileNotFoundException
+import java.util.concurrent.ConcurrentHashMap
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -45,7 +57,11 @@ class DownloadsViewModel(
             ?: throw IOException("Unable to open download file")
 
     var selectedVideo: OfflineVideo? = null
-    private val videosInUse = mutableListOf<OfflineVideo>()
+    private val videosInUse = ConcurrentHashMap.newKeySet<Int>()
+    private var bulkDeleteJob: Job? = null
+    private val _deleteFailed = MutableStateFlow(false)
+    val deleteFailed = _deleteFailed.asStateFlow()
+    fun acknowledgeDeleteFailure() { _deleteFailed.value = false }
 
     val flow = Pager(
         PagingConfig(pageSize = 30, prefetchDistance = 3, initialLoadSize = 30),
@@ -110,8 +126,7 @@ class DownloadsViewModel(
 
     fun convertToFile(video: OfflineVideo) {
         val videoUrl = video.url
-        if (!videosInUse.contains(video) && videoUrl != null) {
-            videosInUse.add(video)
+        if (videoUrl != null && videosInUse.add(video.id)) {
             viewModelScope.launch(Dispatchers.IO) {
                 offlineVideosRepository.update(video.apply {
                     progress = 0
@@ -272,7 +287,7 @@ class DownloadsViewModel(
                     }
                 }
             }.invokeOnCompletion { error ->
-                videosInUse.remove(video)
+                videosInUse.remove(video.id)
                 viewModelScope.launch(Dispatchers.IO) {
                     offlineVideosRepository.update(video.apply {
                         status = if (error == null) OfflineVideo.STATUS_DOWNLOADED else OfflineVideo.STATUS_FAILED
@@ -284,8 +299,7 @@ class DownloadsViewModel(
 
     fun moveToSharedStorage(newUri: Uri, video: OfflineVideo) {
         val videoUrl = video.url
-        if (!videosInUse.contains(video) && videoUrl != null) {
-            videosInUse.add(video)
+        if (videoUrl != null && videosInUse.add(video.id)) {
             viewModelScope.launch(Dispatchers.IO) {
                 offlineVideosRepository.update(video.apply {
                     progress = 0
@@ -442,7 +456,7 @@ class DownloadsViewModel(
                     }
                 }
             }.invokeOnCompletion { error ->
-                videosInUse.remove(video)
+                videosInUse.remove(video.id)
                 viewModelScope.launch(Dispatchers.IO) {
                     offlineVideosRepository.update(video.apply {
                         status = if (error == null) OfflineVideo.STATUS_DOWNLOADED else OfflineVideo.STATUS_FAILED
@@ -454,8 +468,7 @@ class DownloadsViewModel(
 
     fun moveToAppStorage(path: String, video: OfflineVideo) {
         val videoUrl = video.url
-        if (!videosInUse.contains(video) && videoUrl != null) {
-            videosInUse.add(video)
+        if (videoUrl != null && videosInUse.add(video.id)) {
             viewModelScope.launch(Dispatchers.IO) {
                 offlineVideosRepository.update(video.apply {
                     progress = 0
@@ -623,7 +636,7 @@ class DownloadsViewModel(
                     }
                 }
             }.invokeOnCompletion { error ->
-                videosInUse.remove(video)
+                videosInUse.remove(video.id)
                 viewModelScope.launch(Dispatchers.IO) {
                     offlineVideosRepository.update(video.apply {
                         status = if (error == null) OfflineVideo.STATUS_DOWNLOADED else OfflineVideo.STATUS_FAILED
@@ -634,7 +647,7 @@ class DownloadsViewModel(
     }
 
     fun updateChatUrl(newUri: Uri, video: OfflineVideo) {
-        if (!videosInUse.contains(video)) {
+        if (!videosInUse.contains(video.id)) {
             viewModelScope.launch(Dispatchers.IO) {
                 var id: String? = null
                 var title: String? = null
@@ -695,138 +708,177 @@ class DownloadsViewModel(
         }
     }
 
-    fun delete(video: OfflineVideo, keepFiles: Boolean) {
-        val videoUrl = video.url
-        if (!videosInUse.contains(video)) {
-            videosInUse.add(video)
-            viewModelScope.launch(Dispatchers.IO) {
-                offlineVideosRepository.update(video.apply {
-                    progress = 0
-                    maxProgress = 100
-                    status = OfflineVideo.STATUS_DELETING
-                })
-                if (videoUrl != null && !keepFiles) {
-                    if (videoUrl.toUri().scheme == ContentResolver.SCHEME_CONTENT) {
-                        if (videoUrl.endsWith(".m3u8")) {
-                            val videoDirectoryUri = videoUrl.substringBeforeLast("%2F")
-                            val playlist = try {
-                                applicationContext.contentResolver.openInputStream(videoUrl.toUri())!!.use {
-                                    PlaylistUtils.parseMediaPlaylist(it)
-                                }
-                            } catch (e: Exception) {
-                                if (e is CancellationException) throw e
-                                null
-                            }
-                            val tracksToDelete = playlist?.segments?.toMutableSet() ?: mutableSetOf()
-                            val playlists = offlineVideosRepository.getPlaylists().mapNotNull { video ->
-                                video.url?.takeIf {
-                                    it.toUri().scheme == ContentResolver.SCHEME_CONTENT
-                                            && it.substringBeforeLast("%2F") == videoDirectoryUri
-                                            && it != videoUrl
-                                }
-                            }
-                            playlists.forEach { uri ->
-                                try {
-                                    val p = applicationContext.contentResolver.openInputStream(uri.toUri())!!.use {
-                                        PlaylistUtils.parseMediaPlaylist(it)
-                                    }
-                                    tracksToDelete.removeAll(p.segments.toSet())
-                                } catch (e: Exception) {
-                                    if (e is CancellationException) throw e
-
-                                }
-                            }
-                            offlineVideosRepository.update(video.apply {
-                                maxProgress = tracksToDelete.count()
-                            })
-                            tracksToDelete.forEach {
-                                try {
-                                    DocumentsContract.deleteDocument(applicationContext.contentResolver, it.uri.toUri())
-                                } catch (e: Exception) {
-                                    if (e is CancellationException) throw e
-
-                                }
-                                offlineVideosRepository.update(video.apply {
-                                    progress += 1
-                                })
-                            }
-                            try {
-                                DocumentsContract.deleteDocument(applicationContext.contentResolver, videoUrl.toUri())
-                            } catch (e: Exception) {
-                                if (e is CancellationException) throw e
-
-                            }
-                            if (playlists.isEmpty()) {
-                                try {
-                                    DocumentsContract.deleteDocument(applicationContext.contentResolver, videoDirectoryUri.toUri())
-                                } catch (e: Exception) {
-                                    if (e is CancellationException) throw e
-
-                                }
-                            }
-                        } else {
-                            try {
-                                DocumentsContract.deleteDocument(applicationContext.contentResolver, videoUrl.toUri())
-                            } catch (e: Exception) {
-                                if (e is CancellationException) throw e
-
-                            }
-                        }
-                        video.chatUrl?.let {
-                            try {
-                                DocumentsContract.deleteDocument(applicationContext.contentResolver, it.toUri())
-                            } catch (e: Exception) {
-                                if (e is CancellationException) throw e
-
-                            }
-                        }
-                    } else {
-                        val playlistFile = File(videoUrl)
-                        if (!playlistFile.exists()) {
-                            return@launch
-                        }
-                        if (videoUrl.endsWith(".m3u8")) {
-                            val directory = playlistFile.parentFile
-                            if (directory != null) {
-                                val playlists = directory.listFiles { it.extension == "m3u8" && it != playlistFile }
-                                if (playlists != null) {
-                                    val playlist = PlaylistUtils.parseMediaPlaylist(playlistFile.inputStream())
-                                    val tracksToDelete = playlist.segments.toMutableSet()
-                                    playlists.forEach {
-                                        val p = PlaylistUtils.parseMediaPlaylist(it.inputStream())
-                                        tracksToDelete.removeAll(p.segments.toSet())
-                                    }
-                                    offlineVideosRepository.update(video.apply {
-                                        maxProgress = tracksToDelete.count()
-                                    })
-                                    tracksToDelete.forEach {
-                                        File(it.uri).delete()
-                                        offlineVideosRepository.update(video.apply {
-                                            progress += 1
-                                        })
-                                    }
-                                    playlistFile.delete()
-                                    if (playlists.isEmpty()) {
-                                        directory.deleteRecursively()
-                                    }
-                                }
-                            }
-                        } else {
-                            playlistFile.delete()
-                        }
-                        video.chatUrl?.let { File(it).delete() }
-                    }
+    fun deleteSelected(ids: Set<String>, keepFiles: Boolean) {
+        if (bulkDeleteJob?.isActive == true) return
+        bulkDeleteJob = viewModelScope.launch {
+            var failed = false
+            try {
+                for (id in ids) {
+                    val videoId = id.toIntOrNull() ?: continue
+                    if (!deleteById(videoId, keepFiles, reportFailure = false, eligibleOnly = true).await()) failed = true
                 }
-            }.invokeOnCompletion {
-                videosInUse.remove(video)
-                viewModelScope.launch(Dispatchers.IO) {
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                failed = true
+            }
+            if (failed) _deleteFailed.value = true
+        }
+    }
+
+    fun delete(video: OfflineVideo, keepFiles: Boolean, reportFailure: Boolean = true) =
+        deleteById(video.id, keepFiles, reportFailure, eligibleOnly = false)
+
+    private fun deleteById(id: Int, keepFiles: Boolean, reportFailure: Boolean, eligibleOnly: Boolean) = viewModelScope.async {
+        offlineVideosRepository.deletionMutex.withLock {
+            val video = try {
+                offlineVideosRepository.getById(id) ?: return@withLock true
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (reportFailure) _deleteFailed.value = true
+                return@withLock false
+            }
+            if (eligibleOnly && !canSelectForDeletion(video)) return@withLock false
+            if (!videosInUse.add(video.id)) {
+                if (reportFailure) _deleteFailed.value = true
+                return@withLock false
+            }
+            val previousStatus = video.status
+            val previousProgress = video.progress
+            val previousMaximum = video.maxProgress
+            try {
+                withContext(Dispatchers.IO) {
+                    offlineVideosRepository.update(video.apply {
+                        progress = 0
+                        maxProgress = 100
+                        status = OfflineVideo.STATUS_DELETING
+                    })
+                    if (!keepFiles) deleteMediaFiles(video)
+                    // A joined delete includes the database removal before another playlist is processed.
                     offlineVideosRepository.delete(video)
                 }
+                true
+            } catch (error: Exception) {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    try {
+                        offlineVideosRepository.update(video.apply {
+                            status = previousStatus
+                            progress = previousProgress
+                            maxProgress = previousMaximum
+                        })
+                    } catch (_: Exception) { /* The original database row still represents the item. */ }
+                }
+                if (error is CancellationException) throw error
+                if (reportFailure) _deleteFailed.value = true
+                false
+            } finally {
+                videosInUse.remove(video.id)
             }
         }
     }
 
+    private suspend fun deleteMediaFiles(video: OfflineVideo) {
+        video.url?.let { url ->
+            if (offlineVideosRepository.getMediaReferenceIds(url).none { it != video.id }) {
+                if (url.toUri().scheme == ContentResolver.SCHEME_CONTENT) deleteDocumentMedia(video, url)
+                else deleteFileMedia(video, localFile(url))
+            }
+        }
+        video.chatUrl?.let { url ->
+            if (offlineVideosRepository.getMediaReferenceIds(url).none { it != video.id }) {
+                if (url.toUri().scheme == ContentResolver.SCHEME_CONTENT) deleteDocument(url.toUri())
+                else deleteFile(localFile(url))
+            }
+        }
+    }
+
+    private suspend fun deleteDocumentMedia(video: OfflineVideo, url: String) {
+        val uri = url.toUri()
+        if (url.endsWith(".m3u8")) {
+            val playlist = try {
+                applicationContext.contentResolver.openInputStream(uri)?.use(PlaylistUtils::parseMediaPlaylist)
+                    ?: throw FileNotFoundException("Missing download playlist")
+            } catch (_: FileNotFoundException) {
+                return
+            }
+            val tracks = playlist.segments.mapTo(linkedSetOf()) { it.uri }
+            playlist.initSegmentUri?.let(tracks::add)
+            val siblings = offlineVideosRepository.getPlaylists().mapNotNull {
+                it.url?.takeIf { other -> other != url && other.toUri().scheme == ContentResolver.SCHEME_CONTENT }
+            }
+            for (other in siblings) {
+                val shared = applicationContext.contentResolver.openInputStream(other.toUri())?.use(PlaylistUtils::parseMediaPlaylist)
+                    ?: throw IOException("Unable to inspect shared download playlist")
+                tracks.removeAll(shared.segments.map { it.uri }.toSet())
+                shared.initSegmentUri?.let(tracks::remove)
+            }
+            deleteTracks(video, tracks) { deleteDocument(it.toUri()) }
+        }
+        deleteDocument(uri)
+    }
+
+    private suspend fun deleteFileMedia(video: OfflineVideo, file: File) {
+        if (!file.exists()) return
+        if (file.extension.equals("m3u8", true)) {
+            val directory = file.parentFile ?: throw IOException("Missing playlist directory")
+            val playlist = file.inputStream().use(PlaylistUtils::parseMediaPlaylist)
+            val tracks = playlist.segments.mapTo(linkedSetOf()) { localFile(it.uri, directory) }
+            playlist.initSegmentUri?.let { tracks.add(localFile(it, directory)) }
+            val siblings = directory.listFiles { other -> other.extension.equals("m3u8", true) && other != file }
+                ?: throw IOException("Unable to inspect shared download directory")
+            for (other in siblings) {
+                val shared = other.inputStream().use(PlaylistUtils::parseMediaPlaylist)
+                tracks.removeAll(shared.segments.map { localFile(it.uri, directory) }.toSet())
+                shared.initSegmentUri?.let { tracks.remove(localFile(it, directory)) }
+            }
+            deleteTracks(video, tracks, ::deleteFile)
+            deleteFile(file)
+            // Only remove an empty directory, never unrelated files beside an imported playlist.
+            if (directory.listFiles()?.isEmpty() == true) deleteFile(directory)
+        } else deleteFile(file)
+    }
+
+    private suspend fun <T> deleteTracks(video: OfflineVideo, tracks: Collection<T>, delete: (T) -> Unit) {
+        val jobContext = currentCoroutineContext()
+        offlineVideosRepository.update(video.apply { progress = 0; maxProgress = tracks.size.coerceAtLeast(1) })
+        var lastWrite = SystemClock.elapsedRealtime()
+        for (track in tracks) {
+            jobContext.ensureActive()
+            delete(track)
+            video.progress += 1
+            val now = SystemClock.elapsedRealtime()
+            if (video.progress == tracks.size || now - lastWrite >= 250L) {
+                offlineVideosRepository.update(video)
+                lastWrite = now
+            }
+        }
+    }
+
+    private fun localFile(value: String, directory: File? = null): File {
+        val uri = value.toUri()
+        val file = when (uri.scheme) {
+            null -> File(value)
+            ContentResolver.SCHEME_FILE -> File(uri.path ?: throw IOException("Missing download path"))
+            else -> throw IOException("Unsupported local download path")
+        }
+        return (if (file.isAbsolute || directory == null) file else File(directory, value)).canonicalFile
+    }
+
+    private fun deleteFile(file: File) {
+        if (file.exists() && !file.delete()) throw IOException("Unable to delete download file")
+    }
+
+    private fun deleteDocument(uri: Uri) {
+        try {
+            if (!DocumentsContract.deleteDocument(applicationContext.contentResolver, uri)) {
+                throw IOException("Unable to delete download document")
+            }
+        } catch (_: FileNotFoundException) { /* Already removed. */ }
+    }
+
     companion object {
+        fun canSelectForDeletion(video: OfflineVideo): Boolean =
+            video.status == OfflineVideo.STATUS_DOWNLOADED || video.status == OfflineVideo.STATUS_FAILED
+
         val DownloadsViewModelFactory = viewModelFactory {
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)

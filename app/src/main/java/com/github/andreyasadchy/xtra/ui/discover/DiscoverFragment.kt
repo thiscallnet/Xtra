@@ -179,6 +179,7 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                 streamShelfPreloadControllers.remove(key)?.stop()
             },
             useFollowedStreamCardLayout = true,
+            onRetry = viewModel::retrySection,
         )
         binding.recyclerView.apply {
             layoutManager = LinearLayoutManager(context)
@@ -224,7 +225,7 @@ class DiscoverFragment : BaseNetworkFragment(), Scrollable {
                 }
                 viewModel.state.collectLatest { state ->
                     adapter.submitList(state.sections)
-                    binding.emptyState.isVisible = !state.isLoading && state.hasError
+                    binding.emptyState.isVisible = false
                 }
             }
         }

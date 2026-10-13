@@ -91,7 +91,7 @@ class FollowedChannelsDataSourceTest {
                 offlineVideosDao,
                 bookmarksDao,
             ),
-            offlineVideosRepository = OfflineVideosRepository(offlineVideosDao, bookmarksDao),
+            offlineVideosRepository = OfflineVideosRepository(offlineVideosDao, bookmarksDao, java.io.File("unused-test-files")),
             bookmarksRepository = BookmarksRepository(
                 bookmarksDao,
                 noOpDao<BookmarkIgnoredUsersDao>(),

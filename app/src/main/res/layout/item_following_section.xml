@@ -48,6 +48,8 @@
             tools:ignore="UsingOnClickInXml" />
     </LinearLayout>
 
+    <include android:id="@+id/sectionStatus" layout="@layout/item_section_status" android:visibility="gone" />
+
     <FrameLayout
         android:id="@+id/shelfContainer"
         android:layout_width="match_parent"

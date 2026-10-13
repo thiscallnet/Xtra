@@ -44,6 +44,10 @@ import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.installVisibleViewportStatePositioning
 import com.github.andreyasadchy.xtra.ui.download.StreamDownloadService
 import com.github.andreyasadchy.xtra.ui.download.VideoDownloadService
+import com.github.andreyasadchy.xtra.ui.saved.SavedItemSelection
+import com.github.andreyasadchy.xtra.ui.saved.SavedSelectablePage
+import com.github.andreyasadchy.xtra.ui.saved.SavedSelectionHost
+import com.github.andreyasadchy.xtra.ui.saved.installSavedDeleteFeedback
 import com.github.andreyasadchy.xtra.ui.saved.downloads.DownloadsViewModel.Companion.DownloadsViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -53,13 +57,15 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.File
 
-class DownloadsFragment : PagedListFragment(), Scrollable {
+class DownloadsFragment : PagedListFragment(), Scrollable, SavedSelectablePage {
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
     private val viewModel: DownloadsViewModel by viewModels { DownloadsViewModelFactory }
+    private lateinit var selection: SavedItemSelection
     private lateinit var pagingAdapter: PagingDataAdapter<OfflineVideo, out RecyclerView.ViewHolder>
     override var enableNetworkCheck = false
+    override val initializeOfflineOncePerView = true
     private var fileResultLauncher: ActivityResultLauncher<Intent>? = null
     private var chatFileResultLauncher: ActivityResultLauncher<Intent>? = null
     private var videoDownloadService: VideoDownloadService? = null
@@ -98,6 +104,9 @@ class DownloadsFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
+        selection = SavedItemSelection(savedInstanceState)
+        selection.description = getString(R.string.saved_download_selection_limit)
+        installSavedDeleteFeedback(view, viewModel.deleteFailed, viewModel::acknowledgeDeleteFailure)
         binding.nothingHere.setText(R.string.downloads_empty)
         binding.nothingHere.textAlignment = View.TEXT_ALIGNMENT_CENTER
         binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
@@ -287,8 +296,17 @@ class DownloadsFragment : PagedListFragment(), Scrollable {
                     }
                     .setNegativeButton(getString(android.R.string.cancel), null)
                     .show()
-            }
+            },
+            selection = selection,
         )
+        selection.loadedIds = {
+            val current = pagingAdapter as DownloadsAdapter
+            current.snapshot().items.filter(current::canSelect).map { it.id.toString() }
+        }
+        selection.hasLoadedItems = { (pagingAdapter as DownloadsAdapter).snapshot().items.any((pagingAdapter as DownloadsAdapter)::canSelect) }
+        selection.onChanged = (pagingAdapter as DownloadsAdapter)::notifySelectionChanged
+        selection.onDelete = ::confirmDeleteSelected
+        view.post { if (_binding?.root === view && selection.active) startSavedSelection() }
         with(binding) {
             pagingAdapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
                 override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
@@ -445,6 +463,36 @@ class DownloadsFragment : PagedListFragment(), Scrollable {
         streamDownloadServiceConnection?.let { requireContext().unbindService(it) }
         streamDownloadServiceConnection = null
         streamDownloadService = null
+    }
+
+    override fun startSavedSelection() {
+        selection.start((parentFragment as? SavedSelectionHost)?.savedSelectionChrome)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (this::selection.isInitialized) selection.save(outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    private fun confirmDeleteSelected(ids: Set<String>) {
+        val checkBox = CheckBox(requireContext()).apply {
+            setText(R.string.keep_files)
+            isChecked = true
+        }
+        val container = LinearLayout(requireContext()).apply {
+            val padding = (20 * resources.displayMetrics.density).toInt()
+            setPadding(padding, 0, padding, 0)
+            addView(checkBox)
+        }
+        requireActivity().getAlertDialogBuilder()
+            .setTitle(R.string.delete)
+            .setMessage(getString(R.string.saved_delete_downloads_message, ids.size))
+            .setView(container)
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.delete) { _, _ ->
+                viewModel.deleteSelected(ids, checkBox.isChecked)
+                selection.finish()
+            }.show()
     }
 
     override fun scrollToTop() {

@@ -73,6 +73,8 @@ import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
 import com.github.andreyasadchy.xtra.util.parseChatUiBatchIntervalMs
 import com.github.andreyasadchy.xtra.ui.chat.parseChatHighlightColor
 import com.github.andreyasadchy.xtra.util.parseChatBadgeSize
+import com.github.andreyasadchy.xtra.util.MIN_CHAT_BADGE_SIZE_DP
+import com.github.andreyasadchy.xtra.util.MAX_CHAT_BADGE_SIZE_DP
 import com.github.andreyasadchy.xtra.util.proxyPrefs
 import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
@@ -1226,6 +1228,8 @@ class SettingsFragment : MaterialPreferenceFragment() {
         appendCustomListValue(findPreference(C.CHAT_TEXT_SIZE), "sp")
         appendCustomListValue(findPreference(C.CHAT_EMOTE_SIZE), "dp")
         findPreference<EditTextPreference>(C.CHAT_UI_BATCH_INTERVAL_MS)?.apply {
+            extras.putString(MaterialEditTextPreference.VALIDATION_ERROR,
+                getString(R.string.settings_whole_number_range, "0", Long.MAX_VALUE.toString()))
             if (text == null) {
                 text = DEFAULT_CHAT_UI_BATCH_INTERVAL_MS.toString()
             }
@@ -1256,6 +1260,9 @@ class SettingsFragment : MaterialPreferenceFragment() {
             true
         }
         findPreference<EditTextPreference>(C.CHAT_BADGE_SIZE)?.apply {
+            extras.putString(MaterialEditTextPreference.VALIDATION_ERROR,
+                getString(R.string.settings_number_range,
+                    MIN_CHAT_BADGE_SIZE_DP.toString(), MAX_CHAT_BADGE_SIZE_DP.toString()))
             if (parseChatBadgeSize(text) == null) {
                 text = chatBadgeSizeOrDefault(text).toString()
             }
@@ -1293,6 +1300,8 @@ class SettingsFragment : MaterialPreferenceFragment() {
             }
         }
         findPreference<EditTextPreference>(C.WATCH_STREAK_MINIMUM)?.apply {
+            extras.putString(MaterialEditTextPreference.VALIDATION_ERROR,
+                getString(R.string.settings_whole_number_range, "1", Int.MAX_VALUE.toString()))
             val initial = text?.toIntOrNull()?.takeIf { it >= 1 } ?: 1
             if (text != initial.toString()) text = initial.toString()
             setOnBindEditTextListener {

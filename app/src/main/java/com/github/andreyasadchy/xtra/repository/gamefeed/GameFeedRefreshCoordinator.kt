@@ -96,7 +96,7 @@ class GameFeedRefreshCoordinator(
             }
         }
         val flight = refreshFlights.run(spec.key.value) { executeRefresh(spec, reason, force) }
-        return flight.value.await().let { if (flight.joined) it.copy(decision = GameRefreshDecision.JOIN) else it }
+        return flight.value.await().let { if (flight.joined) it.copy(joined = true) else it }
     }
 
     private suspend fun executeRefresh(spec: GameFeedSpec, reason: RefreshReason, force: Boolean): GameRefreshResult {

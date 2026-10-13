@@ -1,21 +1,23 @@
 package com.github.andreyasadchy.xtra.ui.player
 
-import android.content.Context
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.EditorInfo
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.isVisible
-import androidx.core.widget.ImageViewCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentViewerListBinding
-import com.github.andreyasadchy.xtra.databinding.FragmentViewerListItemBinding
 import com.github.andreyasadchy.xtra.model.ui.ChannelViewer
 import com.github.andreyasadchy.xtra.model.ui.ChannelViewerList
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
@@ -24,43 +26,33 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
-import coil3.imageLoader
-import coil3.request.ImageRequest
-import coil3.request.crossfade
-import coil3.request.target
-import coil3.request.transformations
-import coil3.transform.CircleCropTransformation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.coroutineContext
 
+@OptIn(FlowPreview::class)
 class PlayerViewerListDialog : BottomSheetDialogFragment() {
-
-    companion object {
-
-        private const val LOGIN = "login"
-
-        fun newInstance(login: String): PlayerViewerListDialog {
-            return PlayerViewerListDialog().apply {
-                arguments = Bundle().apply {
-                    putString(LOGIN, login)
-                }
-            }
-        }
-    }
-
     private var _binding: FragmentViewerListBinding? = null
     private val binding get() = _binding!!
     private val viewModel: PlayerViewerListViewModel by viewModels { PlayerViewerListViewModelFactory }
-
-    private val broadcastersListItems = mutableListOf<ChannelViewer>()
-    private var broadcastersListOffset = 0
-    private val moderatorsListItems = mutableListOf<ChannelViewer>()
-    private var moderatorsListOffset = 0
-    private val vipsListItems = mutableListOf<ChannelViewer>()
-    private var vipsListOffset = 0
-    private val viewerListItems = mutableListOf<ChannelViewer>()
-    private var viewerListOffset = 0
+    private val query = MutableStateFlow("")
+    private var profileJob: Job? = null
+    private lateinit var adapter: ViewerListAdapter
+    private var catalog: ChannelViewerList? = null
+    private var matchCount = 0
+    private var renderedQuery = ""
+    private var networkLibrary: String? = null
+    private var gqlHeaders: Map<String, String> = emptyMap()
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentViewerListBinding.inflate(inflater, container, false)
@@ -69,232 +61,167 @@ class PlayerViewerListDialog : BottomSheetDialogFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        val behavior = BottomSheetBehavior.from(view.parent as View)
-        behavior.skipCollapsed = true
-        behavior.state = BottomSheetBehavior.STATE_EXPANDED
-        val login = requireArguments().getString(LOGIN)
-        val networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-        val gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), includeToken = true)
-        fun loadViewerList() {
-            viewModel.loadViewerList(
-                login,
-                networkLibrary,
-                gqlHeaders,
-            )
+        networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), includeToken = true)
+        query.value = savedInstanceState?.getString(FILTER).orEmpty()
+        adapter = ViewerListAdapter(::openViewer)
+        binding.viewerList.layoutManager = LinearLayoutManager(requireContext())
+        binding.viewerList.adapter = adapter
+        binding.filterInput.setText(query.value)
+        if (savedInstanceState == null) binding.root.requestFocus()
+        binding.filterInput.doAfterTextChanged { query.value = it?.toString().orEmpty() }
+        binding.filterInput.setOnEditorActionListener { _, action, _ ->
+            if (action == EditorInfo.IME_ACTION_DONE) {
+                dialog?.window?.let { WindowInsetsControllerCompat(it, binding.root).hide(WindowInsetsCompat.Type.ime()) }
+                binding.root.requestFocus()
+                true
+            } else false
         }
-        with(binding) {
-            retryButton.setOnClickListener { loadViewerList() }
-            loadViewerList()
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.isLoading.collect { loading ->
-                        loadingState.isVisible = loading
-                    }
-                }
-            }
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.hasError.collect { hasError ->
-                        errorState.isVisible = hasError
-                    }
-                }
-            }
-            viewLifecycleOwner.lifecycleScope.launch {
-                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.viewerList.collectLatest { fullList ->
-                        if (fullList != null) {
-                            emptyState.isVisible = fullList.broadcasters.isEmpty() &&
-                                    fullList.moderators.isEmpty() &&
-                                    fullList.vips.isEmpty() &&
-                                    fullList.viewers.isEmpty()
-                            if (fullList.broadcasters.isNotEmpty()) {
-                                broadcasterText.visibility = View.VISIBLE
-                                broadcasterText.text = getString(R.string.viewer_list_section, getString(R.string.broadcaster), fullList.broadcasters.size)
-                                broadcasterList.apply {
-                                    visibility = View.VISIBLE
-                                    adapter = Adapter(requireContext(), broadcastersListItems, ::openViewer)
-                                }
-                                loadItems(fullList, broadcasterList, networkLibrary, gqlHeaders)
-                            } else {
-                                broadcasterText.visibility = View.GONE
-                                broadcasterList.visibility = View.GONE
-                            }
-                            if (fullList.moderators.isNotEmpty()) {
-                                moderatorsText.visibility = View.VISIBLE
-                                moderatorsText.text = getString(R.string.viewer_list_section, getString(R.string.moderators), fullList.moderators.size)
-                                moderatorsList.apply {
-                                    visibility = View.VISIBLE
-                                    adapter = Adapter(requireContext(), moderatorsListItems, ::openViewer)
-                                }
-                                loadItems(fullList, moderatorsList, networkLibrary, gqlHeaders)
-                            } else {
-                                moderatorsText.visibility = View.GONE
-                                moderatorsList.visibility = View.GONE
-                            }
-                            if (fullList.vips.isNotEmpty()) {
-                                vipsText.visibility = View.VISIBLE
-                                vipsText.text = getString(R.string.viewer_list_section, getString(R.string.vips), fullList.vips.size)
-                                vipsList.apply {
-                                    visibility = View.VISIBLE
-                                    adapter = Adapter(requireContext(), vipsListItems, ::openViewer)
-                                }
-                                if (fullList.moderators.size <= 100) {
-                                    loadItems(fullList, vipsList, networkLibrary, gqlHeaders)
-                                }
-                            } else {
-                                vipsText.visibility = View.GONE
-                                vipsList.visibility = View.GONE
-                            }
-                            if (fullList.viewers.isNotEmpty()) {
-                                viewersText.visibility = View.VISIBLE
-                                viewersText.text = getString(R.string.viewer_list_section, getString(R.string.viewers), fullList.viewers.size)
-                                viewersList.apply {
-                                    visibility = View.VISIBLE
-                                    adapter = Adapter(requireContext(), viewerListItems, ::openViewer)
-                                }
-                                if ((fullList.moderators.size + fullList.vips.size) <= 100) {
-                                    loadItems(fullList, viewersList, networkLibrary, gqlHeaders)
-                                }
-                            } else {
-                                viewersText.visibility = View.GONE
-                                viewersList.visibility = View.GONE
-                            }
-                            if (fullList.count != null) {
-                                userCount.visibility = View.VISIBLE
-                                userCount.text = getString(R.string.user_count, TwitchApiHelper.formatCount(fullList.count, requireContext().prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true)))
-                            } else {
-                                userCount.visibility = View.GONE
-                            }
-                            scrollView.viewTreeObserver.addOnScrollChangedListener {
-                                if (!scrollView.canScrollVertically(1)) {
-                                    when {
-                                        broadcastersListOffset != fullList.broadcasters.size -> loadItems(fullList, broadcasterList, networkLibrary, gqlHeaders)
-                                        moderatorsListOffset != fullList.moderators.size -> loadItems(fullList, moderatorsList, networkLibrary, gqlHeaders)
-                                        vipsListOffset != fullList.vips.size -> loadItems(fullList, vipsList, networkLibrary, gqlHeaders)
-                                        viewerListOffset != fullList.viewers.size -> loadItems(fullList, viewersList, networkLibrary, gqlHeaders)
-                                    }
-                                }
+        binding.retryButton.setOnClickListener { loadViewerList() }
+        binding.viewerList.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) = requestProfiles()
+        })
+        loadViewerList()
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                launch {
+                    var previousQuery: String? = null
+                    combine(viewModel.viewerList, viewModel.profiles, query.debounce(150)) { list, profiles, text ->
+                        Triple(list, profiles, text.trim())
+                    }.collectLatest { (list, profiles, text) ->
+                        val rows = withContext(Dispatchers.Default) { buildRows(list, profiles, text) }
+                        val page = binding
+                        catalog = list
+                        renderedQuery = text
+                        matchCount = rows.count { it is ViewerRow.Person }
+                        val scrollToTop = previousQuery != null && previousQuery != text
+                        previousQuery = text
+                        adapter.submitList(rows) {
+                            if (_binding === page) {
+                                if (scrollToTop) page.viewerList.scrollToPosition(0)
+                                page.viewerList.post { if (_binding === page) requestProfiles() }
                             }
                         }
+                        renderStatus()
                     }
                 }
+                launch {
+                    combine(viewModel.isLoading, viewModel.hasError) { _, _ -> Unit }.collect { renderStatus() }
+                }
+            }
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        (dialog as? BottomSheetDialog)?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)?.let { sheet ->
+            sheet.layoutParams = sheet.layoutParams.apply { height = ViewGroup.LayoutParams.MATCH_PARENT }
+            BottomSheetBehavior.from(sheet).apply { skipCollapsed = true; state = BottomSheetBehavior.STATE_EXPANDED }
+        }
+        binding.viewerList.post { if (_binding != null) requestProfiles() }
+    }
+
+    private fun loadViewerList() = viewModel.loadViewerList(requireArguments().getString(LOGIN), networkLibrary, gqlHeaders)
+
+    private suspend fun buildRows(list: ChannelViewerList?, profiles: Map<String, ChannelViewer>, text: String): List<ViewerRow> {
+        if (list == null) return emptyList()
+        val groups = listOf(
+            R.string.broadcaster to list.broadcasters, R.string.moderators to list.moderators,
+            R.string.vips to list.vips, R.string.viewers to list.viewers,
+        )
+        return buildList {
+            groups.forEachIndexed { group, (title, people) ->
+                val matches = buildList {
+                    people.forEachIndexed { index, source ->
+                        if (index and 255 == 0) coroutineContext.ensureActive()
+                        val person = profiles[source.login.lowercase()] ?: source
+                        if (text.isEmpty() || person.login.contains(text, ignoreCase = true) ||
+                            person.displayName?.contains(text, ignoreCase = true) == true
+                        ) add(ViewerRow.Person(group, person))
+                    }
+                }
+                if (matches.isNotEmpty()) {
+                    add(ViewerRow.Header(group, title, matches.size))
+                    addAll(matches)
+                }
+            }
+        }
+    }
+
+    private fun renderStatus() = with(binding) {
+        val data = catalog
+        val loading = data == null && (viewModel.isLoading.value || viewModel.viewerList.value != null)
+        val failed = data == null && viewModel.hasError.value
+        loadingState.isVisible = loading
+        errorState.isVisible = failed && !loading
+        emptyState.isVisible = data != null && matchCount == 0
+        emptyState.setText(if (renderedQuery.isBlank()) R.string.viewer_list_empty else R.string.viewer_filter_no_matches)
+        viewerList.isVisible = data != null && matchCount > 0
+        filterScope.isVisible = data != null
+        data?.let {
+            filterScope.text = getString(R.string.viewer_filter_scope, it.broadcasters.size + it.moderators.size + it.vips.size + it.viewers.size)
+        }
+        userCount.isVisible = data?.count != null
+        data?.count?.let {
+            userCount.text = getString(R.string.user_count, TwitchApiHelper.formatCount(it, requireContext().prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true)))
+        }
+    }
+
+    private fun requestProfiles() {
+        val page = _binding ?: return
+        if (!page.viewerList.isShown || !viewLifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) || profileJob?.isActive == true) return
+        val layout = page.viewerList.layoutManager as LinearLayoutManager
+        val start = layout.findFirstVisibleItemPosition().coerceAtLeast(0)
+        val end = (layout.findLastVisibleItemPosition().coerceAtLeast(start) + 50).coerceAtMost(adapter.itemCount)
+        if (start >= end) return
+        val batch = adapter.currentList.subList(start, end).mapNotNull { (it as? ViewerRow.Person)?.value }
+            .filter { !viewModel.hasLoadedProfile(it.login) }.distinctBy { it.login.lowercase() }.take(100)
+        if (batch.isEmpty()) return
+        profileJob = viewLifecycleOwner.lifecycleScope.launch {
+            val job = coroutineContext[Job]
+            try {
+                val enriched = viewModel.enrichProfiles(networkLibrary, gqlHeaders, batch)
+                coroutineContext.ensureActive()
+                viewModel.recordProfiles(batch, enriched)
+            } finally {
+                if (profileJob === job) profileJob = null
+                page.viewerList.post { if (_binding === page) requestProfiles() }
             }
         }
     }
 
     private fun openViewer(viewer: ChannelViewer) {
         val parent = parentFragment ?: return
-        parent.findNavController().navigate(
-            ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
-                channelId = viewer.id,
-                channelLogin = viewer.login,
-                channelName = viewer.displayName ?: viewer.login,
-                channelImage = viewer.profileImageURL,
-            )
-        )
+        val current = viewModel.profiles.value[viewer.login.lowercase()] ?: viewer
+        parent.findNavController().navigate(ChannelPagerFragmentDirections.actionGlobalChannelPagerFragment(
+            channelId = current.id, channelLogin = current.login, channelName = current.displayName ?: current.login,
+            channelImage = current.profileImageURL,
+        ))
         (parent as? Media3PlayerFragment)?.minimize()
         dismiss()
     }
 
-    private fun loadItems(
-        fullList: ChannelViewerList,
-        recyclerView: RecyclerView,
-        networkLibrary: String?,
-        gqlHeaders: Map<String, String>,
-    ) {
-        val (sourceItems, targetItems) = with(binding) {
-            when (recyclerView) {
-                broadcasterList -> fullList.broadcasters to broadcastersListItems
-                moderatorsList -> fullList.moderators to moderatorsListItems
-                vipsList -> fullList.vips to vipsListItems
-                viewersList -> fullList.viewers to viewerListItems
-                else -> return
-            }
-        }
-        val offset = when (recyclerView) {
-            binding.broadcasterList -> broadcastersListOffset
-            binding.moderatorsList -> moderatorsListOffset
-            binding.vipsList -> vipsListOffset
-            binding.viewersList -> viewerListOffset
-            else -> return
-        }
-        val add = minOf(100, sourceItems.size - offset)
-        if (add <= 0) return
-        val insertAt = targetItems.size
-        val items = sourceItems.subList(offset, offset + add).toList()
-        targetItems.addAll(items)
-        when (recyclerView) {
-            binding.broadcasterList -> broadcastersListOffset += add
-            binding.moderatorsList -> moderatorsListOffset += add
-            binding.vipsList -> vipsListOffset += add
-            binding.viewersList -> viewerListOffset += add
-        }
-        recyclerView.adapter?.notifyItemRangeInserted(insertAt, add)
-        viewLifecycleOwner.lifecycleScope.launch {
-            val enrichedItems = viewModel.enrichProfiles(networkLibrary, gqlHeaders, items)
-            enrichedItems.forEachIndexed { index, item -> targetItems[insertAt + index] = item }
-            recyclerView.adapter?.notifyItemRangeChanged(insertAt, enrichedItems.size)
-        }
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(FILTER, query.value)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onStop() {
+        profileJob?.cancel()
+        profileJob = null
+        super.onStop()
     }
 
     override fun onDestroyView() {
-        super.onDestroyView()
+        binding.viewerList.adapter = null
         _binding = null
+        super.onDestroyView()
     }
 
-    class Adapter internal constructor(
-        private val context: Context,
-        data: List<ChannelViewer>,
-        private val onClick: (ChannelViewer) -> Unit,
-    ) : RecyclerView.Adapter<Adapter.ViewHolder>() {
-        private val mData: List<ChannelViewer> = data
-        private val mInflater: LayoutInflater = LayoutInflater.from(context)
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-            val view = mInflater.inflate(R.layout.fragment_viewer_list_item, parent, false)
-            return ViewHolder(view)
-        }
-
-        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-            holder.bind(mData[position])
-        }
-
-        override fun getItemCount(): Int {
-            return mData.size
-        }
-
-        inner class ViewHolder internal constructor(itemView: View) : RecyclerView.ViewHolder(itemView) {
-
-            private val binding = FragmentViewerListItemBinding.bind(itemView)
-            private val placeholderTint = ImageViewCompat.getImageTintList(binding.userImage)
-
-            fun bind(viewer: ChannelViewer) = with(binding) {
-                val displayName = viewer.displayName?.takeIf { it.isNotBlank() }
-                    ?.takeUnless { it.equals(viewer.login, ignoreCase = true) }
-                    ?: viewer.login
-                val nameDisplayMode = context.prefs().getString(C.UI_NAME_DISPLAY, "0")
-                val showLogin = nameDisplayMode == "0" && !displayName.equals(viewer.login, ignoreCase = true)
-                val shownName = if (nameDisplayMode == "2") viewer.login else displayName
-                root.setOnClickListener { onClick(viewer) }
-                root.contentDescription = context.getString(R.string.player_open_channel, shownName)
-                userName.text = shownName
-                userLogin.isVisible = showLogin
-                userLogin.text = "@${viewer.login}"
-                userImage.setImageResource(R.drawable.baseline_person_black_24)
-                ImageViewCompat.setImageTintList(userImage, placeholderTint)
-                viewer.profileImageURL?.takeIf { it.isNotBlank() }?.let { url ->
-                    ImageViewCompat.setImageTintList(userImage, null)
-                    context.imageLoader.enqueue(
-                        ImageRequest.Builder(context)
-                            .data(url)
-                            .crossfade(true)
-                            .transformations(CircleCropTransformation())
-                            .target(userImage)
-                            .build()
-                    )
-                }
-            }
-        }
+    companion object {
+        private const val LOGIN = "login"
+        private const val FILTER = "viewer_filter"
+        fun newInstance(login: String) = PlayerViewerListDialog().apply { arguments = Bundle().apply { putString(LOGIN, login) } }
     }
 }
 
