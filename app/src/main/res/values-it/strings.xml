@@ -823,6 +823,8 @@
     <string name="settings_display_compatibility">Compatibilità display</string>
     <string name="settings_display_cutouts">Usa l\'area attorno ai ritagli del display</string>
     <string name="settings_display_cutouts_summary">Consenti ai contenuti Xtra di estendersi fino al notch e aree di ritaglio della fotocamera.</string>
+    <string name="settings_pocket_touch_guard">Ignora i tocchi in tasca</string>
+    <string name="settings_pocket_touch_guard_summary">Blocca tutti i tocchi quando il telefono è coperto e al buio, usando i sensori di prossimità e di luce. I tocchi tornano a funzionare appena lo tiri fuori.</string>
     <string name="settings_corner_style">Stile angolare</string>
     <string name="settings_corner_rounded">Arrotondato</string>
     <string name="settings_corner_subtle">Sottile</string>

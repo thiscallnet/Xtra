@@ -320,6 +320,8 @@
     <string name="settings_display_compatibility">Kompatibilita displeje</string>
     <string name="settings_display_cutouts">Použijte oblast kolem výřezů displeje</string>
     <string name="settings_display_cutouts_summary">Umožněte obsahu Xtra rozšířit se do zářezů a oblastí s výřezy pro fotoaparát.</string>
+    <string name="settings_pocket_touch_guard">Ignorovat klepnutí v kapse</string>
+    <string name="settings_pocket_touch_guard_summary">Blokuje všechny doteky, když je telefon zakrytý a tmavý, pomocí snímačů přiblížení a světla. Dotyky znovu fungují, jakmile telefon vyndáte.</string>
     <string name="settings_corner_style">Rohový styl</string>
     <string name="settings_corner_rounded">Zaoblený</string>
     <string name="settings_corner_subtle">Jemný</string>

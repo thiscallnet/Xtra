@@ -823,6 +823,8 @@
     <string name="settings_display_compatibility">顯示器相容性</string>
     <string name="settings_display_cutouts">使用顯示器切口周圍的區域</string>
     <string name="settings_display_cutouts_summary">允許 Xtra 內容延伸到凹口和相機切口區域。</string>
+    <string name="settings_pocket_touch_guard">忽略口袋中的點按</string>
+    <string name="settings_pocket_touch_guard_summary">利用接近感測器和光線感測器，在手機被遮蔽且處於黑暗中時封鎖所有觸控。取出手機後觸控立即恢復。</string>
     <string name="settings_corner_style">角樣式</string>
     <string name="settings_corner_rounded">圓角</string>
     <string name="settings_corner_subtle">微妙</string>

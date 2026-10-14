@@ -824,6 +824,8 @@
     <string name="settings_display_compatibility">Kompatibilitas tampilan</string>
     <string name="settings_display_cutouts">Gunakan area di sekitar potongan tampilan</string>
     <string name="settings_display_cutouts_summary">Izinkan konten Xtra meluas ke area takik dan area potongan kamera.</string>
+    <string name="settings_pocket_touch_guard">Abaikan ketukan di saku</string>
+    <string name="settings_pocket_touch_guard_summary">Memblokir semua sentuhan saat ponsel tertutup dan gelap, menggunakan sensor jarak dekat dan cahaya. Sentuhan berfungsi lagi segera setelah ponsel dikeluarkan.</string>
     <string name="settings_corner_style">Gaya sudut</string>
     <string name="settings_corner_rounded">Bulat</string>
     <string name="settings_corner_subtle">Halus</string>

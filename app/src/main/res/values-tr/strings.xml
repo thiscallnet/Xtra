@@ -824,6 +824,8 @@
     <string name="settings_display_compatibility">Ekran uyumluluğu</string>
     <string name="settings_display_cutouts">Ekran kesiklerinin etrafındaki alanı kullanın</string>
     <string name="settings_display_cutouts_summary">Xtra içeriğinin çentiğe yayılmasına izin verin ve kamera kesme alanları.</string>
+    <string name="settings_pocket_touch_guard">Cepteyken dokunmaları yok say</string>
+    <string name="settings_pocket_touch_guard_summary">Telefon kapalı ve karanlıkken yakınlık ve ışık sensörlerini kullanarak tüm dokunmaları engeller. Telefonu çıkardığınız anda dokunmalar yeniden çalışır.</string>
     <string name="settings_corner_style">Köşe stili</string>
     <string name="settings_corner_rounded">Yuvarlak</string>
     <string name="settings_corner_subtle">İnce</string>

@@ -26,6 +26,7 @@ import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.SettingsNavGraphDirections
 import com.github.andreyasadchy.xtra.model.ui.SettingsSearchItem
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.PocketTouchGuard
 import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.color.MaterialColors
 
@@ -132,6 +133,7 @@ class SettingsSearchFragment : Fragment() {
             ) else emptyList()).forEach { item ->
                 preferenceManager.inflateFromResource(requireContext(), item.first, null).forEach {
                     if (!it.isVisible) return@forEach
+                    if (it.key == C.POCKET_TOUCH_GUARD && !PocketTouchGuard.isSupported(requireContext())) return@forEach
                     when (it) {
                         is SwitchPreferenceCompat -> {
                             list.add(SettingsSearchItem(

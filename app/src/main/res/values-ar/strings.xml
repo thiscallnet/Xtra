@@ -823,6 +823,8 @@
     <string name="settings_display_compatibility">توافق العرض</string>
     <string name="settings_display_cutouts">استخدم المنطقة حول قواطع الشاشة</string>
     <string name="settings_display_cutouts_summary">اسمح لمحتوى Xtra بالتوسع إلى الدرجة ومناطق انقطاع الكاميرا.</string>
+    <string name="settings_pocket_touch_guard">تجاهل النقرات في الجيب</string>
+    <string name="settings_pocket_touch_guard_summary">يحظر جميع اللمسات عندما يكون الهاتف مغطى ومظلمًا، باستخدام مستشعري القرب والضوء. تعمل اللمسات مجددًا بمجرد إخراجه.</string>
     <string name="settings_corner_style">نمط الزاوية</string>
     <string name="settings_corner_rounded">مدورة</string>
     <string name="settings_corner_subtle">دقيقة</string>

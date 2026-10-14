@@ -823,6 +823,8 @@
     <string name="settings_display_compatibility">Compatibilité d\'affichage</string>
     <string name="settings_display_cutouts">Utiliser la zone autour des découpes d\'affichage</string>
     <string name="settings_display_cutouts_summary">Autoriser le contenu Xtra à s\'étendre dans l\'encoche et zones de découpe de la caméra.</string>
+    <string name="settings_pocket_touch_guard">Ignorer les appuis dans la poche</string>
+    <string name="settings_pocket_touch_guard_summary">Bloque tous les appuis lorsque le téléphone est couvert et dans le noir, grâce aux capteurs de proximité et de luminosité. Les appuis refonctionnent dès que vous le sortez.</string>
     <string name="settings_corner_style">Style d\'angle</string>
     <string name="settings_corner_rounded">Arrondi</string>
     <string name="settings_corner_subtle">Subtil</string>

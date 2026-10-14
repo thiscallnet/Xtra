@@ -25,6 +25,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.settings.SettingsRestoreCoordinator
 import com.github.andreyasadchy.xtra.util.NetworkUtils
+import com.github.andreyasadchy.xtra.util.PocketTouchGuard
 import com.github.andreyasadchy.xtra.util.MainLooperStallWatchdog
 import com.github.andreyasadchy.xtra.util.coil.EmoteCacheStrategy
 import com.github.andreyasadchy.xtra.util.coil.EmoteRoutingDiskCache
@@ -122,6 +123,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         }
         restoreMigrationPending = SettingsRestoreCoordinator.hasPendingSettingsMigration(this)
         registerActivityLifecycleCallbacks(createActivityLifecycleCallbacks())
+        PocketTouchGuard.install(this)
         if (!restoreMigrationPending) startDeferredStartupTasks()
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             val conscrypt = Conscrypt.newProvider()

@@ -299,6 +299,8 @@
     <string name="settings_display_compatibility">Zgodność wyświetlacza</string>
     <string name="settings_display_cutouts">Wykorzystaj obszar wokół wycięć w wyświetlaczu</string>
     <string name="settings_display_cutouts_summary">Pozwól, aby zawartość Xtra rozciągała się na obszary wycięć i wycięć kamery.</string>
+    <string name="settings_pocket_touch_guard">Ignoruj dotknięcia w kieszeni</string>
+    <string name="settings_pocket_touch_guard_summary">Blokuje wszystkie dotknięcia, gdy telefon jest zakryty i w ciemności, korzystając z czujników zbliżeniowego i światła. Dotyk działa ponownie, gdy tylko wyjmiesz telefon.</string>
     <string name="settings_corner_style">Narożnik styl</string>
     <string name="settings_corner_rounded">Zaokrąglony</string>
     <string name="settings_corner_subtle">Subtelny</string>

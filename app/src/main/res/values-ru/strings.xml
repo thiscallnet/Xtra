@@ -823,6 +823,8 @@
     <string name="settings_display_compatibility">Совместимость дисплея</string>
     <string name="settings_display_cutouts">Использовать область вокруг вырезов дисплея</string>
     <string name="settings_display_cutouts_summary">Разрешить контенту Xtra распространяться на области вырезов и вырезов камеры.</string>
+    <string name="settings_pocket_touch_guard">Игнорировать нажатия в кармане</string>
+    <string name="settings_pocket_touch_guard_summary">Блокирует все касания, когда телефон закрыт и в темноте, используя датчики приближения и освещённости. Касания снова работают, как только вы достанете телефон.</string>
     <string name="settings_corner_style">Угловой стиль</string>
     <string name="settings_corner_rounded">Закругленный</string>
     <string name="settings_corner_subtle">Тонкий</string>

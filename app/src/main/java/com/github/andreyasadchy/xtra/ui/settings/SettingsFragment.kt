@@ -62,6 +62,7 @@ import com.github.andreyasadchy.xtra.ui.main.WatchStreakReminderNotifier
 import com.github.andreyasadchy.xtra.repository.WatchStreakReminderStateStore
 import com.github.andreyasadchy.xtra.ui.settings.SettingsViewModel.Companion.SettingsViewModelFactory
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.PocketTouchGuard
 import com.github.andreyasadchy.xtra.util.SettingsMigration
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.XtraApp
@@ -653,6 +654,7 @@ class SettingsFragment : MaterialPreferenceFragment() {
                 true
             }
         }
+        findPreference<SwitchPreferenceCompat>(C.POCKET_TOUCH_GUARD)?.isVisible = PocketTouchGuard.isSupported(requireContext())
         findPreference<SwitchPreferenceCompat>(C.UI_DRAW_BEHIND_CUTOUTS)?.apply {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 setOnPreferenceChangeListener { _, _ ->

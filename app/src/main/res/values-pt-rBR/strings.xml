@@ -823,6 +823,8 @@
     <string name="settings_display_compatibility">Compatibilidade de exibição</string>
     <string name="settings_display_cutouts">Usar área ao redor dos recortes de exibição</string>
     <string name="settings_display_cutouts_summary">Permitir que o conteúdo Xtra se estenda para áreas de entalhe e recorte de câmera.</string>
+    <string name="settings_pocket_touch_guard">Ignorar toques no bolso</string>
+    <string name="settings_pocket_touch_guard_summary">Bloqueia todos os toques quando o telefone está coberto e no escuro, usando os sensores de proximidade e de luz. Os toques voltam a funcionar assim que você o tira.</string>
     <string name="settings_corner_style">Estilo de canto</string>
     <string name="settings_corner_rounded">Arredondado</string>
     <string name="settings_corner_subtle">Sutil</string>

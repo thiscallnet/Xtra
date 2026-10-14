@@ -447,6 +447,8 @@
     <string name="settings_display_compatibility">Display compatibility</string>
     <string name="settings_display_cutouts">Use area around display cutouts</string>
     <string name="settings_display_cutouts_summary">Allow Xtra content to extend into notch and camera-cutout areas.</string>
+    <string name="settings_pocket_touch_guard">Ignore taps in pocket</string>
+    <string name="settings_pocket_touch_guard_summary">Blocks all touches while the phone is covered and dark, using the proximity and light sensors. Touches work again as soon as you take it out.</string>
     <string name="settings_corner_style">Corner style</string>
     <string name="settings_corner_rounded">Rounded</string>
     <string name="settings_corner_subtle">Subtle</string>

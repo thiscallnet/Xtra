@@ -823,6 +823,8 @@
     <string name="settings_display_compatibility">ディスプレイの互換性</string>
     <string name="settings_display_cutouts">ディスプレイのカットアウトの周囲の領域を使用</string>
     <string name="settings_display_cutouts_summary">許可ノッチ領域とカメラカットアウト領域に拡張する追加コンテンツ。</string>
+    <string name="settings_pocket_touch_guard">ポケット内のタップを無視</string>
+    <string name="settings_pocket_touch_guard_summary">近接センサーと照度センサーを使い、スマートフォンが覆われて暗い間はすべてのタッチをブロックします。取り出すとすぐにタッチが使えるようになります。</string>
     <string name="settings_corner_style">コーナースタイル</string>
     <string name="settings_corner_rounded">丸みのある</string>
     <string name="settings_corner_subtle">微妙な</string>

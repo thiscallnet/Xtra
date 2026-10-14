@@ -823,6 +823,8 @@
     <string name="settings_display_compatibility">显示兼容性</string>
     <string name="settings_display_cutouts">使用显示切口周围的区域</string>
     <string name="settings_display_cutouts_summary">允许 Xtra 内容延伸到缺口中和相机剪切区域。</string>
+    <string name="settings_pocket_touch_guard">忽略口袋中的点按</string>
+    <string name="settings_pocket_touch_guard_summary">利用接近传感器和光线传感器，在手机被遮挡且处于黑暗中时屏蔽所有触摸。取出手机后触摸立即恢复。</string>
     <string name="settings_corner_style">转角样式</string>
     <string name="settings_corner_rounded">圆形</string>
     <string name="settings_corner_subtle">微妙</string>

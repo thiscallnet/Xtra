@@ -83,6 +83,7 @@ object SettingsMigration {
         C.UI_LANGUAGE,
         C.UI_CUTOUT_MODE,
         C.UI_DRAW_BEHIND_CUTOUTS,
+        C.POCKET_TOUCH_GUARD,
         C.UI_FOLLOW_BUTTON,
         C.UI_ACTIVATE_NOTIFICATIONS_WHEN_FOLLOWING,
         C.UI_UPTIME,
