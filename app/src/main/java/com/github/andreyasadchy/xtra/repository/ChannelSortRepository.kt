@@ -17,7 +17,11 @@ class ChannelSortRepository(
         channelSortDao.insert(item)
     }
 
-    suspend fun delete(item: ChannelSort) = withContext(Dispatchers.IO) {
-        channelSortDao.delete(item)
+    suspend fun deleteVideoSort(id: String) = withContext(Dispatchers.IO) {
+        channelSortDao.deleteVideoSort(id)
+    }
+
+    suspend fun deleteClipSort(id: String) = withContext(Dispatchers.IO) {
+        channelSortDao.deleteClipSort(id)
     }
 }

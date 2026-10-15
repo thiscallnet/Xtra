@@ -1537,4 +1537,7 @@
     <string name="saved_download_selection_limit">只能選取已完成或失敗的下載。</string>
     <string name="saved_delete_failed">部分項目無法刪除，仍保留在清單中。</string>
     <string name="team_details_failed">無法載入團隊詳細資料。</string>
+    <string name="search_tags_prompt">輸入標籤名稱以搜尋。</string>
+    <string name="forget_tab_choices">清除為此分頁儲存的選項</string>
+    <string name="all_languages">所有語言</string>
 </resources>

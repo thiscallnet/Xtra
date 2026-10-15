@@ -1542,4 +1542,7 @@
     <string name="saved_download_selection_limit">Solo se pueden seleccionar descargas completadas o fallidas.</string>
     <string name="saved_delete_failed">No se pudieron eliminar algunos elementos. Permanecen en la lista.</string>
     <string name="team_details_failed">No se pudieron cargar los detalles del equipo.</string>
+    <string name="search_tags_prompt">Introduce el nombre de una etiqueta para buscar.</string>
+    <string name="forget_tab_choices">Olvidar las opciones guardadas para esta pestaña</string>
+    <string name="all_languages">Todos los idiomas</string>
 </resources>

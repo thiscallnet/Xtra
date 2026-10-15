@@ -17,7 +17,15 @@ class GameSortRepository(
         gameSortDao.insert(item)
     }
 
-    suspend fun delete(item: GameSort) = withContext(Dispatchers.IO) {
-        gameSortDao.delete(item)
+    suspend fun deleteStreamSort(id: String) = withContext(Dispatchers.IO) {
+        gameSortDao.deleteStreamSort(id)
+    }
+
+    suspend fun deleteVideoSort(id: String) = withContext(Dispatchers.IO) {
+        gameSortDao.deleteVideoSort(id)
+    }
+
+    suspend fun deleteClipSort(id: String) = withContext(Dispatchers.IO) {
+        gameSortDao.deleteClipSort(id)
     }
 }

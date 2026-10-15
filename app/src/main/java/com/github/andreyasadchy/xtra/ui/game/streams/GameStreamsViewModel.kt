@@ -87,8 +87,8 @@ class GameStreamsViewModel(
         gameSortRepository.save(item)
     }
 
-    suspend fun deleteGameSort(item: GameSort) {
-        gameSortRepository.delete(item)
+    suspend fun deleteGameSort(id: String) {
+        gameSortRepository.deleteStreamSort(id)
     }
 
     suspend fun saveFilters(item: SavedFilter) {

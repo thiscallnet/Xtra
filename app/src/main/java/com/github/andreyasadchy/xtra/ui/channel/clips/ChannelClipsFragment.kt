@@ -30,15 +30,19 @@ import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
 import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.collectSelectedSortBar
+import com.github.andreyasadchy.xtra.ui.common.isCurrentSortPage
 import com.github.andreyasadchy.xtra.ui.common.VideosSortDialog
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class ChannelClipsFragment : PagedListFragment(), Scrollable, Sortable, VideosSortDialog.OnFilter {
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
+    private var sortBarJob: Job? = null
     private val args: ChannelPagerFragmentArgs by navArgs()
     private val viewModel: ChannelClipsViewModel by viewModels { ChannelClipsViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Clip, out RecyclerView.ViewHolder>
@@ -83,7 +87,8 @@ class ChannelClipsFragment : PagedListFragment(), Scrollable, Sortable, VideosSo
     override fun initialize() {
         viewLifecycleOwner.lifecycleScope.launch {
             if (viewModel.filter.value == null) {
-                val sortValues = args.channelId?.let { viewModel.getChannelSort(it) } ?: viewModel.getChannelSort("default")
+                val sortValues = args.channelId?.let { viewModel.getChannelSort(it) }?.takeIf { it.hasClipSort() }
+                    ?: viewModel.getChannelSort("default")
                 viewModel.setFilter(
                     period = sortValues?.clipPeriod,
                 )
@@ -111,23 +116,22 @@ class ChannelClipsFragment : PagedListFragment(), Scrollable, Sortable, VideosSo
     }
 
     override fun setupSortBar(sortBar: SortBarBinding) {
+        if (view == null || (parentFragment as? FragmentHost)?.currentFragment !== this) return
         sortBar.root.visibility = View.VISIBLE
         sortBar.root.setOnClickListener {
             viewLifecycleOwner.lifecycleScope.launch {
+                if (!isCurrentSortPage()) return@launch
+                val saved = args.channelId?.let { viewModel.getChannelSort(it) }?.hasClipSort() == true
+                if (!isCurrentSortPage()) return@launch
                 VideosSortDialog.newInstance(
                     sort = VideosSortDialog.SORT_VIEWS,
                     period = viewModel.period,
-                    saved = args.channelId?.let { viewModel.getChannelSort(it) } != null
+                    saved = saved,
                 ).show(childFragmentManager, null)
             }
         }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.sortText.collectLatest {
-                    sortBar.sortText.text = it
-                }
-            }
-        }
+        sortBarJob?.cancel()
+        sortBarJob = collectSelectedSortBar(sortBar, viewModel.sortText)
     }
 
     override fun onChange(sort: String, sortText: CharSequence, period: String, periodText: CharSequence, type: String, typeText: CharSequence, languages: Array<String>, changed: Boolean, saveSort: Boolean, saveDefault: Boolean) {
@@ -166,7 +170,7 @@ class ChannelClipsFragment : PagedListFragment(), Scrollable, Sortable, VideosSo
     override fun deleteSavedSort() {
         if ((parentFragment as? FragmentHost)?.currentFragment == this) {
             viewLifecycleOwner.lifecycleScope.launch {
-                args.channelId?.let { viewModel.getChannelSort(it) }?.let { viewModel.deleteChannelSort(it) }
+                args.channelId?.let { viewModel.deleteChannelSort(it) }
             }
         }
     }
@@ -180,6 +184,8 @@ class ChannelClipsFragment : PagedListFragment(), Scrollable, Sortable, VideosSo
     }
 
     override fun onDestroyView() {
+        sortBarJob?.cancel()
+        sortBarJob = null
         super.onDestroyView()
         _binding = null
     }

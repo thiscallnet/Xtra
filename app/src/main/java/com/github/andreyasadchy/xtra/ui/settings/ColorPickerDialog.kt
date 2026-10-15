@@ -7,6 +7,7 @@ import android.graphics.LinearGradient
 import android.graphics.Paint
 import android.graphics.Shader
 import android.os.Build
+import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -21,6 +22,10 @@ import android.widget.TextView
 import androidx.annotation.ColorInt
 import androidx.appcompat.app.AlertDialog
 import androidx.core.graphics.ColorUtils
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.doOnLayout
 import com.github.andreyasadchy.xtra.R
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -30,6 +35,8 @@ import kotlin.math.roundToInt
 
 internal object ColorPickerDialog {
 
+    class Session(val dialog: AlertDialog, val saveState: (Bundle) -> Unit)
+
     fun show(
         context: Context,
         title: CharSequence,
@@ -38,8 +45,26 @@ internal object ColorPickerDialog {
         allowAlpha: Boolean,
         onColorSelected: (String) -> Boolean,
         onDefault: (() -> Boolean)? = null,
-    ): AlertDialog {
+    ): AlertDialog = create(context, title, initialColor, defaultColor, allowAlpha, onColorSelected, onDefault)
+        .dialog.also { it.show() }
+
+    fun create(
+        context: Context,
+        title: CharSequence,
+        @ColorInt initialColor: Int,
+        @ColorInt defaultColor: Int?,
+        allowAlpha: Boolean,
+        onColorSelected: (String) -> Boolean,
+        onDefault: (() -> Boolean)? = null,
+        savedState: Bundle? = null,
+    ): Session {
         val state = PickerState(initialColor, allowAlpha)
+        savedState?.getFloatArray("pickerHsv")?.takeIf { it.size == 4 }?.let {
+            state.hue = it[0]
+            state.saturation = it[1]
+            state.value = it[2]
+            state.alpha = it[3]
+        }
         val density = context.resources.displayMetrics.density
         val content = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -149,7 +174,7 @@ internal object ColorPickerDialog {
             )
             saturationValue.contentDescription = context.getString(
                 R.string.settings_color_picker_saturation_brightness_value,
-                state.saturation.roundToInt().coerceIn(0, 100),
+                (state.saturation * 100).roundToInt().coerceIn(0, 100),
                 (state.value * 100).roundToInt().coerceIn(0, 100),
             )
             hue.contentDescription = context.getString(
@@ -189,12 +214,19 @@ internal object ColorPickerDialog {
         })
 
         refreshControls(updateHex = true)
+        savedState?.getString("pickerHex")?.let {
+            updatingHex = true
+            hexInput.setText(it)
+            updatingHex = false
+        }
+        inputLayout.error = savedState?.getString("pickerError")
+        val scroll = ScrollView(context).apply {
+            isFillViewport = false
+            addView(content)
+        }
         val builder = MaterialAlertDialogBuilder(context)
             .setTitle(title)
-            .setView(ScrollView(context).apply {
-                isFillViewport = false
-                addView(content)
-            })
+            .setView(scroll)
             .setNegativeButton(android.R.string.cancel, null)
             .setPositiveButton(R.string.settings_color_picker_apply, null)
         if (defaultColor != null) {
@@ -202,6 +234,32 @@ internal object ColorPickerDialog {
         }
         val dialog = builder.create()
         dialog.setOnShowListener {
+            dialog.findViewById<ViewGroup>(androidx.appcompat.R.id.buttonPanel)?.doOnLayout { panel ->
+                val actions = (panel as ViewGroup).getChildAt(0)
+                // Reserve the stacked actions before the scrollable picker consumes the remaining height.
+                if (actions != null && actions.height > panel.height) {
+                    panel.minimumHeight = actions.height
+                    panel.requestLayout()
+                }
+            }
+            savedState?.let { saved ->
+                scroll.doOnLayout {
+                    scroll.scrollTo(0, saved.getInt("pickerScroll"))
+                    if (saved.getBoolean("pickerHexFocused")) {
+                        hexInput.setSelectAllOnFocus(false)
+                        hexInput.requestFocus()
+                        hexInput.setSelectAllOnFocus(true)
+                    }
+                    val start = saved.getInt("pickerSelectionStart", hexInput.length()).coerceIn(0, hexInput.length())
+                    val end = saved.getInt("pickerSelectionEnd", start).coerceIn(0, hexInput.length())
+                    hexInput.setSelection(start, end)
+                    if (saved.getBoolean("pickerImeVisible")) {
+                        dialog.window?.let { window ->
+                            WindowCompat.getInsetsController(window, hexInput).show(WindowInsetsCompat.Type.ime())
+                        }
+                    }
+                }
+            }
             dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
                 val parsed = parsePickerColor(hexInput.text?.toString(), allowAlpha)
                 if (parsed == null) {
@@ -223,8 +281,16 @@ internal object ColorPickerDialog {
                 }
             }
         }
-        dialog.show()
-        return dialog
+        return Session(dialog) { outState ->
+            outState.putFloatArray("pickerHsv", floatArrayOf(state.hue, state.saturation, state.value, state.alpha))
+            outState.putString("pickerHex", hexInput.text?.toString())
+            outState.putString("pickerError", inputLayout.error?.toString())
+            outState.putInt("pickerSelectionStart", hexInput.selectionStart)
+            outState.putInt("pickerSelectionEnd", hexInput.selectionEnd)
+            outState.putInt("pickerScroll", scroll.scrollY)
+            outState.putBoolean("pickerHexFocused", hexInput.hasFocus())
+            outState.putBoolean("pickerImeVisible", ViewCompat.getRootWindowInsets(hexInput)?.isVisible(WindowInsetsCompat.Type.ime()) == true)
+        }
     }
 
     private fun dp(density: Float, value: Int): Int = (value * density).roundToInt()
@@ -479,7 +545,7 @@ internal fun parsePickerColor(raw: String?, allowAlpha: Boolean): Int? {
     }
 }
 
-internal fun formatColor(@ColorInt color: Int, allowAlpha: Boolean): String = if (allowAlpha && (color ushr 24 and 0xff) != 255) {
+internal fun formatColor(@ColorInt color: Int, allowAlpha: Boolean): String = if (allowAlpha) {
     "#%08X".format(color)
 } else {
     "#%06X".format(color and 0xFFFFFF)

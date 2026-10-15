@@ -28,6 +28,8 @@ import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.collectSelectedSortBar
+import com.github.andreyasadchy.xtra.ui.common.isCurrentSortPage
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
 import com.github.andreyasadchy.xtra.ui.common.VideosAdapter
@@ -39,12 +41,14 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class GameVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerScrollStateAware, VideosSortDialog.OnFilter {
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
+    private var sortBarJob: Job? = null
     private val args: GamePagerFragmentArgs by navArgs()
     private val viewModel: GameVideosViewModel by viewModels { GameVideosViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Video, out RecyclerView.ViewHolder>
@@ -119,7 +123,8 @@ class GameVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerScrol
     override fun initialize() {
         viewLifecycleOwner.lifecycleScope.launch {
             if (viewModel.filter.value == null) {
-                val sortValues = args.gameId?.let { viewModel.getGameSort(it) } ?: viewModel.getGameSort("default")
+                val sortValues = args.gameId?.let { viewModel.getGameSort(it) }?.takeIf { it.hasVideoSort() }
+                    ?: viewModel.getGameSort("default")
                 viewModel.setFilter(
                     sort = sortValues?.videoSort,
                     period = if (!TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank()) {
@@ -176,37 +181,24 @@ class GameVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerScrol
     }
 
     override fun setupSortBar(sortBar: SortBarBinding) {
+        if (view == null || (parentFragment as? FragmentHost)?.currentFragment !== this) return
         sortBar.root.visibility = View.VISIBLE
         sortBar.root.setOnClickListener {
             viewLifecycleOwner.lifecycleScope.launch {
+                if (!isCurrentSortPage()) return@launch
+                val saved = args.gameId?.let { viewModel.getGameSort(it) }?.hasVideoSort() == true
+                if (!isCurrentSortPage()) return@launch
                 VideosSortDialog.newInstance(
                     sort = viewModel.sort,
                     period = viewModel.period,
                     type = viewModel.type,
                     languages = viewModel.languages,
-                    saved = args.gameId?.let { viewModel.getGameSort(it) } != null
+                    saved = saved,
                 ).show(childFragmentManager, null)
             }
         }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.sortText.collectLatest {
-                    sortBar.sortText.text = it
-                }
-            }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.filtersText.collectLatest {
-                    if (it != null) {
-                        sortBar.filtersText.visibility = View.VISIBLE
-                        sortBar.filtersText.text = it
-                    } else {
-                        sortBar.filtersText.visibility = View.GONE
-                    }
-                }
-            }
-        }
+        sortBarJob?.cancel()
+        sortBarJob = collectSelectedSortBar(sortBar, viewModel.sortText, viewModel.filtersText)
     }
 
     override fun onChange(sort: String, sortText: CharSequence, period: String, periodText: CharSequence, type: String, typeText: CharSequence, languages: Array<String>, changed: Boolean, saveSort: Boolean, saveDefault: Boolean) {
@@ -264,7 +256,7 @@ class GameVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerScrol
     override fun deleteSavedSort() {
         if ((parentFragment as? FragmentHost)?.currentFragment == this) {
             viewLifecycleOwner.lifecycleScope.launch {
-                args.gameId?.let { viewModel.getGameSort(it) }?.let { viewModel.deleteGameSort(it) }
+                args.gameId?.let { viewModel.deleteGameSort(it) }
             }
         }
     }
@@ -298,6 +290,8 @@ class GameVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerScrol
     }
 
     override fun onDestroyView() {
+        sortBarJob?.cancel()
+        sortBarJob = null
         if (::videoPreviewViewportController.isInitialized) {
             videoPreviewViewportController.stop()
         }

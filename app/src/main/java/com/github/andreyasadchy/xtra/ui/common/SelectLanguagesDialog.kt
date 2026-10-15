@@ -8,6 +8,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.appcompat.widget.AppCompatCheckBox
+import androidx.core.view.children
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogSelectLanguagesBinding
 import com.google.android.material.bottomsheet.BottomSheetBehavior
@@ -58,6 +59,7 @@ class SelectLanguagesDialog : BottomSheetDialogFragment() {
                     } else if (!checked) {
                         selectedLanguages.remove(language)
                     }
+                    binding.allLanguages.isEnabled = selectedLanguages.isNotEmpty()
                 }
             })
         }
@@ -71,10 +73,16 @@ class SelectLanguagesDialog : BottomSheetDialogFragment() {
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
         with(binding) {
+            allLanguages.isEnabled = selectedLanguages.isNotEmpty()
+            allLanguages.setOnClickListener {
+                selectedLanguages.clear()
+                languageLayout.children.filterIsInstance<AppCompatCheckBox>().forEach { it.isChecked = false }
+                allLanguages.isEnabled = false
+            }
             languageScrollView.setOnTouchListener { view, event ->
                 when (event.action) {
                     MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> behavior.isDraggable = false
-                    MotionEvent.ACTION_UP -> behavior.isDraggable = true
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> behavior.isDraggable = true
                 }
                 false
             }

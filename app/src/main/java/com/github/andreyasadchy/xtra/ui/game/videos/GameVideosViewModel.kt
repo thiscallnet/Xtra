@@ -146,8 +146,8 @@ class GameVideosViewModel(
         gameSortRepository.save(item)
     }
 
-    suspend fun deleteGameSort(item: GameSort) {
-        gameSortRepository.delete(item)
+    suspend fun deleteGameSort(id: String) {
+        gameSortRepository.deleteVideoSort(id)
     }
 
     fun setFilter(sort: String?, period: String?, type: String?, languages: Array<String>?) {

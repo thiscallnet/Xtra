@@ -24,9 +24,10 @@ class StatisticsDetailViewModel(
     private val title: String?,
     private val bucketFrom: Long?,
     private val bucketTo: Long?,
+    initialRange: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(StatisticsDetailUiState(isLoading = true))
+    private val _uiState = MutableStateFlow(StatisticsDetailUiState(isLoading = true, range = initialRange))
     val uiState: StateFlow<StatisticsDetailUiState> = _uiState.asStateFlow()
     private var loadJob: Job? = null
 
@@ -34,7 +35,7 @@ class StatisticsDetailViewModel(
         if (bucketFrom != null && bucketTo != null) {
             loadJob = viewModelScope.launch { loadBucket() }
         } else {
-            selectRange(ViewingStatsRange.LAST_7_DAYS)
+            selectRange(initialRange)
         }
     }
 
@@ -95,6 +96,7 @@ class StatisticsDetailViewModel(
             title: String?,
             bucketFrom: Long?,
             bucketTo: Long?,
+            initialRange: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -106,6 +108,7 @@ class StatisticsDetailViewModel(
                     title = title,
                     bucketFrom = bucketFrom,
                     bucketTo = bucketTo,
+                    initialRange = initialRange,
                 ) as T
             }
         }

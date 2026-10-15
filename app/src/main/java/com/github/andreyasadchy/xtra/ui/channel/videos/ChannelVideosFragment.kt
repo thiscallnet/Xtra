@@ -30,6 +30,8 @@ import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.collectSelectedSortBar
+import com.github.andreyasadchy.xtra.ui.common.isCurrentSortPage
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
 import com.github.andreyasadchy.xtra.ui.common.VideosAdapter
@@ -39,12 +41,14 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class ChannelVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerScrollStateAware, VideosSortDialog.OnFilter {
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
+    private var sortBarJob: Job? = null
     private val args: ChannelPagerFragmentArgs by navArgs()
     private val viewModel: ChannelVideosViewModel by viewModels { ChannelVideosViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Video, out RecyclerView.ViewHolder>
@@ -119,7 +123,8 @@ class ChannelVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerSc
     override fun initialize() {
         viewLifecycleOwner.lifecycleScope.launch {
             if (viewModel.filter.value == null) {
-                val sortValues = args.channelId?.let { viewModel.getChannelSort(it) } ?: viewModel.getChannelSort("default")
+                val sortValues = args.channelId?.let { viewModel.getChannelSort(it) }?.takeIf { it.hasVideoSort() }
+                    ?: viewModel.getChannelSort("default")
                 viewModel.setFilter(
                     sort = sortValues?.videoSort,
                     type = sortValues?.videoType,
@@ -169,24 +174,23 @@ class ChannelVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerSc
     }
 
     override fun setupSortBar(sortBar: SortBarBinding) {
+        if (view == null || (parentFragment as? FragmentHost)?.currentFragment !== this) return
         sortBar.root.visibility = View.VISIBLE
         sortBar.root.setOnClickListener {
             viewLifecycleOwner.lifecycleScope.launch {
+                if (!isCurrentSortPage()) return@launch
+                val saved = args.channelId?.let { viewModel.getChannelSort(it) }?.hasVideoSort() == true
+                if (!isCurrentSortPage()) return@launch
                 VideosSortDialog.newInstance(
                     sort = viewModel.sort,
                     period = viewModel.period,
                     type = viewModel.type,
-                    saved = args.channelId?.let { viewModel.getChannelSort(it) } != null
+                    saved = saved,
                 ).show(childFragmentManager, null)
             }
         }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.sortText.collectLatest {
-                    sortBar.sortText.text = it
-                }
-            }
-        }
+        sortBarJob?.cancel()
+        sortBarJob = collectSelectedSortBar(sortBar, viewModel.sortText)
     }
 
     override fun onChange(sort: String, sortText: CharSequence, period: String, periodText: CharSequence, type: String, typeText: CharSequence, languages: Array<String>, changed: Boolean, saveSort: Boolean, saveDefault: Boolean) {
@@ -229,7 +233,7 @@ class ChannelVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerSc
     override fun deleteSavedSort() {
         if ((parentFragment as? FragmentHost)?.currentFragment == this) {
             viewLifecycleOwner.lifecycleScope.launch {
-                args.channelId?.let { viewModel.getChannelSort(it) }?.let { viewModel.deleteChannelSort(it) }
+                args.channelId?.let { viewModel.deleteChannelSort(it) }
             }
         }
     }
@@ -263,6 +267,8 @@ class ChannelVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerSc
     }
 
     override fun onDestroyView() {
+        sortBarJob?.cancel()
+        sortBarJob = null
         if (::videoPreviewViewportController.isInitialized) {
             videoPreviewViewportController.stop()
         }

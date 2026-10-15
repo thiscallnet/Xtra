@@ -29,6 +29,8 @@ import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCandidate
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.collectSelectedSortBar
+import com.github.andreyasadchy.xtra.ui.common.isCurrentSortPage
 import com.github.andreyasadchy.xtra.ui.common.VideosAdapter
 import com.github.andreyasadchy.xtra.ui.common.VideosSortDialog
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
@@ -38,6 +40,7 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerScrollStateAware, VideosSortDialog.OnFilter {
 
@@ -158,22 +161,21 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerS
         }
     }
 
+    private var sortBarJob: Job? = null
+
     override fun setupSortBar(sortBar: SortBarBinding) {
+        if (view == null || (parentFragment as? FragmentHost)?.currentFragment !== this) return
         sortBar.root.visibility = View.VISIBLE
         sortBar.root.setOnClickListener {
+            if (!isCurrentSortPage()) return@setOnClickListener
             VideosSortDialog.newInstance(
                 sort = viewModel.sort,
                 period = viewModel.period,
                 type = viewModel.type,
             ).show(childFragmentManager, null)
         }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.RESUMED) {
-                viewModel.sortText.collectLatest {
-                    sortBar.sortText.text = it
-                }
-            }
-        }
+        sortBarJob?.cancel()
+        sortBarJob = collectSelectedSortBar(sortBar, viewModel.sortText)
     }
 
     override fun onChange(sort: String, sortText: CharSequence, period: String, periodText: CharSequence, type: String, typeText: CharSequence, languages: Array<String>, changed: Boolean, saveSort: Boolean, saveDefault: Boolean) {
@@ -231,6 +233,8 @@ class FollowedVideosFragment : PagedListFragment(), Scrollable, Sortable, PagerS
     }
 
     override fun onDestroyView() {
+        sortBarJob?.cancel()
+        sortBarJob = null
         if (::videoPreviewViewportController.isInitialized) {
             videoPreviewViewportController.stop()
         }

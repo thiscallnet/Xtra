@@ -10,4 +10,8 @@ class ChannelSort(
     var videoSort: String? = null,
     var videoType: String? = null,
     var clipPeriod: String? = null,
-)
+) {
+    fun hasVideoSort() = videoSort != null || videoType != null
+
+    fun hasClipSort() = clipPeriod != null
+}

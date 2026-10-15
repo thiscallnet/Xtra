@@ -107,7 +107,7 @@ class DownloadsFragment : PagedListFragment(), Scrollable, SavedSelectablePage {
         selection = SavedItemSelection(savedInstanceState)
         selection.description = getString(R.string.saved_download_selection_limit)
         installSavedDeleteFeedback(view, viewModel.deleteFailed, viewModel::acknowledgeDeleteFailure)
-        binding.nothingHere.setText(R.string.downloads_empty)
+        binding.nothingHere.text = getString(R.string.downloads_empty, getString(R.string.download), getString(R.string.import_files))
         binding.nothingHere.textAlignment = View.TEXT_ALIGNMENT_CENTER
         binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
         pagingAdapter = DownloadsAdapter(

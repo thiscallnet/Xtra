@@ -5,6 +5,21 @@
     android:orientation="vertical"
     android:padding="?attr/dialogPadding">
 
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:accessibilityHeading="true"
+        android:text="@string/languages"
+        android:textAppearance="?attr/textAppearanceTitleSmall"
+        android:textStyle="bold" />
+
+    <Button
+        android:id="@+id/allLanguages"
+        style="?attr/bottomSheetButtonStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/all_languages" />
+
     <androidx.core.widget.NestedScrollView
         android:id="@+id/languageScrollView"
         android:layout_width="match_parent"

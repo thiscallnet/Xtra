@@ -92,6 +92,7 @@ class StatisticsFragment : Fragment() {
                     channelLogin = channel.channelLogin,
                     channelName = channel.channelName ?: channel.channelLogin,
                     channelImage = channel.channelImage,
+                    range = viewModel.uiState.value.range,
                 ),
             )
         }
@@ -103,6 +104,7 @@ class StatisticsFragment : Fragment() {
                     categoryName = category.categoryName,
                     categoryId = category.categoryId,
                     categoryImage = category.categoryImage,
+                    range = viewModel.uiState.value.range,
                 ),
             )
         }
@@ -129,21 +131,14 @@ class StatisticsFragment : Fragment() {
             )
         }
         binding.seeAllChannels.setOnClickListener {
-            navController.navigate(R.id.statisticsListFragment, StatisticsListFragment.argumentsForChannels())
+            navController.navigate(R.id.statisticsListFragment, StatisticsListFragment.argumentsForChannels(viewModel.uiState.value.range))
         }
         binding.seeAllCategories.setOnClickListener {
-            navController.navigate(R.id.statisticsListFragment, StatisticsListFragment.argumentsForCategories())
+            navController.navigate(R.id.statisticsListFragment, StatisticsListFragment.argumentsForCategories(viewModel.uiState.value.range))
         }
 
-        binding.rangeGroup.setOnCheckedChangeListener { _, checkedId ->
-            when (checkedId) {
-                R.id.range7 -> viewModel.selectRange(ViewingStatsRange.LAST_7_DAYS)
-                R.id.range30 -> viewModel.selectRange(ViewingStatsRange.LAST_30_DAYS)
-                R.id.range90 -> viewModel.selectRange(ViewingStatsRange.LAST_90_DAYS)
-                R.id.rangeYear -> viewModel.selectRange(ViewingStatsRange.LAST_YEAR)
-                R.id.rangeAll -> viewModel.selectRange(ViewingStatsRange.ALL_TIME)
-            }
-        }
+        bindStatisticsRangeSelection(binding.rangeGroup, R.id.statisticsFragment,
+            { viewModel.uiState.value.range }, viewModel::selectRange)
         binding.resetStatistics.setOnClickListener { showResetConfirmation() }
 
         viewLifecycleOwner.lifecycleScope.launch {

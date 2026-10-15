@@ -43,7 +43,7 @@ class FiltersFragment : PagedListFragment(), Scrollable {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        binding.nothingHere.setText(R.string.saved_filters_empty)
+        binding.nothingHere.text = getString(R.string.saved_filters_empty, getString(R.string.save_filters))
         binding.nothingHere.textAlignment = View.TEXT_ALIGNMENT_CENTER
         binding.installVisibleViewportStatePositioning(viewLifecycleOwner)
         pagingAdapter = FiltersAdapter(this) {

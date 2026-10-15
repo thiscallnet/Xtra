@@ -1537,4 +1537,7 @@
     <string name="saved_download_selection_limit">Seuls les téléchargements terminés ou échoués peuvent être sélectionnés.</string>
     <string name="saved_delete_failed">Certains éléments ne peuvent pas être supprimés. Ils restent dans la liste.</string>
     <string name="team_details_failed">Impossible de charger les détails de l’équipe.</string>
+    <string name="search_tags_prompt">Saisissez un nom de tag pour rechercher.</string>
+    <string name="forget_tab_choices">Effacer les choix enregistrés pour cet onglet</string>
+    <string name="all_languages">Toutes les langues</string>
 </resources>

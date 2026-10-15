@@ -58,6 +58,7 @@ class StatisticsDetailFragment : Fragment() {
                 title = args.getString(ARG_TITLE),
                 bucketFrom = args.getLong(ARG_BUCKET_FROM).takeIf { args.containsKey(ARG_BUCKET_FROM) },
                 bucketTo = args.getLong(ARG_BUCKET_TO).takeIf { args.containsKey(ARG_BUCKET_TO) },
+                initialRange = initialStatisticsRange(R.id.statisticsDetailFragment),
             ),
         )[StatisticsDetailViewModel::class.java]
     }
@@ -77,13 +78,13 @@ class StatisticsDetailFragment : Fragment() {
         channelAdapter = StatisticsChannelAdapter { channel ->
             navController.navigate(
                 R.id.statisticsDetailFragment,
-                argumentsForChannel(channel.channelId, channel.channelLogin, channel.channelName, channel.channelImage),
+                argumentsForChannel(channel.channelId, channel.channelLogin, channel.channelName, channel.channelImage, viewModel.uiState.value.range),
             )
         }
         categoryAdapter = StatisticsCategoryAdapter { category ->
             navController.navigate(
                 R.id.statisticsDetailFragment,
-                argumentsForCategory(category.categoryKey, category.categoryName, category.categoryId, category.categoryImage),
+                argumentsForCategory(category.categoryKey, category.categoryName, category.categoryId, category.categoryImage, viewModel.uiState.value.range),
             )
         }
         binding.topChannels.adapter = channelAdapter
@@ -94,15 +95,8 @@ class StatisticsDetailFragment : Fragment() {
         binding.topCategories.isNestedScrollingEnabled = false
         val isBucketDetail = requireArguments().getString(ARG_TYPE) == StatisticsDetailViewModel.TYPE_BUCKET
         if (isBucketDetail) binding.rangeGroup.visibility = View.GONE
-        binding.rangeGroup.setOnCheckedChangeListener { _, checkedId ->
-            when (checkedId) {
-                R.id.range7 -> viewModel.selectRange(ViewingStatsRange.LAST_7_DAYS)
-                R.id.range30 -> viewModel.selectRange(ViewingStatsRange.LAST_30_DAYS)
-                R.id.range90 -> viewModel.selectRange(ViewingStatsRange.LAST_90_DAYS)
-                R.id.rangeYear -> viewModel.selectRange(ViewingStatsRange.LAST_YEAR)
-                R.id.rangeAll -> viewModel.selectRange(ViewingStatsRange.ALL_TIME)
-            }
-        }
+        bindStatisticsRangeSelection(binding.rangeGroup, R.id.statisticsDetailFragment,
+            { viewModel.uiState.value.range }, viewModel::selectRange)
         binding.activityChart.onBucketSelected = { index, _ -> viewModel.selectBucket(index) }
         binding.openEntity.setOnClickListener { openEntity() }
 
@@ -190,6 +184,7 @@ class StatisticsDetailFragment : Fragment() {
                             channelLogin = interval.channelLogin,
                             channelName = interval.channelName ?: interval.channelLogin,
                             channelImage = interval.channelImage,
+                            range = state.range,
                         ),
                     )
                 }
@@ -244,12 +239,16 @@ class StatisticsDetailFragment : Fragment() {
         val columnCount = if (canUseThreeColumns) 3 else 1
         if (grid.columnCount == columnCount) return
 
-        grid.columnCount = columnCount
+        // Expand first, but move children into valid cells before shrinking the grid.
+        if (columnCount > grid.columnCount) grid.columnCount = columnCount
         summaryFields.forEachIndexed { index, field ->
             val params = field.layoutParams as GridLayout.LayoutParams
+            params.columnSpec = GridLayout.spec(index % columnCount, 1, 1f)
+            params.rowSpec = GridLayout.spec(index / columnCount)
             params.topMargin = if (columnCount == 1 && index > 0) compactRowSpacing else 0
             field.layoutParams = params
         }
+        if (columnCount < grid.columnCount) grid.columnCount = columnCount
     }
 
     private fun openEntity() {
@@ -328,20 +327,34 @@ class StatisticsDetailFragment : Fragment() {
         private const val ARG_BUCKET_FROM = "statistics_bucket_from"
         private const val ARG_BUCKET_TO = "statistics_bucket_to"
 
-        fun argumentsForChannel(channelId: String, channelLogin: String?, channelName: String?, channelImage: String?) = bundleOf(
+        fun argumentsForChannel(
+            channelId: String,
+            channelLogin: String?,
+            channelName: String?,
+            channelImage: String?,
+            range: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
+        ) = bundleOf(
             ARG_TYPE to StatisticsDetailViewModel.TYPE_CHANNEL,
             ARG_CHANNEL_ID to channelId,
             ARG_CHANNEL_LOGIN to channelLogin,
             ARG_CHANNEL_IMAGE to channelImage,
             ARG_TITLE to channelName,
+            STATISTICS_RANGE_ARGUMENT to range.name,
         )
 
-        fun argumentsForCategory(categoryKey: String, categoryName: String?, categoryId: String?, categoryImage: String?) = bundleOf(
+        fun argumentsForCategory(
+            categoryKey: String,
+            categoryName: String?,
+            categoryId: String?,
+            categoryImage: String?,
+            range: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
+        ) = bundleOf(
             ARG_TYPE to StatisticsDetailViewModel.TYPE_CATEGORY,
             ARG_CATEGORY_KEY to categoryKey,
             ARG_CATEGORY_ID to categoryId,
             ARG_CATEGORY_IMAGE to categoryImage,
             ARG_TITLE to categoryName,
+            STATISTICS_RANGE_ARGUMENT to range.name,
         )
 
         fun argumentsForBucket(fromInclusive: Long, toExclusive: Long) = bundleOf(

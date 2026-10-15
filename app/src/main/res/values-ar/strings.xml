@@ -1537,4 +1537,7 @@
     <string name="saved_download_selection_limit">يمكن تحديد التنزيلات المكتملة أو الفاشلة فقط.</string>
     <string name="saved_delete_failed">تعذر حذف بعض العناصر. ما زالت موجودة في القائمة.</string>
     <string name="team_details_failed">تعذّر تحميل تفاصيل الفريق.</string>
+    <string name="search_tags_prompt">أدخل اسم وسم للبحث.</string>
+    <string name="forget_tab_choices">نسيان الخيارات المحفوظة لعلامة التبويب هذه</string>
+    <string name="all_languages">كل اللغات</string>
 </resources>

@@ -6,19 +6,19 @@ import android.os.Bundle
 import androidx.appcompat.widget.SearchView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.isVisible
 import androidx.fragment.app.DialogFragment
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.withResumed
-import androidx.paging.PagingDataAdapter
-import androidx.recyclerview.widget.RecyclerView
+import androidx.paging.LoadState
+import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogSearchTagsBinding
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.ui.common.SearchTagsViewModel.Companion.SearchTagsViewModelFactory
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -33,6 +33,7 @@ class SearchTagsDialog : DialogFragment() {
 
     companion object {
         private const val GET_GAME_TAGS = "getGameTags"
+        private const val QUERY = "query"
 
         fun newInstance(getGameTags: Boolean): SearchTagsDialog {
             return SearchTagsDialog().apply {
@@ -44,10 +45,11 @@ class SearchTagsDialog : DialogFragment() {
     }
 
     private var _binding: DialogSearchTagsBinding? = null
-    private val binding get() = _binding!!
     private val viewModel: SearchTagsViewModel by viewModels { SearchTagsViewModelFactory }
-    private lateinit var pagingAdapter: PagingDataAdapter<Tag, out RecyclerView.ViewHolder>
     private var listener: OnTagSelectedListener? = null
+    private var queryJob: Job? = null
+    private var dialogJob: Job? = null
+    private var requestKeyboard = false
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -55,63 +57,97 @@ class SearchTagsDialog : DialogFragment() {
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
-        _binding = DialogSearchTagsBinding.inflate(layoutInflater)
+        val binding = DialogSearchTagsBinding.inflate(layoutInflater)
+        _binding = binding
+        requestKeyboard = true
         val builder = requireContext().getAlertDialogBuilder()
             .setView(binding.root)
         with(binding) {
             viewModel.getGameTags = requireArguments().getBoolean(GET_GAME_TAGS)
-            pagingAdapter = SearchTagsAdapter { tag ->
+            val pagingAdapter = SearchTagsAdapter { tag ->
                 listener?.onTagSelected(tag)
                 dismiss()
             }
-            pagingAdapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
-
-                override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
-                    pagingAdapter.unregisterAdapterDataObserver(this)
-                    pagingAdapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
-                        override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
-                            try {
-                                if (positionStart == 0) {
-                                    recyclerView.scrollToPosition(0)
-                                }
-                            } catch (e: Exception) {
-                                if (e is CancellationException) throw e
-
-                            }
-                        }
-                    })
-                }
-            })
             recyclerView.adapter = pagingAdapter
+            var awaitingQuery = false
+            var submittedQuery: String? = null
+            var resultsQuery: String? = null
+            var refresh: LoadState = LoadState.Loading
+            fun renderStatus() {
+                val query = searchView.query.toString()
+                val idle = query.isBlank()
+                val pending = awaitingQuery || query != viewModel.query.value
+                val loading = !idle && (pending || refresh is LoadState.Loading)
+                val failed = !idle && !pending && refresh is LoadState.Error
+                val hasResults = !idle && !pending && resultsQuery == query && pagingAdapter.itemCount > 0
+                recyclerView.isVisible = hasResults
+                searchStatus.root.isVisible = !hasResults || loading || failed
+                searchStatus.sectionProgress.isVisible = loading
+                searchStatus.sectionRetry.isVisible = failed
+                searchStatus.sectionMessage.setText(when {
+                    idle -> R.string.search_tags_prompt
+                    loading -> R.string.section_loading
+                    failed && hasResults -> R.string.section_stale
+                    failed -> R.string.list_load_error
+                    else -> R.string.search_all_empty
+                })
+            }
+            fun submitQuery(query: String) {
+                awaitingQuery = query != viewModel.query.value
+                viewModel.setQuery(query)
+                renderStatus()
+            }
+            searchStatus.sectionMessage.accessibilityLiveRegion = android.view.View.ACCESSIBILITY_LIVE_REGION_POLITE
+            searchStatus.sectionRetry.contentDescription = getString(R.string.section_retry, getString(R.string.search_tags))
+            searchStatus.sectionRetry.setOnClickListener { pagingAdapter.retry() }
+            pagingAdapter.addOnPagesUpdatedListener {
+                if (resultsQuery != submittedQuery) recyclerView.scrollToPosition(0)
+                resultsQuery = submittedQuery
+                renderStatus()
+            }
+            // Restore even an unfinished, debounced query after process death.
+            val query = savedInstanceState?.getString(QUERY) ?: viewModel.query.value
+            searchView.setQuery(query, false)
+            viewModel.setQuery(query)
             searchView.requestFocus()
-            WindowCompat.getInsetsController(requireActivity().window, searchView).show(WindowInsetsCompat.Type.ime())
-            lifecycleScope.launch {
+            renderStatus()
+            dialogJob = lifecycleScope.launch {
                 repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    viewModel.flow.collectLatest { pagingData ->
-                        pagingAdapter.submitData(pagingData)
+                    launch {
+                        viewModel.flow.collectLatest { page ->
+                            awaitingQuery = page.query != viewModel.query.value
+                            submittedQuery = page.query
+                            pagingAdapter.submitData(page.data)
+                        }
+                    }
+                    launch {
+                        pagingAdapter.loadStateFlow.collect {
+                            refresh = it.refresh
+                            renderStatus()
+                        }
                     }
                 }
             }
             searchView.setOnQueryTextListener(object : SearchView.OnQueryTextListener {
-                private var job: Job? = null
-
                 override fun onQueryTextSubmit(query: String): Boolean {
-                    viewModel.setQuery(query)
+                    queryJob?.cancel()
+                    submitQuery(query)
                     return false
                 }
 
                 override fun onQueryTextChange(newText: String): Boolean {
-                    job?.cancel()
+                    queryJob?.cancel()
                     if (newText.isNotEmpty()) {
-                        job = lifecycleScope.launch {
+                        queryJob = lifecycleScope.launch {
                             delay(750.milliseconds)
                             withResumed {
-                                viewModel.setQuery(newText)
+                                submitQuery(newText)
                             }
                         }
                     } else {
-                        viewModel.setQuery(newText)
+                        submitQuery(newText)
                     }
+                    renderStatus()
                     return false
                 }
             })
@@ -119,8 +155,34 @@ class SearchTagsDialog : DialogFragment() {
         return builder.create()
     }
 
+    override fun onStart() {
+        super.onStart()
+        if (!requestKeyboard) return
+        requestKeyboard = false
+        val searchView = _binding?.searchView ?: return
+        dialog?.window?.let { window ->
+            WindowCompat.getInsetsController(window, searchView).show(WindowInsetsCompat.Type.ime())
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString(QUERY, _binding?.searchView?.query?.toString() ?: viewModel.query.value)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onDestroyView() {
+        queryJob?.cancel()
+        queryJob = null
+        dialogJob?.cancel()
+        dialogJob = null
+        _binding?.searchView?.setOnQueryTextListener(null)
+        _binding?.recyclerView?.adapter = null
         super.onDestroyView()
         _binding = null
+    }
+
+    override fun onDetach() {
+        listener = null
+        super.onDetach()
     }
 }

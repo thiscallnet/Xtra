@@ -27,6 +27,9 @@ import com.github.andreyasadchy.xtra.ui.view.GridRecyclerView
 import com.github.andreyasadchy.xtra.ui.common.PagerScrollStateAware
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.FragmentHost
+import com.github.andreyasadchy.xtra.ui.common.collectSelectedSortBar
+import com.github.andreyasadchy.xtra.ui.common.isCurrentSortPage
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
 import com.github.andreyasadchy.xtra.ui.common.StreamPreloadViewportController
 import com.github.andreyasadchy.xtra.ui.common.StreamsSortDialog
@@ -38,6 +41,7 @@ import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 
 class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStateAware, Sortable, StreamsSortDialog.OnFilter {
 
@@ -131,10 +135,14 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
         })
     }
 
+    private var sortBarJob: Job? = null
+
     override fun setupSortBar(sortBar: SortBarBinding) {
+        if (view == null || (parentFragment as? FragmentHost)?.currentFragment !== this) return
         sortBar.root.visibility = View.VISIBLE
         sortBar.filtersText.visibility = View.GONE
         sortBar.root.setOnClickListener {
+            if (!isCurrentSortPage()) return@setOnClickListener
             StreamsSortDialog.newInstance(
                 sort = viewModel.sort,
                 tags = emptyArray(),
@@ -142,13 +150,8 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
                 showFilters = false,
             ).show(childFragmentManager, null)
         }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.sortText.collectLatest {
-                    sortBar.sortText.text = it
-                }
-            }
-        }
+        sortBarJob?.cancel()
+        sortBarJob = collectSelectedSortBar(sortBar, viewModel.sortText)
     }
 
     override fun onChange(
@@ -211,6 +214,8 @@ class FollowedStreamsFragment : PagedListFragment(), Scrollable, PagerScrollStat
     }
 
     override fun onDestroyView() {
+        sortBarJob?.cancel()
+        sortBarJob = null
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onDestroyView()
         }

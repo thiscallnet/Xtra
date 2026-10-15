@@ -23,7 +23,7 @@ import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.PlayerOverlayTabAvoidance
 import com.github.andreyasadchy.xtra.ui.common.RecyclerViewLiftTargetConnector
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
-import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.installPagerSortBar
 import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -57,7 +57,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost, SavedSelectionH
     private var playerOverlayTabAvoidance: PlayerOverlayTabAvoidance? = null
 
     override val currentFragment: Fragment?
-        get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
+        get() = _binding?.let { childFragmentManager.findFragmentByTag("f${it.viewPager.currentItem}") }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -206,7 +206,6 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost, SavedSelectionH
 
                 override fun onPageSelected(position: Int) {
                     savedSelectionChrome?.finish()
-                    sortBar.root.visibility = View.GONE
                     liftTargetConnector?.disconnect()
                     setDownloadsActionsVisible(tabs.getOrNull(position) == "1")
                     viewPager.doOnLayout {
@@ -233,6 +232,7 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost, SavedSelectionH
                 }
             }.attach()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_SAVED_TABS)
+            installPagerSortBar(viewPager, sortBar)
         }
         playerOverlayTabAvoidance?.close()
         playerOverlayTabAvoidance = requireActivity().findViewById<View>(R.id.playerContainer)?.let { playerContainer ->
@@ -249,11 +249,6 @@ class SavedPagerFragment : Fragment(), Scrollable, FragmentHost, SavedSelectionH
 
         fragment.view?.findViewById<RecyclerView>(R.id.recyclerView)?.let {
             liftTargetConnector?.connect(it)
-        }
-        if (fragment is Sortable) {
-            fragment.setupSortBar(currentBinding.sortBar)
-        } else {
-            currentBinding.sortBar.root.visibility = View.GONE
         }
         setDownloadsActionsVisible(tabs.getOrNull(position) == "1" && fragment is DownloadsFragment)
         currentBinding.toolbar.menu.findItem(R.id.selectSavedItems).isVisible = fragment is SavedSelectablePage

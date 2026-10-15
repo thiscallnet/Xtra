@@ -78,38 +78,8 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
     }
 
     override fun onDisplayPreferenceDialog(preference: Preference) {
-        val editTextPreference = preference as? EditTextPreference
-        colorPickerConfig(preference)?.let { config ->
-            val defaultAction: (() -> Boolean)? = if (editTextPreference?.key == C.PLAYER_MESSAGE_TEXT_COLOR ||
-                editTextPreference?.key == C.PLAYER_METADATA_TEXT_COLOR
-            ) {
-                {
-                    editTextPreference.text = null
-                    editTextPreference.summary = getString(R.string.settings_chat_text_default_summary)
-                    findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")?.refreshPreview()
-                    (requireActivity() as? SettingsActivity)?.setResult()
-                    true
-                }
-            } else null
-            ColorPickerDialog.show(
-                requireContext(),
-                preference.title ?: "",
-                config.initialColor,
-                config.defaultColor,
-                config.allowAlpha,
-                { value ->
-                    if (preference.callChangeListener(value)) {
-                        (preference as EditTextPreference).text = value
-                        preference.summary = value
-                        findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")?.refreshPreview()
-                        (requireActivity() as? SettingsActivity)?.setResult()
-                        true
-                    } else {
-                        false
-                    }
-                },
-                defaultAction
-            )
+        if (colorPickerConfig(preference) != null) {
+            showPreferenceDialog(preference, MaterialColorPreference())
             return
         }
         when (preference) {
@@ -118,6 +88,41 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
             is EditTextPreference -> showPreferenceDialog(preference, MaterialEditTextPreference())
             else -> super.onDisplayPreferenceDialog(preference)
         }
+    }
+
+    internal fun createColorPicker(preference: EditTextPreference, savedState: Bundle?): ColorPickerDialog.Session {
+        val config = requireNotNull(colorPickerConfig(preference))
+        val defaultAction: (() -> Boolean)? = if (preference.key == C.PLAYER_MESSAGE_TEXT_COLOR ||
+            preference.key == C.PLAYER_METADATA_TEXT_COLOR
+        ) {
+            {
+                preference.text = null
+                preference.summary = getString(R.string.settings_chat_text_default_summary)
+                findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")?.refreshPreview()
+                (requireActivity() as? SettingsActivity)?.setResult()
+                true
+            }
+        } else null
+        return ColorPickerDialog.create(
+            requireContext(),
+            preference.title ?: "",
+            config.initialColor,
+            config.defaultColor,
+            config.allowAlpha,
+            { value ->
+                if (preference.callChangeListener(value)) {
+                    preference.text = value
+                    preference.summary = value
+                    findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")?.refreshPreview()
+                    (requireActivity() as? SettingsActivity)?.setResult()
+                    true
+                } else {
+                    false
+                }
+            },
+            defaultAction,
+            savedState,
+        )
     }
 
     private data class ColorPickerConfig(

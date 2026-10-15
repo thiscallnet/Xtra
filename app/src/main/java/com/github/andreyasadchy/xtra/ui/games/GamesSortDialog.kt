@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import androidx.core.os.BundleCompat
 import com.github.andreyasadchy.xtra.databinding.DialogGamesSortBinding
 import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.ui.common.SearchTagsDialog
@@ -21,6 +22,7 @@ class GamesSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSelec
     companion object {
         private const val TAG_IDS = "tag_ids"
         private const val TAG_NAMES = "tag_names"
+        private const val SELECTED_TAGS = "selected_tags"
 
         fun newInstance(tagIds: Array<String>?, tagNames: Array<String>?): GamesSortDialog {
             return GamesSortDialog().apply {
@@ -64,19 +66,10 @@ class GamesSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSelec
                     )
                 }
             } ?: emptyList()
-            selectedTags = originalTags.toMutableList()
-            originalTags.forEach { tag ->
-                tagGroup.addView(
-                    Chip(requireContext()).apply {
-                        text = tag.name
-                        isCloseIconVisible = true
-                        setOnCloseIconClickListener {
-                            selectedTags.find { it.id == tag.id }?.let { selectedTags.remove(it) }
-                            tagGroup.removeView(this)
-                        }
-                    }
-                )
-            }
+            selectedTags = savedInstanceState?.let {
+                BundleCompat.getParcelableArrayList(it, SELECTED_TAGS, Tag::class.java)
+            }?.toMutableList() ?: originalTags.toMutableList()
+            selectedTags.forEach(::addTagChip)
             selectTags.setOnClickListener {
                 SearchTagsDialog.Companion.newInstance(true).show(childFragmentManager, null)
             }
@@ -95,17 +88,25 @@ class GamesSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSelec
     override fun onTagSelected(tag: Tag) {
         if (tag.id != null && selectedTags.find { it.id == tag.id } == null) {
             selectedTags.add(tag)
-            binding.tagGroup.addView(
-                Chip(requireContext()).apply {
-                    text = tag.name
-                    isCloseIconVisible = true
-                    setOnCloseIconClickListener {
-                        selectedTags.find { it.id == tag.id }?.let { selectedTags.remove(it) }
-                        binding.tagGroup.removeView(this)
-                    }
-                }
-            )
+            addTagChip(tag)
         }
+    }
+
+    private fun addTagChip(tag: Tag) {
+        val tagGroup = _binding?.tagGroup ?: return
+        tagGroup.addView(Chip(requireContext()).apply {
+            text = tag.name
+            isCloseIconVisible = true
+            setOnCloseIconClickListener {
+                selectedTags.removeAll { it.id == tag.id }
+                tagGroup.removeView(this)
+            }
+        })
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putParcelableArrayList(SELECTED_TAGS, ArrayList(selectedTags))
+        super.onSaveInstanceState(outState)
     }
 
     override fun onDestroyView() {

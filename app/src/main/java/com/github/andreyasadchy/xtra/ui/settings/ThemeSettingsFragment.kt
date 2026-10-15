@@ -69,6 +69,7 @@ class ThemeSettingsFragment : MaterialPreferenceFragment() {
         findPreference<ListPreference>(C.UI_THEME_ROUNDED_CORNERS)?.onPreferenceChangeListener = changeListener
         findPreference<ListPreference>(C.SETTINGS_PROFILE_PICTURE_STYLE)?.onPreferenceChangeListener = Preference.OnPreferenceChangeListener { _, value ->
             requireContext().prefs().edit { putBoolean(C.UI_ROUND_USER_IMAGE, value == "round") }
+            (requireActivity() as? SettingsActivity)?.setResult()
             true
         }
         findPreference<Preference>("appearance_display_compatibility")?.setOnPreferenceClickListener {

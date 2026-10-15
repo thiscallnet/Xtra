@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.RadioButton
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.isVisible
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogVideosSortBinding
@@ -60,12 +61,19 @@ class VideosSortDialog : BottomSheetDialogFragment(), SelectLanguagesDialog.OnSe
     private var _binding: DialogVideosSortBinding? = null
     private val binding get() = _binding!!
     private lateinit var listener: OnFilter
+    private var hasSavedSort = false
 
     private var selectedLanguages: Array<String> = emptyArray()
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
         listener = parentFragment as OnFilter
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        hasSavedSort = savedInstanceState?.takeIf { it.containsKey(SAVED) }?.getBoolean(SAVED)
+            ?: requireArguments().getBoolean(SAVED)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -79,6 +87,7 @@ class VideosSortDialog : BottomSheetDialogFragment(), SelectLanguagesDialog.OnSe
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
         with(binding) {
+            saveSort.setSingleLine(false)
             val args = requireArguments()
             when (parentFragment) {
                 is ChannelClipsFragment -> {
@@ -133,19 +142,21 @@ class VideosSortDialog : BottomSheetDialogFragment(), SelectLanguagesDialog.OnSe
                 else -> R.id.typeAll
             }
             val originalLanguages = args.getStringArray(LANGUAGES) ?: emptyArray()
-            if (!args.getBoolean(SAVED)) {
-                deleteSavedSort.visibility = View.GONE
-            }
+            deleteSavedSort.isVisible = hasSavedSort
+            deleteSavedSort.contentDescription = getString(R.string.forget_tab_choices)
+            TooltipCompat.setTooltipText(deleteSavedSort, deleteSavedSort.contentDescription)
             sort.check(originalSortId)
             period.check(originalPeriodId)
             sortType.check(originalTypeId)
             selectedLanguages = savedInstanceState?.getStringArray(LANGUAGES) ?: originalLanguages
+            selectLanguages.showLanguageFilter(selectedLanguages)
             saveSort.setOnClickListener {
                 applyFilters(originalPeriodId, originalSortId, originalTypeId, originalLanguages, saveSort = true, saveDefault = false)
                 dismiss()
             }
             deleteSavedSort.setOnClickListener {
                 listener.deleteSavedSort()
+                hasSavedSort = false
                 deleteSavedSort.visibility = View.GONE
             }
             saveDefault.setOnClickListener {
@@ -206,6 +217,7 @@ class VideosSortDialog : BottomSheetDialogFragment(), SelectLanguagesDialog.OnSe
 
     override fun onChange(languages: Array<String>) {
         selectedLanguages = languages
+        binding.selectLanguages.showLanguageFilter(languages)
     }
 
     override fun onDestroyView() {
@@ -214,6 +226,7 @@ class VideosSortDialog : BottomSheetDialogFragment(), SelectLanguagesDialog.OnSe
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(SAVED, hasSavedSort)
         outState.putStringArray(LANGUAGES, selectedLanguages)
         super.onSaveInstanceState(outState)
     }

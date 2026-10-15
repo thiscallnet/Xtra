@@ -1,8 +1,10 @@
 package com.github.andreyasadchy.xtra.ui.common
 
 import android.graphics.Rect
+import android.text.method.ScrollingMovementMethod
 import android.view.View
 import android.view.ViewTreeObserver
+import android.widget.TextView
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import com.github.andreyasadchy.xtra.databinding.CommonRecyclerViewLayoutBinding
@@ -15,6 +17,7 @@ fun CommonRecyclerViewLayoutBinding.installVisibleViewportStatePositioning(lifec
         lifecycleOwner = lifecycleOwner,
         stateViews = listOf(nothingHere, progressBar, errorContainer),
         topObstruction = topInsetGuard,
+        emptyText = nothingHere,
     )
 }
 
@@ -45,7 +48,35 @@ private fun installVisibleViewportStatePositioningForViews(
     overlayProvider: (() -> View?)? = null,
     overlayAvoidanceTarget: View? = null,
     overlayGapDp: Float = 0f,
+    emptyText: TextView? = null,
 ) {
+    val emptyDrawables = emptyText?.compoundDrawablesRelative
+    val emptyMovement = emptyText?.movementMethod
+    var compactEmpty = false
+    var scrollableEmpty = false
+
+    fun fitEmptyText(availableHeight: Int) {
+        val text = emptyText?.takeIf { it.visibility == View.VISIBLE } ?: return
+        val textHeight = text.layout?.height ?: return
+        val iconHeight = emptyDrawables?.get(1)?.bounds?.height() ?: 0
+        val padding = text.paddingTop + text.paddingBottom
+        val compact = textHeight + padding + iconHeight + (if (iconHeight > 0) text.compoundDrawablePadding else 0) > availableHeight
+        if (compact != compactEmpty) {
+            text.setCompoundDrawablesRelative(emptyDrawables?.get(0), if (compact) null else emptyDrawables?.get(1), emptyDrawables?.get(2), emptyDrawables?.get(3))
+            compactEmpty = compact
+        }
+        if (text.maxHeight != availableHeight) {
+            text.maxHeight = availableHeight
+            text.scrollTo(0, 0)
+        }
+        val scrollable = textHeight + padding > availableHeight
+        if (scrollable != scrollableEmpty) {
+            text.movementMethod = if (scrollable) ScrollingMovementMethod.getInstance() else emptyMovement
+            text.isVerticalScrollBarEnabled = scrollable
+            text.scrollTo(0, 0)
+            scrollableEmpty = scrollable
+        }
+    }
     val visibleRect = Rect()
     val lastVisibleRect = Rect()
     val pageGlobalVisibleRect = Rect()
@@ -177,6 +208,7 @@ private fun installVisibleViewportStatePositioningForViews(
                 visibleRect.top = maxOf(visibleRect.top, topObstruction.bottom)
             }
             if (visibleRect.height() > 0) {
+                fitEmptyText(visibleRect.height())
                 if (!hasLastVisibleRect || lastPageHeight != page.height || lastVisibleRect != visibleRect) {
                     baseTranslationY = visibleRect.exactCenterY() - page.height / 2f
                     stateViews.forEach { stateView ->

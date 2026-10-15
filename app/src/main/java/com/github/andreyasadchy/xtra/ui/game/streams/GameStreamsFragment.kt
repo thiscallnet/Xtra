@@ -28,6 +28,8 @@ import com.github.andreyasadchy.xtra.ui.view.GridPage
 import com.github.andreyasadchy.xtra.ui.common.PagingLoadStateAdapter
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.collectSelectedSortBar
+import com.github.andreyasadchy.xtra.ui.common.isCurrentSortPage
 import com.github.andreyasadchy.xtra.ui.common.StreamsAdapter
 import com.github.andreyasadchy.xtra.ui.common.StreamsCompactAdapter
 import com.github.andreyasadchy.xtra.ui.common.StreamFeedScreenController
@@ -42,6 +44,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.repository.streamfeed.RefreshReason
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSortDialog.OnFilter {
@@ -50,6 +53,7 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
     private val binding get() = _binding!!
+    private var sortBarJob: Job? = null
     private val args: GamePagerFragmentArgs by navArgs()
     private val viewModel: GameStreamsViewModel by viewModels { GameStreamsViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
@@ -92,7 +96,8 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
     override fun initialize() {
         viewLifecycleOwner.lifecycleScope.launch {
             if (viewModel.filter.value == null) {
-                val sortValues = args.gameId?.let { viewModel.getGameSort(it) } ?: viewModel.getGameSort("default")
+                val sortValues = args.gameId?.let { viewModel.getGameSort(it) }?.takeIf { it.hasStreamSort() }
+                    ?: viewModel.getGameSort("default")
                 viewModel.setFilter(
                     sort = sortValues?.streamSort,
                     tags = args.tags ?: sortValues?.streamTags?.split(',')?.toTypedArray(),
@@ -156,36 +161,23 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
     }
 
     override fun setupSortBar(sortBar: SortBarBinding) {
+        if (view == null || (parentFragment as? FragmentHost)?.currentFragment !== this) return
         sortBar.root.visibility = View.VISIBLE
         sortBar.root.setOnClickListener {
             viewLifecycleOwner.lifecycleScope.launch {
+                if (!isCurrentSortPage()) return@launch
+                val saved = args.gameId?.let { viewModel.getGameSort(it) }?.hasStreamSort() == true
+                if (!isCurrentSortPage()) return@launch
                 StreamsSortDialog.newInstance(
                     sort = viewModel.sort,
                     tags = viewModel.tags,
                     languages = viewModel.languages,
-                    saved = args.gameId?.let { viewModel.getGameSort(it) } != null
+                    saved = saved,
                 ).show(childFragmentManager, null)
             }
         }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.sortText.collectLatest {
-                    sortBar.sortText.text = it
-                }
-            }
-        }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.filtersText.collectLatest {
-                    if (it != null) {
-                        sortBar.filtersText.visibility = View.VISIBLE
-                        sortBar.filtersText.text = it
-                    } else {
-                        sortBar.filtersText.visibility = View.GONE
-                    }
-                }
-            }
-        }
+        sortBarJob?.cancel()
+        sortBarJob = collectSelectedSortBar(sortBar, viewModel.sortText, viewModel.filtersText)
     }
 
     private fun addTag(tag: String) {
@@ -298,7 +290,7 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
     override fun deleteSavedSort() {
         if ((parentFragment as? FragmentHost)?.currentFragment == this) {
             viewLifecycleOwner.lifecycleScope.launch {
-                args.gameId?.let { viewModel.getGameSort(it) }?.let { viewModel.deleteGameSort(it) }
+                args.gameId?.let { viewModel.deleteGameSort(it) }
             }
         }
     }
@@ -326,6 +318,8 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
     }
 
     override fun onDestroyView() {
+        sortBarJob?.cancel()
+        sortBarJob = null
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onDestroyView()
         }

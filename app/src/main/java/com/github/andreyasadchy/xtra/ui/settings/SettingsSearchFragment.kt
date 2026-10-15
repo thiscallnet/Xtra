@@ -221,13 +221,14 @@ class SettingsSearchFragment : Fragment() {
 
     fun search(query: String) {
         savedQuery = query
-        val matches = if (query.isNotBlank()) {
+        val term = query.trim()
+        val matches = if (term.isNotEmpty()) {
             preferences.orEmpty().filter {
-                it.location?.contains(query, true) == true ||
-                    it.key?.contains(query, true) == true ||
-                    it.title?.contains(query, true) == true ||
-                    it.summary?.contains(query, true) == true ||
-                    it.value?.contains(query, true) == true
+                it.location?.contains(term, true) == true ||
+                    it.key?.contains(term, true) == true ||
+                    it.title?.contains(term, true) == true ||
+                    it.summary?.contains(term, true) == true ||
+                    it.value?.contains(term, true) == true
             }
         } else {
             emptyList()

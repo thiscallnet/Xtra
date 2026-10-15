@@ -1537,4 +1537,7 @@
     <string name="saved_download_selection_limit">Só se poden seleccionar descargas completadas ou erradas.</string>
     <string name="saved_delete_failed">Non se puideron eliminar algúns elementos. Permanecen na lista.</string>
     <string name="team_details_failed">Non se puideron cargar os detalles do equipo.</string>
+    <string name="search_tags_prompt">Introduce o nome dunha etiqueta para buscar.</string>
+    <string name="forget_tab_choices">Esquecer as opcións gardadas para esta lapela</string>
+    <string name="all_languages">Todos os idiomas</string>
 </resources>

@@ -6,6 +6,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.RadioButton
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.isVisible
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.DialogStreamsSortBinding
@@ -70,6 +71,7 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
     private var _binding: DialogStreamsSortBinding? = null
     private val binding get() = _binding!!
     private lateinit var listener: OnFilter
+    private var hasSavedSort = false
 
     private var selectedTags = mutableListOf<String>()
     private var selectedLanguages: Array<String> = emptyArray()
@@ -77,6 +79,12 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
     override fun onAttach(context: Context) {
         super.onAttach(context)
         listener = parentFragment as OnFilter
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        hasSavedSort = savedInstanceState?.takeIf { it.containsKey(SAVED) }?.getBoolean(SAVED)
+            ?: requireArguments().getBoolean(SAVED)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
@@ -90,6 +98,7 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
         with(binding) {
+            saveSort.setSingleLine(false)
             val args = requireArguments()
             val showFilters = args.getBoolean(SHOW_FILTERS, true)
             filtersTitle.isVisible = showFilters
@@ -115,12 +124,13 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
             }
             val originalTags = args.getStringArray(TAGS) ?: emptyArray()
             val originalLanguages = args.getStringArray(LANGUAGES) ?: emptyArray()
-            if (!args.getBoolean(SAVED)) {
-                deleteSavedSort.visibility = View.GONE
-            }
+            deleteSavedSort.isVisible = hasSavedSort
+            deleteSavedSort.contentDescription = getString(R.string.forget_tab_choices)
+            TooltipCompat.setTooltipText(deleteSavedSort, deleteSavedSort.contentDescription)
             sort.check(originalSortId)
             selectedTags = (savedInstanceState?.getStringArray(TAGS) ?: originalTags).toMutableList()
             selectedLanguages = savedInstanceState?.getStringArray(LANGUAGES) ?: originalLanguages
+            selectLanguages.showLanguageFilter(selectedLanguages)
             selectedTags.forEach { name ->
                 tagGroup.addView(
                     Chip(requireContext()).apply {
@@ -149,6 +159,7 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
             }
             deleteSavedSort.setOnClickListener {
                 listener.deleteSavedSort()
+                hasSavedSort = false
                 deleteSavedSort.visibility = View.GONE
             }
             saveDefault.setOnClickListener {
@@ -206,6 +217,7 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
 
     override fun onChange(languages: Array<String>) {
         selectedLanguages = languages
+        binding.selectLanguages.showLanguageFilter(languages)
     }
 
     override fun onDestroyView() {
@@ -214,6 +226,7 @@ class StreamsSortDialog : BottomSheetDialogFragment(), SearchTagsDialog.OnTagSel
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean(SAVED, hasSavedSort)
         outState.putStringArray(TAGS, selectedTags.toTypedArray())
         outState.putStringArray(LANGUAGES, selectedLanguages)
         super.onSaveInstanceState(outState)

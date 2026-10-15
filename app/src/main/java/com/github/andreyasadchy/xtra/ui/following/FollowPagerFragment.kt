@@ -20,7 +20,7 @@ import com.github.andreyasadchy.xtra.ui.common.PlayerOverlayTabAvoidance
 import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.common.RecyclerViewLiftTargetConnector
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
-import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.installPagerSortBar
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
@@ -47,7 +47,7 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
     private var playerOverlayTabAvoidance: PlayerOverlayTabAvoidance? = null
 
     override val currentFragment: Fragment?
-        get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
+        get() = _binding?.let { childFragmentManager.findFragmentByTag("f${it.viewPager.currentItem}") }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -133,7 +133,6 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                 }
 
                 override fun onPageSelected(position: Int) {
-                    sortBar.root.visibility = View.GONE
                     disconnectLiftTarget()
                     viewPager.doOnLayout {
                         updateSelectedPageChrome(position)
@@ -153,6 +152,7 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
                 tab.text = getString(FollowingTabs.titleRes(tabs.getOrNull(position).orEmpty()))
             }.attach()
             tabLayout.setTabCustomizationLongPress(requireContext(), C.UI_FOLLOWING_TABS)
+            installPagerSortBar(viewPager, sortBar)
         }
         playerOverlayTabAvoidance?.close()
         playerOverlayTabAvoidance = requireActivity().findViewById<View>(R.id.playerContainer)?.let { playerContainer ->
@@ -174,11 +174,6 @@ class FollowPagerFragment : Fragment(), Scrollable, FragmentHost {
         fragment.view?.findViewById<androidx.recyclerview.widget.RecyclerView>(R.id.recyclerView)?.let {
             liftTargetConnector?.connect(it)
         } ?: disconnectLiftTarget()
-        if (fragment is Sortable) {
-            fragment.setupSortBar(currentBinding.sortBar)
-        } else {
-            currentBinding.sortBar.root.visibility = View.GONE
-        }
     }
 
     private fun disconnectLiftTarget() {

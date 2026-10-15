@@ -103,8 +103,8 @@ class ChannelClipsViewModel(
         channelSortRepository.save(item)
     }
 
-    suspend fun deleteChannelSort(item: ChannelSort) {
-        channelSortRepository.delete(item)
+    suspend fun deleteChannelSort(id: String) {
+        channelSortRepository.deleteClipSort(id)
     }
 
     fun setFilter(period: String?) {

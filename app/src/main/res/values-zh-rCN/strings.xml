@@ -1537,4 +1537,7 @@
     <string name="saved_download_selection_limit">只能选择已完成或失败的下载。</string>
     <string name="saved_delete_failed">部分项目无法删除，仍保留在列表中。</string>
     <string name="team_details_failed">无法加载团队详情。</string>
+    <string name="search_tags_prompt">输入标签名称以搜索。</string>
+    <string name="forget_tab_choices">清除为此标签页保存的选项</string>
+    <string name="all_languages">所有语言</string>
 </resources>

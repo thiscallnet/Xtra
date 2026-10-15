@@ -45,7 +45,7 @@ import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerViewModel.Companion.
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
-import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.installPagerSortBar
 import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
@@ -84,7 +84,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     private var enableLiveNotificationsAfterChannel = false
 
     override val currentFragment: Fragment?
-        get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
+        get() = _binding?.viewPager?.currentItem?.let { childFragmentManager.findFragmentByTag("f$it") }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -494,6 +494,7 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 }
             }
             val adapter = ChannelPagerAdapter(this@ChannelPagerFragment, args, tabs)
+            installPagerSortBar(viewPager, sortBar)
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 private val layoutParams = channelHero.layoutParams as AppBarLayout.LayoutParams
@@ -510,15 +511,6 @@ class ChannelPagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                         appBar.setExpanded(false, isResumed)
                         appBar.background = null
                         AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL
-                    }
-                    viewPager.doOnLayout {
-                        childFragmentManager.findFragmentByTag("f${position}").let { fragment ->
-                            if (fragment is Sortable) {
-                                fragment.setupSortBar(sortBar)
-                            } else {
-                                sortBar.root.visibility = View.GONE
-                            }
-                        }
                     }
                 }
             })

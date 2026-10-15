@@ -1537,4 +1537,7 @@
     <string name="saved_download_selection_limit">Можно выбрать только завершённые или неудавшиеся загрузки.</string>
     <string name="saved_delete_failed">Некоторые элементы не удалось удалить. Они остаются в списке.</string>
     <string name="team_details_failed">Не удалось загрузить сведения о команде.</string>
+    <string name="search_tags_prompt">Введите название тега для поиска.</string>
+    <string name="forget_tab_choices">Забыть сохранённые настройки этой вкладки</string>
+    <string name="all_languages">Все языки</string>
 </resources>

@@ -1537,4 +1537,7 @@
     <string name="saved_download_selection_limit">完了したダウンロードか失敗したダウンロードのみ選択できます。</string>
     <string name="saved_delete_failed">一部の項目を削除できませんでした。リストに残っています。</string>
     <string name="team_details_failed">チームの詳細を読み込めませんでした。</string>
+    <string name="search_tags_prompt">検索するタグ名を入力してください。</string>
+    <string name="forget_tab_choices">このタブの保存済みの設定を削除</string>
+    <string name="all_languages">すべての言語</string>
 </resources>

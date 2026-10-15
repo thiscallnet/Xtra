@@ -40,6 +40,7 @@ class StatisticsListFragment : Fragment() {
             StatisticsListViewModel.factory(
                 app.xtraModule.viewingStatsRepository,
                 requireArguments().getString(ARG_TYPE, StatisticsListViewModel.TYPE_CHANNEL),
+                initialStatisticsRange(R.id.statisticsListFragment),
             ),
         )[StatisticsListViewModel::class.java]
     }
@@ -56,24 +57,23 @@ class StatisticsListFragment : Fragment() {
         binding.toolbar.title = if (isCategory) getString(R.string.statistics_top_categories) else getString(R.string.statistics_top_channels)
         bottomPadding = binding.content.paddingBottom
         channelAdapter = StatisticsChannelAdapter { item ->
-            findNavController().navigate(R.id.statisticsDetailFragment, StatisticsDetailFragment.argumentsForChannel(item.channelId, item.channelLogin, item.channelName, item.channelImage))
+            findNavController().navigate(
+                R.id.statisticsDetailFragment,
+                StatisticsDetailFragment.argumentsForChannel(item.channelId, item.channelLogin, item.channelName, item.channelImage, viewModel.uiState.value.range),
+            )
         }
         categoryAdapter = StatisticsCategoryAdapter { item ->
-            findNavController().navigate(R.id.statisticsDetailFragment, StatisticsDetailFragment.argumentsForCategory(item.categoryKey, item.categoryName, item.categoryId, item.categoryImage))
+            findNavController().navigate(
+                R.id.statisticsDetailFragment,
+                StatisticsDetailFragment.argumentsForCategory(item.categoryKey, item.categoryName, item.categoryId, item.categoryImage, viewModel.uiState.value.range),
+            )
         }
         binding.channels.adapter = channelAdapter
         binding.categories.adapter = categoryAdapter
         binding.channels.layoutManager = LinearLayoutManager(requireContext())
         binding.categories.layoutManager = LinearLayoutManager(requireContext())
-        binding.rangeGroup.setOnCheckedChangeListener { _, id ->
-            when (id) {
-                R.id.range7 -> viewModel.selectRange(ViewingStatsRange.LAST_7_DAYS)
-                R.id.range30 -> viewModel.selectRange(ViewingStatsRange.LAST_30_DAYS)
-                R.id.range90 -> viewModel.selectRange(ViewingStatsRange.LAST_90_DAYS)
-                R.id.rangeYear -> viewModel.selectRange(ViewingStatsRange.LAST_YEAR)
-                R.id.rangeAll -> viewModel.selectRange(ViewingStatsRange.ALL_TIME)
-            }
-        }
+        bindStatisticsRangeSelection(binding.rangeGroup, R.id.statisticsListFragment,
+            { viewModel.uiState.value.range }, viewModel::selectRange)
         viewLifecycleOwner.lifecycleScope.launch {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.uiState.collectLatest(::render)
@@ -126,7 +126,13 @@ class StatisticsListFragment : Fragment() {
 
     companion object {
         private const val ARG_TYPE = "statistics_list_type"
-        fun argumentsForChannels() = bundleOf(ARG_TYPE to StatisticsListViewModel.TYPE_CHANNEL)
-        fun argumentsForCategories() = bundleOf(ARG_TYPE to StatisticsListViewModel.TYPE_CATEGORY)
+        fun argumentsForChannels(range: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS) = bundleOf(
+            ARG_TYPE to StatisticsListViewModel.TYPE_CHANNEL,
+            STATISTICS_RANGE_ARGUMENT to range.name,
+        )
+        fun argumentsForCategories(range: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS) = bundleOf(
+            ARG_TYPE to StatisticsListViewModel.TYPE_CATEGORY,
+            STATISTICS_RANGE_ARGUMENT to range.name,
+        )
     }
 }

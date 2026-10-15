@@ -1538,4 +1538,7 @@
     <string name="saved_download_selection_limit">Yalnızca tamamlanan veya başarısız indirmeler seçilebilir.</string>
     <string name="saved_delete_failed">Bazı ögeler silinemedi. Listede kalmaya devam ediyorlar.</string>
     <string name="team_details_failed">Takım ayrıntıları yüklenemedi.</string>
+    <string name="search_tags_prompt">Aramak için bir etiket adı girin.</string>
+    <string name="forget_tab_choices">Bu sekme için kaydedilen seçimleri unut</string>
+    <string name="all_languages">Tüm diller</string>
 </resources>

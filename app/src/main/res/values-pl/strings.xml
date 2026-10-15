@@ -1535,4 +1535,7 @@
     <string name="saved_download_selection_limit">Można zaznaczyć tylko zakończone lub nieudane pobrania.</string>
     <string name="saved_delete_failed">Nie udało się usunąć niektórych elementów. Pozostają na liście.</string>
     <string name="team_details_failed">Nie udało się wczytać szczegółów zespołu.</string>
+    <string name="search_tags_prompt">Wpisz nazwę tagu, aby wyszukać.</string>
+    <string name="forget_tab_choices">Zapomnij zapisane opcje dla tej karty</string>
+    <string name="all_languages">Wszystkie języki</string>
 </resources>

@@ -20,12 +20,13 @@ import kotlinx.coroutines.withContext
 class StatisticsListViewModel(
     private val repository: ViewingStatsRepository,
     private val type: String,
+    initialRange: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(StatisticsListUiState(isLoading = true))
+    private val _uiState = MutableStateFlow(StatisticsListUiState(isLoading = true, range = initialRange))
     val uiState: StateFlow<StatisticsListUiState> = _uiState.asStateFlow()
     private var loadJob: Job? = null
 
-    init { selectRange(ViewingStatsRange.LAST_7_DAYS) }
+    init { selectRange(initialRange) }
 
     fun selectRange(range: ViewingStatsRange) {
         loadJob?.cancel()
@@ -49,10 +50,14 @@ class StatisticsListViewModel(
     companion object {
         const val TYPE_CHANNEL = "channels"
         const val TYPE_CATEGORY = "categories"
-        fun factory(repository: ViewingStatsRepository, type: String) = object : ViewModelProvider.Factory {
+        fun factory(
+            repository: ViewingStatsRepository,
+            type: String,
+            initialRange: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
+        ) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                StatisticsListViewModel(repository, type) as T
+                StatisticsListViewModel(repository, type, initialRange) as T
         }
     }
 }

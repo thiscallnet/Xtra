@@ -16,4 +16,10 @@ class GameSort(
     var videoLanguages: String? = null,
     var clipPeriod: String? = null,
     var clipLanguages: String? = null,
-)
+) {
+    fun hasStreamSort() = streamSort != null || streamTags != null || streamLanguages != null
+
+    fun hasVideoSort() = videoSort != null || videoPeriod != null || videoType != null || videoLanguages != null
+
+    fun hasClipSort() = clipPeriod != null || clipLanguages != null
+}

@@ -24,6 +24,8 @@ import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.collectSelectedSortBar
+import com.github.andreyasadchy.xtra.ui.common.isCurrentSortPage
 import com.github.andreyasadchy.xtra.ui.common.installVisibleViewportStatePositioning
 import com.github.andreyasadchy.xtra.ui.download.DownloadDialog
 import com.github.andreyasadchy.xtra.ui.view.GridPage
@@ -43,6 +45,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlin.time.Clock
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Instant
@@ -121,7 +124,7 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
         }
         view.post { if (_binding?.root === view && selection.active) startSavedSelection() }
         with(binding) {
-            nothingHere.setText(R.string.bookmarks_empty)
+            nothingHere.text = getString(R.string.bookmarks_empty, getString(R.string.add_bookmark))
             adapter.registerAdapterDataObserver(object : RecyclerView.AdapterDataObserver() {
                 override fun onItemRangeInserted(positionStart: Int, itemCount: Int) {
                     adapter.unregisterAdapterDataObserver(this)
@@ -268,22 +271,21 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
         }
     }
 
+    private var sortBarJob: Job? = null
+
     override fun setupSortBar(sortBar: SortBarBinding) {
+        if (view == null || (parentFragment as? FragmentHost)?.currentFragment !== this) return
         sortBarBinding = sortBar
         sortBar.root.isVisible = !bookmarksEmpty
         sortBar.root.setOnClickListener {
+            if (!isCurrentSortPage()) return@setOnClickListener
             BookmarksSortDialog.newInstance(
                 sort = viewModel.sort,
                 order = viewModel.order,
             ).show(childFragmentManager, null)
         }
-        viewLifecycleOwner.lifecycleScope.launch {
-            repeatOnLifecycle(Lifecycle.State.STARTED) {
-                viewModel.sortText.collectLatest {
-                    sortBar.sortText.text = it
-                }
-            }
-        }
+        sortBarJob?.cancel()
+        sortBarJob = collectSelectedSortBar(sortBar, viewModel.sortText)
     }
 
     override fun onChange(sort: String, sortText: CharSequence, order: String, orderText: CharSequence, changed: Boolean, saveDefault: Boolean) {
@@ -326,6 +328,8 @@ class BookmarksFragment : BaseNetworkFragment(), Scrollable, Sortable, Bookmarks
     }
 
     override fun onDestroyView() {
+        sortBarJob?.cancel()
+        sortBarJob = null
         super.onDestroyView()
         sortBarBinding = null
         _binding = null

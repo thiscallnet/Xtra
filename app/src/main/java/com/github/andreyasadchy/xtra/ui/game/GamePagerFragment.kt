@@ -11,7 +11,6 @@ import androidx.constraintlayout.helper.widget.Flow
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.constraintlayout.widget.ConstraintSet
 import androidx.core.content.ContextCompat
-import androidx.core.view.doOnLayout
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
 import androidx.fragment.app.viewModels
@@ -33,7 +32,7 @@ import com.github.andreyasadchy.xtra.model.ui.Game
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
-import com.github.andreyasadchy.xtra.ui.common.Sortable
+import com.github.andreyasadchy.xtra.ui.common.installPagerSortBar
 import com.github.andreyasadchy.xtra.ui.common.dispatchPagerScrollState
 import com.github.andreyasadchy.xtra.ui.game.GamePagerViewModel.Companion.GamePagerViewModelFactory
 import com.github.andreyasadchy.xtra.ui.games.GamesFragmentDirections
@@ -69,7 +68,7 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     private var compactLandscapeAutoCollapseApplied = false
 
     override val currentFragment: Fragment?
-        get() = childFragmentManager.findFragmentByTag("f${binding.viewPager.currentItem}")
+        get() = _binding?.viewPager?.currentItem?.let { childFragmentManager.findFragmentByTag("f$it") }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -302,23 +301,13 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
                 }
             }
             val adapter = GamePagerAdapter(this@GamePagerFragment, tabs)
+            installPagerSortBar(viewPager, sortBar)
             viewPager.adapter = adapter
             viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
                 override fun onPageScrollStateChanged(state: Int) {
                     dispatchPagerScrollState(state != ViewPager2.SCROLL_STATE_IDLE)
                 }
 
-                override fun onPageSelected(position: Int) {
-                    viewPager.doOnLayout {
-                        childFragmentManager.findFragmentByTag("f${position}")?.let { fragment ->
-                            if (fragment is Sortable) {
-                                fragment.setupSortBar(sortBar)
-                            } else {
-                                sortBar.root.visibility = View.GONE
-                            }
-                        }
-                    }
-                }
             })
             if (firstLaunch) {
                 val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"

@@ -47,7 +47,9 @@ class FollowMediaFragment : Fragment(), Scrollable, FragmentHost {
     private var liftTargetConnector: RecyclerViewLiftTargetConnector? = null
 
     override val currentFragment: Fragment?
-        get() = childFragmentManager.findFragmentById(R.id.fragmentContainer)
+        get() = childFragmentManager.fragments.lastOrNull {
+            it.id == R.id.fragmentContainer && it.isAdded && !it.isHidden
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

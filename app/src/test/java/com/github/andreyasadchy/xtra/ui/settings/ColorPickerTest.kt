@@ -19,7 +19,7 @@ class ColorPickerTest {
 
         assertEquals(0x80123456.toInt(), color)
         assertEquals("#80123456", formatColor(color!!, allowAlpha = true))
-        assertEquals("#123456", formatColor(0xFF123456.toInt(), allowAlpha = true))
+        assertEquals("#FF123456", formatColor(0xFF123456.toInt(), allowAlpha = true))
     }
 
     @Test

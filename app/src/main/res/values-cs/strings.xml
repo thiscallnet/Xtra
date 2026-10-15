@@ -1560,4 +1560,7 @@
     <string name="saved_download_selection_limit">Lze vybrat pouze dokončená nebo neúspěšná stahování.</string>
     <string name="saved_delete_failed">Některé položky se nepodařilo odstranit. Zůstávají v seznamu.</string>
     <string name="team_details_failed">Nepodařilo se načíst podrobnosti týmu.</string>
+    <string name="search_tags_prompt">Zadejte název značky pro hledání.</string>
+    <string name="forget_tab_choices">Zapomenout uložené volby pro tuto kartu</string>
+    <string name="all_languages">Všechny jazyky</string>
 </resources>
