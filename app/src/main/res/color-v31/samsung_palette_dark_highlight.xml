@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Match Material 1.14 text states using the pre-Android-14 system palette. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:alpha="0.6" android:color="@android:color/system_accent1_200" />
+</selector>

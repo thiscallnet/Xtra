@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Pre-Android-14 Material tonal mappings for One UI 6.0/6.1 only.
+         The newer system color roles on these versions remain blue.
+         https://github.com/material-components/material-components-android/issues/3924 -->
+
+    <style name="SamsungDarkDynamicOverlay" parent="DarkDynamicOverlay">
+        <item name="colorPrimary">@android:color/system_accent1_200</item>
+        <item name="colorOnPrimary">@android:color/system_accent1_800</item>
+        <item name="colorPrimaryInverse">@android:color/system_accent1_600</item>
+        <item name="colorPrimaryContainer">@android:color/system_accent1_700</item>
+        <item name="colorOnPrimaryContainer">@android:color/system_accent1_100</item>
+        <item name="colorPrimaryFixed">@android:color/system_accent1_100</item>
+        <item name="colorPrimaryFixedDim">@android:color/system_accent1_200</item>
+        <item name="colorOnPrimaryFixed">@android:color/system_accent1_900</item>
+        <item name="colorOnPrimaryFixedVariant">@android:color/system_accent1_700</item>
+        <item name="colorSecondary">@android:color/system_accent2_200</item>
+        <item name="colorOnSecondary">@android:color/system_accent2_800</item>
+        <item name="colorSecondaryContainer">@android:color/system_accent2_700</item>
+        <item name="colorOnSecondaryContainer">@android:color/system_accent2_100</item>
+        <item name="colorSecondaryFixed">@android:color/system_accent2_100</item>
+        <item name="colorSecondaryFixedDim">@android:color/system_accent2_200</item>
+        <item name="colorOnSecondaryFixed">@android:color/system_accent2_900</item>
+        <item name="colorOnSecondaryFixedVariant">@android:color/system_accent2_700</item>
+        <item name="colorTertiary">@android:color/system_accent3_200</item>
+        <item name="colorOnTertiary">@android:color/system_accent3_800</item>
+        <item name="colorTertiaryContainer">@android:color/system_accent3_700</item>
+        <item name="colorOnTertiaryContainer">@android:color/system_accent3_100</item>
+        <item name="colorTertiaryFixed">@android:color/system_accent3_100</item>
+        <item name="colorTertiaryFixedDim">@android:color/system_accent3_200</item>
+        <item name="colorOnTertiaryFixed">@android:color/system_accent3_900</item>
+        <item name="colorOnTertiaryFixedVariant">@android:color/system_accent3_700</item>
+        <item name="android:colorBackground">@color/samsung_palette_neutral_variant6</item>
+        <item name="colorOnBackground">@android:color/system_neutral1_100</item>
+        <item name="colorSurface">@color/samsung_palette_neutral_variant6</item>
+        <item name="colorOnSurface">@android:color/system_neutral1_100</item>
+        <item name="colorSurfaceVariant">@android:color/system_neutral2_700</item>
+        <item name="colorOnSurfaceVariant">@android:color/system_neutral2_200</item>
+        <item name="colorSurfaceInverse">@android:color/system_neutral1_100</item>
+        <item name="colorOnSurfaceInverse">@android:color/system_neutral1_800</item>
+        <item name="colorSurfaceBright">@color/samsung_palette_neutral_variant24</item>
+        <item name="colorSurfaceDim">@color/samsung_palette_neutral_variant6</item>
+        <item name="colorSurfaceContainer">@color/samsung_palette_neutral_variant12</item>
+        <item name="colorSurfaceContainerLow">@android:color/system_neutral2_900</item>
+        <item name="colorSurfaceContainerHigh">@color/samsung_palette_neutral_variant17</item>
+        <item name="colorSurfaceContainerLowest">@color/samsung_palette_neutral_variant4</item>
+        <item name="colorSurfaceContainerHighest">@color/samsung_palette_neutral_variant22</item>
+        <item name="colorOutline">@android:color/system_neutral2_400</item>
+        <item name="colorOutlineVariant">@android:color/system_neutral2_700</item>
+        <item name="android:textColorPrimary">@color/samsung_palette_dark_primary_text</item>
+        <item name="android:textColorPrimaryInverse">@color/samsung_palette_light_primary_text</item>
+        <item name="android:textColorSecondary">@color/samsung_palette_dark_secondary_text</item>
+        <item name="android:textColorSecondaryInverse">@color/samsung_palette_light_secondary_text</item>
+        <item name="android:textColorTertiary">@color/samsung_palette_dark_secondary_text</item>
+        <item name="android:textColorTertiaryInverse">@color/samsung_palette_light_secondary_text</item>
+        <item name="android:textColorPrimaryDisableOnly">@color/samsung_palette_dark_primary_disabled_text</item>
+        <item name="android:textColorPrimaryInverseDisableOnly">@color/samsung_palette_light_primary_disabled_text</item>
+        <item name="android:textColorHint">@color/samsung_palette_dark_hint</item>
+        <item name="android:textColorHintInverse">@color/samsung_palette_light_hint</item>
+        <item name="android:textColorHighlight">@color/samsung_palette_dark_highlight</item>
+        <item name="android:textColorHighlightInverse">@color/samsung_palette_light_highlight</item>
+        <item name="android:textColorAlertDialogListItem">@color/samsung_palette_dark_primary_text</item>
+    </style>
+
+    <style name="SamsungLightDynamicOverlay" parent="LightDynamicOverlay">
+        <item name="colorPrimary">@android:color/system_accent1_600</item>
+        <item name="colorOnPrimary">@android:color/system_accent1_0</item>
+        <item name="colorPrimaryInverse">@android:color/system_accent1_200</item>
+        <item name="colorPrimaryContainer">@android:color/system_accent1_100</item>
+        <item name="colorOnPrimaryContainer">@android:color/system_accent1_900</item>
+        <item name="colorPrimaryFixed">@android:color/system_accent1_100</item>
+        <item name="colorPrimaryFixedDim">@android:color/system_accent1_200</item>
+        <item name="colorOnPrimaryFixed">@android:color/system_accent1_900</item>
+        <item name="colorOnPrimaryFixedVariant">@android:color/system_accent1_700</item>
+        <item name="colorSecondary">@android:color/system_accent2_600</item>
+        <item name="colorOnSecondary">@android:color/system_accent2_0</item>
+        <item name="colorSecondaryContainer">@android:color/system_accent2_100</item>
+        <item name="colorOnSecondaryContainer">@android:color/system_accent2_900</item>
+        <item name="colorSecondaryFixed">@android:color/system_accent2_100</item>
+        <item name="colorSecondaryFixedDim">@android:color/system_accent2_200</item>
+        <item name="colorOnSecondaryFixed">@android:color/system_accent2_900</item>
+        <item name="colorOnSecondaryFixedVariant">@android:color/system_accent2_700</item>
+        <item name="colorTertiary">@android:color/system_accent3_600</item>
+        <item name="colorOnTertiary">@android:color/system_accent3_0</item>
+        <item name="colorTertiaryContainer">@android:color/system_accent3_100</item>
+        <item name="colorOnTertiaryContainer">@android:color/system_accent3_900</item>
+        <item name="colorTertiaryFixed">@android:color/system_accent3_100</item>
+        <item name="colorTertiaryFixedDim">@android:color/system_accent3_200</item>
+        <item name="colorOnTertiaryFixed">@android:color/system_accent3_900</item>
+        <item name="colorOnTertiaryFixedVariant">@android:color/system_accent3_700</item>
+        <item name="android:colorBackground">@color/samsung_palette_neutral_variant98</item>
+        <item name="colorOnBackground">@android:color/system_neutral1_900</item>
+        <item name="colorSurface">@color/samsung_palette_neutral_variant98</item>
+        <item name="colorOnSurface">@android:color/system_neutral1_900</item>
+        <item name="colorSurfaceVariant">@android:color/system_neutral2_100</item>
+        <item name="colorOnSurfaceVariant">@android:color/system_neutral2_700</item>
+        <item name="colorSurfaceInverse">@android:color/system_neutral1_800</item>
+        <item name="colorOnSurfaceInverse">@android:color/system_neutral1_50</item>
+        <item name="colorSurfaceBright">@color/samsung_palette_neutral_variant98</item>
+        <item name="colorSurfaceDim">@color/samsung_palette_neutral_variant87</item>
+        <item name="colorSurfaceContainer">@color/samsung_palette_neutral_variant94</item>
+        <item name="colorSurfaceContainerLow">@color/samsung_palette_neutral_variant96</item>
+        <item name="colorSurfaceContainerHigh">@color/samsung_palette_neutral_variant92</item>
+        <item name="colorSurfaceContainerLowest">@android:color/system_neutral2_0</item>
+        <item name="colorSurfaceContainerHighest">@android:color/system_neutral2_100</item>
+        <item name="colorOutline">@android:color/system_neutral2_500</item>
+        <item name="colorOutlineVariant">@android:color/system_neutral2_200</item>
+        <item name="android:textColorPrimary">@color/samsung_palette_light_primary_text</item>
+        <item name="android:textColorPrimaryInverse">@color/samsung_palette_dark_primary_text</item>
+        <item name="android:textColorSecondary">@color/samsung_palette_light_secondary_text</item>
+        <item name="android:textColorSecondaryInverse">@color/samsung_palette_dark_secondary_text</item>
+        <item name="android:textColorTertiary">@color/samsung_palette_light_secondary_text</item>
+        <item name="android:textColorTertiaryInverse">@color/samsung_palette_dark_secondary_text</item>
+        <item name="android:textColorPrimaryDisableOnly">@color/samsung_palette_light_primary_disabled_text</item>
+        <item name="android:textColorPrimaryInverseDisableOnly">@color/samsung_palette_dark_primary_disabled_text</item>
+        <item name="android:textColorHint">@color/samsung_palette_light_hint</item>
+        <item name="android:textColorHintInverse">@color/samsung_palette_dark_hint</item>
+        <item name="android:textColorHighlight">@color/samsung_palette_light_highlight</item>
+        <item name="android:textColorHighlightInverse">@color/samsung_palette_dark_highlight</item>
+        <item name="android:textColorAlertDialogListItem">@color/samsung_palette_light_primary_text</item>
+    </style>
+
+    <style name="SamsungAmoledDynamicOverlay" parent="SamsungDarkDynamicOverlay">
+        <item name="colorSurface">@color/surfaceAmoled</item>
+        <item name="android:colorBackground">@color/surfaceAmoled</item>
+        <item name="colorSurfaceContainerLow">@color/surfaceAmoled</item>
+        <item name="colorSurfaceContainer">@color/surfaceContainerAmoled</item>
+        <item name="cardStyle">@style/CardAmoled</item>
+        <item name="materialSwitchStyle">@style/Widget.Material3.CompoundButton.MaterialSwitch</item>
+        <item name="linearProgressIndicatorStyle">@style/LinearProgressIndicatorAmoled</item>
+        <item name="bottomNavigationStyle">@style/BottomNavigationAmoled</item>
+        <item name="bottomSheetDialogTheme">@style/BottomSheet</item>
+        <item name="materialAlertDialogTheme">@style/Dialog</item>
+    </style>
+
+    <style name="SamsungExpressiveAmoledDynamicOverlay" parent="SamsungDarkDynamicOverlay">
+        <item name="colorSurface">@color/modernAmoledSurface</item>
+        <item name="android:colorBackground">@color/modernAmoledSurface</item>
+        <item name="colorSurfaceContainerLowest">@color/modernAmoledSurfaceContainerLowest</item>
+        <item name="colorSurfaceContainerLow">@color/modernAmoledSurfaceContainerLow</item>
+        <item name="colorSurfaceContainer">@color/modernAmoledSurfaceContainer</item>
+        <item name="colorSurfaceContainerHigh">@color/modernAmoledSurfaceContainerHigh</item>
+        <item name="colorSurfaceContainerHighest">@color/modernAmoledSurfaceContainerHighest</item>
+    </style>
+</resources>

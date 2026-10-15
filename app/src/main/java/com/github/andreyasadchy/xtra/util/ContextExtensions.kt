@@ -336,13 +336,25 @@ fun Activity.applyTheme() {
         }
     }
     if (deviceColors && resolvedMode in setOf("light", "dark", "amoled")) {
+        val samsungPaletteCompatibility = useSamsungPaletteCompatibility()
+        if (com.github.andreyasadchy.xtra.BuildConfig.DEBUG) {
+            android.util.Log.d("XtraDeviceColors", "mode=$resolvedMode expressive=$expressive samsungCompatibility=$samsungPaletteCompatibility")
+        }
         DynamicColors.applyToActivityIfAvailable(
             this,
             DynamicColorsOptions.Builder().setThemeOverlay(
-                when (resolvedMode) {
-                    "light" -> if (expressive) R.style.ExpressiveLightDynamicOverlay else R.style.LightDynamicOverlay
-                    "amoled" -> if (expressive) R.style.ExpressiveAmoledDynamicOverlay else R.style.AmoledDynamicOverlay
-                    else -> if (expressive) R.style.ExpressiveDarkDynamicOverlay else R.style.DarkDynamicOverlay
+                if (samsungPaletteCompatibility) {
+                    when (resolvedMode) {
+                        "light" -> R.style.SamsungLightDynamicOverlay
+                        "amoled" -> if (expressive) R.style.SamsungExpressiveAmoledDynamicOverlay else R.style.SamsungAmoledDynamicOverlay
+                        else -> R.style.SamsungDarkDynamicOverlay
+                    }
+                } else {
+                    when (resolvedMode) {
+                        "light" -> if (expressive) R.style.ExpressiveLightDynamicOverlay else R.style.LightDynamicOverlay
+                        "amoled" -> if (expressive) R.style.ExpressiveAmoledDynamicOverlay else R.style.AmoledDynamicOverlay
+                        else -> if (expressive) R.style.ExpressiveDarkDynamicOverlay else R.style.DarkDynamicOverlay
+                    }
                 }
             ).build()
         )
