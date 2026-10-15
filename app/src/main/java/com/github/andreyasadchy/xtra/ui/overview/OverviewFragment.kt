@@ -41,7 +41,10 @@ class OverviewFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override val currentFragment: Fragment?
-        get() = childFragmentManager.findFragmentById(R.id.fragmentContainer)
+        get() {
+            if (_binding == null || !isAdded) return null
+            return childFragmentManager.findFragmentById(R.id.fragmentContainer)
+        }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentMediaBinding.inflate(inflater, container, false)
@@ -147,14 +150,15 @@ class OverviewFragment : Fragment(), Scrollable, FragmentHost {
     }
 
     override fun scrollToTop() {
-        binding.appBar.setExpanded(true, true)
-        (currentFragment as? Scrollable)?.scrollToTop()
+        val pageBinding = _binding ?: return
+        pageBinding.appBar.setExpanded(true, true)
+        currentFragment?.takeIf { it.view != null }?.let { (it as? Scrollable)?.scrollToTop() }
     }
 
     override fun onDestroyView() {
         childFragmentManager.unregisterFragmentLifecycleCallbacks(pageLifecycleCallbacks)
         configuredRecyclerViews.clear()
-        super.onDestroyView()
         _binding = null
+        super.onDestroyView()
     }
 }

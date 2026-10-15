@@ -1051,6 +1051,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onPostResume() {
+        super.onPostResume()
+        // A selection can be queued while FragmentManager has saved its state.
+        drainBottomNavigation()
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && isTv) {
@@ -2024,6 +2030,7 @@ class MainActivity : AppCompatActivity() {
         rootNavigationView().post {
             bottomNavigationDrainPosted = false
             if (isFinishing || isDestroyed || bottomNavigationTransactionInFlight) return@post
+            if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@post
 
             val itemId = pendingBottomNavigationItemId ?: return@post
             if (navigationDestinationId(navController.currentDestination) == itemId ||

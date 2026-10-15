@@ -58,6 +58,7 @@ class KeepStateFragmentNavigator(
         val blocked = !isTabDestination(destinationId) ||
             bottomRootSelectionDestinationId != null ||
             fragmentManager.isStateSaved ||
+            fragmentManager.isDestroyed ||
             hiddenTabTrimPending ||
             pendingAsyncTransactions != 0 ||
             pendingFragments.isNotEmpty()
@@ -530,7 +531,7 @@ class KeepStateFragmentNavigator(
 
     /** Drop hidden root views when Android reports process memory pressure. */
     fun trimHiddenTabs() {
-        if (fragmentManager.isStateSaved || hiddenTabTrimPending) return
+        if (fragmentManager.isStateSaved || fragmentManager.isDestroyed || hiddenTabTrimPending) return
         val hiddenTabs = preservedFragments.entries.filter { (_, fragment) ->
             fragment.isAdded && fragment.isHidden && fragment.lifecycle.currentState == Lifecycle.State.CREATED
         }
