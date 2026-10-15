@@ -1541,4 +1541,5 @@
     <string name="saved_delete_clips_message">¿Eliminar %1$d archivos de clips seleccionados? Esta acción no se puede deshacer.</string>
     <string name="saved_download_selection_limit">Solo se pueden seleccionar descargas completadas o fallidas.</string>
     <string name="saved_delete_failed">No se pudieron eliminar algunos elementos. Permanecen en la lista.</string>
+    <string name="team_details_failed">No se pudieron cargar los detalles del equipo.</string>
 </resources>

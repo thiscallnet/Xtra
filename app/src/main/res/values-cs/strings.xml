@@ -1559,4 +1559,5 @@
     <string name="saved_delete_clips_message">Smazat %1$d vybraných souborů klipů? Tuto akci nelze vrátit zpět.</string>
     <string name="saved_download_selection_limit">Lze vybrat pouze dokončená nebo neúspěšná stahování.</string>
     <string name="saved_delete_failed">Některé položky se nepodařilo odstranit. Zůstávají v seznamu.</string>
+    <string name="team_details_failed">Nepodařilo se načíst podrobnosti týmu.</string>
 </resources>

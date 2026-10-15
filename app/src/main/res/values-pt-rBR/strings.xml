@@ -1536,4 +1536,5 @@
     <string name="saved_delete_clips_message">Excluir %1$d arquivos de clipes selecionados? Esta ação não pode ser desfeita.</string>
     <string name="saved_download_selection_limit">Só é possível selecionar downloads concluídos ou com falha.</string>
     <string name="saved_delete_failed">Não foi possível excluir alguns itens. Eles permanecem na lista.</string>
+    <string name="team_details_failed">Não foi possível carregar os detalhes da equipe.</string>
 </resources>

@@ -2502,4 +2502,5 @@ Tap to search everywhere</string>
     <string name="saved_delete_clips_message">Delete %1$d selected clip files? This cannot be undone.</string>
     <string name="saved_download_selection_limit">Only completed or failed downloads can be selected.</string>
     <string name="saved_delete_failed">Some items could not be deleted. They remain in the list.</string>
+    <string name="team_details_failed">Couldn’t load team details.</string>
 </resources>

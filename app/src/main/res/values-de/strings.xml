@@ -1536,4 +1536,5 @@
     <string name="saved_delete_clips_message">%1$d ausgewählte Clipdateien löschen? Dies kann nicht rückgängig gemacht werden.</string>
     <string name="saved_download_selection_limit">Nur abgeschlossene oder fehlgeschlagene Downloads können ausgewählt werden.</string>
     <string name="saved_delete_failed">Einige Elemente konnten nicht gelöscht werden. Sie bleiben in der Liste.</string>
+    <string name="team_details_failed">Teamdetails konnten nicht geladen werden.</string>
 </resources>

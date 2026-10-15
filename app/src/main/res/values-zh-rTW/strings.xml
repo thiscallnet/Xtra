@@ -1536,4 +1536,5 @@
     <string name="saved_delete_clips_message">刪除選取的 %1$d 個片段檔案？此操作無法復原。</string>
     <string name="saved_download_selection_limit">只能選取已完成或失敗的下載。</string>
     <string name="saved_delete_failed">部分項目無法刪除，仍保留在清單中。</string>
+    <string name="team_details_failed">無法載入團隊詳細資料。</string>
 </resources>

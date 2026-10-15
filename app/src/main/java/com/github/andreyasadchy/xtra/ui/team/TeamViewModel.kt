@@ -21,7 +21,8 @@ import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.MutableSharedFlow
+import com.github.andreyasadchy.xtra.ui.common.SectionLoadState
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
@@ -36,6 +37,8 @@ class TeamViewModel(
     val team = MutableStateFlow<Team?>(null)
 
     private var isLoading = false
+    private val _infoState = MutableStateFlow(SectionLoadState.LOADING)
+    val infoState = _infoState.asStateFlow()
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val flow = Pager(
@@ -52,27 +55,32 @@ class TeamViewModel(
     }.flow.cachedIn(viewModelScope)
 
     fun loadTeamInfo(teamName: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
-        if (teamName != null && team.value == null && !isLoading) {
-            isLoading = true
-            viewModelScope.launch {
-                val response = try {
-                    val response = graphQLRepository.loadQueryTeam(networkLibrary, gqlHeaders, teamName)
-                    response.data!!.team?.let { team ->
-                        Team(
-                            displayName = team.displayName,
-                            description = team.description,
-                            logoUrl = team.logoURL,
-                            bannerUrl = team.bannerURL,
-                            memberCount = team.members?.totalCount,
-                            ownerLogin = team.owner?.login,
-                            ownerName = team.owner?.displayName,
-                        )
-                    }
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
-                    null
-                }
-                team.value = response
+        if (team.value != null || isLoading) return
+        if (teamName.isNullOrBlank()) {
+            _infoState.value = SectionLoadState.FAILED
+            return
+        }
+        isLoading = true
+        _infoState.value = SectionLoadState.LOADING
+        viewModelScope.launch {
+            try {
+                val response = graphQLRepository.loadQueryTeam(networkLibrary, gqlHeaders, teamName)
+                val details = checkNotNull(response.data?.team)
+                team.value = Team(
+                    displayName = details.displayName,
+                    description = details.description,
+                    logoUrl = details.logoURL,
+                    bannerUrl = details.bannerURL,
+                    memberCount = details.members?.totalCount,
+                    ownerLogin = details.owner?.login,
+                    ownerName = details.owner?.displayName,
+                )
+                _infoState.value = SectionLoadState.READY
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                _infoState.value = SectionLoadState.FAILED
+            } finally {
                 isLoading = false
             }
         }

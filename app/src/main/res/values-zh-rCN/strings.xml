@@ -1536,4 +1536,5 @@
     <string name="saved_delete_clips_message">删除选中的 %1$d 个片段文件？此操作无法撤销。</string>
     <string name="saved_download_selection_limit">只能选择已完成或失败的下载。</string>
     <string name="saved_delete_failed">部分项目无法删除，仍保留在列表中。</string>
+    <string name="team_details_failed">无法加载团队详情。</string>
 </resources>

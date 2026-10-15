@@ -1536,4 +1536,5 @@
     <string name="saved_delete_clips_message">حذف %1$d من ملفات المقاطع المحددة؟ لا يمكن التراجع عن ذلك.</string>
     <string name="saved_download_selection_limit">يمكن تحديد التنزيلات المكتملة أو الفاشلة فقط.</string>
     <string name="saved_delete_failed">تعذر حذف بعض العناصر. ما زالت موجودة في القائمة.</string>
+    <string name="team_details_failed">تعذّر تحميل تفاصيل الفريق.</string>
 </resources>

@@ -1536,4 +1536,5 @@
     <string name="saved_delete_clips_message">Удалить выбранные файлы клипов: %1$d? Это действие нельзя отменить.</string>
     <string name="saved_download_selection_limit">Можно выбрать только завершённые или неудавшиеся загрузки.</string>
     <string name="saved_delete_failed">Некоторые элементы не удалось удалить. Они остаются в списке.</string>
+    <string name="team_details_failed">Не удалось загрузить сведения о команде.</string>
 </resources>

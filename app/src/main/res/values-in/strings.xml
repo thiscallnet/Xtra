@@ -1537,4 +1537,5 @@
     <string name="saved_delete_clips_message">Hapus %1$d berkas klip yang dipilih? Tindakan ini tidak dapat dibatalkan.</string>
     <string name="saved_download_selection_limit">Hanya unduhan selesai atau gagal yang dapat dipilih.</string>
     <string name="saved_delete_failed">Beberapa item tidak dapat dihapus. Item tersebut tetap ada dalam daftar.</string>
+    <string name="team_details_failed">Tidak dapat memuat detail tim.</string>
 </resources>

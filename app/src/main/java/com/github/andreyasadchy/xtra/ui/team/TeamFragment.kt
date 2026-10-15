@@ -34,6 +34,9 @@ import com.github.andreyasadchy.xtra.databinding.FragmentTeamBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.model.ui.Team
 import com.github.andreyasadchy.xtra.ui.common.PagedListFragment
+import com.github.andreyasadchy.xtra.ui.common.SectionLoadState
+import com.github.andreyasadchy.xtra.ui.common.SectionStatus
+import com.github.andreyasadchy.xtra.ui.common.bindStatus
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
 import com.github.andreyasadchy.xtra.ui.login.TwitchWebLoginActivity
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
@@ -121,7 +124,7 @@ class TeamFragment : PagedListFragment(), Scrollable {
                     else -> false
                 }
             }
-            view.applyStableTopSystemBarMargin(collapsingToolbar)
+            view.applyStableTopSystemBarMargin(toolbar)
             ViewCompat.setOnApplyWindowInsetsListener(recyclerViewLayout.recyclerView) { _, windowInsets ->
                 if (activity.findViewById<LinearLayout>(R.id.navBarContainer)?.isVisible == false) {
                     val systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -141,11 +144,21 @@ class TeamFragment : PagedListFragment(), Scrollable {
     }
 
     override fun initialize() {
-        viewModel.loadTeamInfo(
-            teamName = args.teamName,
-            networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-            gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
-        )
+        loadTeamInfo()
+        viewLifecycleOwner.lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                viewModel.infoState.collectLatest { state ->
+                    binding.teamInfoStatus.bindStatus(
+                        if (state == SectionLoadState.READY) null else SectionStatus(loading = state == SectionLoadState.LOADING),
+                        args.teamName.orEmpty(),
+                        ::loadTeamInfo,
+                    )
+                    if (state == SectionLoadState.FAILED) {
+                        binding.teamInfoStatus.sectionMessage.setText(R.string.team_details_failed)
+                    }
+                }
+            }
+        }
         viewLifecycleOwner.lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.team.collectLatest { team ->
@@ -273,12 +286,16 @@ class TeamFragment : PagedListFragment(), Scrollable {
         }
     }
 
-    override fun onNetworkRestored() {
+    private fun loadTeamInfo() {
         viewModel.loadTeamInfo(
             teamName = args.teamName,
             networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
             gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext()),
         )
+    }
+
+    override fun onNetworkRestored() {
+        loadTeamInfo()
         pagingAdapter.retry()
     }
 

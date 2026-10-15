@@ -1559,4 +1559,5 @@
     <string name="saved_delete_clips_message">Vymazať %1$d vybraných súborov klipov? Túto akciu nemožno vrátiť späť.</string>
     <string name="saved_download_selection_limit">Možno vybrať iba dokončené alebo neúspešné sťahovania.</string>
     <string name="saved_delete_failed">Niektoré položky sa nepodarilo odstrániť. Zostávajú v zozname.</string>
+    <string name="team_details_failed">Nepodarilo sa načítať podrobnosti tímu.</string>
 </resources>

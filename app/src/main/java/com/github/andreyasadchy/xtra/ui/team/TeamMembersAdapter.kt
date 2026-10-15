@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.team
 
 import android.text.format.DateUtils
 import android.util.TypedValue
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -22,7 +23,7 @@ import coil3.request.target
 import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
-import com.github.andreyasadchy.xtra.databinding.FragmentStreamsListItemCompactBinding
+import com.github.andreyasadchy.xtra.databinding.FragmentTeamMemberBinding
 import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.channel.ChannelPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.game.GamePagerFragmentDirections
@@ -43,14 +44,30 @@ class TeamMembersAdapter(
             oldItem.channelId == newItem.channelId
 
         override fun areContentsTheSame(oldItem: Stream, newItem: Stream): Boolean =
-            oldItem.viewerCount == newItem.viewerCount &&
+            oldItem.id == newItem.id &&
+                    oldItem.channelLogin == newItem.channelLogin &&
+                    oldItem.channelName == newItem.channelName &&
+                    oldItem.channelImageURL == newItem.channelImageURL &&
+                    oldItem.viewerCount == newItem.viewerCount &&
+                    oldItem.gameId == newItem.gameId &&
+                    oldItem.gameSlug == newItem.gameSlug &&
                     oldItem.gameName == newItem.gameName &&
                     oldItem.title == newItem.title &&
+                    oldItem.createdAt == newItem.createdAt &&
+                    sameTags(oldItem.tags, newItem.tags) &&
                     oldItem.broadcasterType == newItem.broadcasterType
     }) {
 
+    companion object {
+        private fun sameTags(first: List<String>?, second: List<String>?): Boolean {
+            if (first === second) return true
+            if (first == null || second == null || first.size != second.size) return false
+            return first.indices.all { first[it] == second[it] }
+        }
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PagingViewHolder {
-        val binding = FragmentStreamsListItemCompactBinding.inflate(LayoutInflater.from(parent.context), parent, false)
+        val binding = FragmentTeamMemberBinding.inflate(LayoutInflater.from(parent.context), parent, false)
         return PagingViewHolder(binding, fragment)
     }
 
@@ -59,7 +76,7 @@ class TeamMembersAdapter(
     }
 
     inner class PagingViewHolder(
-        private val binding: FragmentStreamsListItemCompactBinding,
+        private val binding: FragmentTeamMemberBinding,
         private val fragment: Fragment,
     ) : RecyclerView.ViewHolder(binding.root) {
         fun bind(item: Stream?) {
@@ -116,7 +133,10 @@ class TeamMembersAdapter(
                     }
                     if (item.viewerCount != null) {
                         viewers.visibility = View.VISIBLE
-                        viewers.text = TwitchApiHelper.formatCount(item.viewerCount ?: 0, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true))
+                        viewers.text = context.getString(
+                            R.string.live_notification_viewers,
+                            TwitchApiHelper.formatCount(item.viewerCount ?: 0, context.prefs().getBoolean(C.UI_TRUNCATE_VIEW_COUNT, true)),
+                        )
                         root.setOnClickListener {
                             (fragment.activity as MainActivity).startStream(item)
                         }
@@ -182,6 +202,7 @@ class TeamMembersAdapter(
                                 text.id = id
                                 ids.add(id)
                                 text.text = tag
+                                text.gravity = Gravity.CENTER_VERTICAL
                                 text.setMinHeight(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 48f, context.resources.displayMetrics).toInt())
                                 text.isFocusable = true
                                 context.obtainStyledAttributes(intArrayOf(com.google.android.material.R.attr.textAppearanceBodyMedium)).use {
