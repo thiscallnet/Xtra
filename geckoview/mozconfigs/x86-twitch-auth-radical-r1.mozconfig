@@ -1,0 +1,2 @@
+mk_add_options MOZ_OBJDIR=@TOPSRCDIR@/obj-xtra-x86-twitch-auth-radical-r1
+ac_add_options --target=i686
