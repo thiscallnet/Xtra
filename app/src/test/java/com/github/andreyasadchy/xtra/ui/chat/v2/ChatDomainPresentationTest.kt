@@ -315,7 +315,9 @@ class ChatDomainPresentationTest {
         val rewardIcon = row.pieces.filterIsInstance<ChatPiece.RewardIcon>().single()
         assertEquals(reward.imageUrl, rewardIcon.asset.key.value)
         assertEquals(18, rewardIcon.asset.targetHeight)
-        assertTrue(row.pieces.indexOfFirst { it is ChatPiece.Text && it.value.contains("redeemed Hydrate") } < row.pieces.indexOfFirst { it is ChatPiece.Username })
+        val event = checkNotNull(row.eventPresentation)
+        assertEquals("Viewer", event.titlePieces.filterIsInstance<ChatPiece.Username>().single().value)
+        assertTrue(row.pieces.indexOf(event.titlePieces.last()) < row.pieces.indexOf(event.bodyPieces.first()))
         assertEvent(row, ChatEventKind.CHANNEL_POINTS, ChatEventVisualStyle.REWARD)
         assertTrue(row.accessibilityText.contains("Viewer redeemed Hydrate for 420 channel points"))
     }
@@ -337,7 +339,7 @@ class ChatDomainPresentationTest {
         )
 
         val text = row.pieces.filterIsInstance<ChatPiece.Text>().joinToString("") { it.value }
-        assertTrue(row.pieces.none { it is ChatPiece.Username })
+        assertEquals("Viewer", row.eventPresentation!!.titlePieces.filterIsInstance<ChatPiece.Username>().single().value)
         assertTrue(text.contains("redeemed Sound Alert"))
         assertTrue(text.filter(Char::isDigit).contains("1000"))
         val rewardIcon = row.pieces.filterIsInstance<ChatPiece.RewardIcon>().single()
@@ -488,7 +490,9 @@ class ChatDomainPresentationTest {
 
         assertEvent(row, ChatEventKind.SUBSCRIPTION, ChatEventVisualStyle.SUPPORT)
         assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription_gift })
-        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == "Viewer" && it.bold && it.color == 0xff9147ff.toInt() })
+        assertTrue(row.eventPresentation!!.titlePieces.filterIsInstance<ChatPiece.Username>().any {
+            it.value == "Viewer" && it.bold && it.color == 0xff9147ff.toInt() && it.separator.isEmpty()
+        })
         assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == "subscribed at Tier 1" && it.color != null && it.bold })
         assertTrue(row.accessibilityText.contains("Viewer subscribed at Tier 1"))
     }
@@ -507,8 +511,11 @@ class ChatDomainPresentationTest {
 
         assertEvent(row, ChatEventKind.SUBSCRIPTION, ChatEventVisualStyle.SUPPORT)
         assertTrue(row.pieces.any { it is ChatPiece.Icon && it.drawableRes == R.drawable.ic_chat_subscription_gift })
-        assertTrue(row.pieces.none { it is ChatPiece.Username })
-        assertTrue(row.pieces.filterIsInstance<ChatPiece.Text>().any { it.value == "renagade45" && it.bold })
+        val event = checkNotNull(row.eventPresentation)
+        assertTrue(event.bodyPieces.isEmpty())
+        assertTrue(event.titlePieces.filterIsInstance<ChatPiece.Username>().any {
+            it.value == "renagade45" && it.bold && it.separator.isEmpty()
+        })
     }
 
     @Test
@@ -557,7 +564,7 @@ class ChatDomainPresentationTest {
         assertEvent(row, ChatEventKind.SUBSCRIPTION, ChatEventVisualStyle.SUPPORT)
         val event = checkNotNull(row.eventPresentation)
         assertTrue(eventText(event.titlePieces).contains("Viewer subscribed at Tier 3"))
-        assertTrue(event.titlePieces.filterIsInstance<ChatPiece.Text>().first().color == 0xff00a8a8.toInt())
+        assertTrue(event.titlePieces.filterIsInstance<ChatPiece.Username>().single().color == 0xff00a8a8.toInt())
         assertTrue(eventText(event.metadataPieces).contains("6 months subscribed"))
         assertTrue(eventText(event.metadataPieces).contains("4 months streak"))
         assertTrue(event.bodyPieces.filterIsInstance<ChatPiece.Username>().single().value == "Viewer")
@@ -1072,7 +1079,13 @@ class ChatDomainPresentationTest {
     }
 
     private fun eventText(pieces: List<ChatPiece>): String =
-        pieces.filterIsInstance<ChatPiece.Text>().joinToString("") { it.value }
+        pieces.joinToString("") {
+            when (it) {
+                is ChatPiece.Text -> it.value
+                is ChatPiece.Username -> it.value + it.separator
+                else -> ""
+            }
+        }
 
     private fun message(segment: ChatSegment) = ChatMessage(
         id = ChatMessageId("id"), channelId = "channel", timestampMs = 1,

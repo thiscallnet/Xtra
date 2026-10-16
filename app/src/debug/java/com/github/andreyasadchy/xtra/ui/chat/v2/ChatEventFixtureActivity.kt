@@ -18,6 +18,13 @@ import com.github.andreyasadchy.xtra.databinding.ViewPinnedChatMessageBinding
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowView
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogBadge
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatUserDecoration
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatNamePaint
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatGiftSource
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageId
@@ -137,7 +144,7 @@ class ChatEventFixtureActivity : AppCompatActivity() {
             pinnedMessageProgress.progress = 620
             pinnedMessageProgress.isVisible = true
         }
-        if (!moderationFixture && !duplicateRewardFixture) {
+        if (!moderationFixture && !duplicateRewardFixture && !intent.getBooleanExtra("badges_fixture", false)) {
             root.addView(pinnedMessage.root)
             root.addView(happeningNow)
         }
@@ -155,7 +162,13 @@ class ChatEventFixtureActivity : AppCompatActivity() {
         val root = contentRoot
         val scale = intent.getFloatExtra(EXTRA_SCALE, 1f).coerceIn(0.75f, 1.75f)
         val surface = MaterialColors.getColor(root, com.google.android.material.R.attr.colorSurface)
+        val badgesFixture = intent.getBooleanExtra("badges_fixture", false)
+        val showBadges = intent.getBooleanExtra("show_badges", true)
         val compiler = ChatRowCompiler(
+            showBadges = showBadges,
+            showThirdPartyBadges = intent.getBooleanExtra("show_third_party_badges", true),
+            showNamePaints = intent.getBooleanExtra("show_name_paints", true),
+            badgeHeightPx = dp(18),
             background = { surface },
             eventPalette = { kind, baseColor ->
                 resolveChatEventPalette(kind, baseColor) { attribute ->
@@ -163,15 +176,41 @@ class ChatEventFixtureActivity : AppCompatActivity() {
                 }
             },
         )
-        val catalog = ChatCatalogSnapshot(revision = 1)
-        messages.forEach { message ->
+        val fixtureBadge = ChatCatalogBadge(
+            name = "Fixture badge",
+            asset = ChatAssetSpec(
+                ChatAssetKey("https://static-cdn.jtvnw.net/badges/v1/3267646d-33f0-4b17-b3df-f923a41db1d0/3"),
+                72, 72, dp(18),
+            ),
+            provider = ChatAssetProvider.TWITCH,
+        )
+        val fixtureMessages = if (badgesFixture) messages + listOf(
+            message("legacy-sub", "LegacyViewer", "", kind = ChatMessageKind.NOTICE,
+                noticeType = "resub", systemText = "LegacyViewer subscribed again."),
+            message("anonymous-gift", "HiddenGifter", "", kind = ChatMessageKind.NOTICE,
+                noticeType = "subgift", subscription = ChatSubscription(
+                    tier = "1000", recipientName = "Recipient", isAnonymous = true,
+                )),
+            message("unknown-user-sub", "LegacyOnlyViewer", "", kind = ChatMessageKind.NOTICE,
+                noticeType = "resub", systemText = "LegacyOnlyViewer subscribed again.").copy(user = null),
+        ) else messages
+        val rowCatalog = if (badgesFixture) catalog.copy(
+            badges = mapOf(ChatBadgeRef("subscriber", "1").catalogKey to fixtureBadge),
+            sevenTvBadges = mapOf("fixture-badge" to fixtureBadge.copy(provider = ChatAssetProvider.SEVEN_TV)),
+            userDecorations = fixtureMessages.mapNotNull { it.user?.id }.associateWith {
+                ChatUserDecoration(badgeId = "fixture-badge", paintId = "fixture-paint")
+            },
+            namePaints = mapOf("fixture-paint" to ChatNamePaint(colors = listOf(Color.CYAN, Color.MAGENTA))),
+        ) else catalog
+        fixtureMessages.forEach { original ->
+            val message = if (badgesFixture) original.copy(badges = listOf(ChatBadgeRef("subscriber", "1"))) else original
             ChatMessageTextView(this, (application as XtraApp).xtraModule.chatAssetRepository).also { view ->
                 view.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f * scale)
                 view.layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                 )
-                view.bind(compiler.compile(message, catalog))
+                view.bind(compiler.compile(message, rowCatalog))
                 root.addView(view)
                 rows += view
             }

@@ -169,29 +169,7 @@ class ChatRowCompiler(
                 )
                 add(ChatPiece.Text("\n", color = mutedColor))
             }
-            if (showBadges) message.badges
-                .filter { it.setId.isNotBlank() && it.versionId.isNotBlank() }
-                .mapNotNull { badge -> badgePiece(badge, catalog) }
-                .forEach(::add)
-            if (showThirdPartyBadges) {
-                message.user?.id?.let(catalog.userDecorations::get)?.badgeId?.let { badgeId ->
-                    catalog.sevenTvBadges[badgeId]?.let { badge ->
-                        add(
-                            ChatPiece.Badge(
-                                badge.asset.scaledTo(badgeHeightPx),
-                                ChatEmoteInteraction(
-                                    id = badgeId,
-                                    name = badge.info ?: badge.name,
-                                    url = badge.asset.key.value,
-                                    animated = true,
-                                    provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.SEVEN_TV,
-                                    scope = null,
-                                ),
-                            ),
-                        )
-                    }
-                }
-            }
+            addUserBadges(message, catalog)
             message.source?.let { source ->
                 val sourceName = source.broadcasterName ?: source.broadcasterLogin ?: source.broadcasterId
                 add(ChatPiece.Source(sourceName, colors.mutedTextColor(rowReadabilityBackground)))
@@ -336,6 +314,7 @@ class ChatRowCompiler(
         val event = buildEventPresentation(
             message = message,
             eventKind = eventKind,
+            catalog = catalog,
             reward = reward,
             isPrimeSubscription = isPrimeSubscription,
             resolvedSegments = resolvedSegments,
@@ -401,6 +380,7 @@ class ChatRowCompiler(
 
     private fun buildEventPresentation(
         message: ChatMessage,
+        catalog: ChatCatalogSnapshot,
         eventKind: ChatEventKind,
         reward: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatReward?,
         isPrimeSubscription: Boolean,
@@ -419,8 +399,8 @@ class ChatRowCompiler(
             listOf<ChatPiece>(ChatPiece.Source(sourceName, mutedColor), ChatPiece.Text(" "))
         }.orEmpty()
         fun withSource(pieces: List<ChatPiece>): List<ChatPiece> = sourcePieces + pieces
-        fun actorPiece(name: String? = actorName, anonymous: Boolean = false): ChatPiece.Text? {
-            val value = if (anonymous) labels.anonymous else name ?: return null
+        fun actorPieces(name: String? = actorName, anonymous: Boolean = false): List<ChatPiece> {
+            val value = if (anonymous) labels.anonymous else name ?: return emptyList()
             val color = if (anonymous || message.user == null) {
                 headingColor
             } else {
@@ -430,12 +410,27 @@ class ChatRowCompiler(
                     baseBackground,
                 )
             }
-            return ChatPiece.Text(value, color = color, bold = true)
+            if (anonymous || message.user == null || name != actorName) {
+                return listOf(ChatPiece.Text(value, color = color, bold = true))
+            }
+            return buildList {
+                addUserBadges(message, catalog)
+                add(ChatPiece.Username(
+                    value = value,
+                    color = color,
+                    bold = true,
+                    paint = if (showNamePaints) {
+                        message.user.id?.let(catalog.userDecorations::get)?.paintId?.let(catalog.namePaints::get)
+                    } else null,
+                    separator = "",
+                ))
+            }
         }
         fun actorTitle(description: String, anonymous: Boolean = false, name: String? = actorName): List<ChatPiece> =
             buildList {
-                actorPiece(name, anonymous)?.let {
-                    add(it)
+                val actor = actorPieces(name, anonymous)
+                if (actor.isNotEmpty()) {
+                    addAll(actor)
                     add(ChatPiece.Text(" "))
                 }
                 add(ChatPiece.Text(description, color = headingColor, bold = true))
@@ -452,7 +447,7 @@ class ChatRowCompiler(
             ChatEventKind.WATCH_STREAK -> {
                 val statusMarker = "\uE000"
                 val status = message.watchStreakCount?.let { labels.watchStreakStatus(statusMarker, it) }
-                val statusPieces = status?.let { localizedStatusPieces(it, statusMarker, actorPiece(), mutedColor) }.orEmpty()
+                val statusPieces = status?.let { localizedStatusPieces(it, statusMarker, actorPieces(), mutedColor) }.orEmpty()
                 val title = buildList {
                     add(ChatPiece.Text(labels.watchStreakReached, color = headingColor, bold = true))
                     message.watchStreakPoints?.let { points ->
@@ -505,7 +500,7 @@ class ChatRowCompiler(
                 val title = if (description != null) {
                     actorTitle(description, anonymous, legacyActor)
                 } else {
-                    fallbackSystemTitle(message.systemText, legacyActor, anonymous, headingColor, baseBackground)
+                    fallbackSystemTitle(message.systemText, legacyActor, anonymous, headingColor, baseBackground, actorPieces(legacyActor, anonymous))
                 }
                 val metadata = withSource(buildList {
                     details?.months?.let { add(ChatPiece.Text(labels.subscriptionMonths(it), color = mutedColor)) }
@@ -629,6 +624,32 @@ class ChatRowCompiler(
         }
     }
 
+    private fun MutableList<ChatPiece>.addUserBadges(message: ChatMessage, catalog: ChatCatalogSnapshot) {
+        if (showBadges) message.badges
+            .filter { it.setId.isNotBlank() && it.versionId.isNotBlank() }
+            .mapNotNull { badge -> badgePiece(badge, catalog) }
+            .forEach(::add)
+        if (showThirdPartyBadges) {
+            message.user?.id?.let(catalog.userDecorations::get)?.badgeId?.let { badgeId ->
+                catalog.sevenTvBadges[badgeId]?.let { badge ->
+                    add(
+                        ChatPiece.Badge(
+                            badge.asset.scaledTo(badgeHeightPx),
+                            ChatEmoteInteraction(
+                                id = badgeId,
+                                name = badge.info ?: badge.name,
+                                url = badge.asset.key.value,
+                                animated = true,
+                                provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.SEVEN_TV,
+                                scope = null,
+                            ),
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
     private fun messageBodyPieces(
         message: ChatMessage,
         segments: List<ChatSegment>,
@@ -636,6 +657,7 @@ class ChatRowCompiler(
         targetHeight: Int,
         rowBackground: Int,
     ): List<ChatPiece> = buildList {
+        addUserBadges(message, catalog)
         message.user?.let { user ->
             user.displayName(nameDisplay)?.let { name ->
                 add(
@@ -716,16 +738,16 @@ class ChatRowCompiler(
     private fun localizedStatusPieces(
         status: String,
         marker: String,
-        actor: ChatPiece.Text?,
+        actor: List<ChatPiece>,
         mutedColor: Int,
     ): List<ChatPiece> {
         val markerStart = status.indexOf(marker)
-        if (markerStart < 0 || actor == null) return listOf(ChatPiece.Text(status, color = mutedColor))
+        if (markerStart < 0 || actor.isEmpty()) return listOf(ChatPiece.Text(status, color = mutedColor))
         return buildList {
             status.substring(0, markerStart).takeIf { it.isNotEmpty() }?.let {
                 add(ChatPiece.Text(it, color = mutedColor))
             }
-            add(actor)
+            addAll(actor)
             add(ChatPiece.Text(status.substring(markerStart + marker.length), color = mutedColor))
         }
     }
@@ -736,15 +758,15 @@ class ChatRowCompiler(
         anonymous: Boolean,
         headingColor: Int,
         rowBackground: Int,
+        actorPieces: List<ChatPiece>,
     ): List<ChatPiece> {
         val text = systemText?.trim()?.takeIf { it.isNotBlank() } ?: labels.subscriptionPaid("subscription")
         if (anonymous) return listOf(ChatPiece.Text(text, color = headingColor, bold = true))
         val actor = actorName?.takeIf { text.startsWith(it, ignoreCase = true) }
         if (actor == null) return listOf(ChatPiece.Text(text, color = headingColor, bold = true))
-        return listOf(
-            ChatPiece.Text(actor, color = colors.resolve(null, actor, rowBackground), bold = true),
-            ChatPiece.Text(text.substring(actor.length), color = headingColor, bold = true),
-        )
+        val titleActor = actorPieces.takeIf { pieces -> pieces.any { it is ChatPiece.Username } }
+            ?: listOf(ChatPiece.Text(actor, color = colors.resolve(null, actor, rowBackground), bold = true))
+        return titleActor + ChatPiece.Text(text.substring(actor.length), color = headingColor, bold = true)
     }
 
     private fun legacySystemActor(systemText: String?): String? = systemText
