@@ -335,15 +335,14 @@ fun Activity.applyTheme() {
             )
         }
     }
-    if (deviceColors && resolvedMode in setOf("light", "dark", "amoled")) {
-        val samsungPaletteCompatibility = useSamsungPaletteCompatibility()
-        if (com.github.andreyasadchy.xtra.BuildConfig.DEBUG) {
-            android.util.Log.d("XtraDeviceColors", "mode=$resolvedMode expressive=$expressive samsungCompatibility=$samsungPaletteCompatibility")
-        }
+    val devicePalette = if (deviceColors && resolvedMode in setOf("light", "dark", "amoled")) {
+        deviceColorPalette(light = resolvedMode == "light")
+    } else null
+    if (devicePalette != null) {
         DynamicColors.applyToActivityIfAvailable(
             this,
             DynamicColorsOptions.Builder().setThemeOverlay(
-                if (samsungPaletteCompatibility) {
+                if (devicePalette.useLegacyPalette) {
                     when (resolvedMode) {
                         "light" -> R.style.SamsungLightDynamicOverlay
                         "amoled" -> if (expressive) R.style.SamsungExpressiveAmoledDynamicOverlay else R.style.SamsungAmoledDynamicOverlay
@@ -358,6 +357,16 @@ fun Activity.applyTheme() {
                 }
             ).build()
         )
+    }
+    val appliedPrimary = obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.colorPrimary)).use {
+        it.getColor(0, 0)
+    }
+    DeviceColorDiagnostics.lastApplied = "enabled=$deviceColors mode=$resolvedMode source=${devicePalette?.source ?: "off"}" +
+        " contrast=${devicePalette?.contrast} mismatches=${devicePalette?.mismatchedFamilies ?: 0}" +
+        " rolePrimary=${devicePalette?.systemPrimary?.deviceColorHex()} palettePrimary=${devicePalette?.palettePrimary?.deviceColorHex()}" +
+        " appliedPrimary=${appliedPrimary.deviceColorHex()}"
+    if (com.github.andreyasadchy.xtra.BuildConfig.DEBUG) {
+        android.util.Log.d("XtraDeviceColors", DeviceColorDiagnostics.lastApplied)
     }
     val isLightTheme = obtainStyledAttributes(intArrayOf(androidx.appcompat.R.attr.isLightTheme)).use {
         it.getBoolean(0, false)

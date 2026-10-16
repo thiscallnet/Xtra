@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Pre-Android-14 Material tonal mappings for One UI 6.0/6.1 only.
-         The newer system color roles on these versions remain blue.
+    <!-- Pre-Android-14 Material tonal mappings for stale system color roles.
+         Originally introduced for One UI 6; selected by palette consistency now.
          https://github.com/material-components/material-components-android/issues/3924 -->
 
     <style name="SamsungDarkDynamicOverlay" parent="DarkDynamicOverlay">

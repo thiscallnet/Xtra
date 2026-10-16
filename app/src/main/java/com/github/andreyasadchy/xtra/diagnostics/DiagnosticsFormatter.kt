@@ -58,6 +58,9 @@ object DiagnosticsFormatter {
                 append(" build=").append(DiagnosticsSanitizer.label(it.appBuild, 32))
                 append(" androidApi=").append(it.androidApi)
                 append(" device=").append(DiagnosticsSanitizer.label(it.deviceModel, 96))
+                it.appearance?.let { appearance ->
+                    append("\nappearance=").append(DiagnosticsSanitizer.label(appearance, 512))
+                }
             }
             append("\n\n")
         }

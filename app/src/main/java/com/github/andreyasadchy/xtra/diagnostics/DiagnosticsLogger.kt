@@ -92,6 +92,7 @@ class DiagnosticsLogger(
         appBuild = BuildConfig.CI_BUILD_NUMBER.toString(),
         androidApi = Build.VERSION.SDK_INT,
         deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim().ifBlank { "unknown" },
+        appearance = com.github.andreyasadchy.xtra.util.DeviceColorDiagnostics.lastApplied,
     )
 
     fun setEnabled(value: Boolean) {

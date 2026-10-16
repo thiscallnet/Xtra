@@ -96,6 +96,7 @@ data class DiagnosticsEnvironment(
     val appBuild: String,
     val androidApi: Int,
     val deviceModel: String,
+    val appearance: String? = null,
 )
 
 data class DiagnosticsField(
