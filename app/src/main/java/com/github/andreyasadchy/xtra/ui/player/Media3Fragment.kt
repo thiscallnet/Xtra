@@ -3480,7 +3480,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     ) {
         val nowMs = SystemClock.elapsedRealtime()
         val livePlayer = currentPlayer?.takeIf {
-            shouldShow && it.playWhenReady && it.isCurrentMediaItemLive &&
+            shouldShow && it.playWhenReady && videoType == STREAM && !isLiveRewindActiveOrSwitching() &&
                 it.videoSize.width > 0 && it.videoSize.height > 0
         }
         val state = livePlayer?.playbackState
@@ -3924,14 +3924,18 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         mediaItem: MediaItem,
         position: Long,
     ) {
-        if (videoType == VIDEO) {
+        // Growing recordings also need their start position before prepare(),
+        // including system rewinds whose service state has not reached the UI yet.
+        val useStartPosition = videoType == VIDEO || isLiveRewindActiveOrSwitching() ||
+            player.currentMediaItem?.mediaId?.startsWith(PlaybackService.LIVE_REWIND_MEDIA_ID_PREFIX) == true
+        if (useStartPosition) {
             player.setMediaItem(mediaItem, position)
         } else {
             player.setMediaItem(mediaItem)
         }
         xtraModule.streamMedia3Runtime.setPrimaryPlaybackMediaItem(mediaItem)
         player.prepare()
-        if (videoType != VIDEO) {
+        if (!useStartPosition) {
             player.seekTo(position)
         }
     }

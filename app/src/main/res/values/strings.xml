@@ -1831,7 +1831,7 @@ Tap to search everywhere</string>
     <string name="settings_system_media_seek_buttons">Show seek buttons when available</string>
     <string name="settings_system_media_seek_back">Seek back</string>
     <string name="settings_system_media_seek_forward">Seek forward</string>
-    <string name="settings_system_media_go_live">Show Go live for rewind</string>
+    <string name="settings_system_media_go_live">Show Go live</string>
     <string name="settings_system_media_artwork">Artwork</string>
     <string name="settings_system_media_artwork_streamer">Streamer avatar</string>
     <string name="settings_system_media_artwork_preview">Stream preview</string>

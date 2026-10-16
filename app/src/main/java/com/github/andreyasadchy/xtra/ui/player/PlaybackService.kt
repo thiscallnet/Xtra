@@ -135,6 +135,9 @@ class PlaybackService : MediaSessionService() {
     private var playbackSessionPlayer: PlaybackSessionPlayer? = null
     private var castPlayer: CastPlayer? = null
     private var systemReplayJob: Job? = null
+    private var systemRecordingJob: Job? = null
+    private var systemRecordingVod: LiveRewindVod? = null
+    private var systemRecordingAttemptMs = Long.MIN_VALUE
     private var systemReplayRollback: Pair<String?, LiveRewindPlaybackSnapshot>? = null
     private var pendingSystemAudioModeDiagnostic: Boolean? = null
     private var lastSystemAudioModeAvailability: String? = null
@@ -375,6 +378,7 @@ class PlaybackService : MediaSessionService() {
             key == C.SYSTEM_MEDIA_SHOW_GO_LIVE
         ) {
             Handler(Looper.getMainLooper()).post {
+                updateSystemRecording()
                 invalidatePlaybackSessionPlayerState()
                 playbackPlayer?.let {
                     refreshSystemMediaMetadata()
@@ -1101,31 +1105,7 @@ class PlaybackService : MediaSessionService() {
                                 handleViewingMetadataCommand(customCommand.customExtras, session.player)
                                 Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
                             }
-                            GO_LIVE -> {
-                                if (!liveRewindActive) {
-                                    return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
-                                }
-                                val extras = liveStreamExtras?.let(::Bundle)
-                                    ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
-                                clearBackgroundVideoSuppression(
-                                    session.player,
-                                    restoreVideo = true,
-                                    reason = "go_live",
-                                )
-                                setLiveRewindSessionState(transitioning = true)
-                                val result = startLiveStream(player, extras, beginNewPlayback = false)
-                                result.addListener({
-                                    val succeeded = runCatching { result.get().resultCode == SessionResult.RESULT_SUCCESS }.getOrDefault(false)
-                                    setLiveRewindSessionState(
-                                        active = if (succeeded) false else liveRewindActive,
-                                        vodId = if (succeeded) null else liveRewindVodId,
-                                        transitioning = false,
-                                    )
-                                    updatePrimaryPlaybackWatchState(player)
-                                    refreshMediaButtonPreferences(player)
-                                }, MoreExecutors.directExecutor())
-                                result
-                            }
+                            GO_LIVE -> goLiveFromSystemMedia(session.player)
                             START_STREAM -> {
                                 if (customCommand.customExtras.getBoolean(VAFT_HANDOFF)) {
                                     return startVaftHandoff(player, customCommand.customExtras)
@@ -2505,9 +2485,11 @@ class PlaybackService : MediaSessionService() {
 
     private fun shouldRunLiveSampleTicker(player: Player): Boolean =
         viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
-            (player.isCurrentMediaItemLive && player.isPlaying || liveRewindActive && player.currentMediaItem != null)
+            (player.isCurrentMediaItemLive && (player.isPlaying || prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true)) ||
+                liveRewindActive && player.currentMediaItem != null)
 
     private fun updateAdaptiveLiveSampleTicker(player: Player) {
+        updateSystemRecording()
         val shouldSample = shouldRunLiveSampleTicker(player)
         if (!shouldSample) {
             adaptiveLiveSampleJob?.cancel()
@@ -2524,6 +2506,8 @@ class PlaybackService : MediaSessionService() {
                         break
                     }
                     val behindSeconds = systemBehindLiveSeconds()
+                    updateSystemRecording()
+                    if (systemRecordingVod != null && !liveRewindActive) refreshSystemMediaMetadata()
                     if (behindSeconds != lastSystemBehindSeconds) {
                         lastSystemBehindSeconds = behindSeconds
                         refreshSystemMediaMetadata()
@@ -2860,7 +2844,7 @@ class PlaybackService : MediaSessionService() {
             // requested position must be the source's start position.
             val activePlayer = setPlaybackSource(
                 player,
-                createVodMediaSource(uri),
+                createVodMediaSource(uri, "$LIVE_REWIND_MEDIA_ID_PREFIX$vodId"),
                 if (extras.containsKey(PLAYBACK_POSITION)) {
                     extras.getLong(PLAYBACK_POSITION)
                 } else {
@@ -2923,6 +2907,11 @@ class PlaybackService : MediaSessionService() {
     }
 
     private fun systemBehindLiveSeconds(): Long? {
+        if (isLocalLive() && !liveRewindActive) {
+            val offsetMs = playbackPlayer?.currentLiveOffset?.takeIf { it != Media3C.TIME_UNSET && it > LIVE_EDGE_THRESHOLD_MS }
+                ?: return null
+            return offsetMs / 10_000L * 10L
+        }
         if (!liveRewindActive) return null
         val player = mediaSession?.player ?: return null
         val duration = player.duration.takeIf { it != Media3C.TIME_UNSET && it > 0 } ?: return null
@@ -3078,14 +3067,88 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
-    private fun replayFromSystemMedia(): ListenableFuture<SessionResult> {
+    private fun goLiveFromSystemMedia(activePlayer: Player): ListenableFuture<SessionResult> {
+        if (!liveRewindActive) {
+            if (!isLocalLive() || liveRewindTransitioning ||
+                !activePlayer.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
+            ) return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+            activePlayer.seekToDefaultPosition()
+            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        }
+        val player = playbackPlayer ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
+        val extras = liveStreamExtras?.let(::Bundle)
+            ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+        clearBackgroundVideoSuppression(
+            activePlayer,
+            restoreVideo = true,
+            reason = "go_live",
+        )
+        setLiveRewindSessionState(transitioning = true)
+        val result = startLiveStream(player, extras, beginNewPlayback = false)
+        result.addListener({
+            val succeeded = runCatching { result.get().resultCode == SessionResult.RESULT_SUCCESS }.getOrDefault(false)
+            setLiveRewindSessionState(
+                active = if (succeeded) false else liveRewindActive,
+                vodId = if (succeeded) null else liveRewindVodId,
+                transitioning = false,
+            )
+            updatePrimaryPlaybackWatchState(player)
+            refreshMediaButtonPreferences(player)
+        }, MoreExecutors.directExecutor())
+        return result
+    }
+
+    private suspend fun resolveSystemRecording(): LiveRewindVod? {
+        val response = xtraModule.graphQLRepository.loadQueryUsersStream(
+            networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            headers = TwitchApiHelper.getGQLHeaders(this),
+            ids = viewingChannelId?.takeIf { it.isNotBlank() }?.let(::listOf),
+            logins = if (viewingChannelId.isNullOrBlank()) viewingChannelLogin?.let(::listOf) else null,
+        )
+        if (!response.errors.isNullOrEmpty()) return null
+        val stream = response.data?.users?.firstOrNull()?.stream ?: return null
+        if (viewingContentId != null && stream.id != viewingContentId) return null
+        return xtraModule.graphQLRepository.findCurrentRecordingVod(
+            networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+            headers = TwitchApiHelper.getGQLHeaders(this),
+            channelId = viewingChannelId,
+            channelLogin = viewingChannelLogin,
+            streamCreatedAt = stream.createdAt?.toString(),
+        )
+    }
+
+    private fun updateSystemRecording() {
+        if (!isLocalLive() || liveRewindActive || liveRewindTransitioning || systemRecordingVod != null ||
+            systemRecordingJob?.isActive == true || !prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true) ||
+            !prefs().getBoolean(C.PLAYER_LIVE_REWIND, true)
+        ) return
+        val now = SystemClock.elapsedRealtime()
+        if (systemRecordingAttemptMs != Long.MIN_VALUE && now - systemRecordingAttemptMs < 60_000L) return
+        systemRecordingAttemptMs = now
+        val generation = livePlaybackSessionGeneration
+        val channel = viewingChannelLogin
+        val stream = viewingContentId
+        systemRecordingJob = lifecycleScope.launch {
+            try {
+                val vod = withTimeoutOrNull(15_000L) { resolveSystemRecording() }
+                if (generation == livePlaybackSessionGeneration && channel == viewingChannelLogin && stream == viewingContentId) {
+                    systemRecordingVod = vod
+                    refreshSystemMediaMetadata()
+                }
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                Log.w("LiveRewind", "System timeline recording lookup failed", error)
+            }
+        }
+    }
+
+    private fun replayFromSystemMedia(positionMs: Long? = null): ListenableFuture<SessionResult> {
         if (!isLocalLive() || liveRewindActive || liveRewindTransitioning ||
             systemReplayJob?.isActive == true || !prefs().getBoolean(C.PLAYER_LIVE_REWIND, true) ||
             !prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true) ||
-            !prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_SEEK_BUTTONS, true)
+            (positionMs == null && !prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_SEEK_BUTTONS, true))
         ) return Futures.immediateFuture(SessionResult(SessionError.ERROR_NOT_SUPPORTED))
         val generation = livePlaybackSessionGeneration
-        val channelId = viewingChannelId
         val channelLogin = viewingChannelLogin
         val streamId = viewingContentId
         val sourceId = playbackPlayer?.currentMediaItem?.mediaId
@@ -3093,22 +3156,7 @@ class PlaybackService : MediaSessionService() {
         systemReplayJob = lifecycleScope.launch {
             try {
                 val resolved = withTimeoutOrNull(15_000L) {
-                    val response = xtraModule.graphQLRepository.loadQueryUsersStream(
-                        networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        headers = TwitchApiHelper.getGQLHeaders(this@PlaybackService),
-                        ids = channelId?.takeIf { it.isNotBlank() }?.let(::listOf),
-                        logins = if (channelId.isNullOrBlank()) channelLogin?.let(::listOf) else null,
-                    )
-                    if (!response.errors.isNullOrEmpty()) return@withTimeoutOrNull null
-                    val stream = response.data?.users?.firstOrNull()?.stream ?: return@withTimeoutOrNull null
-                    if (streamId != null && stream.id != streamId) return@withTimeoutOrNull null
-                    val vod = xtraModule.graphQLRepository.findCurrentRecordingVod(
-                        networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                        headers = TwitchApiHelper.getGQLHeaders(this@PlaybackService),
-                        channelId = channelId,
-                        channelLogin = channelLogin,
-                        streamCreatedAt = stream.createdAt?.toString(),
-                    ) ?: return@withTimeoutOrNull null
+                    val vod = systemRecordingVod ?: resolveSystemRecording() ?: return@withTimeoutOrNull null
                     // The existing Usher path handles authorization and rendition selection.
                     val url = xtraModule.playerRepository.loadVideoPlaylistUrl(
                         networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
@@ -3130,7 +3178,7 @@ class PlaybackService : MediaSessionService() {
                 val started = startLiveRewind(requireNotNull(playbackPlayer), Bundle().apply {
                     putString(URI, url)
                     putString(REWIND_VIDEO_ID, vod.id)
-                    putLong(PLAYBACK_POSITION, (freezeLiveEdge(vod.predictedDurationMs(), null) - 30_000L).coerceAtLeast(0L))
+                    putLong(PLAYBACK_POSITION, (positionMs ?: (freezeLiveEdge(vod.predictedDurationMs(), null) - 30_000L)).coerceIn(0L, vod.predictedDurationMs()))
                     putBoolean(PLAY_WHEN_READY, mediaSession?.player?.playWhenReady == true)
                 }, retainStartupRollback = true)
                 result.set(started.get())
@@ -5661,6 +5709,7 @@ class PlaybackService : MediaSessionService() {
             session.setMediaButtonPreferences(emptyList())
             return
         }
+        val showGoLive = isLocalLive() && prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_GO_LIVE, true)
         val buttons = buildList {
             if (prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_SEEK_BUTTONS, true) &&
                 activePlayer.isCurrentMediaItemSeekable && (!isLocalLive() || liveRewindActive)
@@ -5675,6 +5724,9 @@ class PlaybackService : MediaSessionService() {
                     CommandButton.Builder(CommandButton.ICON_SKIP_FORWARD)
                         .setPlayerCommand(Player.COMMAND_SEEK_TO_NEXT)
                         .setDisplayName(getString(R.string.settings_system_media_seek_forward))
+                        .setSlots(*if (showGoLive) {
+                            intArrayOf(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
+                        } else intArrayOf(CommandButton.SLOT_FORWARD))
                         .build(),
                 )
             }
@@ -5689,12 +5741,14 @@ class PlaybackService : MediaSessionService() {
                     .setEnabled(systemReplayJob?.isActive != true)
                     .build())
             }
-            if (liveRewindActive && prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_GO_LIVE, true)) {
+            if (showGoLive) {
                 add(
                     CommandButton.Builder(CommandButton.ICON_NEXT)
                         .setSessionCommand(SessionCommand(GO_LIVE, Bundle.EMPTY))
-                        .setSlots(CommandButton.SLOT_FORWARD_SECONDARY, CommandButton.SLOT_OVERFLOW)
+                        .setSlots(CommandButton.SLOT_FORWARD)
                         .setDisplayName(getString(R.string.seek_to_live))
+                        .setEnabled(!liveRewindTransitioning && systemReplayJob?.isActive != true &&
+                            (liveRewindActive || activePlayer.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)))
                         .build(),
                 )
             }
@@ -5716,7 +5770,11 @@ class PlaybackService : MediaSessionService() {
                 .setCustomIconResId(if (isLogicalAudioOnly()) R.drawable.ic_media_video else R.drawable.ic_media_audio)
                 .setSessionCommand(SessionCommand(TOGGLE_SYSTEM_AUDIO, Bundle.EMPTY))
                 .setDisplayName(getString(if (isLogicalAudioOnly()) R.string.system_media_video else R.string.audio_only))
-                .setSlots(if (liveRewindActive) CommandButton.SLOT_BACK_SECONDARY else CommandButton.SLOT_FORWARD, CommandButton.SLOT_OVERFLOW)
+                .setSlots(when {
+                    liveRewindActive -> CommandButton.SLOT_BACK_SECONDARY
+                    showGoLive -> CommandButton.SLOT_FORWARD_SECONDARY
+                    else -> CommandButton.SLOT_FORWARD
+                }, CommandButton.SLOT_OVERFLOW)
                 .setEnabled(systemReplayJob?.isActive != true)
                 .build()
         } else buttons
@@ -5752,6 +5810,13 @@ class PlaybackService : MediaSessionService() {
 
         override fun getState(): State {
             val state = super.getState()
+            val recordingTimeline = systemRecordingVod?.takeIf {
+                isLocalLive() && !liveRewindActive &&
+                    prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true) &&
+                    prefs().getBoolean(C.PLAYER_LIVE_REWIND, true) &&
+                    state.timeline.windowCount == 1 && state.timeline.periodCount == 1 &&
+                    state.timeline.getWindow(0, Timeline.Window()).windowStartTimeMs != Media3C.TIME_UNSET
+            }?.let { SystemLiveTimeline(state.timeline, it) }
             val seekCommandAdditions = mediaSessionSeekCommandAdditions(
                 systemMediaControlsEnabled = prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true),
                 systemSeekButtonsEnabled = prefs().getBoolean(C.SYSTEM_MEDIA_SHOW_SEEK_BUTTONS, true),
@@ -5769,12 +5834,29 @@ class PlaybackService : MediaSessionService() {
                 if (seekCommandAdditions.seekToPrevious && (!isLocalLive() || liveRewindActive)) add(COMMAND_SEEK_TO_PREVIOUS)
                 if (seekCommandAdditions.seekToNext && (!isLocalLive() || liveRewindActive)) add(COMMAND_SEEK_TO_NEXT)
                 if (seekCommandAdditions.seekInCurrentMediaItem) add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                if (isLocalLive() && !liveRewindActive) {
+                    if (recordingTimeline != null && !liveRewindTransitioning && systemReplayJob?.isActive != true) {
+                        add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    } else {
+                        remove(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                        remove(COMMAND_SEEK_BACK)
+                        remove(COMMAND_SEEK_FORWARD)
+                    }
+                }
             }.build()
             return state.buildUpon().setAvailableCommands(availableCommands).apply {
                 if (!state.timeline.isEmpty && viewingContentType != null &&
                     prefs().getBoolean(C.SYSTEM_MEDIA_CONTROLS_ENABLED, true)
                 ) {
-                    val timeline = if (liveRewindActive) {
+                    val timeline = if (recordingTimeline != null) {
+                        val offsetMs = recordingTimeline.offsetMs
+                        setContentPositionMs { state.contentPositionMsSupplier.get() + offsetMs }
+                        setContentBufferedPositionMs { state.contentBufferedPositionMsSupplier.get() + offsetMs }
+                        if (state.hasPositionDiscontinuity) {
+                            setPositionDiscontinuity(state.positionDiscontinuityReason, state.discontinuityPositionMs + offsetMs)
+                        }
+                        recordingTimeline
+                    } else if (liveRewindActive && !isCasting()) {
                         // Twitch's growing recording is live HLS to the decoder,
                         // but it has a real replay position and duration. Expose
                         // those to Android so the card can scrub and animate.
@@ -5788,6 +5870,15 @@ class PlaybackService : MediaSessionService() {
                                     liveConfiguration = null
                                 }
                         }
+                    } else if (isLocalLive()) {
+                        // Without a matching recording, the rolling buffer is not a broadcast duration.
+                        object : ForwardingTimeline(state.timeline) {
+                            override fun getWindow(windowIndex: Int, window: Timeline.Window, defaultPositionProjectionUs: Long): Timeline.Window =
+                                super.getWindow(windowIndex, window, defaultPositionProjectionUs).apply {
+                                    durationUs = Media3C.TIME_UNSET
+                                    isSeekable = false
+                                }
+                        }
                     } else {
                         state.timeline
                     }
@@ -5796,8 +5887,17 @@ class PlaybackService : MediaSessionService() {
             }.build()
         }
 
-        override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> =
-            when (seekCommand) {
+        override fun handleSeek(mediaItemIndex: Int, positionMs: Long, seekCommand: Int): ListenableFuture<*> {
+            if (isLocalLive() && !liveRewindActive && seekCommand in setOf(
+                    COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM, COMMAND_SEEK_BACK, COMMAND_SEEK_FORWARD,
+                )
+            ) {
+                val vod = systemRecordingVod ?: return Futures.immediateVoidFuture()
+                return if (shouldReturnToLive(positionMs, vod.predictedDurationMs())) {
+                    goLiveFromSystemMedia(player)
+                } else replayFromSystemMedia(positionMs)
+            }
+            return when (seekCommand) {
                 COMMAND_SEEK_TO_NEXT, COMMAND_SEEK_TO_NEXT_MEDIA_ITEM -> {
                     player.seekForward()
                     Futures.immediateVoidFuture()
@@ -5808,6 +5908,7 @@ class PlaybackService : MediaSessionService() {
                 }
                 else -> super.handleSeek(mediaItemIndex, positionMs, seekCommand)
             }
+        }
     }
 
     private fun isTrustedController(controller: MediaSession.ControllerInfo): Boolean =
@@ -5880,7 +5981,7 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private fun createVodMediaSource(uri: android.net.Uri): MediaSource =
+    private fun createVodMediaSource(uri: android.net.Uri, mediaId: String = MediaItem.DEFAULT_MEDIA_ID): MediaSource =
         HlsMediaSource.Factory(
             DefaultDataSource.Factory(
                 this@PlaybackService,
@@ -5895,7 +5996,7 @@ class PlaybackService : MediaSessionService() {
             ),
         ).apply {
             setPlaylistParserFactory(twitchHlsPlaylistParserFactory())
-        }.createMediaSource(MediaItem.Builder().setUri(uri).setMimeType(MimeTypes.APPLICATION_M3U8).build())
+        }.createMediaSource(MediaItem.Builder().setUri(uri).setMediaId(mediaId).setMimeType(MimeTypes.APPLICATION_M3U8).build())
 
     private fun twitchHlsPlaylistParserFactory(): TwitchHlsPlaylistParserFactory =
         TwitchHlsPlaylistParserFactory(
@@ -6263,6 +6364,11 @@ class PlaybackService : MediaSessionService() {
         beginNewPlayback: Boolean = true,
     ) {
         val viewingContentChanged = viewingContentType != contentType || viewingContentId != contentId
+        if (viewingContentChanged || viewingChannelLogin != extras.getString(CHANNEL_LOGIN)) {
+            systemRecordingJob?.cancel()
+            systemRecordingVod = null
+            systemRecordingAttemptMs = Long.MIN_VALUE
+        }
         if (viewingContentChanged) {
             diagnostics.resetForNewMedia()
             viewingStreamPreviewGeneration = System.currentTimeMillis()
@@ -6610,6 +6716,7 @@ class PlaybackService : MediaSessionService() {
         prefs().unregisterOnSharedPreferenceChangeListener(mediaPreferenceListener)
         adaptiveLiveSampleJob?.cancel()
         adaptiveLiveSampleJob = null
+        systemRecordingJob?.cancel()
         clearLiveClipState()
         clearVodClipSource()
         if (::xtraModule.isInitialized) {
@@ -6662,6 +6769,7 @@ class PlaybackService : MediaSessionService() {
         private const val BACKGROUND_STABLE_PLAYBACK_RESET_MS = 120_000L
         const val START_STREAM = "startStream"
         const val START_LIVE_REWIND = "startLiveRewind"
+        const val LIVE_REWIND_MEDIA_ID_PREFIX = "xtra-live-rewind:"
         const val GET_LIVE_REWIND_STATE = "getLiveRewindState"
         const val UPDATE_VIEWING_METADATA = "updateViewingMetadata"
         const val REPLAY_30 = "replay30"
