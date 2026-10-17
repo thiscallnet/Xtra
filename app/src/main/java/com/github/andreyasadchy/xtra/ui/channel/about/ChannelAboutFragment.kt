@@ -222,24 +222,28 @@ class ChannelAboutFragment : BaseNetworkFragment(), com.github.andreyasadchy.xtr
     private fun renderSchedule() {
         binding.scheduleList.removeAllViews()
         val now = kotlin.time.Clock.System.now()
-        viewModel.schedule.value.mapNotNull { item ->
+        val schedule = viewModel.schedule.value.mapNotNull { item ->
             val start = item.start?.let { kotlin.time.Instant.parseOrNull(it) } ?: return@mapNotNull null
             val end = item.end?.let { kotlin.time.Instant.parseOrNull(it) } ?: return@mapNotNull null
             if (end <= now) return@mapNotNull null
             Triple(item, start, end)
-        }.sortedBy { it.second }.forEach { (item, start, end) ->
-            val date = android.text.format.DateUtils.formatDateTime(requireContext(), start.toEpochMilliseconds(), android.text.format.DateUtils.FORMAT_SHOW_WEEKDAY or android.text.format.DateUtils.FORMAT_SHOW_DATE)
-            val timeFormat = android.text.format.DateFormat.getTimeFormat(requireContext())
-            val dateFormat = android.text.format.DateFormat.getDateFormat(requireContext())
+        }.sortedBy { it.second }
+        if (schedule.isEmpty()) return
+
+        val context = requireContext()
+        val timeFormat = android.text.format.DateFormat.getTimeFormat(context)
+        val dateFormat = android.text.format.DateFormat.getDateFormat(context)
+        schedule.forEach { (item, start, end) ->
+            val date = android.text.format.DateUtils.formatDateTime(context, start.toEpochMilliseconds(), android.text.format.DateUtils.FORMAT_SHOW_WEEKDAY or android.text.format.DateUtils.FORMAT_SHOW_DATE)
             val startDate = java.util.Date(start.toEpochMilliseconds())
             val endDate = java.util.Date(end.toEpochMilliseconds())
             val endLabel = if (dateFormat.format(startDate) == dateFormat.format(endDate)) {
                 timeFormat.format(endDate)
             } else {
-                "${android.text.format.DateUtils.formatDateTime(requireContext(), end.toEpochMilliseconds(), android.text.format.DateUtils.FORMAT_SHOW_WEEKDAY or android.text.format.DateUtils.FORMAT_SHOW_DATE)}, ${timeFormat.format(endDate)}"
+                "${android.text.format.DateUtils.formatDateTime(context, end.toEpochMilliseconds(), android.text.format.DateUtils.FORMAT_SHOW_WEEKDAY or android.text.format.DateUtils.FORMAT_SHOW_DATE)}, ${timeFormat.format(endDate)}"
             }
             val times = getString(R.string.channel_schedule_time_range, timeFormat.format(startDate), endLabel)
-            binding.scheduleList.addView(LinearLayout(requireContext()).apply {
+            binding.scheduleList.addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 val gap = (12 * resources.displayMetrics.density).toInt()
                 setPadding(0, gap, 0, gap)

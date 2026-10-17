@@ -13,6 +13,8 @@ import coil3.request.transformations
 import coil3.transform.CircleCropTransformation
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.StatisticsChannelItemBinding
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.viewingstats.ChannelWatchTotal
 import kotlin.math.roundToInt
 
@@ -82,7 +84,9 @@ class StatisticsChannelAdapter(
                 binding.root.context.imageLoader.enqueue(
                     ImageRequest.Builder(context).apply {
                         data(item.channelImage)
-                        transformations(CircleCropTransformation())
+                        if (context.prefs().getBoolean(C.UI_ROUND_USER_IMAGE, true)) {
+                            transformations(CircleCropTransformation())
+                        }
                         crossfade(true)
                         target(binding.avatar)
                     }.build()

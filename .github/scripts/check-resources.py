@@ -858,6 +858,13 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_animate_picker_emotes_summary",
     "twitch_emotes_login_required",
     "twitch_emotes_empty",
+    # Singular-session wording is used only for English until these labels are
+    # reviewed and translated consistently across supported locales.
+    "statistics_selected_bucket_summary_singular",
+    "statistics_selected_bucket_summary_with_channel_singular",
+    "statistics_chart_selected_description_singular",
+    "statistics_detail_summary_singular",
+    "statistics_detail_sessions_singular",
 }
 
 

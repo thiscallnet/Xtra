@@ -6,7 +6,6 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
 import android.view.accessibility.AccessibilityManager
-import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.accessibility.AccessibilityViewCommand
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -34,7 +33,10 @@ class GridRecyclerView : RecyclerView {
     private var pinchAllowed: () -> Boolean = { true }
     private var pinchListener: RecyclerView.OnItemTouchListener? = null
     private val preferenceListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        val compactCardWidthChanged = key == C.COMPACT_STREAMS &&
+            gridPage?.let { it.compactMinimumColumnWidthDp != it.minimumColumnWidthDp } == true
         if (key == null || key == C.PORTRAIT_COLUMN_COUNT || key == C.LANDSCAPE_COLUMN_COUNT ||
+            compactCardWidthChanged ||
             gridPage?.let { key == it.preferenceKey(Configuration.ORIENTATION_PORTRAIT) ||
                 key == it.preferenceKey(Configuration.ORIENTATION_LANDSCAPE) } == true
         ) {
@@ -67,6 +69,11 @@ class GridRecyclerView : RecyclerView {
         applyColumns(newConfig)
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        if (w != oldw) applyColumns(resources.configuration)
+    }
+
     fun usePageGrid(page: GridPage, allowPinch: () -> Boolean = { true }) {
         val pageChanged = gridPage != page
         gridPage = page
@@ -97,7 +104,10 @@ class GridRecyclerView : RecyclerView {
 
     private fun getColumnsForConfiguration(configuration: Configuration): Int {
         if (temporarilySingleColumn) return 1
-        gridPage?.let { return GridColumnPreferences.get(context, it, configuration.orientation) }
+        gridPage?.let {
+            return GridColumnPreferences.get(context, it, configuration.orientation)
+                .coerceAtMost(maxColumns(configuration.orientation))
+        }
         return GridColumnPreferences.getLegacy(context, configuration.orientation)
     }
 
@@ -157,7 +167,6 @@ class GridRecyclerView : RecyclerView {
         val orientation = resources.configuration.orientation
         val next = (gridLayoutManager.spanCount + delta).coerceIn(1, maxColumns(orientation))
         if (!setPageColumns(next, width / 2f, height / 2f)) return false
-        showColumnsFeedback(next)
         return true
     }
 
@@ -176,10 +185,6 @@ class GridRecyclerView : RecyclerView {
         onSpanCountChanged?.invoke(columns)
         updateGridAccessibilityActions()
         return true
-    }
-
-    private fun showColumnsFeedback(columns: Int) {
-        Toast.makeText(context, context.getString(R.string.grid_columns_changed, columns), Toast.LENGTH_SHORT).show()
     }
 
     private fun isTouchExplorationEnabled(): Boolean =
@@ -207,9 +212,7 @@ class GridRecyclerView : RecyclerView {
                     next++
                     pendingScale /= minimumScale
                 }
-                if (next != current && setPageColumns(next, detector.focusX, detector.focusY)) {
-                    lastChangedColumns = next
-                }
+                if (next != current) setPageColumns(next, detector.focusX, detector.focusY)
                 if ((next == 1 && pendingScale >= SCALE_STEP) ||
                     (next == maxColumns(orientation) && pendingScale <= minimumScale)
                 ) {
@@ -251,8 +254,6 @@ class GridRecyclerView : RecyclerView {
 
         override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) = Unit
 
-        private var lastChangedColumns: Int? = null
-
         private fun canStartPinch(): Boolean =
             gridPage != null && !temporarilySingleColumn && pinchAllowed() && !isTouchExplorationEnabled()
 
@@ -268,25 +269,31 @@ class GridRecyclerView : RecyclerView {
             gestureClaimed = false
             pendingScale = 1f
             rv.parent?.requestDisallowInterceptTouchEvent(false)
-            lastChangedColumns?.let { columns ->
-                showColumnsFeedback(columns)
-            }
-            lastChangedColumns = null
         }
 
         fun cancelForConfigurationChange() {
             gestureClaimed = false
             pendingScale = 1f
-            lastChangedColumns = null
             parent?.requestDisallowInterceptTouchEvent(false)
         }
     }
 
-    private fun maxColumns(orientation: Int): Int =
-        if (orientation == Configuration.ORIENTATION_PORTRAIT) 4 else 6
+    private fun maxColumns(orientation: Int): Int {
+        val orientationLimit = if (orientation == Configuration.ORIENTATION_PORTRAIT) 4 else 6
+        val page = gridPage ?: return orientationLimit
+        val availableWidthDp = (width - paddingLeft - paddingRight) / resources.displayMetrics.density
+        if (availableWidthDp <= 0f) return orientationLimit
+        val minimumColumnWidth = if (prefs.getString(C.COMPACT_STREAMS, "disabled") != "disabled") {
+            page.compactMinimumColumnWidthDp
+        } else {
+            page.minimumColumnWidthDp
+        }
+        val widthLimit = (availableWidthDp / minimumColumnWidth).toInt().coerceAtLeast(1)
+        return minOf(orientationLimit, widthLimit)
+    }
 
     private companion object {
-        const val SCALE_STEP = 1.2f
+        const val SCALE_STEP = 1.1f
     }
 
     private fun addItemDecoration(columns: Int) {

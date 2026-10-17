@@ -1,11 +1,14 @@
 package com.github.andreyasadchy.xtra.ui.statistics
 
 import android.os.Bundle
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.GridLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.core.os.bundleOf
 import androidx.core.view.ViewCompat
 import androidx.core.view.doOnLayout
@@ -43,6 +46,7 @@ class StatisticsDetailFragment : Fragment() {
     private lateinit var channelAdapter: StatisticsChannelAdapter
     private lateinit var categoryAdapter: StatisticsCategoryAdapter
     private var initialBottomPadding = 0
+    private var renderedSnapshot: ViewingStatsDetailSnapshot? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -123,6 +127,11 @@ class StatisticsDetailFragment : Fragment() {
         binding.progress.visibility = if (state.isLoading) View.VISIBLE else View.GONE
         if (state.isLoading) return
         val snapshot = state.snapshot ?: return
+        if (snapshot === renderedSnapshot) {
+            binding.activityChart.setSelectedIndex(state.selectedBucketIndex)
+            return
+        }
+        renderedSnapshot = snapshot
         binding.detailContent.visibility = View.VISIBLE
         val detailType = requireArguments().getString(ARG_TYPE)
         binding.toolbar.title = state.title?.takeIf { it.isNotBlank() }
@@ -134,13 +143,23 @@ class StatisticsDetailFragment : Fragment() {
         if (detailType != StatisticsDetailViewModel.TYPE_BUCKET) {
             binding.rangeGroup.check(rangeChip(state.range))
         }
+        val singularEnglishSession = snapshot.sessionCount == 1 &&
+            resources.configuration.locales[0]?.language == "en"
         binding.totalWatchTime.text = formatDuration(snapshot.totalWatchMs)
-        binding.detailSubtitle.text = getString(
-            R.string.statistics_detail_summary,
-            snapshot.sessionCount,
-            formatDuration(snapshot.averageSessionMs),
-        )
-        binding.sessionsValue.text = getString(R.string.statistics_detail_sessions, snapshot.sessionCount)
+        binding.detailSubtitle.text = if (singularEnglishSession) {
+            getString(R.string.statistics_detail_summary_singular, formatDuration(snapshot.averageSessionMs))
+        } else {
+            getString(
+                R.string.statistics_detail_summary,
+                snapshot.sessionCount,
+                formatDuration(snapshot.averageSessionMs),
+            )
+        }
+        binding.sessionsValue.text = if (singularEnglishSession) {
+            getString(R.string.statistics_detail_sessions_singular)
+        } else {
+            getString(R.string.statistics_detail_sessions, snapshot.sessionCount)
+        }
         binding.averageSessionValue.text = getString(R.string.statistics_detail_average, formatDuration(snapshot.averageSessionMs))
         binding.lastWatchedValue.text = getString(
             R.string.statistics_detail_last_watched,
@@ -161,31 +180,57 @@ class StatisticsDetailFragment : Fragment() {
         binding.categoriesHeading.visibility = if (showCategories) View.VISIBLE else View.GONE
         binding.contentBreakdown.text = formatContentBreakdown(snapshot.contentTypes, snapshot.totalWatchMs)
         binding.recentContainer.removeAllViews()
+        val recentIntervalMinimumHeight = resources.getDimensionPixelSize(
+            R.dimen.statistics_recent_interval_min_touch_target,
+        )
+        val recentIntervalVerticalPadding = resources.getDimensionPixelSize(
+            R.dimen.statistics_recent_interval_vertical_padding,
+        )
+        val recentIntervalDateFormat = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+        val selectableItemBackground = TypedValue().also {
+            requireContext().theme.resolveAttribute(android.R.attr.selectableItemBackground, it, true)
+        }.resourceId
         snapshot.recentIntervals.forEach { interval ->
             val channelName = interval.channelName ?: interval.channelLogin ?: interval.channelId
             val categoryName = interval.categoryName ?: getString(R.string.statistics_unknown_category)
             val row = TextView(requireContext()).apply {
                 text = getString(
                     R.string.statistics_recent_interval,
-                    DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(interval.startAt)),
+                    recentIntervalDateFormat.format(Date(interval.startAt)),
                     formatDuration(interval.watchedMs),
                     channelName,
                     categoryName,
                 )
-                setPadding(0, 12, 0, 12)
+                minHeight = recentIntervalMinimumHeight
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(0, recentIntervalVerticalPadding, 0, recentIntervalVerticalPadding)
+                foreground = if (selectableItemBackground != 0) {
+                    ContextCompat.getDrawable(context, selectableItemBackground)?.mutate()
+                } else {
+                    null
+                }
                 isClickable = true
                 isFocusable = true
                 contentDescription = text
                 setOnClickListener {
-                    findNavController().navigate(
-                        R.id.statisticsDetailFragment,
+                    val isCurrentChannelInterval =
+                        requireArguments().getString(ARG_TYPE) == StatisticsDetailViewModel.TYPE_CHANNEL &&
+                            interval.channelId == requireArguments().getString(ARG_CHANNEL_ID) &&
+                            interval.endAt > interval.startAt
+                    val arguments = if (isCurrentChannelInterval) {
+                        argumentsForBucket(interval.startAt, interval.endAt)
+                    } else {
                         argumentsForChannel(
                             channelId = interval.channelId,
                             channelLogin = interval.channelLogin,
                             channelName = interval.channelName ?: interval.channelLogin,
                             channelImage = interval.channelImage,
                             range = state.range,
-                        ),
+                        )
+                    }
+                    findNavController().navigate(
+                        R.id.statisticsDetailFragment,
+                        arguments,
                     )
                 }
             }
@@ -311,6 +356,7 @@ class StatisticsDetailFragment : Fragment() {
     override fun onDestroyView() {
         binding.topChannels.adapter = null
         binding.topCategories.adapter = null
+        renderedSnapshot = null
         _binding = null
         super.onDestroyView()
     }

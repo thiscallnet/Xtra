@@ -163,7 +163,7 @@
     <string name="storage_permission_message">Storage permission is required to download videos.</string>
     <string name="permission_denied">Required permissions were denied.</string>
     <string name="nothing_here">Nothing here</string>
-    <string name="following_categories_empty">You\'re not following any categories yet.</string>
+    <string name="following_categories_empty">No followed categories yet. Open Browse to find categories to follow.</string>
     <string name="list_load_error">Couldn’t load this content.</string>
     <string name="list_refresh_error">Couldn’t refresh this content.</string>
     <string name="list_load_more_error">Couldn’t load more content.</string>
@@ -820,7 +820,6 @@ Metadata text</string>
     <string name="landscape_chat_width">Landscape chat width</string>
     <string name="portrait_column_count">Portrait column count</string>
     <string name="landscape_column_count">Landscape column count</string>
-    <string name="grid_columns_changed">Columns: %1$d</string>
     <string name="increase_grid_columns">Show more columns (smaller cards)</string>
     <string name="decrease_grid_columns">Show fewer columns (larger cards)</string>
     <string name="internal_storage">Internal storage</string>
@@ -2246,10 +2245,13 @@ Tap to search everywhere</string>
     <string name="statistics_activity_summary">%1$d active days across %2$d days in this period</string>
     <string name="statistics_selected_bucket_summary">%1$s · %2$s · %3$d sessions</string>
     <string name="statistics_selected_bucket_summary_with_channel">%1$s · %2$s · %3$d sessions\nTop channel: %4$s (%5$s)</string>
+    <string name="statistics_selected_bucket_summary_singular">%1$s · %2$s · 1 session</string>
+    <string name="statistics_selected_bucket_summary_with_channel_singular">%1$s · %2$s · 1 session\nTop channel: %3$s (%4$s)</string>
     <string name="statistics_chart_description">Viewing activity across %1$d buckets; each point shows watched time, totaling %2$s</string>
     <string name="statistics_chart_date_range">%1$s–%2$s</string>
     <string name="statistics_chart_empty_description">No viewing activity in this period</string>
     <string name="statistics_chart_selected_description">%1$s, %2$s watched, %3$d sessions</string>
+    <string name="statistics_chart_selected_description_singular">%1$s, %2$s watched, 1 session</string>
     <string name="statistics_top_channels">Top channels</string>
     <string name="statistics_top_categories">Top categories</string>
     <string name="statistics_no_categories">No categories in this period</string>
@@ -2266,6 +2268,8 @@ Tap to search everywhere</string>
     <string name="statistics_open_category">Open category</string>
     <string name="statistics_detail_summary">%1$d sessions · %2$s average session</string>
     <string name="statistics_detail_sessions">%1$d sessions</string>
+    <string name="statistics_detail_summary_singular">1 session · %1$s average session</string>
+    <string name="statistics_detail_sessions_singular">1 session</string>
     <string name="statistics_detail_average">%1$s average</string>
     <string name="statistics_detail_last_watched">Last watched: %1$s</string>
     <string name="statistics_viewing_details">Viewing details</string>

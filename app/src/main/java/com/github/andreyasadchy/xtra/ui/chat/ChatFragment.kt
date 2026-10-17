@@ -2167,7 +2167,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     }
 
     override fun onPause() {
-        chatV2Renderer?.setVisible(false)
+        // PiP stays visible while the activity is paused; stopping the renderer also stops timeline
+        // collection and drops asset handles still needed by the visible chat.
+        val chatRemainsVisibleInPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            requireActivity().isInPictureInPictureMode && chatV2RendererVisible
+        if (!chatRemainsVisibleInPip) chatV2Renderer?.setVisible(false)
         super.onPause()
     }
 
