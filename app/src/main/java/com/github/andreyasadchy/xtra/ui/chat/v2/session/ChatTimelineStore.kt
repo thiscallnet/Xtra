@@ -359,19 +359,23 @@ class ChatTimelineStore(
 
         val rewardId = message.rewardId ?: return -1
         val userId = message.user?.id ?: return -1
+        val input = normalizedRewardInput(message.rawText) ?: return -1
         return existing.indexOfFirst { other ->
             other.channelId == message.channelId &&
                 other.rewardId == rewardId &&
                 other.user?.id == userId &&
-                other.rawText.orEmpty() == message.rawText.orEmpty() &&
+                normalizedRewardInput(other.rawText) == input &&
                 !other.rewardSourcesMerged && !message.rewardSourcesMerged &&
                 // Each input pairs with one notice. Repeated identical inputs and separate
                 // notices are distinct redemptions even when their input is identical.
                 isSyntheticRedemption(other) != isSyntheticRedemption(message) &&
-                !message.rawText.isNullOrBlank() &&
                 (other.rewardRedemptionId == null || message.rewardRedemptionId == null)
         }
     }
+
+    /** Provider payloads can pad the same input differently from the rendered chat text. */
+    private fun normalizedRewardInput(text: String?): String? =
+        text?.trim()?.takeIf { it.isNotEmpty() }
 
     private fun isSyntheticRedemption(message: ChatMessage): Boolean =
         message.noticeType == "channel_points_custom_reward_redemption"

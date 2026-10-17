@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatEventProcessor
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineStore
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.TwitchChatEventParser
+import com.github.andreyasadchy.xtra.util.chat.PubSubUtils
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
@@ -24,6 +25,70 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatTimelineArchitectureTest {
+    @Test
+    fun eventSubAndHermesRedemptionWithTrailingInputWhitespaceRenderOnceWithBadges() = runBlocking {
+        val chatMessage = TwitchChatEventParser.fromEventSub(
+            JSONObject(
+                """
+                {
+                  "broadcaster_user_id":"channel",
+                  "chatter_user_id":"user",
+                  "chatter_user_login":"viewer",
+                  "chatter_user_name":"Viewer",
+                  "message_id":"chat-message-1",
+                  "message":{"text":"@someone","fragments":[{"type":"text","text":"@someone"}]},
+                  "badges":[{"set_id":"subscriber","id":"12"}],
+                  "message_type":"channel_points_highlighted",
+                  "channel_points_custom_reward_id":"reward-1"
+                }
+                """.trimIndent(),
+            ),
+            "2026-10-17T12:00:00Z",
+        )
+        val hermesRedemption = TwitchChatEventParser.fromPubSubReward(
+            PubSubUtils.parseRewardMessage(
+                JSONObject(
+                    """
+                    {
+                      "data":{"redemption":{
+                        "id":"redemption-1",
+                        "user":{"id":"user","login":"viewer","display_name":"Viewer"},
+                        "user_input":"@someone ",
+                        "reward":{"id":"reward-1","title":"Timeout a viewer","cost":25000}
+                      }}
+                    }
+                    """.trimIndent(),
+                ),
+            ),
+            "channel",
+        )
+
+        listOf(
+            listOf(hermesRedemption, chatMessage),
+            listOf(chatMessage, hermesRedemption),
+        ).forEach { events ->
+            val scope = CoroutineScope(Dispatchers.Default)
+            val store = ChatTimelineStore(scope, maxSize = 10)
+            val processor = ChatEventProcessor(scope, store)
+            val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+            try {
+                processor.activate(key)
+                events.forEach { processor.submit(key, it) }
+
+                processor.reconcile(key, emptyList())
+                val rows = store.snapshot()
+                assertEquals(1, rows.size)
+                assertEquals(listOf("subscriber"), rows.single().badges.map { it.setId })
+                assertEquals("@someone", rows.single().rawText)
+                assertEquals("redemption-1", rows.single().rewardRedemptionId)
+                assertEquals("Timeout a viewer", rows.single().rewardTitle)
+                assertEquals(25000, rows.single().rewardCost)
+            } finally {
+                scope.cancel()
+            }
+        }
+    }
+
     @Test
     fun appendDeltasAreRepeatableForIndependentUiCollectors() = runBlocking {
         val scope = CoroutineScope(Dispatchers.Default)

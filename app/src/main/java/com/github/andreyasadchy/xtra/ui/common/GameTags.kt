@@ -84,6 +84,7 @@ internal fun createGameTagViews(tagsLayout: ConstraintLayout): GameTagViews {
     val tagViews = List(10) {
         (inflater.inflate(R.layout.item_stream_tag, tagsLayout, false) as TextView).apply {
             id = View.generateViewId()
+            maxWidth = resources.getDimensionPixelSize(R.dimen.game_category_tag_max_width)
             tagsLayout.addView(this)
         }
     }

@@ -148,9 +148,10 @@ class ViewingActivityChartView @JvmOverloads constructor(
         val labelIndices = (0..buckets.lastIndex step labelStep).toMutableList()
         if (buckets.lastIndex !in labelIndices) labelIndices += buckets.lastIndex
         val axisTicks = mutableListOf<AxisTick>()
+        val dateFormat = DateFormat.getDateInstance(DateFormat.SHORT)
         val labelSpacing = density * 4f
         labelIndices.forEach { index ->
-            val text = formatAxisDateLabel(buckets[index])
+            val text = formatAxisDateLabel(buckets[index], dateFormat)
             val textWidth = label.measureText(text)
             if (textWidth > right - left) return@forEach
             val halfTextWidth = textWidth / 2f
@@ -172,7 +173,7 @@ class ViewingActivityChartView @JvmOverloads constructor(
             val x = left + (selectedIndex + 0.5f) * bucketWidth
             marker.strokeWidth = density * 1.5f
             canvas.drawLine(x, top, x, bottom, marker)
-            val title = formatDateLabel(bucket)
+            val title = formatDateLabel(bucket, dateFormat)
             val value = formatDuration(bucket.watchedMs)
             calloutText.textSize = spToPx(11f)
             val fontMetrics = calloutText.fontMetrics
@@ -350,24 +351,34 @@ class ViewingActivityChartView @JvmOverloads constructor(
             } else {
                 context.getString(R.string.statistics_chart_description, buckets.size, formatDuration(buckets.sumOf { it.watchedMs }))
             }
-            else -> context.getString(
-                R.string.statistics_chart_selected_description,
-                formatDateLabel(selected),
-                formatDuration(selected.watchedMs),
-                selected.sessionCount,
-            )
+            else -> {
+                val date = formatDateLabel(selected)
+                val duration = formatDuration(selected.watchedMs)
+                if (selected.sessionCount == 1 && resources.configuration.locales[0]?.language == "en") {
+                    context.getString(R.string.statistics_chart_selected_description_singular, date, duration)
+                } else {
+                    context.getString(
+                        R.string.statistics_chart_selected_description,
+                        date,
+                        duration,
+                        selected.sessionCount,
+                    )
+                }
+            }
         }
     }
 
-    private fun formatDateLabel(bucket: TimelineWatchTotal): String {
-        val dateFormat = DateFormat.getDateInstance(DateFormat.SHORT)
+    private fun formatDateLabel(
+        bucket: TimelineWatchTotal,
+        dateFormat: DateFormat = DateFormat.getDateInstance(DateFormat.SHORT),
+    ): String {
         val first = dateFormat.format(Date(bucket.startAt))
         val last = dateFormat.format(Date((bucket.endAt - 1L).coerceAtLeast(bucket.startAt)))
         return if (first == last) first else context.getString(R.string.statistics_chart_date_range, first, last)
     }
 
-    private fun formatAxisDateLabel(bucket: TimelineWatchTotal): String =
-        DateFormat.getDateInstance(DateFormat.SHORT).format(Date(bucket.startAt))
+    private fun formatAxisDateLabel(bucket: TimelineWatchTotal, dateFormat: DateFormat): String =
+        dateFormat.format(Date(bucket.startAt))
 
     private fun spToPx(sizeSp: Float): Float =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sizeSp, resources.displayMetrics)

@@ -7,20 +7,25 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.prefs
 
 /** Stable screen types that can have independent card-grid column counts. */
-enum class GridPage(val id: String) {
-    BROWSE_GAMES("browse_games"),
-    TOP_STREAMS("top_streams"),
-    FOLLOWED_GAMES("followed_games"),
-    FOLLOWED_STREAMS("followed_streams"),
+enum class GridPage(
+    val id: String,
+    val minimumColumnWidthDp: Int = 180,
+    // Stream row cards need more width; other pages keep their regular card width.
+    val compactMinimumColumnWidthDp: Int = minimumColumnWidthDp,
+) {
+    BROWSE_GAMES("browse_games", 132, 132),
+    TOP_STREAMS("top_streams", compactMinimumColumnWidthDp = 320),
+    FOLLOWED_GAMES("followed_games", 132, 132),
+    FOLLOWED_STREAMS("followed_streams", compactMinimumColumnWidthDp = 320),
     FOLLOWED_VIDEOS("followed_videos"),
-    GAME_STREAMS("game_streams"),
+    GAME_STREAMS("game_streams", compactMinimumColumnWidthDp = 320),
     GAME_VIDEOS("game_videos"),
     GAME_CLIPS("game_clips"),
-    CHANNEL_SUGGESTIONS("channel_suggestions"),
+    CHANNEL_SUGGESTIONS("channel_suggestions", compactMinimumColumnWidthDp = 320),
     CHANNEL_VIDEOS("channel_videos"),
     CHANNEL_CLIPS("channel_clips"),
-    SEARCH_GAMES("search_games"),
-    SEARCH_STREAMS("search_streams"),
+    SEARCH_GAMES("search_games", 132, 132),
+    SEARCH_STREAMS("search_streams", compactMinimumColumnWidthDp = 320),
     SEARCH_VIDEOS("search_videos"),
     SAVED_BOOKMARKS("saved_bookmarks");
 

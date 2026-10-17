@@ -22,6 +22,7 @@ import androidx.navigation.ui.setupWithNavController
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentStatisticsBinding
+import com.github.andreyasadchy.xtra.repository.ViewingStatsSnapshot
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.ui.search.SearchPagerFragmentDirections
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
@@ -42,6 +43,7 @@ class StatisticsFragment : Fragment() {
     private lateinit var categoryAdapter: StatisticsCategoryAdapter
     private var initialRootTopPadding = 0
     private var initialContentBottomPadding = 0
+    private var renderedSnapshot: ViewingStatsSnapshot? = null
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -217,6 +219,12 @@ class StatisticsFragment : Fragment() {
             statisticsContent.visibility = if (snapshot.hasActivity) View.VISIBLE else View.GONE
             resetStatistics.visibility = if (hasRecordedStats) View.VISIBLE else View.GONE
             if (!snapshot.hasActivity) return@with
+            if (snapshot === renderedSnapshot) {
+                activityChart.setSelectedIndex(state.selectedBucketIndex)
+                renderSelectedBucketSummary(snapshot, state)
+                return@with
+            }
+            renderedSnapshot = snapshot
 
             totalWatchTime.text = formatDuration(snapshot.totalWatchMs)
             comparison.text = when {
@@ -246,27 +254,7 @@ class StatisticsFragment : Fragment() {
                 snapshot.activeDays,
                 snapshot.dailyTotals.size,
             )
-            val selectedBucket = snapshot.timeline.getOrNull(state.selectedBucketIndex)
-            selectedBucketSummary.visibility = if (selectedBucket == null) View.GONE else View.VISIBLE
-            viewBucketDetails.visibility = if (selectedBucket == null) View.GONE else View.VISIBLE
-            selectedBucket?.let { bucket ->
-                val detail = state.selectedBucketDetail
-                val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(bucket.startAt))
-                val duration = formatDuration(bucket.watchedMs)
-                val topChannel = detail?.topChannels?.firstOrNull()
-                selectedBucketSummary.text = if (topChannel == null) {
-                    getString(R.string.statistics_selected_bucket_summary, date, duration, bucket.sessionCount)
-                } else {
-                    getString(
-                        R.string.statistics_selected_bucket_summary_with_channel,
-                        date,
-                        duration,
-                        bucket.sessionCount,
-                        topChannel.channelName ?: topChannel.channelLogin ?: topChannel.channelId,
-                        formatDuration(topChannel.watchedMs),
-                    )
-                }
-            }
+            renderSelectedBucketSummary(snapshot, state)
 
             channelAdapter.submitChannels(snapshot.topChannels, snapshot.totalWatchMs)
             topChannelsEmpty.visibility = if (snapshot.topChannels.isEmpty()) View.VISIBLE else View.GONE
@@ -304,6 +292,42 @@ class StatisticsFragment : Fragment() {
                     DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(it)),
                 )
             } ?: getString(R.string.statistics_recorded_since_unknown)
+        }
+    }
+
+    private fun renderSelectedBucketSummary(snapshot: ViewingStatsSnapshot, state: StatisticsUiState) {
+        val selectedBucket = snapshot.timeline.getOrNull(state.selectedBucketIndex)
+        binding.selectedBucketSummary.visibility = if (selectedBucket == null) View.GONE else View.VISIBLE
+        binding.viewBucketDetails.visibility = if (selectedBucket == null) View.GONE else View.VISIBLE
+        selectedBucket?.let { bucket ->
+            val detail = state.selectedBucketDetail
+            val date = DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(bucket.startAt))
+            val duration = formatDuration(bucket.watchedMs)
+            val singularEnglishSession = bucket.sessionCount == 1 &&
+                resources.configuration.locales[0]?.language == "en"
+            val topChannel = detail?.topChannels?.firstOrNull()
+            binding.selectedBucketSummary.text = if (topChannel == null && singularEnglishSession) {
+                getString(R.string.statistics_selected_bucket_summary_singular, date, duration)
+            } else if (topChannel == null) {
+                getString(R.string.statistics_selected_bucket_summary, date, duration, bucket.sessionCount)
+            } else if (singularEnglishSession) {
+                getString(
+                    R.string.statistics_selected_bucket_summary_with_channel_singular,
+                    date,
+                    duration,
+                    topChannel.channelName ?: topChannel.channelLogin ?: topChannel.channelId,
+                    formatDuration(topChannel.watchedMs),
+                )
+            } else {
+                getString(
+                    R.string.statistics_selected_bucket_summary_with_channel,
+                    date,
+                    duration,
+                    bucket.sessionCount,
+                    topChannel.channelName ?: topChannel.channelLogin ?: topChannel.channelId,
+                    formatDuration(topChannel.watchedMs),
+                )
+            }
         }
     }
 
@@ -405,6 +429,7 @@ class StatisticsFragment : Fragment() {
     override fun onDestroyView() {
         binding.topChannels.adapter = null
         binding.topCategories.adapter = null
+        renderedSnapshot = null
         _binding = null
         super.onDestroyView()
     }
