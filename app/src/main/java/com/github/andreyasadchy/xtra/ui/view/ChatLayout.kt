@@ -19,9 +19,9 @@ class ChatLayout : RelativeLayout {
     /**
      * The player timeline is painted on the boundary immediately above this
      * view in portrait mode (or immediately to its left in landscape mode).
-     * Keep the small scrubber overdraw above chat visually and forward a tap on
-     * that overdraw to the same Media3 time bar instead of making the first
-     * chat pixels a dead, clipped part of the timeline.
+     * Keep the small scrubber overdraw above chat visually and forward a
+     * gesture on that overdraw to the same Media3 time bar instead of making
+     * the first chat pixels a dead, clipped part of the timeline.
      */
     var boundaryTimeBar: View? = null
 

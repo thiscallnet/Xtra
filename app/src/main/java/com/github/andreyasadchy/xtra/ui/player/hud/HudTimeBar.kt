@@ -5,8 +5,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.AttributeSet
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.DefaultTimeBar
 import androidx.media3.ui.TimeBar
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -23,6 +27,7 @@ class HudTimeBar @JvmOverloads constructor(
     defStyleAttr: Int = 0,
 ) : DefaultTimeBar(context, attrs, defStyleAttr) {
     private val density = resources.displayMetrics.density
+    private val scrubTouchSlop = max(ViewConfiguration.get(context).scaledTouchSlop.toFloat(), 12f * density)
     private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private var edgePlayedColor = 0xFFB388FF.toInt()
     private var edgeBufferedColor = 0x66FFFFFF
@@ -32,6 +37,13 @@ class HudTimeBar @JvmOverloads constructor(
     private var edgeBufferedPositionMs = 0L
     private var initialized = false
     private var edgeMarkerListener: (() -> Unit)? = null
+    private var deferredScrubDown: MotionEvent? = null
+    private var deferredScrubPointerId = MotionEvent.INVALID_POINTER_ID
+    private var deferredScrubStartX = 0f
+    private var deferredScrubStartY = 0f
+    private var deferredScrubRejected = false
+    private var deferredScrubActive = false
+    private var defaultTouchHandling = false
 
     private val scrubStateListener = object : TimeBar.OnScrubListener {
         override fun onScrubStart(timeBar: TimeBar, position: Long) {
@@ -102,6 +114,88 @@ class HudTimeBar @JvmOverloads constructor(
         edgeBufferedPositionMs = bufferedPosition
         super.setBufferedPosition(bufferedPosition)
         notifyEdgeMarkerChanged()
+    }
+
+    /**
+     * Treat the 48dp lane as a drag target. DefaultTimeBar starts scrubbing on
+     * ACTION_DOWN anywhere in that lane, so an ordinary tap near the video
+     * edge can jump playback into a replay. Delay its DOWN until a deliberate
+     * horizontal drag passes touch slop. Accessibility and key seeking still
+     * use DefaultTimeBar directly.
+     */
+    @UnstableApi
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                clearDeferredScrub()
+                deferredScrubRejected = false
+                deferredScrubActive = false
+                defaultTouchHandling = !isEnabled
+                if (defaultTouchHandling) return super.onTouchEvent(event)
+
+                deferredScrubPointerId = event.getPointerId(0)
+                deferredScrubStartX = event.x
+                deferredScrubStartY = event.y
+                deferredScrubDown = MotionEvent.obtain(event)
+                return true
+            }
+
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                if (defaultTouchHandling || deferredScrubActive) return super.onTouchEvent(event)
+                deferredScrubRejected = true
+                clearDeferredScrub()
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                if (defaultTouchHandling || deferredScrubActive) return super.onTouchEvent(event)
+                if (deferredScrubRejected) return true
+
+                val pointerIndex = event.findPointerIndex(deferredScrubPointerId)
+                if (pointerIndex < 0) return true
+                val deltaX = event.getX(pointerIndex) - deferredScrubStartX
+                val deltaY = event.getY(pointerIndex) - deferredScrubStartY
+                if (abs(deltaY) > scrubTouchSlop && abs(deltaY) > abs(deltaX)) {
+                    deferredScrubRejected = true
+                    clearDeferredScrub()
+                    return true
+                }
+                if (abs(deltaX) <= scrubTouchSlop || abs(deltaX) <= abs(deltaY)) return true
+
+                val down = deferredScrubDown ?: return true
+                deferredScrubDown = null
+                deferredScrubActive = super.onTouchEvent(down)
+                down.recycle()
+                if (!deferredScrubActive) {
+                    deferredScrubRejected = true
+                    return true
+                }
+                parent?.requestDisallowInterceptTouchEvent(true)
+                return super.onTouchEvent(event)
+            }
+
+            MotionEvent.ACTION_UP -> {
+                if (defaultTouchHandling || deferredScrubActive) {
+                    val handled = super.onTouchEvent(event)
+                    resetDeferredScrub()
+                    return handled
+                }
+                resetDeferredScrub()
+                return true
+            }
+
+            MotionEvent.ACTION_CANCEL -> {
+                val handled = if (defaultTouchHandling || deferredScrubActive) {
+                    super.onTouchEvent(event)
+                } else {
+                    true
+                }
+                resetDeferredScrub()
+                return handled
+            }
+        }
+
+        return if (defaultTouchHandling || deferredScrubActive) super.onTouchEvent(event) else true
     }
 
     /** Installs the visual marker that is allowed to straddle the video edge. */
@@ -195,5 +289,19 @@ class HudTimeBar @JvmOverloads constructor(
     private fun notifyEdgeMarkerChanged() {
         edgeMarkerListener?.invoke()
         if (initialized) invalidate()
+    }
+
+    private fun clearDeferredScrub() {
+        deferredScrubDown?.recycle()
+        deferredScrubDown = null
+    }
+
+    private fun resetDeferredScrub() {
+        clearDeferredScrub()
+        deferredScrubPointerId = MotionEvent.INVALID_POINTER_ID
+        deferredScrubRejected = false
+        deferredScrubActive = false
+        defaultTouchHandling = false
+        parent?.requestDisallowInterceptTouchEvent(false)
     }
 }
