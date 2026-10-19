@@ -44,6 +44,7 @@ object ProfileMenuBinder {
     private const val AVATAR_SIZE_DP = 36
     private const val BADGE_SIZE_DP = 17
     private const val AUTH_BADGE_TAG = "xtra.auth-health-badge"
+    private const val ANONYMOUS_MODE_BADGE_TAG = "xtra.anonymous-mode-badge"
 
     fun bind(toolbar: androidx.appcompat.widget.Toolbar, activity: MainActivity) {
         val item = toolbar.menu.findItem(R.id.profile) ?: return
@@ -76,12 +77,19 @@ object ProfileMenuBinder {
         if (item.actionView !== avatarViews.container) item.actionView = avatarViews.container
         if (!isLoggedIn) {
             avatarViews.container.findViewWithTag<TextView>(AUTH_BADGE_TAG)?.let(avatarViews.container::removeView)
+            bindAnonymousModeBadge(activity, avatarViews.container, false, contentDescription)
             avatarViews.container.setOnClickListener { launchLogin(activity) }
             return
         }
 
         val authHealth = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
         bindAuthHealthBadge(activity, avatarViews.container, authHealth)
+        bindAnonymousModeBadge(
+            activity,
+            avatarViews.container,
+            activity.prefs().getBoolean(C.CHAT_ANONYMOUS_MODE, false),
+            profileContentDescription(activity, authHealth),
+        )
         avatarViews.container.setOnClickListener { openProfile(activity) }
 
         val cachedUserId = activity.tokenPrefs().getString(C.PROFILE_IMAGE_USER_ID, null)
@@ -101,13 +109,46 @@ object ProfileMenuBinder {
         if (!isLoggedIn(activity)) {
             container.findViewWithTag<TextView>(AUTH_BADGE_TAG)?.let(container::removeView)
             item.title = activity.getString(R.string.sign_in)
-            container.contentDescription = activity.getString(R.string.sign_in)
+            bindAnonymousModeBadge(
+                activity,
+                container,
+                enabled = false,
+                baseDescription = activity.getString(R.string.sign_in),
+            )
             container.setOnClickListener { launchLogin(activity) }
             return
         }
         val health = (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
         bindAuthHealthBadge(activity, container, health)
+        bindAnonymousModeBadge(
+            activity,
+            container,
+            activity.prefs().getBoolean(C.CHAT_ANONYMOUS_MODE, false),
+            profileContentDescription(activity, health),
+        )
         container.setOnClickListener { openProfile(activity) }
+    }
+
+    fun refreshAnonymousModeBadge(toolbar: androidx.appcompat.widget.Toolbar, activity: MainActivity) {
+        val item = toolbar.menu.findItem(R.id.profile) ?: return
+        val container = item.actionView as? FrameLayout ?: return
+        val loggedIn = isLoggedIn(activity)
+        val health = if (loggedIn) {
+            (activity.application as XtraApp).xtraModule.authSessionMaintainer.authHealth.value
+        } else {
+            null
+        }
+        val baseDescription = when {
+            !loggedIn -> activity.getString(R.string.sign_in)
+            health?.requiresUserAction == true -> activity.getString(R.string.auth_health_attention_description)
+            else -> activity.getString(R.string.view_profile)
+        }
+        bindAnonymousModeBadge(
+            activity,
+            container,
+            loggedIn && activity.prefs().getBoolean(C.CHAT_ANONYMOUS_MODE, false),
+            baseDescription,
+        )
     }
 
     private data class AvatarViews(
@@ -197,6 +238,51 @@ object ProfileMenuBinder {
         })
         container.contentDescription = context.getString(R.string.auth_health_attention_description)
     }
+
+    private fun bindAnonymousModeBadge(
+        context: Context,
+        container: FrameLayout,
+        enabled: Boolean,
+        baseDescription: String,
+    ) {
+        val existingBadge = container.findViewWithTag<ImageView>(ANONYMOUS_MODE_BADGE_TAG)
+        if (!enabled) {
+            existingBadge?.let(container::removeView)
+            container.contentDescription = baseDescription
+            return
+        }
+        if (existingBadge == null) {
+            val density = context.resources.displayMetrics.density
+            val size = (BADGE_SIZE_DP * density).toInt()
+            val inset = (2 * density).toInt()
+            val badge = ImageView(context).apply {
+                tag = ANONYMOUS_MODE_BADGE_TAG
+                setImageResource(R.drawable.ic_anonymous_mask)
+                setBackgroundResource(R.drawable.bg_anonymous_mask_badge)
+                setPadding(inset, inset, inset, inset)
+                elevation = 2f * density
+                importantForAccessibility = android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            container.addView(
+                badge,
+                FrameLayout.LayoutParams(size, size, Gravity.BOTTOM or Gravity.END).apply {
+                    marginEnd = (2 * density).toInt()
+                    bottomMargin = (2 * density).toInt()
+                },
+            )
+        }
+        container.contentDescription = context.getString(
+            R.string.anonymous_mode_profile_description,
+            baseDescription,
+        )
+    }
+
+    private fun profileContentDescription(context: Context, health: AuthHealth): String =
+        if (health.requiresUserAction) {
+            context.getString(R.string.auth_health_attention_description)
+        } else {
+            context.getString(R.string.view_profile)
+        }
 
     private fun showAuthHealthDialog(activity: MainActivity, health: AuthHealth) {
         val spec = when (health) {

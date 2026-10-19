@@ -778,15 +778,18 @@ class XtraModule(application: Application) {
                 val accountId = appContext.tokenPrefs().getString(C.USER_ID, null)
                 val helixHeaders = TwitchApiHelper.getHelixHeaders(appContext)
                 val network = appContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
-                val sevenTvPresence = accountId?.takeIf(String::isNotBlank)?.let { userId ->
-                    SevenTvPresenceReporter(
-                        channelId = spec.channelId,
-                        resolveStvUserId = { playerRepository.getSTVUser(network, userId) },
-                        sendPresence = { stvUserId, channelId, sessionId, self ->
-                            playerRepository.sendSTVPresence(network, stvUserId, channelId, sessionId, self)
-                        },
-                    )
-                }
+                // Do not send account-backed 7TV presence for anonymous chat sessions.
+                val sevenTvPresence = accountId?.takeIf(String::isNotBlank)
+                    ?.takeIf { !spec.anonymousMode }
+                    ?.let { userId ->
+                        SevenTvPresenceReporter(
+                            channelId = spec.channelId,
+                            resolveStvUserId = { playerRepository.getSTVUser(network, userId) },
+                            sendPresence = { stvUserId, channelId, sessionId, self ->
+                                playerRepository.sendSTVPresence(network, stvUserId, channelId, sessionId, self)
+                            },
+                        )
+                    }
                 TwitchChatTransport(
                     config = TwitchChatTransportConfig(
                         channelId = spec.channelId,
@@ -794,7 +797,8 @@ class XtraModule(application: Application) {
                         // EventSub is required for structured Twitch chat fragments such as
                         // GIFs. Keep the developer switch useful for v2 as well; a failed
                         // subscription still falls back to IRC in TwitchChatTransport.
-                        useEventSub = !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() &&
+                        useEventSub = !spec.anonymousMode &&
+                                !helixHeaders[C.HEADER_TOKEN].isNullOrBlank() &&
                                 (appContext.prefs().getBoolean(C.DEBUG_EVENT_SUB_CHAT, false) ||
                                         (!accountId.isNullOrBlank() &&
                                                 "user:read:chat" in scopes)),

@@ -1939,6 +1939,12 @@ Tap to search everywhere</string>
     <string name="chat_accessibility_message">%1$s: %2$s</string>
     <string name="chat_accessibility_reply">%1$s. Replying to %2$s</string>
     <string name="chat_message_hint">Message</string>
+    <string name="chat_anonymous_mode_hint">Anonymous mode is on</string>
+    <string name="chat_anonymous_mode_accessibility">Anonymous mode is on. Sending messages is disabled.</string>
+    <string name="chat_anonymous_send_blocked">Turn off Anonymous mode to send a chat message.</string>
+    <string name="anonymous_mode">Anonymous mode</string>
+    <string name="anonymous_mode_summary">Stay out of Users in Chat. Watch points, channel rewards, and Drops still work normally.</string>
+    <string name="anonymous_mode_profile_description">%1$s. Anonymous mode is on.</string>
     <string name="chat_clear_input">Clear message</string>
     <string name="chat_open_emotes">Open emotes</string>
     <string name="render_emotes_in_input">Show emote images while typing</string>

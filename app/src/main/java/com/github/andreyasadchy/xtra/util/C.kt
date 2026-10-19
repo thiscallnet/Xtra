@@ -220,6 +220,7 @@ object C {
     const val PLAYER_MENU_CHAT_BAR = "player_menu_chat_bar"
     const val PLAYER_MENU_CHAT_TOGGLE = "player_menu_chat_toggle"
     const val PLAYER_MENU_CHAT_DISCONNECT = "player_menu_chat_disconnect"
+    const val CHAT_ANONYMOUS_MODE = "chat_anonymous_mode"
     const val PLAYER_MENU_RESTART = "player_menu_restart"
     const val PLAYER_MENU_RELOAD_EMOTES = "player_menu_reload_emotes"
     const val PLAYER_MENU_VIDEO_INFO = "player_menu_video_info"

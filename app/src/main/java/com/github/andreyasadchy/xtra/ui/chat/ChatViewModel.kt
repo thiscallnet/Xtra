@@ -685,6 +685,9 @@ class ChatViewModel(
     private var predictionSubscriptionSessionToken: Long? = null
     private var started = false
     private var liveChatReadOnly = false
+    private var requestedLiveChatReadOnly = false
+    private var liveChatWriteTransportRequested = false
+    private var liveChatWebSocketDebugInfo = false
     private var activeChannelId: String? = null
     private var activeChannelLogin: String? = null
     private var chatUsernameRecommendationsEnabled = applicationContext.prefs().getBoolean(
@@ -1258,7 +1261,7 @@ class ChatViewModel(
             channelId = channelId,
             channelLogin = login,
             streamId = streamId,
-            readOnly = liveChatReadOnly,
+            readOnly = requestedLiveChatReadOnly,
         )
     }
 
@@ -1271,7 +1274,7 @@ class ChatViewModel(
                 channelId = channelId,
                 channelLogin = channelLogin,
                 streamId = streamId,
-                readOnly = liveChatReadOnly,
+                readOnly = requestedLiveChatReadOnly,
             )
         }
     }
@@ -4101,7 +4104,7 @@ class ChatViewModel(
     private fun startLiveChat(
         channelId: String?,
         channelLogin: String,
-        readOnly: Boolean = liveChatReadOnly,
+        readOnly: Boolean = requestedLiveChatReadOnly,
         startWriteTransport: Boolean = true,
     ) {
         val channelChanged = activeChannelId != channelId ||
@@ -4114,7 +4117,10 @@ class ChatViewModel(
             loadedUserEmotes = false
             viewModelScope.launch { emitUserEmotesUpdated() }
         }
-        liveChatReadOnly = readOnly
+        requestedLiveChatReadOnly = readOnly
+        liveChatReadOnly = readOnly || applicationContext.prefs()
+            .getBoolean(C.CHAT_ANONYMOUS_MODE, false)
+        liveChatWriteTransportRequested = startWriteTransport
         val sessionToken = predictionSessionToken
         started = true
         _connectionState.value = ConnectionState.CONNECTING
@@ -4172,6 +4178,7 @@ class ChatViewModel(
         val showPredictions = applicationContext.prefs().getBoolean(C.CHAT_PREDICTIONS_SHOW, true)
         val useApiChatMessages = applicationContext.prefs().getBoolean(C.DEBUG_API_CHAT_MESSAGES, true)
         val showWebSocketDebugInfo = applicationContext.prefs().getBoolean(C.DEBUG_WEBSOCKET_INFO, false)
+        liveChatWebSocketDebugInfo = showWebSocketDebugInfo
         val isOwnChannel = !channelId.isNullOrBlank() && channelId == accountId
         if (showPolls && !channelId.isNullOrBlank()) {
             PollCache.load(applicationContext.prefs(), channelId)?.let { cached ->
@@ -4218,28 +4225,13 @@ class ChatViewModel(
             loadWatchStreak(networkLibrary, gqlHeaders, channelId)
             startWatchStreakRefresh(networkLibrary, gqlHeaders, channelId)
         }
-        val gqlToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
-        val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
-        if (shouldStartLegacyChatWriteTransport(
-                startMessageTransport = false,
-                startWriteTransport = startWriteTransport,
-                readOnly = readOnly,
-                isLoggedIn = isLoggedIn,
-                useEventSubChat = false,
-                hasGqlToken = !gqlToken.isNullOrBlank(),
-                hasHelixToken = !helixHeaders[C.HEADER_TOKEN].isNullOrBlank(),
-                useApiChatMessages = useApiChatMessages,
-            )
-        ) {
-            chatWriteWebSocket = ChatWriteWebSocket(
-                userLogin = accountLogin,
-                userToken = gqlToken?.takeIf { it.isNotBlank() } ?: helixToken,
-                channelLogin = channelLogin,
-                trustManager = trustManager,
-                listener = ChatWriteListener(channelId, showWebSocketDebugInfo)
-            )
-            chatWriteJob = chatWriteWebSocket?.connect(viewModelScope)
-        }
+        startLegacyChatWriteTransport(
+            channelId = channelId,
+            channelLogin = channelLogin,
+            startWriteTransport = startWriteTransport,
+            readOnly = liveChatReadOnly,
+            showWebSocketDebugInfo = showWebSocketDebugInfo,
+        )
         if (usePubSub && !channelId.isNullOrBlank()) {
             val collectPoints = applicationContext.prefs().getBoolean(C.CHAT_POINTS_COLLECT, true)
             val gqlWebClientId = applicationContext.prefs().getString(C.GQL_CLIENT_ID_WEB, C.DEFAULT_GQL_CLIENT_ID_WEB)
@@ -4280,6 +4272,78 @@ class ChatViewModel(
             if (showPredictions) {
                 loadLatestPrediction(networkLibrary, helixHeaders, channelId)
             }
+        }
+    }
+
+    fun setAnonymousModeEnabled(enabled: Boolean) {
+        val shouldBeReadOnly = requestedLiveChatReadOnly || enabled
+        if (shouldBeReadOnly == liveChatReadOnly) return
+        liveChatReadOnly = shouldBeReadOnly
+        if (!started) return
+        if (shouldBeReadOnly) {
+            stopLegacyChatWriteTransport()
+        } else {
+            val channelId = activeChannelId
+            val channelLogin = activeChannelLogin ?: return
+            startLegacyChatWriteTransport(
+                channelId = channelId,
+                channelLogin = channelLogin,
+                startWriteTransport = liveChatWriteTransportRequested,
+                readOnly = false,
+                showWebSocketDebugInfo = liveChatWebSocketDebugInfo,
+            )
+        }
+    }
+
+    private fun startLegacyChatWriteTransport(
+        channelId: String?,
+        channelLogin: String,
+        startWriteTransport: Boolean,
+        readOnly: Boolean,
+        showWebSocketDebugInfo: Boolean,
+    ) {
+        if (chatWriteIRCSocket != null || chatWriteWebSocket != null) return
+        val gqlHeaders = TwitchApiHelper.getGQLHeaders(applicationContext, true)
+        val helixHeaders = TwitchApiHelper.getHelixHeaders(applicationContext)
+        val accountLogin = applicationContext.tokenPrefs().getString(C.USERNAME, null)
+        val isLoggedIn = !accountLogin.isNullOrBlank() &&
+                (!gqlHeaders[C.HEADER_TOKEN].isNullOrBlank() || !helixHeaders[C.HEADER_TOKEN].isNullOrBlank())
+        val gqlToken = gqlHeaders[C.HEADER_TOKEN]?.removePrefix("OAuth ")
+        val helixToken = helixHeaders[C.HEADER_TOKEN]?.removePrefix("Bearer ")
+        val useApiChatMessages = applicationContext.prefs().getBoolean(C.DEBUG_API_CHAT_MESSAGES, true)
+        if (!shouldStartLegacyChatWriteTransport(
+                startMessageTransport = false,
+                startWriteTransport = startWriteTransport,
+                readOnly = readOnly,
+                isLoggedIn = isLoggedIn,
+                useEventSubChat = false,
+                hasGqlToken = !gqlToken.isNullOrBlank(),
+                hasHelixToken = !helixToken.isNullOrBlank(),
+                useApiChatMessages = useApiChatMessages,
+            )
+        ) return
+
+        chatWriteWebSocket = ChatWriteWebSocket(
+            userLogin = accountLogin,
+            userToken = gqlToken?.takeIf(String::isNotBlank) ?: helixToken,
+            channelLogin = channelLogin,
+            trustManager = trustManager,
+            listener = ChatWriteListener(channelId, showWebSocketDebugInfo),
+        )
+        chatWriteJob = chatWriteWebSocket?.connect(viewModelScope)
+    }
+
+    private fun stopLegacyChatWriteTransport() {
+        val socket = chatWriteWebSocket
+        val ircSocket = chatWriteIRCSocket
+        val job = chatWriteJob
+        chatWriteWebSocket = null
+        chatWriteIRCSocket = null
+        chatWriteJob = null
+        job?.cancel()
+        MainScope().launch(Dispatchers.IO) {
+            ircSocket?.disconnect(job)
+            socket?.disconnect(job)
         }
     }
 
@@ -4938,6 +5002,14 @@ class ChatViewModel(
             oldHermesWebSocket?.let { socket -> launchCleanup { socket.disconnect(oldPubSubJob) } }
             oldStvEventApi?.let { api -> launchCleanup { api.disconnect(oldStvEventApiJob) } }
         }
+        resetLiveChatWritePreferences()
+    }
+
+    private fun resetLiveChatWritePreferences() {
+        liveChatReadOnly = false
+        requestedLiveChatReadOnly = false
+        liveChatWriteTransportRequested = false
+        liveChatWebSocketDebugInfo = false
     }
 
     fun isActive(): Boolean? {
@@ -7200,6 +7272,10 @@ class ChatViewModel(
         useApiChatMessages: Boolean,
         onResult: (ChatSendResult) -> Unit = {},
     ) {
+        if (liveChatReadOnly) {
+            onResult(ChatSendResult.Failure(applicationContext.getString(R.string.chat_anonymous_send_blocked)))
+            return
+        }
         val text = message.toString()
         val command = text.takeIf { it.startsWith('/') }
             ?.takeWhile { !it.isWhitespace() }
@@ -8009,7 +8085,7 @@ class ChatViewModel(
             channelId = channelId,
             channelLogin = channelLogin,
             streamId = streamId,
-            readOnly = liveChatReadOnly,
+            readOnly = requestedLiveChatReadOnly,
         )
     }
 

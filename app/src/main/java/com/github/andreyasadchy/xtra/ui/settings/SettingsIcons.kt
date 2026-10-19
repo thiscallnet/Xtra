@@ -23,6 +23,7 @@ object SettingsIcons {
         "developer_options" to R.drawable.ic_pref_code,
         "advanced_proxy" to R.drawable.ic_pref_wifi,
         "account_action" to R.drawable.ic_pref_person,
+        "chat_anonymous_mode" to R.drawable.ic_anonymous_mask,
         "customize_hud" to R.drawable.ic_pref_fullscreen,
         "clip_settings" to R.drawable.ic_pref_video,
         "player_speed_options" to R.drawable.ic_pref_speed,
@@ -37,6 +38,7 @@ object SettingsIcons {
     )
 
     private val categoryIcons: List<Pair<Int, Int>> = listOf(
+        R.string.account_profile_section to R.drawable.ic_pref_person,
         R.string.settings_account_login to R.drawable.ic_pref_person,
         R.string.settings_section_app to R.drawable.ic_settings_data,
         R.string.settings_player_background to R.drawable.ic_pref_image,

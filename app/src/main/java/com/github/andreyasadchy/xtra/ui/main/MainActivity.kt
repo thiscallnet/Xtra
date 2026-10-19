@@ -174,6 +174,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainBinding
     private lateinit var appBackgroundController: ActivityBackgroundController
     private val viewModel: MainViewModel by viewModels { MainViewModelFactory }
+    private val anonymousModeProfilePreferenceListener =
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == C.CHAT_ANONYMOUS_MODE) {
+                allToolbarViews().forEach { toolbar ->
+                    ProfileMenuBinder.refreshAnonymousModeBadge(toolbar, this)
+                }
+            }
+        }
     private lateinit var navController: NavController
     var playerFragment: Fragment? = null
         private set
@@ -813,10 +821,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        prefs.registerOnSharedPreferenceChangeListener(anonymousModeProfilePreferenceListener)
         if (::appBackgroundController.isInitialized) appBackgroundController.start()
     }
 
     override fun onStop() {
+        prefs.unregisterOnSharedPreferenceChangeListener(anonymousModeProfilePreferenceListener)
         appBackgroundController.stop()
         super.onStop()
     }

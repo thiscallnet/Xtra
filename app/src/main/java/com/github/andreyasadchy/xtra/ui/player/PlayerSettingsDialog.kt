@@ -268,6 +268,17 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                     val isLoggedIn = !requireContext().tokenPrefs().getString(C.USERNAME, null).isNullOrBlank() &&
                             (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
                                     !TwitchApiHelper.getHelixHeaders(requireContext())[C.HEADER_TOKEN].isNullOrBlank())
+                    anonymousModeRow.isVisible = isLoggedIn
+                    anonymousModeSwitch.isChecked = requireContext().prefs()
+                        .getBoolean(C.CHAT_ANONYMOUS_MODE, false)
+                    anonymousModeSwitch.setOnCheckedChangeListener { _, checked ->
+                        requireContext().prefs().edit {
+                            putBoolean(C.CHAT_ANONYMOUS_MODE, checked)
+                        }
+                    }
+                    anonymousModeRow.setOnClickListener {
+                        anonymousModeSwitch.isChecked = !anonymousModeSwitch.isChecked
+                    }
                     if (isLoggedIn &&
                         (requireContext().prefs().getBoolean(C.PLAYER_MENU_CHAT_BAR, true) ||
                             canShowHudActionInOverflow(HudElementId.CHAT_INPUT))

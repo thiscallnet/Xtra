@@ -237,6 +237,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var chatIdentityPopup: ChatIdentityPopup? = null
     private var chatIdentityBadgeRequest: Disposable? = null
     private var chatIdentityBadgeUrl: String? = null
+    private var anonymousModePreferenceListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
+    private var anonymousModeActive = false
     private var composerOverlayState: ComposerOverlayState? = null
     private var pendingComposerText: String? = null
     private var composerSubmissionInProgress = false
@@ -505,6 +507,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             if (key == C.CHAT_EDGE_PADDING && isAdded) {
                 chatV2Renderer?.refreshStyle(resolveCurrentChatRenderStyle())
             }
+        }.also { requireContext().prefs().registerOnSharedPreferenceChangeListener(it) }
+        anonymousModePreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == C.CHAT_ANONYMOUS_MODE && isAdded) applyAnonymousModeChange()
         }.also { requireContext().prefs().registerOnSharedPreferenceChangeListener(it) }
         chatV2ViewportState = restoreChatV2ViewportState(savedInstanceState)
         useChatV2 = false
@@ -981,6 +986,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             }
                             chatIdentity.setOnClickListener { toggleChatIdentityPopup() }
                         }
+                        refreshAnonymousModePresentation()
                         viewLifecycleOwner.lifecycleScope.launch {
                             repeatOnLifecycle(Lifecycle.State.STARTED) {
                                 viewModel.channelPoints.collectLatest { points ->
@@ -1969,8 +1975,43 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         channelId = channelId,
         channelLogin = channelLogin,
         streamId = currentLiveStreamId(),
+        anonymousMode = requireContext().prefs().getBoolean(C.CHAT_ANONYMOUS_MODE, false),
         legacySupplementalSockets = true,
     )
+
+    private fun applyAnonymousModeChange() {
+        val enabled = requireContext().prefs().getBoolean(C.CHAT_ANONYMOUS_MODE, false)
+        val changed = anonymousModeActive != enabled
+        refreshAnonymousModePresentation()
+        if (!changed) return
+
+        viewModel.setAnonymousModeEnabled(enabled)
+        val args = arguments ?: return
+        val channelId = args.getString(KEY_CHANNEL_ID)
+        val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
+        if (args.getBoolean(KEY_IS_LIVE) && useChatV2 &&
+            !channelId.isNullOrBlank() && !channelLogin.isNullOrBlank()
+        ) {
+            // The changed session spec selects anonymous IRC while the legacy reward
+            // sidecars stay connected to the signed-in account.
+            startChatV2Session(channelId, channelLogin)
+        }
+    }
+
+    private fun refreshAnonymousModePresentation() {
+        val currentBinding = _binding ?: return
+        val args = arguments
+        anonymousModeActive = args?.getBoolean(KEY_IS_LIVE) == true &&
+                requireContext().prefs().getBoolean(C.CHAT_ANONYMOUS_MODE, false)
+        currentBinding.editText.hint = getString(
+            if (anonymousModeActive) R.string.chat_anonymous_mode_hint else R.string.chat_message_hint,
+        )
+        currentBinding.editText.contentDescription = if (anonymousModeActive) {
+            getString(R.string.chat_anonymous_mode_accessibility)
+        } else {
+            null
+        }
+    }
 
     private fun chatV2ActiveSessions(): Flow<com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession?> {
         val app = requireContext().applicationContext as XtraApp
@@ -2644,14 +2685,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val hasText = binding.editText.text.isNotBlank()
         val canShareWithoutMessage = composerOverlayState is ComposerOverlayState.StreakShare
         val blockedBySlowMode = composerOverlayState == null && viewModel.isSlowModeBlocked()
-        binding.send.isVisible = !composerSubmissionInProgress && (hasText || canShareWithoutMessage)
-        binding.send.isEnabled = !blockedBySlowMode
-        binding.clear.isVisible = !composerSubmissionInProgress && hasText
+        binding.send.isVisible = !anonymousModeActive && !composerSubmissionInProgress && (hasText || canShareWithoutMessage)
+        binding.send.isEnabled = !anonymousModeActive && !blockedBySlowMode
+        binding.clear.isVisible = !anonymousModeActive && !composerSubmissionInProgress && hasText
         updateRecommendationVisibility()
     }
 
     private fun refreshMessagingEnabled() {
         val args = arguments ?: return
+        refreshAnonymousModePresentation()
         val accountLogin = requireContext().tokenPrefs().getString(C.USERNAME, null)
         val isLoggedIn = !accountLogin.isNullOrBlank() &&
                 (!TwitchApiHelper.getGQLHeaders(requireContext(), true)[C.HEADER_TOKEN].isNullOrBlank() ||
@@ -2665,7 +2707,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             isSlidingPlayerLayout = isInSlidingPlayerLayout(binding.root),
             chatBarVisible = requireContext().prefs().getBoolean(C.KEY_CHAT_BAR_VISIBLE, true),
         )
-        binding.editText.isEnabled = messagingEnabled && !composerSubmissionInProgress
+        binding.editText.isEnabled = messagingEnabled && !anonymousModeActive && !composerSubmissionInProgress
+        binding.emotes.isEnabled = !anonymousModeActive
         updateComposerButtons()
         updateRecommendationVisibility()
         updateSlowModeIndicator(viewModel.slowModeState.value)
@@ -3511,7 +3554,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         "${drop.id}:${drop.isClaimable}"
 
     private fun sendMessage(replyId: String? = null): Boolean {
-        if (!messagingEnabled || composerSubmissionInProgress || moderatorActionInFlight) return false
+        if (!messagingEnabled || anonymousModeActive || composerSubmissionInProgress || moderatorActionInFlight) return false
         with(binding) {
             val overlay = composerOverlayState
             if (overlay != null) {
@@ -4232,6 +4275,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             requireContext().prefs().unregisterOnSharedPreferenceChangeListener(listener)
         }
         chatEdgePaddingListener = null
+        anonymousModePreferenceListener?.let { listener ->
+            requireContext().prefs().unregisterOnSharedPreferenceChangeListener(listener)
+        }
+        anonymousModePreferenceListener = null
         autoCompleteAdapter?.dispose()
         autoCompleteAdapter = null
         chatInputEmoteRenderer?.dispose()

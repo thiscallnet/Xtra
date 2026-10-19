@@ -32,6 +32,7 @@ data class LiveChatSessionSpec(
     val channelLogin: String,
     val streamId: String? = null,
     val recentMessagesUrl: String? = null,
+    val anonymousMode: Boolean = false,
     /** The legacy player owns these supplemental sockets and bridges their events into v2. */
     val legacySupplementalSockets: Boolean = false,
 )
