@@ -17,9 +17,10 @@
             android:layout_width="0dp"
             android:layout_height="0dp"
             android:background="@android:color/black"
-            android:clipChildren="false"
-            android:translationZ="1dp">
+            android:clipChildren="false">
 
+            <!-- ZOOM may expand the SurfaceView layer beyond PlayerLayout. The
+                 chat sibling must draw above that overflow so its content stays readable. -->
             <androidx.media3.ui.AspectRatioFrameLayout
                 android:id="@+id/aspectRatioFrameLayout"
                 android:layout_width="match_parent"
@@ -71,9 +72,12 @@
                 android:layout_marginBottom="56dp"
                 android:visibility="gone" />
 
+            <!-- Keep HUD chrome above the video without raising the whole player
+                 above the adjacent chat panel. -->
             <include
                 android:id="@+id/playerControls"
-                layout="@layout/player_layout" />
+                layout="@layout/player_layout"
+                android:translationZ="1dp" />
 
             <com.github.andreyasadchy.xtra.ui.player.VaftAdPreviewView
                 android:id="@+id/vaftAdPreview"

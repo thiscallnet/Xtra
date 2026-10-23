@@ -1689,10 +1689,9 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     /**
-     * The player overlay is a sibling of the aspect-ratio child. Use that
-     * child's local bounds as the HUD coordinate plane so letterbox space never
-     * becomes a place where controls can be positioned. The position is derived
-     * from the same measured size and gravity that PlayerLayout will use.
+     * The player HUD overlays the clipped video viewport. Use the rendered
+     * output bounds as its coordinate plane so letterbox space never becomes a
+     * place where controls can be positioned.
      */
     private fun videoViewport(rootWidth: Float, rootHeight: Float): HudRect {
         val parentGroup = parent as? ViewGroup ?: return HudRect(0f, 0f, rootWidth, rootHeight)

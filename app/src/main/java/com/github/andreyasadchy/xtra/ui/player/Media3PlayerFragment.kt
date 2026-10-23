@@ -2091,7 +2091,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 if (isMaximized) {
                     hideStatusBar()
                     val phoneOverlay = phoneChatOverlayEnabled(requireContext())
-                    val chatWidth = if (isChatOpen && !phoneOverlay) effectiveLandscapeChatWidth() else 0
+                    val chatWidth = if (isChatOpen && !phoneOverlay) landscapeChatWidthForCurrentState() else 0
                     playerLayout.updateLayoutParams<FrameLayout.LayoutParams> {
                         width = ViewGroup.LayoutParams.MATCH_PARENT
                         height = ViewGroup.LayoutParams.MATCH_PARENT
@@ -2109,7 +2109,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                     if (!phoneOverlay) {
                         slidingLayout.doOnLayout {
                             if (!phoneChatOverlayEnabled(requireContext()) && !isPortrait && isMaximized && isChatOpen) {
-                                val effectiveChatWidth = effectiveLandscapeChatWidth()
+                                val effectiveChatWidth = landscapeChatWidthForCurrentState()
                                 playerLayout.updateLayoutParams<FrameLayout.LayoutParams> {
                                     marginEnd = effectiveChatWidth
                                 }
@@ -2310,7 +2310,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.aspectRatioFrameLayout.resizeMode = resizeMode
         if (!isPortrait && isMaximized && isChatOpen) {
             val phoneOverlay = phoneChatOverlayEnabled(requireContext())
-            val chatWidth = if (phoneOverlay) 0 else effectiveLandscapeChatWidth()
+            val chatWidth = if (phoneOverlay) 0 else landscapeChatWidthForCurrentState()
             binding.playerLayout.updateLayoutParams<FrameLayout.LayoutParams> {
                 marginEnd = if (phoneOverlay) 0 else chatWidth
             }
@@ -2578,7 +2578,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             val chatWidth = when {
                 phoneOverlay -> 0
                 isPortrait -> ViewGroup.LayoutParams.MATCH_PARENT
-                else -> effectiveLandscapeChatWidth()
+                else -> landscapeChatWidthForCurrentState()
             }
             val chatGravity = when {
                 phoneOverlay -> Gravity.TOP or Gravity.START
@@ -2619,7 +2619,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             phoneChatOverlayGesture?.setActive(false)
             resetPhoneChatOverlayPresentation(binding.chatLayout, binding.phoneChatOverlayHandle)
             if (visible && isMaximized && !isPortrait) {
-                val chatWidth = effectiveLandscapeChatWidth()
+                val chatWidth = landscapeChatWidthForCurrentState()
                 binding.playerLayout.updateLayoutParams<FrameLayout.LayoutParams> {
                     marginEnd = chatWidth
                 }
@@ -2657,6 +2657,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         return landscapeChatWidthForAvailableWidth(availableWidth, percentage)
     }
 
+    private fun keyboardLandscapeChatWidth(): Int {
+        val availableWidth = binding.slidingLayout.width - binding.slidingLayout.paddingLeft - binding.slidingLayout.paddingRight
+        if (availableWidth <= 0) return chatWidthLandscape
+        return (availableWidth / 1.8f).toInt()
+    }
+
+    private fun landscapeChatWidthForCurrentState(): Int =
+        if (isKeyboardShown) keyboardLandscapeChatWidth() else effectiveLandscapeChatWidth()
+
     private fun updateKeyboardState(windowInsets: WindowInsetsCompat) {
         val currentBinding = _binding ?: return
         val currentContext = context ?: return
@@ -2673,7 +2682,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
         val layoutWidth = currentBinding.slidingLayout.width
         if (layoutWidth > 0) {
-            val chatWidth = if (chatImeVisible) (layoutWidth / 1.8f).toInt() else effectiveLandscapeChatWidth()
+            val chatWidth = if (chatImeVisible) keyboardLandscapeChatWidth() else effectiveLandscapeChatWidth()
             currentBinding.playerLayout.updateLayoutParams<FrameLayout.LayoutParams> {
                 marginEnd = chatWidth
             }
