@@ -35,10 +35,11 @@
 
             <ImageButton
                 android:id="@+id/expandButton"
-                style="?attr/borderlessButtonStyle"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/diagnostics_entry_expand"
+                android:padding="12dp"
                 android:src="@drawable/ic_happening_now_chevron_down"
                 android:tint="?android:textColorSecondary" />
         </LinearLayout>
