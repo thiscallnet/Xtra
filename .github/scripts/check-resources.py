@@ -164,6 +164,9 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # Picture-in-Picture chat setting ships with the default English wording until translated.
     "pip_chat",
     "pip_chat_summary",
+    # PiP close playback setting ships with the default English wording until translated.
+    "keep_playing_after_pip_closed",
+    "keep_playing_after_pip_closed_summary",
     "reorder_favorite_item",
     "move_favorite_item_before",
     "move_favorite_item_after",
