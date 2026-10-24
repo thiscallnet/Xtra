@@ -2193,6 +2193,8 @@ Tap to search everywhere</string>
     <string name="use_background_audio_track_summary">Use an audio-only stream while video is hidden.</string>
     <string name="use_background_audio_pip_closed_summary">Keep audio playing after PiP is closed.</string>
     <string name="use_background_audio_pip_locked_summary">Keep audio playing when the screen locks in PiP.</string>
+    <string name="keep_playing_after_pip_closed">Keep PiP playback</string>
+    <string name="keep_playing_after_pip_closed_summary">Keep the player and audio running after the PiP window is closed.</string>
     <string name="keep_playing_after_task_removed">Continue playback after app is swiped away</string>
     <string name="keep_playing_after_task_removed_summary">Keep audio playback running when Xtra is removed from recent apps, if background audio is enabled.</string>
     <string name="auto_recover_streams">Automatically recover interrupted streams</string>
