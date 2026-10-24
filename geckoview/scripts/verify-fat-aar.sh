@@ -48,7 +48,13 @@ unzip -lv "$artifact" |
   awk 'NR > 3 && $1 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ { print $1 " / " $3 "  " $8 }' |
   sort -nr | sed -n '1,20p'
 
-manifest="${artifact%.aar}.json"
+# R1 carries a richer provenance manifest beside the AAR. Verification must
+# never replace it with this packaging-only report.
+manifest="${GECKO_FAT_MANIFEST_PATH:-${artifact%.aar}.json}"
+[[ "$manifest" != "${artifact%.aar}.json" || ! -f "$manifest" ]] || {
+  echo "Preserving existing AAR manifest: $manifest"
+  exit 0
+}
 python3 - "$manifest" "$artifact" "$profile" "$source_revision" "$config_digest" "$size_bytes" "$digest" "${sorted_expected[*]}" <<'PY'
 import json
 import os

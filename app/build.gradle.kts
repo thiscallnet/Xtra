@@ -62,7 +62,7 @@ val customGeckoViewAar = providers.gradleProperty("xtraGeckoViewAar")
     .orNull
     ?.trim()
     ?.takeIf { it.isNotEmpty() }
-    ?.let { file(it).absoluteFile }
+    ?.let { rootProject.file(it).absoluteFile }
 
 if (customGeckoViewAar != null) {
     require(customGeckoViewAar.isFile) {

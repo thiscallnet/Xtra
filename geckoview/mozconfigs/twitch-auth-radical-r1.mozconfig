@@ -1,0 +1,15 @@
+# Shared, runtime-qualified Twitch-auth R1 configuration.
+# Architecture files provide only MOZ_OBJDIR and --target.
+ac_add_options --disable-webrtc
+ac_add_options --enable-twitch-auth-lite
+ac_add_options --enable-optimize="-Oz"
+ac_add_options --enable-minify=properties,js
+ac_add_options --disable-profiling
+ac_add_options --disable-execution-tracing
+ac_add_options --disable-jitdump
+ac_add_options --disable-spidermonkey-telemetry
+ac_add_options --disable-webdriver
+ac_add_options --disable-parental-controls
+ac_add_options --disable-negotiateauth
+ac_add_options --disable-universalchardet
+ac_add_options --disable-zipwriter
