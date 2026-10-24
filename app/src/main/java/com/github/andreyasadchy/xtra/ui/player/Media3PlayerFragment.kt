@@ -171,6 +171,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var pipChatPreferenceListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
     private var isKeyboardShown = false
     private var resizeMode = 0
+    private var videoAspectRatio = 16f / 9f
     private var chatWidthLandscape = 0
     private var phoneChatOverlayGesture: PhoneChatOverlayGestureController? = null
     private val swipeBrightnessViewModel: PlayerSwipeBrightnessViewModel by activityViewModels()
@@ -822,7 +823,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 (!requireContext().isTelevision() || tvChatMode(requireContext()) != com.github.andreyasadchy.xtra.ui.tv.TvChatMode.HIDDEN)
             chatWidthLandscape = requireContext().prefs().getInt(C.LANDSCAPE_CHAT_WIDTH, 0)
             resizeMode = requireContext().prefs().getInt(C.ASPECT_RATIO_LANDSCAPE, AspectRatioFrameLayout.RESIZE_MODE_FIT)
-            aspectRatioFrameLayout.setAspectRatio(16f / 9f)
+            setVideoAspectRatio(videoAspectRatio)
             initLayout()
             changePlayerMode()
             val viewConfiguration = ViewConfiguration.get(requireContext())
@@ -2306,7 +2307,25 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     fun setResizeMode() {
-        resizeMode = (resizeMode + 1).let { if (it < 5) it else 0 }
+        val viewport = binding.aspectRatioFrameLayout
+        val viewportAspectRatio = if (viewport.width > 0 && viewport.height > 0) {
+            viewport.width.toFloat() / viewport.height
+        } else {
+            videoAspectRatio
+        }
+        // Legacy fixed-width/height preferences can render exactly like Fit or Zoom.
+        val currentVisibleMode = when (resizeMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIXED_WIDTH ->
+                if (viewportAspectRatio > videoAspectRatio) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+            AspectRatioFrameLayout.RESIZE_MODE_FIXED_HEIGHT ->
+                if (viewportAspectRatio < videoAspectRatio) AspectRatioFrameLayout.RESIZE_MODE_ZOOM else AspectRatioFrameLayout.RESIZE_MODE_FIT
+            else -> resizeMode
+        }
+        resizeMode = when (currentVisibleMode) {
+            AspectRatioFrameLayout.RESIZE_MODE_FIT -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            AspectRatioFrameLayout.RESIZE_MODE_ZOOM -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+            else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+        }
         binding.aspectRatioFrameLayout.resizeMode = resizeMode
         if (!isPortrait && isMaximized && isChatOpen) {
             val phoneOverlay = phoneChatOverlayEnabled(requireContext())
@@ -2325,6 +2344,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             if (phoneOverlay) applyPhoneChatPresentation(true)
         }
         requireContext().prefs().edit { putInt(C.ASPECT_RATIO_LANDSCAPE, resizeMode) }
+    }
+
+    fun setVideoAspectRatio(aspectRatio: Float) {
+        if (!aspectRatio.isFinite() || aspectRatio <= 0f) return
+        videoAspectRatio = aspectRatio
+        binding.aspectRatioFrameLayout.setAspectRatio(aspectRatio)
     }
 
     fun showSleepTimerDialog() {
