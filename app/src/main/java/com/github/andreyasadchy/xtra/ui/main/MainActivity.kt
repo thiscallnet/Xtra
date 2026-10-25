@@ -651,6 +651,14 @@ class MainActivity : AppCompatActivity() {
                 lifecycleScope.launch {
                     val previous = lastPlaybackNetworkProfile
                     lastPlaybackNetworkProfile = profile
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "XtraQuality",
+                            "event=network_profile previous=${previous?.name?.lowercase() ?: "unknown"} " +
+                                "current=${profile.name.lowercase()} " +
+                                "action=${if (previous == null) "baseline" else if (previous == profile) "unchanged" else "changed"}",
+                        )
+                    }
 
                     // First callback only establishes the baseline.
                     // Only a change between quality profiles should reapply
@@ -659,7 +667,7 @@ class MainActivity : AppCompatActivity() {
                         return@launch
                     }
 
-                    (playerFragment as? Media3PlayerFragment)?.reapplyNetworkDefaultQuality(profile)
+                    (activePlayerFragment() as? Media3PlayerFragment)?.reapplyNetworkDefaultQuality(profile)
                 }
             }
         }

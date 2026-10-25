@@ -4367,7 +4367,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
     }
 
-    override fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean) {
+    override fun changeQuality(
+        selectedQuality: VideoQuality?,
+        persistSavedQuality: Boolean,
+        persistPlaybackState: Boolean,
+    ) {
         val requestedQuality = selectedQuality
         if (videoType == STREAM && (requestedQuality?.name == AUDIO_ONLY_QUALITY ||
             requestedQuality?.name == CHAT_ONLY_QUALITY)
@@ -4381,12 +4385,14 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val vaftOwnsPrimarySource = videoType == STREAM && !viewModel.controlledVaftFeed &&
             requestedQuality?.name != CHAT_ONLY_QUALITY && (
             (vaftOwnsPlayback() && !viewModel.usingAlternateStream) ||
-                (!persistSavedQuality && serviceOwnsVaftSource)
+                (!persistPlaybackState && serviceOwnsVaftSource)
             )
         if (vaftOwnsPrimarySource) {
-            if (persistSavedQuality && requestedQuality != null) {
+            if (persistPlaybackState && requestedQuality != null) {
                 viewModel.restoredQualityBootstrapConsumed = true
-                invalidateResumeQualityConfirmation("quality_deferred_for_vaft_handoff")
+                invalidateResumeQualityConfirmation(
+                    if (persistSavedQuality) "quality_deferred_for_vaft_handoff" else "network_default_quality",
+                )
                 clearResumeAppliedQualityTarget()
                 viewModel.vaftLogicalQuality = requestedQuality
                 viewModel.vaftQualityState.rememberExplicitSelection(requestedQuality)
@@ -4415,23 +4421,25 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             return
         }
         val selectedQuality = requestedQuality
-        if (videoType == STREAM && persistSavedQuality) {
+        if (videoType == STREAM && persistPlaybackState) {
             viewModel.restoredQualityBootstrapConsumed = true
-            if (BuildConfig.DEBUG) {
+            if (persistSavedQuality && BuildConfig.DEBUG) {
                 Log.d(
                     "PlaybackResumption",
                     "user_quality target=${selectedQuality?.name ?: "none"} " +
                         "generation=$resumeQualityGeneration",
                 )
             }
-            invalidateResumeQualityConfirmation("explicit_quality_choice")
+            invalidateResumeQualityConfirmation(
+                if (persistSavedQuality) "explicit_quality_choice" else "network_default_quality",
+            )
             clearResumeAppliedQualityTarget()
         }
         val previousQuality = viewModel.quality
         val qualityChanged = previousQuality?.let {
             it.name != selectedQuality?.name || it.url != selectedQuality?.url
         } ?: (selectedQuality != null)
-        if (videoType == STREAM && persistSavedQuality && requestedQuality != null &&
+        if (videoType == STREAM && persistPlaybackState && requestedQuality != null &&
             (viewModel.usingAlternateStream || viewModel.vaftQualityState.isAwaitingPrimaryReturn)
         ) {
             viewModel.vaftQualityState.rememberExplicitSelection(requestedQuality)
@@ -4660,7 +4668,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                     )
                                     val sourceReplacement = !qualityUri.isNullOrBlank() &&
                                         !uriMatches && !confirmedMatches && !appliedTargetMatches &&
-                                        (persistSavedQuality || !serviceOwnsVaftSource)
+                                        (persistPlaybackState || !serviceOwnsVaftSource)
                                     if (BuildConfig.DEBUG && videoType == STREAM && !persistSavedQuality) {
                                         Log.d(
                                             "PlaybackResumption",
@@ -4724,7 +4732,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                     )
                                     val sourceReplacement = !quality.url.isNullOrBlank() &&
                                         !uriMatches && !confirmedMatches && !appliedTargetMatches &&
-                                        (persistSavedQuality || !serviceOwnsVaftSource)
+                                        (persistPlaybackState || !serviceOwnsVaftSource)
                                     if (BuildConfig.DEBUG && videoType == STREAM && !persistSavedQuality) {
                                         Log.d(
                                             "PlaybackResumption",
@@ -4782,7 +4790,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 nowMs = SystemClock.elapsedRealtime(),
             )
         }
-        persistPlaybackQuality(requestedQuality.takeIf { persistSavedQuality })
+        persistPlaybackQuality(requestedQuality.takeIf { persistPlaybackState })
     }
 
     private fun startLiveRewindDirectQualitySwitch(
@@ -5424,6 +5432,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                             reapplyQualityAutomatically(it, source = "qualities")
                         }
                     }
+                    reapplyPendingNetworkDefaultQuality()
                     setQualityText()
                     qualityRetryAttempts = 0
                     refreshOpenQualityDialog()

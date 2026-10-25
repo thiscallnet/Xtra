@@ -155,6 +155,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     private var qualityLabelCatalog: List<VideoQuality>? = null
     private var qualityLabelLocales: String? = null
     private var qualityLabels: List<Pair<String, VideoQuality>>? = null
+    private var pendingNetworkDefaultQualityProfile: PlayerQualityNetworkProfile? = null
     protected val binding get() = _binding!!
     protected val viewModel: Media3PlayerViewModel by viewModels { Media3PlayerViewModelFactory }
     protected var chatFragment: ChatFragment? = null
@@ -650,7 +651,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             ?: startActivity(intent)
     }
     open fun showPlaylistTags(mediaPlaylist: Boolean) {}
-    open fun changeQuality(selectedQuality: VideoQuality?, persistSavedQuality: Boolean = true) {}
+    open fun changeQuality(
+        selectedQuality: VideoQuality?,
+        persistSavedQuality: Boolean = true,
+        persistPlaybackState: Boolean = persistSavedQuality,
+    ) {}
     open fun startAudioOnly() {}
     open fun downloadVideo() {}
     open fun close() {}
@@ -3203,22 +3208,50 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             return
         }
 
-        if (viewModel.qualities.isNullOrEmpty()) {
-            // Startup/playlist discovery will select the current network's
-            // default itself.
+        if (viewModel.qualities.isNullOrEmpty() || !isQualityCatalogCurrent()) {
+            pendingNetworkDefaultQualityProfile = profile
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "XtraQuality",
+                    "event=network_default_quality action=deferred profile=${profile.name.lowercase()} " +
+                        "reason=quality_catalog_unavailable",
+                )
+            }
             return
         }
 
         val target = resolveDefaultQualityForNetwork(profile) ?: return
+        pendingNetworkDefaultQualityProfile = null
 
         if (viewModel.quality?.name == target.name &&
             viewModel.quality?.url == target.url
         ) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "XtraQuality",
+                    "event=network_default_quality action=unchanged profile=${profile.name.lowercase()} " +
+                        "quality=${target.name}",
+                )
+            }
             return
         }
 
-        changeQuality(target, persistSavedQuality = false)
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "XtraQuality",
+                "event=network_default_quality action=apply profile=${profile.name.lowercase()} " +
+                    "quality=${target.name}",
+            )
+        }
+        changeQuality(target, persistSavedQuality = false, persistPlaybackState = true)
         setQualityText()
+    }
+
+    protected fun reapplyPendingNetworkDefaultQuality() {
+        val profile = pendingNetworkDefaultQualityProfile ?: return
+        if (viewModel.qualities.isNullOrEmpty() || !isQualityCatalogCurrent()) return
+        pendingNetworkDefaultQualityProfile = null
+        reapplyNetworkDefaultQuality(profile)
     }
 
     private fun firstVideoQuality(): VideoQuality? = viewModel.qualities?.firstOrNull {
