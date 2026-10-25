@@ -53,8 +53,10 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
 
     companion object {
         lateinit var INSTANCE: Application
-        private const val EMOTE_DISK_CACHE_BYTES = 512L * 1024 * 1024
-        private const val OTHER_IMAGE_DISK_CACHE_BYTES = 256L * 1024 * 1024
+        private const val BYTES_PER_MIB = 1024L * 1024L
+        private const val EMOTE_CACHE_ALLOCATION_NUMERATOR = 2L
+        private const val EMOTE_CACHE_ALLOCATION_DENOMINATOR = 3L
+        private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
     }
 
     lateinit var xtraModule: XtraModule
@@ -265,21 +267,36 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
 
     @OptIn(ExperimentalCoilApi::class)
     override fun newImageLoader(context: PlatformContext): ImageLoader {
+        val preferences = context.prefs()
+        val imageCacheSizeMib = preferences.getInt(
+            C.IMAGE_DISK_CACHE_SIZE_MIB,
+            C.IMAGE_DISK_CACHE_SIZE_MIB_DEFAULT,
+        ).coerceIn(C.IMAGE_DISK_CACHE_SIZE_MIB_MIN, C.IMAGE_DISK_CACHE_SIZE_MIB_MAX)
+        val totalImageCacheBytes = imageCacheSizeMib * BYTES_PER_MIB
+        val emoteDiskCacheBytes = totalImageCacheBytes * EMOTE_CACHE_ALLOCATION_NUMERATOR /
+            EMOTE_CACHE_ALLOCATION_DENOMINATOR
+        val otherImageDiskCacheBytes = totalImageCacheBytes - emoteDiskCacheBytes
+        val emoteRevalidationDays = preferences.getInt(
+            C.EMOTE_CACHE_REVALIDATION_DAYS,
+            C.EMOTE_CACHE_REVALIDATION_DAYS_DEFAULT,
+        ).coerceIn(C.EMOTE_CACHE_REVALIDATION_DAYS_MIN, C.EMOTE_CACHE_REVALIDATION_DAYS_MAX)
+        val emoteCacheMaxAgeMs = emoteRevalidationDays * MILLIS_PER_DAY
+        val imageDiskCache = EmoteRoutingDiskCache(
+            emotes = DiskCache.Builder()
+                .directory(context.cacheDir.resolve("coil3_disk_cache").toOkioPath())
+                .maxSizeBytes(emoteDiskCacheBytes)
+                .build(),
+            other = DiskCache.Builder()
+                .directory(context.cacheDir.resolve("coil3_other_disk_cache").toOkioPath())
+                .maxSizeBytes(otherImageDiskCacheBytes)
+                .build(),
+        )
+        applicationScope.launch(Dispatchers.IO) {
+            imageDiskCache.clearOversizedCaches()
+        }
         return ImageLoader.Builder(context).apply {
-            // Emotes keep Coil's original folder (so the existing cache survives) and get their own
-            // budget; everything else lives next to it and cannot evict them.
-            diskCache {
-                EmoteRoutingDiskCache(
-                    emotes = DiskCache.Builder()
-                        .directory(context.cacheDir.resolve("coil3_disk_cache").toOkioPath())
-                        .maxSizeBytes(EMOTE_DISK_CACHE_BYTES)
-                        .build(),
-                    other = DiskCache.Builder()
-                        .directory(context.cacheDir.resolve("coil3_other_disk_cache").toOkioPath())
-                        .maxSizeBytes(OTHER_IMAGE_DISK_CACHE_BYTES)
-                        .build(),
-                )
-            }
+            // Emotes keep Coil's original folder and get their own budget; other images cannot evict them.
+            diskCache { imageDiskCache }
             if (BuildConfig.DEBUG) {
                 logger(DebugLogger())
             }
@@ -338,13 +355,13 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
                                     }
                                 }
                             },
-                            cacheStrategy = { EmoteCacheStrategy() }
+                            cacheStrategy = { EmoteCacheStrategy(maxAgeMs = emoteCacheMaxAgeMs) }
                         ))
                     }
                     else -> {
                         add(OkHttpNetworkFetcherFactory(
                             callFactory = { xtraModule.okHttpClient.value },
-                            cacheStrategy = { EmoteCacheStrategy() }
+                            cacheStrategy = { EmoteCacheStrategy(maxAgeMs = emoteCacheMaxAgeMs) }
                         ))
                     }
                 }

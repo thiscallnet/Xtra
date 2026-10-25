@@ -81,6 +81,14 @@ object C {
     const val SETTINGS_BACKGROUND_PLAYBACK = "settings_background_playback"
     const val SETTINGS_TIMESTAMP_FORMAT_VERSION = "settings_timestamp_format_version"
     const val SETTINGS_HTTP_PROXY_ENABLED = "http_proxy_enabled"
+    const val IMAGE_DISK_CACHE_SIZE_MIB = "image_disk_cache_size_mib"
+    const val IMAGE_DISK_CACHE_SIZE_MIB_DEFAULT = 768
+    const val IMAGE_DISK_CACHE_SIZE_MIB_MIN = 48
+    const val IMAGE_DISK_CACHE_SIZE_MIB_MAX = 2048
+    const val EMOTE_CACHE_REVALIDATION_DAYS = "emote_cache_revalidation_days"
+    const val EMOTE_CACHE_REVALIDATION_DAYS_DEFAULT = 30
+    const val EMOTE_CACHE_REVALIDATION_DAYS_MIN = 1
+    const val EMOTE_CACHE_REVALIDATION_DAYS_MAX = 365
     const val PLAYER_HUD_LAYOUT_V2 = "player_hud_layout_v2"
     const val SETTINGS_PLAYER_SPEED_OPTIONS = "player_speed_options"
     const val SETTINGS_DEVELOPER_UNLOCKED = "developer_options_unlocked"

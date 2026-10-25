@@ -13,13 +13,14 @@ import coil3.request.Options
  * look is a new URL, which arrives through the emote catalogs). Servers still send short
  * lifetimes for some of them (Twitch 4h, FFZ 1d), which forces a revalidation round trip per
  * emote on every visit and makes the picker crawl on bad networks. Cached emotes are served
- * straight from disk for [EMOTE_MAX_AGE_MS]; after that the normal conditional request (ETag)
+ * straight from disk for [maxAgeMs]; after that the normal conditional request (ETag)
  * checks whether the image really changed.
  */
 @OptIn(ExperimentalCoilApi::class)
 class EmoteCacheStrategy(
     private val delegate: CacheStrategy = CacheControlCacheStrategy(),
     private val now: () -> Long = System::currentTimeMillis,
+    private val maxAgeMs: Long = DEFAULT_MAX_AGE_MS,
 ) : CacheStrategy {
 
     override suspend fun read(
@@ -31,7 +32,7 @@ class EmoteCacheStrategy(
             EmoteHosts.isEmoteUrl(networkRequest.url) &&
             networkRequest.headers["If-None-Match"] == null &&
             networkRequest.headers["If-Modified-Since"] == null &&
-            now() - cacheResponse.responseMillis in 0 until EMOTE_MAX_AGE_MS
+            now() - cacheResponse.responseMillis in 0 until maxAgeMs
         ) {
             return ReadResult(cacheResponse)
         }
@@ -46,7 +47,7 @@ class EmoteCacheStrategy(
     ): WriteResult = delegate.write(cacheResponse, networkRequest, networkResponse, options)
 
     private companion object {
-        const val EMOTE_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000
+        const val DEFAULT_MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000
     }
 }
 

@@ -1,0 +1,23 @@
+<androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <SeekBarPreference
+        android:defaultValue="768"
+        android:key="image_disk_cache_size_mib"
+        android:max="2048"
+        android:summary="@string/settings_image_cache_limit_summary"
+        android:title="@string/settings_image_cache_limit"
+        app:iconSpaceReserved="false"
+        app:min="48"
+        app:showSeekBarValue="true" />
+
+    <SeekBarPreference
+        android:defaultValue="30"
+        android:key="emote_cache_revalidation_days"
+        android:max="365"
+        android:summary="@string/settings_emote_revalidation_days_summary"
+        android:title="@string/settings_emote_revalidation_days"
+        app:iconSpaceReserved="false"
+        app:min="1"
+        app:showSeekBarValue="true" />
+</androidx.preference.PreferenceScreen>

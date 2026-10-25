@@ -18,6 +18,12 @@
         app:iconSpaceReserved="false" />
 
     <Preference
+        android:key="app_cached_images_page"
+        android:summary="@string/settings_cached_images_summary"
+        android:title="@string/settings_cached_images"
+        app:iconSpaceReserved="false" />
+
+    <Preference
         android:key="app_backup_page"
         android:summary="@string/settings_item_backup_summary"
         android:title="@string/settings_backup_restore"
@@ -28,4 +34,5 @@
         android:summary="@string/settings_help_about_summary"
         android:title="@string/settings_help_about"
         app:iconSpaceReserved="false" />
+
 </androidx.preference.PreferenceScreen>

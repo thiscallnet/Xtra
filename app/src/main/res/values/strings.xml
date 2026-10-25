@@ -245,6 +245,12 @@
     <string name="settings_section_downloads">Downloads</string>
     <string name="settings_section_network">Network</string>
     <string name="settings_section_app">App &amp; data</string>
+    <string name="settings_cached_images">Cached images</string>
+    <string name="settings_cached_images_summary">Image storage limit and emote refresh interval.</string>
+    <string name="settings_image_cache_limit">Image cache limit (MiB)</string>
+    <string name="settings_image_cache_limit_summary">Total limit for cached images. About two-thirds is for emotes. Restart Xtra to apply. Saved downloads are separate.</string>
+    <string name="settings_emote_revalidation_days">Emote revalidation interval (days)</string>
+    <string name="settings_emote_revalidation_days_summary">Reuse cached emotes for this many days before checking for updates. Images are removed by size, not age. Restart Xtra to apply.</string>
     <string name="settings_section_advanced_tools">Advanced tools</string>
     <string name="settings_section_advanced">Advanced</string>
     <string name="settings_item_interface">Interface</string>

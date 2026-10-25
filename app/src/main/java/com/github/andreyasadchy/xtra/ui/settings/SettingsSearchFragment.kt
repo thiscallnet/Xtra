@@ -123,6 +123,7 @@ class SettingsSearchFragment : Fragment() {
                 Triple(R.xml.account_preferences, SettingsNavDirections(R.id.accountSettingsFragment), getString(R.string.settings_home_account_network)),
                 Triple(R.xml.update_search_preferences, SettingsNavGraphDirections.actionGlobalUpdateSettingsFragment(), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_general_updates))),
                 Triple(R.xml.language_preferences, SettingsNavDirections(R.id.languageSettingsFragment), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_language))),
+                Triple(R.xml.cache_preferences, SettingsNavDirections(R.id.cacheSettingsFragment), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_cached_images))),
                 Triple(R.xml.backup_preferences, SettingsNavDirections(R.id.backupSettingsFragment), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_backup_restore))),
                 Triple(R.xml.about_preferences, SettingsNavDirections(R.id.aboutSettingsFragment), breadcrumb(getString(R.string.settings_section_app), getString(R.string.settings_help_about))),
                 Triple(R.xml.theme_preferences, SettingsNavGraphDirections.actionGlobalThemeSettingsFragment(), getString(R.string.settings_section_appearance)),

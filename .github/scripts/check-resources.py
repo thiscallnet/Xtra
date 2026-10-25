@@ -873,6 +873,14 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # reviewed and translated consistently across supported locales.
     "statistics_selected_bucket_summary_singular",
     "statistics_selected_bucket_summary_with_channel_singular",
+    # Image cache settings ship with the default English wording until their
+    # translations are reviewed by native speakers.
+    "settings_cached_images",
+    "settings_cached_images_summary",
+    "settings_image_cache_limit",
+    "settings_image_cache_limit_summary",
+    "settings_emote_revalidation_days",
+    "settings_emote_revalidation_days_summary",
     "statistics_chart_selected_description_singular",
     "statistics_detail_summary_singular",
     "statistics_detail_sessions_singular",

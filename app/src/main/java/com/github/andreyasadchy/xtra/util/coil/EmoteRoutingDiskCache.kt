@@ -28,6 +28,12 @@ class EmoteRoutingDiskCache(
         other.clear()
     }
 
+    /** Coil trims over-limit entries after writes; clear old entries eagerly after a cap change. */
+    internal fun clearOversizedCaches() {
+        if (emotes.size > emotes.maxSize) emotes.clear()
+        if (other.size > other.maxSize) other.clear()
+    }
+
     override fun shutdown() {
         emotes.shutdown()
         other.shutdown()

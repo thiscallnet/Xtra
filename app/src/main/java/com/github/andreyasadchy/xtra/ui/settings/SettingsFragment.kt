@@ -589,6 +589,7 @@ class SettingsFragment : MaterialPreferenceFragment() {
                 SCREEN_PREDICTION_LIVE_UPDATES -> R.xml.prediction_live_update_preferences
                 SCREEN_DROPS_LIVE_UPDATES -> R.xml.drops_live_update_preferences
                 SCREEN_APP -> R.xml.app_preferences
+                SCREEN_CACHE -> R.xml.cache_preferences
                 SCREEN_ACCOUNT -> R.xml.account_preferences
                 SCREEN_LANGUAGE -> R.xml.language_preferences
                 SCREEN_BACKUP -> R.xml.backup_preferences
@@ -866,6 +867,7 @@ class SettingsFragment : MaterialPreferenceFragment() {
         val destinations = mapOf(
             "app_language_page" to R.id.languageSettingsFragment,
             "app_updates_page" to R.id.updateSettingsFragment,
+            "app_cached_images_page" to R.id.cacheSettingsFragment,
             "app_backup_page" to R.id.backupSettingsFragment,
             "app_help_about_page" to R.id.aboutSettingsFragment,
             "appearance_display_compatibility" to R.id.appearanceDisplayCompatibilityFragment,
@@ -1563,6 +1565,7 @@ class SettingsFragment : MaterialPreferenceFragment() {
         const val ARG_SETTINGS_SCREEN = "settings_screen"
         const val SCREEN_APP = "app"
         const val SCREEN_LIVE_NOTIFICATIONS = "live_notifications"
+        const val SCREEN_CACHE = "cache"
         const val SCREEN_ACCOUNT = "account"
         const val SCREEN_LANGUAGE = "language"
         const val SCREEN_BACKUP = "backup"
