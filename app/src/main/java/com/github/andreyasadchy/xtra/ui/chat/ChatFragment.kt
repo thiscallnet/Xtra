@@ -3843,6 +3843,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
     }
 
+    override fun onInitialMessageClickedChatMessage(): ChatMessage? =
+        selectedPinnedMessage ?: selectedV2Message?.let(::v2MessageToLegacy)
+
     override fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter? {
         selectedPinnedMessage?.let { pinnedMessage ->
             selectedPinnedMessage = null

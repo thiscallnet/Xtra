@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat.getSystemService
+import androidx.core.view.doOnPreDraw
 import androidx.core.view.isVisible
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.Lifecycle
@@ -56,6 +57,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
 
     interface OnButtonClickListener {
         fun onCreateMessageClickedChatAdapter(): MessageClickedChatAdapter?
+        fun onInitialMessageClickedChatMessage(): ChatMessage? = null
         fun onReplyClicked(replyId: String?, userLogin: String?, userName: String?, message: String?)
         fun onCopyMessageClicked(message: String)
         fun onViewProfileClicked(id: String?, login: String?, name: String?, channelImage: String?)
@@ -118,6 +120,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         val behavior = BottomSheetBehavior.from(view.parent as View)
         behavior.skipCollapsed = true
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        val initialSelectedMessage = listener.onInitialMessageClickedChatMessage()
         with(binding) {
             badgesRecyclerView.apply {
                 layoutManager = GridLayoutManager(requireContext(), 6)
@@ -125,9 +128,7 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                 itemAnimator = null
                 isNestedScrollingEnabled = false
             }
-            adapter = listener.onCreateMessageClickedChatAdapter()
             recyclerView.let {
-                it.adapter = adapter
                 it.itemAnimator = null
                 it.layoutManager = LinearLayoutManager(context).apply { stackFromEnd = true }
                 it.setOnTouchListener(object : View.OnTouchListener {
@@ -139,127 +140,14 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                         return false
                     }
                 })
-            }
-            adapter?.let { adapter ->
-                adapter.messageClickListener = { selectedMessage, previousSelectedMessage ->
-                    updateButtons(selectedMessage)
-                    previousSelectedMessage?.let {
-                        synchronized(adapter.messages) {
-                            adapter.messages.indexOfFirst { message ->
-                                if (!it.id.isNullOrBlank()) message.id == it.id else message === it
-                            }.takeIf { it != -1 }
-                        }?.let {
-                            adapter.notifyItemChanged(it)
-                        }
-                    }
-                }
-                adapter.selectedMessage?.let { selectedMessage ->
-                    updateButtons(selectedMessage)
-                    synchronized(adapter.messages) {
-                        adapter.messages.indexOf(selectedMessage).takeIf { it != -1 }
-                    }?.let {
-                        binding.recyclerView.scrollToPosition(it)
-                    }
-                    if (selectedMessage.userId != null || selectedMessage.userLogin != null) {
-                        val targetId = requireArguments().getString(KEY_CHANNEL_ID)
-                        val targetLogin = requireArguments().getString(KEY_CHANNEL_LOGIN)
-                        val targetKey = messageClickedChannelCacheKey(targetId, targetLogin)
-                        val viewerId = currentViewerId()
-                        val item = if (targetKey != null && selectedMessage.userId != null) {
-                            synchronized(savedUsers) {
-                                savedUsers.find {
-                                    it.user.id == selectedMessage.userId &&
-                                        it.targetKey == targetKey &&
-                                        it.viewerId == viewerId
-                                }
-                            }
-                        } else {
-                            null
-                        }
-                        if (item != null) {
-                            userCardUser = item.user
-                            updateUserLayout(item.user, followDataLoaded = true)
-                            item.user.name?.let { channelName ->
-                                if (requireArguments().getBoolean(KEY_MESSAGING) &&
-                                    !selectedMessage.id.isNullOrBlank() &&
-                                    selectedMessage.userName.isNullOrBlank() &&
-                                    channelName.isNotBlank()
-                                ) {
-                                    reply.visibility = View.VISIBLE
-                                    reply.setOnClickListener {
-                                        listener.onReplyClicked(
-                                            selectedMessage.id,
-                                            selectedMessage.userLogin,
-                                            channelName,
-                                            selectedMessage.message
-                                        )
-                                        dismiss()
-                                    }
-                                }
-                            }
-                        } else {
-                            previewUserFromMessage(selectedMessage)?.let { previewUser ->
-                                userCardUser = previewUser
-                                updateUserLayout(previewUser)
-                            }
-                            viewModel.loadUser(
-                                channelId = selectedMessage.userId,
-                                channelLogin = selectedMessage.userLogin,
-                                targetId = targetId,
-                                targetLogin = requireArguments().getString(KEY_CHANNEL_LOGIN),
-                                networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
-                                gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
-                                helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
-                                isSubscribedHint = selectedMessage.badges.orEmpty().any {
-                                    it.setId.equals("subscriber", ignoreCase = true)
-                                },
-                            )
-                            viewLifecycleOwner.lifecycleScope.launch {
-                                repeatOnLifecycle(Lifecycle.State.STARTED) {
-                                    viewModel.user.collectLatest { pair ->
-                                        if (pair != null) {
-                                            val user = pair.first
-                                            val error = pair.second
-                                            if (user != null) {
-                                                userCardUser = user
-                                                replaceSavedUser(user, targetId, targetLogin, currentViewerId())
-                                                updateUserLayout(user, followDataLoaded = true)
-                                                adapter.selectedMessage?.let { selectedMessage ->
-                                                    if (requireArguments().getBoolean(KEY_MESSAGING) &&
-                                                        !selectedMessage.id.isNullOrBlank() &&
-                                                        selectedMessage.userName.isNullOrBlank() &&
-                                                        !user.name.isNullOrBlank()
-                                                    ) {
-                                                        reply.visibility = View.VISIBLE
-                                                        reply.setOnClickListener {
-                                                            listener.onReplyClicked(
-                                                                selectedMessage.id,
-                                                                selectedMessage.userLogin,
-                                                                user.name,
-                                                                selectedMessage.message
-                                                            )
-                                                            dismiss()
-                                                        }
-                                                    }
-                                                }
-                                                viewModel.user.value = Pair(null, false)
-                                            } else {
-                                                if (error == true) {
-                                                    viewProfile.visibility = View.VISIBLE
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        viewProfile.setOnClickListener {
-                            listener.onViewProfileClicked(selectedMessage.userId, selectedMessage.userLogin, selectedMessage.userName, null)
-                            dismiss()
-                        }
+                it.doOnPreDraw {
+                    it.post {
+                        if (_binding == null) return@post
+                        showMessageHistory(initialSelectedMessage)
                     }
                 }
             }
+            initialSelectedMessage?.let(::showSelectedMessage)
             if (requireContext().prefs().getBoolean(C.DEBUG_CHAT_FULL_MSG, false)) {
                 copyFullMsg.visibility = View.VISIBLE
             }
@@ -282,6 +170,127 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
                     result?.let(::handleFollowResult)
                 }
             }
+        }
+    }
+
+    private fun showMessageHistory(initialSelectedMessage: ChatMessage?) {
+        val currentBinding = _binding ?: return
+        val historyAdapter = listener.onCreateMessageClickedChatAdapter()
+        adapter = historyAdapter
+        currentBinding.recyclerView.adapter = historyAdapter
+        currentBinding.historyLoading.isVisible = false
+        currentBinding.recyclerView.isVisible = historyAdapter != null
+        val currentAdapter = historyAdapter ?: return
+
+        currentAdapter.messageClickListener = { selectedMessage, previousSelectedMessage ->
+            updateButtons(selectedMessage)
+            previousSelectedMessage?.let { previous ->
+                synchronized(currentAdapter.messages) {
+                    currentAdapter.messages.indexOfFirst { message ->
+                        if (!previous.id.isNullOrBlank()) message.id == previous.id else message === previous
+                    }.takeIf { it != -1 }
+                }?.let(currentAdapter::notifyItemChanged)
+            }
+        }
+
+        currentAdapter.selectedMessage?.let { selectedMessage ->
+            updateButtons(selectedMessage)
+            val selectedPosition = synchronized(currentAdapter.messages) {
+                currentAdapter.messages.indexOfFirst { message ->
+                    if (!selectedMessage.id.isNullOrBlank()) message.id == selectedMessage.id
+                    else message === selectedMessage
+                }.takeIf { it != -1 }
+            }
+            selectedPosition?.let(currentBinding.recyclerView::scrollToPosition)
+            if (initialSelectedMessage == null) showSelectedMessage(selectedMessage)
+        }
+    }
+
+    private fun showSelectedMessage(selectedMessage: ChatMessage) {
+        updateButtons(selectedMessage)
+        if (selectedMessage.userId == null && selectedMessage.userLogin == null) return
+
+        val targetId = requireArguments().getString(KEY_CHANNEL_ID)
+        val targetLogin = requireArguments().getString(KEY_CHANNEL_LOGIN)
+        val targetKey = messageClickedChannelCacheKey(targetId, targetLogin)
+        val viewerId = currentViewerId()
+        val cachedUser = if (targetKey != null && selectedMessage.userId != null) {
+            synchronized(savedUsers) {
+                savedUsers.find {
+                    it.user.id == selectedMessage.userId &&
+                        it.targetKey == targetKey &&
+                        it.viewerId == viewerId
+                }
+            }
+        } else {
+            null
+        }
+
+        if (cachedUser != null) {
+            userCardUser = cachedUser.user
+            updateUserLayout(cachedUser.user, followDataLoaded = true)
+            showReplyWithResolvedName(selectedMessage, cachedUser.user.name)
+        } else {
+            previewUserFromMessage(selectedMessage)?.let { previewUser ->
+                userCardUser = previewUser
+                updateUserLayout(previewUser, isLoading = true)
+            }
+            binding.userDetailsProgress.isVisible = true
+            viewModel.loadUser(
+                channelId = selectedMessage.userId,
+                channelLogin = selectedMessage.userLogin,
+                targetId = targetId,
+                targetLogin = targetLogin,
+                networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                gqlHeaders = TwitchApiHelper.getGQLHeaders(requireContext(), true),
+                helixHeaders = TwitchApiHelper.getHelixHeaders(requireContext()),
+                isSubscribedHint = selectedMessage.badges.orEmpty().any {
+                    it.setId.equals("subscriber", ignoreCase = true)
+                },
+            )
+            viewLifecycleOwner.lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    viewModel.user.collectLatest { result ->
+                        val (user, error) = result ?: return@collectLatest
+                        val currentBinding = _binding ?: return@collectLatest
+                        currentBinding.userDetailsProgress.isVisible = false
+                        if (user != null) {
+                            userCardUser = user
+                            replaceSavedUser(user, targetId, targetLogin, currentViewerId())
+                            updateUserLayout(user, followDataLoaded = true)
+                            val activeMessage = adapter?.selectedMessage ?: selectedMessage
+                            showReplyWithResolvedName(activeMessage, user.name)
+                            viewModel.user.value = Pair(null, false)
+                        } else if (error == true) {
+                            currentBinding.viewProfile.isVisible = true
+                        }
+                    }
+                }
+            }
+        }
+
+        binding.viewProfile.setOnClickListener {
+            listener.onViewProfileClicked(
+                selectedMessage.userId,
+                selectedMessage.userLogin,
+                selectedMessage.userName,
+                null,
+            )
+            dismiss()
+        }
+    }
+
+    private fun showReplyWithResolvedName(message: ChatMessage, name: String?) {
+        if (!requireArguments().getBoolean(KEY_MESSAGING) ||
+            message.id.isNullOrBlank() ||
+            !message.userName.isNullOrBlank() ||
+            name.isNullOrBlank()
+        ) return
+
+        binding.reply.visibility = View.VISIBLE
+        binding.reply.setOnClickListener {
+            listener.onReplyClicked(message.id, message.userLogin, name, message.message)
+            dismiss()
         }
     }
 
@@ -360,9 +369,14 @@ class MessageClickedDialog : BottomSheetDialogFragment() {
         }
     }
 
-    private fun updateUserLayout(user: User, followDataLoaded: Boolean = false) {
+    private fun updateUserLayout(
+        user: User,
+        followDataLoaded: Boolean = false,
+        isLoading: Boolean = false,
+    ) {
         with(binding) {
             userLayout.isVisible = true
+            userDetailsProgress.isVisible = isLoading
             viewProfile.isVisible = false
 
             user.profileImage?.let { imageUrl ->

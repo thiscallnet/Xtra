@@ -52,13 +52,14 @@ class ReplyClickedChatAdapter(
         holder.textView.setMessageClickCallback {
             if (chatMessage != selectedMessage) {
                 val previous = selectedMessage
-                messageClickListener?.invoke(chatMessage, previous)
                 selectedMessage = chatMessage
-                applyChatInteractionSelectionBackground(holder.textView)
+                messageClickListener?.invoke(chatMessage, previous)
+                setChatInteractionSelection(holder.textView, true)
             }
         }
+        setChatInteractionSelection(holder.textView, chatMessage == selectedMessage)
         holder.textView.bind(row)
-        if (chatMessage == selectedMessage) applyChatInteractionSelectionBackground(holder.textView)
+        setChatInteractionSelection(holder.textView, chatMessage == selectedMessage)
     }
 
     override fun getItemCount(): Int = synchronized(messages) { messages.size }
