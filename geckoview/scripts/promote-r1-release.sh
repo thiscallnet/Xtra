@@ -232,7 +232,9 @@ cp "$universal_aar" "$release_assets/xtra-geckoview-twitch-auth-r1-universal.aar
 cp "$universal_manifest" "$release_assets/xtra-geckoview-twitch-auth-r1-universal.json"
 cp "$qualified_debug_apk" "$release_assets/xtra-geckoview-twitch-auth-r1-universal-debug.apk"
 
-./gradlew --no-daemon assembleRelease --max-workers=1 \
+bash .github/scripts/run-gradle-build.sh r1-promotion-release 25 \
+  :app:assembleRelease --max-workers=1 \
+  -Pkotlin.compiler.execution.strategy=in-process \
   "-PxtraGeckoViewAar=$universal_aar" -PxtraReleaseAbiSplits=true \
   "-PtwitchPublicClientId=$TWITCH_PUBLIC_CLIENT_ID"
 release_apk="$(find app/build/outputs/apk/release -type f -name 'app-arm64-v8a-release.apk' -print -quit)"
