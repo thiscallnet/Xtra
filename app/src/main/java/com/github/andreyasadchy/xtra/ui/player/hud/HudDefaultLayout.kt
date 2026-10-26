@@ -17,6 +17,30 @@ object HudDefaultLayout {
     // tight leaves room for the fixed middle-left lock on narrow phones.
     const val COMPACT_TRANSPORT_GAP = 0f
     private const val RESPONSIVE_COMPACT_WIDTH = 360f
+    private const val CHAT_GESTURE_EDGE = 0.38f
+
+    private val AUTO_ARRANGE_BOTTOM_ACTIONS = listOf(
+        HudElementId.VOLUME,
+        HudElementId.CLIP,
+        HudElementId.AUDIO_MODE,
+        HudElementId.AUDIO_COMPRESSOR,
+        HudElementId.CAST,
+        HudElementId.DOWNLOAD,
+        HudElementId.SPEED,
+        HudElementId.CHAPTERS,
+        HudElementId.RESTART,
+        HudElementId.GO_LIVE,
+        HudElementId.CHAT_INPUT,
+        HudElementId.SLEEP_TIMER,
+        HudElementId.INTERACTION_LOCK,
+        HudElementId.MINIMIZE,
+        HudElementId.MORE,
+        HudElementId.CAPTIONS,
+        HudElementId.CHAT,
+        HudElementId.FULLSCREEN,
+    )
+
+    fun isAutoArrangeBottomAction(id: HudElementId): Boolean = id in AUTO_ARRANGE_BOTTOM_ACTIONS
 
     private val COMPACT_PHONE_V3_DEFAULT_ELEMENTS = setOf(
         HudElementId.STREAM_INFO,
@@ -124,10 +148,43 @@ object HudDefaultLayout {
                 HudElementId.FULLSCREEN,
             )
         }
-        val bottomStart = bottomStartIds.filter { it in availability }
-        val bottomEnd = bottomEndIds.filter {
-            it in availability &&
-                (!compact || compactPhonePolicy || fixedPlayerChromeCompact || it == HudElementId.MORE)
+        fun followsDefaultRow(id: HudElementId): Boolean = profile.placements[id]?.let {
+            it.enabled && it.autoArrange
+        } ?: true
+
+        val bottomStart = bottomStartIds.filter { id ->
+            id in availability && followsDefaultRow(id)
+        }.toMutableList()
+        val bottomEnd = bottomEndIds.filter { id ->
+            id in availability && followsDefaultRow(id) &&
+                (!compact || compactPhonePolicy || fixedPlayerChromeCompact || id == HudElementId.MORE)
+        }.toMutableList()
+        val bottomRowIds = (bottomStart + bottomEnd).toMutableSet()
+        val autoActions = AUTO_ARRANGE_BOTTOM_ACTIONS.filter { id ->
+            val placement = profile.placements[id]
+            id in availability && id !in bottomRowIds && placement?.enabled == true && placement.autoArrange
+        }
+
+        fun rowWidth(ids: List<HudElementId>): Float = ids.sumOf { id ->
+            val spec = HudElementRegistry.get(id)
+            val size = if (id in bottomStartIds + bottomEndIds && id !in profile.placements) {
+                DEFAULT_BOTTOM_CONTROL_SIZE
+            } else {
+                spec.visualSize(compact).width
+            }
+            val scale = HudScale.effective(
+                profile.globalScale,
+                spec.clampScale(profile.placements[id]?.scale ?: 1f),
+            )
+            (size * density * scale).toDouble()
+        }.toFloat() + (ids.size - 1).coerceAtLeast(0) * SPACING * density
+
+        autoActions.forEach { id ->
+            if (rowWidth(bottomStart) <= rowWidth(bottomEnd)) {
+                bottomStart += id
+            } else {
+                bottomEnd += id
+            }
         }
         return bottomStart to bottomEnd
     }
@@ -273,6 +330,9 @@ object HudDefaultLayout {
         val placements = mutableMapOf<HudElementId, HudPlacement>()
         val globalScale = HudScale.clampGlobal(profile.globalScale)
 
+        fun shouldAutoArrange(id: HudElementId): Boolean =
+            isAutoArrangeBottomAction(id) && profile.placements[id]?.let { it.enabled && it.autoArrange } == true
+
         fun scaledSize(id: HudElementId): HudSize {
             measuredPresentations[id]?.let { return it.visualSize }
             val spec = HudElementRegistry.get(id)
@@ -308,13 +368,13 @@ object HudDefaultLayout {
         }
 
         fun add(id: HudElementId, x: Float, y: Float) {
-            if (id !in availability || !enabledByDefault(
+            if (id !in availability || (!shouldAutoArrange(id) && !enabledByDefault(
                     id,
                     orientation,
                     safeRect.width / density.coerceAtLeast(0.001f),
                     compact,
                     defaultPolicyVersion = profile.defaultPolicyVersion,
-                )) return
+                ))) return
             val normalizedX = (x - safeRect.left) / safeRect.width.coerceAtLeast(1f)
             val normalizedY = (y - safeRect.top) / safeRect.height.coerceAtLeast(1f)
             placements[id] = HudPlacement(
@@ -368,12 +428,20 @@ object HudDefaultLayout {
         val transportGap = if (compact) COMPACT_TRANSPORT_GAP * density else TRANSPORT_GAP * density
         val playCenterX = safeRect.centerX
         val playCenterY = safeRect.centerY
+        val rewindCenterX = minOf(
+            playCenterX - playHit.width / 2f - transportGap - rewindHit.width / 2f,
+            safeRect.left + safeRect.width * CHAT_GESTURE_EDGE - rewindHit.width / 2f,
+        )
+        val forwardCenterX = maxOf(
+            playCenterX + playHit.width / 2f + transportGap + forwardHit.width / 2f,
+            safeRect.right - safeRect.width * CHAT_GESTURE_EDGE + forwardHit.width / 2f,
+        )
         val transportHitRects = buildList {
             if (HudElementId.SEEK_BACK in availability) add(
                 HudRect(
-                    playCenterX - playHit.width / 2f - transportGap - rewindHit.width,
+                    rewindCenterX - rewindHit.width / 2f,
                     playCenterY - rewindHit.height / 2f,
-                    playCenterX - playHit.width / 2f - transportGap,
+                    rewindCenterX + rewindHit.width / 2f,
                     playCenterY + rewindHit.height / 2f,
                 ),
             )
@@ -387,9 +455,9 @@ object HudDefaultLayout {
             )
             if (HudElementId.SEEK_FORWARD in availability) add(
                 HudRect(
-                    playCenterX + playHit.width / 2f + transportGap,
+                    forwardCenterX - forwardHit.width / 2f,
                     playCenterY - forwardHit.height / 2f,
-                    playCenterX + playHit.width / 2f + transportGap + forwardHit.width,
+                    forwardCenterX + forwardHit.width / 2f,
                     playCenterY + forwardHit.height / 2f,
                 ),
             )
@@ -415,10 +483,10 @@ object HudDefaultLayout {
         val protectedControlRects = transportHitRects + listOfNotNull(interactionLockRect)
         if (HudElementId.PLAY_PAUSE in availability) add(HudElementId.PLAY_PAUSE, playCenterX, playCenterY)
         if (HudElementId.SEEK_BACK in availability) {
-            add(HudElementId.SEEK_BACK, playCenterX - playHit.width / 2f - transportGap - rewindHit.width / 2f, playCenterY)
+            add(HudElementId.SEEK_BACK, rewindCenterX, playCenterY)
         }
         if (HudElementId.SEEK_FORWARD in availability) {
-            add(HudElementId.SEEK_FORWARD, playCenterX + playHit.width / 2f + transportGap + forwardHit.width / 2f, playCenterY)
+            add(HudElementId.SEEK_FORWARD, forwardCenterX, playCenterY)
         }
 
         fun placeBottomRow(ids: List<HudElementId>, start: Boolean) {

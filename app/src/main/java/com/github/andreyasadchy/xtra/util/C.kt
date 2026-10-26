@@ -293,6 +293,7 @@ object C {
     const val PLAYER_VAFT_AD_PREVIEW_Y = "player_vaft_ad_preview_y"
     const val PLAYER_LIVE_REWIND = "player_live_rewind"
     const val PLAYER_LIVE_REWIND_TIME_SIDE = "player_live_rewind_time_side"
+    const val PLAYER_LIVE_SKIP_BUTTONS = "player_live_skip_buttons"
     const val PLAYER_PROXY = "player_proxy"
     const val PLAYER_STREAM_PROXY = "player_stream_proxy"
     const val PLAYER_PROXY_URL = "player_proxy_url"

@@ -388,6 +388,9 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_live_rewind_time_position",
     "settings_live_rewind_time_left",
     "settings_live_rewind_time_right",
+    # Live skip-button visibility copy uses default English until translated.
+    "settings_live_skip_buttons",
+    "settings_live_skip_buttons_summary",
     # Player-control editor labels are currently English-only until translated.
     "settings_home_controls",
     "settings_home_controls_summary",

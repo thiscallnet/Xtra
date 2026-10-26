@@ -71,6 +71,8 @@ data class HudPlacement(
     val x: Float,
     val y: Float,
     val scale: Float,
+    /** Follows the responsive action row until the user moves the control. */
+    val autoArrange: Boolean = false,
 )
 
 /**

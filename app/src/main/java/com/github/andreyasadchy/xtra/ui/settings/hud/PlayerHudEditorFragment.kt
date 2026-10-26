@@ -389,7 +389,9 @@ class PlayerHudEditorFragment : Fragment() {
                         if (!value && id in essentialControls) {
                             confirmHideEssentialControl(id)
                         } else {
-                            updateSelected(id, transform = { placement -> placement.copy(enabled = value) })
+                            updateSelected(id, transform = { placement ->
+                                placementWithEnabledState(id, placement, value)
+                            })
                         }
                     }
                 }
@@ -873,7 +875,9 @@ class PlayerHudEditorFragment : Fragment() {
             setOnCheckedChangeListener { _, value ->
                 if (!suppressPanelCallbacks) {
                     selectElement(id)
-                    updateSelected(id, transform = { placement -> placement.copy(enabled = value) })
+                    updateSelected(id, transform = { placement ->
+                        placementWithEnabledState(id, placement, value)
+                    })
                 }
             }
         }
@@ -1038,6 +1042,21 @@ class PlayerHudEditorFragment : Fragment() {
         swapButton.isVisible = visible
         selectedControlsContainer.requestLayout()
         editorScroll.requestLayout()
+    }
+
+    private fun placementWithEnabledState(
+        id: HudElementId,
+        placement: HudPlacement,
+        enabled: Boolean,
+    ): HudPlacement {
+        val isNewPlacement = id !in currentProfile().placements
+        return placement.copy(
+            enabled = enabled,
+            autoArrange = placement.autoArrange || (
+                enabled && !placement.enabled && isNewPlacement &&
+                    HudDefaultLayout.isAutoArrangeBottomAction(id)
+                ),
+        )
     }
 
     private fun updateSelected(

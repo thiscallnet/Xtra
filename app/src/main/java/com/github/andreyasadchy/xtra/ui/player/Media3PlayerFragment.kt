@@ -1640,7 +1640,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                             openViewerList()
                         }
                     }
-                    val showLiveTransport = requireContext().isTelevision() || isLiveRewindAvailable()
+                    val showLiveTransport = shouldShowLiveSkipButtons()
                     rewind.visibility = if (showLiveTransport) View.VISIBLE else View.GONE
                     fastForward.visibility = if (showLiveTransport) View.VISIBLE else View.GONE
                     position.visibility = View.GONE
@@ -3707,6 +3707,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     override fun onResume() {
         super.onResume()
         binding.playerControls.root.reloadProfile()
+        if (videoType == PlaybackContract.STREAM) updateLiveRewindUi()
         if (requireContext().isTelevision() && !isPortrait) {
             applyTvChatPresentation(binding.chatLayout, binding.playerLayout, binding.slidingLayout, isChatOpen)
         } else if (!isPortrait) {
@@ -4155,8 +4156,12 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         }
     }
 
+    private fun shouldShowLiveSkipButtons(): Boolean =
+        requireContext().prefs().getBoolean(C.PLAYER_LIVE_SKIP_BUTTONS, true) &&
+            (requireContext().isTelevision() || isLiveRewindAvailable())
+
     private fun updateLiveRewindUi() {
-        val showLiveTransport = requireContext().isTelevision() || isLiveRewindAvailable()
+        val showLiveTransport = shouldShowLiveSkipButtons()
         binding.playerControls.rewind.visibility = if (showLiveTransport) View.VISIBLE else View.GONE
         binding.playerControls.fastForward.visibility = if (showLiveTransport) View.VISIBLE else View.GONE
         if (!isLiveRewindAvailable()) {

@@ -1,4 +1,5 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
     <ListPreference android:defaultValue="10" android:entries="@array/seekSecondsEntries" android:entryValues="@array/seekSecondsValues" android:key="playerRewindV2" android:summary="%s" android:title="@string/rewind" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="10" android:entries="@array/seekSecondsEntries" android:entryValues="@array/seekSecondsValues" android:key="playerForwardV2" android:summary="%s" android:title="@string/forward" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="true" android:key="player_live_skip_buttons" android:summary="@string/settings_live_skip_buttons_summary" android:title="@string/settings_live_skip_buttons" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

@@ -22,7 +22,10 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updateLayoutParams
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.isChatEnabled
 import com.github.andreyasadchy.xtra.util.isTelevision
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -254,7 +257,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         }
         profile = base.copy(
             mode = HudProfileMode.CUSTOM,
-            placements = base.placements + (id to placement),
+            placements = base.placements + (id to placement.copy(autoArrange = false)),
         )
         requestLayout()
     }
@@ -853,7 +856,13 @@ class PlayerHudLayout @JvmOverloads constructor(
             kind = HudEditorDropKind.REJECTED,
             guides = emptyList(),
             blockers = rawBlockers,
-            explanation = "No legal position without moving ${elementLabel(id)} or a fixed control",
+            explanation = if (editorElements(rawProfile).firstOrNull { it.id == id }
+                    ?.let(::editorViolatesChatGesture) == true
+            ) {
+                "Keep skip buttons outside the center double-tap chat area"
+            } else {
+                "No legal position without moving ${elementLabel(id)} or a fixed control"
+            },
         )
     }
 
@@ -919,12 +928,15 @@ class PlayerHudLayout @JvmOverloads constructor(
         val elements = editorElements(candidateProfile)
         if (selectedId != null) {
             val selected = elements.firstOrNull { it.id == selectedId } ?: return false
-            if (!selected.visualRect.isInside(safe) || editorViolatesBottomChrome(selected)) return false
+            if (!selected.visualRect.isInside(safe) || editorViolatesBottomChrome(selected) ||
+                editorViolatesChatGesture(selected)
+            ) return false
             return editorCollisionIds(selectedId, selectedPlacement(selectedId, selected, candidateProfile), candidateProfile).isEmpty()
         }
         return elements.all { element ->
             element.visualRect.isInside(safe) &&
-                (affectedIds == null || element.id !in affectedIds || !editorViolatesBottomChrome(element))
+                (affectedIds == null || element.id !in affectedIds ||
+                    (!editorViolatesBottomChrome(element) && !editorViolatesChatGesture(element)))
         } &&
             elements.withIndex().none { (index, element) ->
                 elements.drop(index + 1).any { other ->
@@ -937,6 +949,16 @@ class PlayerHudLayout @JvmOverloads constructor(
     private fun editorViolatesBottomChrome(element: ResolvedHudElement): Boolean =
         element.visualRect.bottom >
             safeRect(width.toFloat(), height.toFloat()).bottom - EDITOR_BOTTOM_CHROME_CLEARANCE_DP * density + 0.5f
+
+    private fun editorViolatesChatGesture(element: ResolvedHudElement): Boolean {
+        if (element.id != HudElementId.SEEK_BACK && element.id != HudElementId.SEEK_FORWARD) return false
+        if (orientation != HudOrientation.LANDSCAPE) return false
+        val preferences = context.prefs()
+        if (!preferences.getBoolean(C.PLAYER_DOUBLE_TAP, true) || !preferences.isChatEnabled()) return false
+        val safe = safeRect(width.toFloat(), height.toFloat())
+        val chatGestureRect = HudRect(width * 0.4f, safe.top, width * 0.6f, safe.bottom)
+        return element.visualRect.overlaps(chatGestureRect)
+    }
 
     private fun selectedPlacement(
         id: HudElementId,
@@ -1223,12 +1245,15 @@ class PlayerHudLayout @JvmOverloads constructor(
     }
 
     fun editorDropHasCollision(id: HudElementId, placement: HudPlacement): Boolean {
-        return editorCollisionIds(id, placement).isNotEmpty()
+        val candidateProfile = editorProfileWith(id, placement)
+        val element = editorElements(candidateProfile).firstOrNull { it.id == id }
+        return editorCollisionIds(id, placement, candidateProfile).isNotEmpty() ||
+            element?.let(::editorViolatesChatGesture) == true
     }
 
     fun editorProfileHasCollision(candidateProfile: HudProfile): Boolean {
         val elements = editorElements(candidateProfile)
-        return elements.withIndex().any { (index, element) ->
+        return elements.any(::editorViolatesChatGesture) || elements.withIndex().any { (index, element) ->
             elements.drop(index + 1).any { other ->
                 element.visualRect.overlaps(other.visualRect)
             }
@@ -1489,6 +1514,7 @@ class PlayerHudLayout @JvmOverloads constructor(
                         start.copy(
                             x = start.x + (event.x - editorStartX) / safeRect(width.toFloat(), height.toFloat()).width.coerceAtLeast(1f),
                             y = start.y + (event.y - editorStartY) / safeRect(width.toFloat(), height.toFloat()).height.coerceAtLeast(1f),
+                            autoArrange = false,
                         ),
                     )
                     updateEditorPlacement(id, next)

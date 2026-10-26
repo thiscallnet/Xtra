@@ -315,6 +315,8 @@
     <string name="settings_live_rewind_time_position">Live rewind time position</string>
     <string name="settings_live_rewind_time_left">Left</string>
     <string name="settings_live_rewind_time_right">Right</string>
+    <string name="settings_live_skip_buttons">Show skip buttons on live streams</string>
+    <string name="settings_live_skip_buttons_summary">Show rewind and fast-forward buttons during live playback. Double-tap seeking remains available when hidden.</string>
     <string name="player_live" translatable="false">LIVE</string>
     <string name="player_rewinding">Rewinding</string>
     <string name="player_live_position">%1$s · %2$s</string>

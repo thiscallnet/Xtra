@@ -209,6 +209,7 @@ object SettingsIcons {
         "player_pause" to R.drawable.ic_pref_pause,
         "playerRewindV2" to R.drawable.ic_pref_rewind,
         "playerForwardV2" to R.drawable.ic_pref_forward,
+        "player_live_skip_buttons" to R.drawable.ic_pref_visibility_off,
         "player_swipe_controls_orientation" to R.drawable.ic_pref_rotate,
         "player_swipe_left_gesture" to R.drawable.ic_pref_arrow_back,
         "player_swipe_right_gesture" to R.drawable.ic_pref_arrow_forward,

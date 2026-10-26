@@ -197,8 +197,9 @@ class HudLayoutEngine(
         val resolvedPlacements = if (profile.mode == HudProfileMode.DEFAULT) {
             defaultPlacements
         } else {
-            defaultPlacements + profile.placements.filterKeys {
-                !HudElementRegistry.isSystemChrome(it) && HudElementRegistry.get(it).isMovable
+            defaultPlacements + profile.placements.filter { (id, placement) ->
+                !HudElementRegistry.isSystemChrome(id) && HudElementRegistry.get(id).isMovable &&
+                    !(placement.autoArrange && HudDefaultLayout.isAutoArrangeBottomAction(id))
             }
         }
         val ordered = HudElementRegistry.all.map(HudElementSpec::id)
