@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.ui.common
 
 import android.content.Context
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -57,6 +58,7 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         private const val LOADING = "loading"
         private const val REFRESHING = "refreshing"
         private const val ERROR_MESSAGE = "errorMessage"
+        private const val HEADER_MISSING_GRACE_MS = 2_500L
 
         fun newInstance(requestCode: Int, labels: Collection<CharSequence>, tags: Array<String>? = null, tags2: Array<String>? = null, checkedIndex: Int): RadioButtonDialogFragment {
             return RadioButtonDialogFragment().apply {
@@ -75,6 +77,7 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
     private var optionsGroup: RadioGroup? = null
     private var headerView: View? = null
     private var renderedHeader: Header? = null
+    private var headerMissingSinceMs: Long? = null
     private var optionsGeneration = 0
 
     fun updateOptions(requestCode: Int, labels: Collection<CharSequence>, tags: Array<String>?, tags2: Array<String>?, checkedIndex: Int): Boolean {
@@ -208,6 +211,7 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
         optionsGroup = null
         headerView = null
         renderedHeader = null
+        headerMissingSinceMs = null
         optionsGeneration++
         super.onDestroyView()
     }
@@ -222,7 +226,20 @@ class RadioButtonDialogFragment : BottomSheetDialogFragment() {
             viewLifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 while (isActive) {
                     try {
-                        val header = provider.optionHeader(requireArguments().getInt(REQUEST_CODE))
+                        val queriedHeader = provider.optionHeader(requireArguments().getInt(REQUEST_CODE))
+                        val header = if (queriedHeader != null) {
+                            headerMissingSinceMs = null
+                            queriedHeader
+                        } else if (renderedHeader != null) {
+                            val missingSince = headerMissingSinceMs ?: SystemClock.elapsedRealtime().also {
+                                headerMissingSinceMs = it
+                            }
+                            renderedHeader.takeIf {
+                                SystemClock.elapsedRealtime() - missingSince < HEADER_MISSING_GRACE_MS
+                            }
+                        } else {
+                            null
+                        }
                         if (header != renderedHeader) {
                             renderedHeader = header
                             headerView?.apply {
