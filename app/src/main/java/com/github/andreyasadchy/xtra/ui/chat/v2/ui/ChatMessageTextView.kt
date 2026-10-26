@@ -117,10 +117,16 @@ open class ChatMessageTextView private constructor(
         attrs,
     )
 
-    // Rows are inset from the screen edge by the user's chat edge padding setting;
-    // it is re-read on every bind so a settings change applies to rebuilt rows.
+    // The renderer supplies the resolved style so PiP can force edge-to-edge rows.
+    // Until the first style update, keep the saved preference as the default.
+    private var edgePaddingDpOverride: Int? = null
+
     private fun edgePaddingPx(): Int =
-        (chatEdgePaddingDp(context) * resources.displayMetrics.density).roundToInt()
+        ((edgePaddingDpOverride ?: chatEdgePaddingDp(context)) * resources.displayMetrics.density).roundToInt()
+
+    fun setEdgePaddingDp(value: Int) {
+        edgePaddingDpOverride = value
+    }
 
     private var boundEdgePaddingPx = -1
     private val layoutPaddingStart = paddingStart

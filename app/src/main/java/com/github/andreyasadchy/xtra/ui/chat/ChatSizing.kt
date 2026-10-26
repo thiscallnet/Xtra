@@ -111,4 +111,4 @@ internal fun resolveChatRenderStyle(
 private const val PIP_CHAT_REFERENCE_WIDTH_DP = 240f
 private const val PIP_CHAT_MIN_TEXT_SP = 10f
 private const val PIP_CHAT_MAX_TEXT_SP = 12f
-private const val PIP_CHAT_EDGE_PADDING_DP = 4
+private const val PIP_CHAT_EDGE_PADDING_DP = 0

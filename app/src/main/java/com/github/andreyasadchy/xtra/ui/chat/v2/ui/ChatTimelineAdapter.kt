@@ -23,6 +23,7 @@ class ChatTimelineAdapter(
     private var messageTextColor: Int? = null,
     private val useGesturePreferences: Boolean = false,
 ) : RecyclerView.Adapter<ChatTimelineAdapter.Holder>() {
+    private var edgePaddingDp: Int? = null
     private val rows = ArrayList<ChatRowUiModel>()
     var renderingActive = true
 
@@ -34,6 +35,7 @@ class ChatTimelineAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = Holder(
         ChatMessageTextView(parent.context, assets).also {
             it.useGesturePreferences = useGesturePreferences
+            edgePaddingDp?.let(it::setEdgePaddingDp)
             it.setMessageTextSizeSp(textSizeSp)
             it.setAnimateGifs(animateGifs)
             it.setInteractionCallbacks(
@@ -51,6 +53,7 @@ class ChatTimelineAdapter(
     )
     override fun onBindViewHolder(holder: Holder, position: Int) {
         holder.view.setRenderingActive(renderingActive)
+        edgePaddingDp?.let(holder.view::setEdgePaddingDp)
         messageTextColor
             ?.takeIf { it != holder.view.currentTextColor }
             ?.let(holder.view::setTextColor)
@@ -143,6 +146,11 @@ class ChatTimelineAdapter(
         textSizeSp = value
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
     }
+
+    fun setEdgePaddingDp(value: Int) {
+        edgePaddingDp = value
+    }
+
     /** Rebinds every row, e.g. after the chat edge padding setting changed. */
     fun rebindAll() {
         if (itemCount > 0) notifyItemRangeChanged(0, itemCount)
