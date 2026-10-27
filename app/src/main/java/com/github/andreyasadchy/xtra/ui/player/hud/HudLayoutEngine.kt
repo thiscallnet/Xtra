@@ -5,6 +5,7 @@ data class ResolvedHudElement(
     val visualRect: HudRect,
     val hitRect: HudRect,
     val effectiveScale: Float,
+    val anchorToEnd: Boolean = false,
 )
 
 data class HudMeasuredPresentation(
@@ -253,12 +254,13 @@ class HudLayoutEngine(
                 baseSize.width * resolvedScale,
                 baseSize.height * resolvedScale,
             )
-            val rawVisualRect = visualRect(safe, placement, spec.pivot, visualSize)
+            val anchorToEnd = id == HudElementId.TIME_STATUS && placement.anchorToEnd
+            val rawVisualRect = visualRect(safe, placement, spec.pivot, visualSize, anchorToEnd)
             // The visible bounds are also the interaction bounds. A previous
             // 48/56/72dp minimum made a small icon own invisible space and
             // caused neighboring controls to activate or appear misaligned.
             val visual = rawVisualRect.clampInside(safe)
-            ResolvedHudElement(id, visual, visual, resolvedScale)
+            ResolvedHudElement(id, visual, visual, resolvedScale, anchorToEnd)
         }
     }
 
@@ -290,6 +292,7 @@ class HudLayoutEngine(
         placement: HudPlacement,
         pivot: HudPivot,
         size: HudSize,
+        anchorToEnd: Boolean,
     ): HudRect {
         val x = safeRect.left + safeRect.width * placement.x.coerceIn(0f, 1f)
         val y = safeRect.top + safeRect.height * placement.y.coerceIn(0f, 1f)
@@ -300,7 +303,7 @@ class HudLayoutEngine(
                 x + size.width / 2f,
                 y + size.height / 2f,
             )
-            HudPivot.TOP_START -> if (rtl) {
+            HudPivot.TOP_START -> if (rtl xor anchorToEnd) {
                 HudRect(x - size.width, y, x, y + size.height)
             } else {
                 HudRect(x, y, x + size.width, y + size.height)

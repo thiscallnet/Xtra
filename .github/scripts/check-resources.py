@@ -867,11 +867,13 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "account_benefits_loading",
     "account_connection_error",
     "account_live_label",
-    # Emote picker animation switch and Twitch tab empty states use default English copy until localized.
+    # Emote picker animation switch and Twitch tab states use default English copy until localized.
     "chat_animate_picker_emotes",
     "chat_animate_picker_emotes_summary",
     "twitch_emotes_login_required",
     "twitch_emotes_empty",
+    "twitch_emotes_loading",
+    "twitch_emotes_error",
     # Singular-session wording is used only for English until these labels are
     # reviewed and translated consistently across supported locales.
     "statistics_selected_bucket_summary_singular",

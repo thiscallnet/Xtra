@@ -2128,7 +2128,9 @@ class PlayerRepository(
     suspend fun loadUserEmotes(networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, channelId: String?, userId: String?, animateGifs: Boolean): List<TwitchEmote> = withContext(Dispatchers.IO) {
         if (!helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) {
             try {
-                return@withContext loadUserEmotesFromHelix(networkLibrary, helixHeaders, userId, channelId, animateGifs)
+                val emotes = loadUserEmotesFromHelix(networkLibrary, helixHeaders, userId, channelId, animateGifs)
+                check(emotes.isNotEmpty()) { "Twitch user emotes response was empty" }
+                return@withContext emotes
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
@@ -2141,6 +2143,7 @@ class PlayerRepository(
             var offset: String? = null
             do {
                 val response = graphQLRepository.loadUserEmotes(networkLibrary, gqlHeaders, channelId, offset)
+                check(response.errors.isNullOrEmpty()) { "Twitch user emotes request failed" }
                 val sets = response.data!!.channel.self.availableEmoteSetsPaginated
                 val items = sets.edges
                 items.map { item ->
@@ -2165,13 +2168,16 @@ class PlayerRepository(
                 }.flatten().let { emotes.addAll(it) }
                 offset = items.lastOrNull()?.cursor
             } while (!items.lastOrNull()?.cursor.isNullOrBlank() && sets.pageInfo?.hasNextPage == true)
+            check(emotes.isNotEmpty()) { "Twitch channel emotes response was empty" }
             emotes
         } catch (e: Exception) {
             if (e is CancellationException) throw e
             try {
                 if (gqlHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()
                 val response = graphQLRepository.loadQueryUserEmotes(networkLibrary, gqlHeaders)
-                response.data!!.user?.emoteSets?.mapNotNull { set ->
+                check(response.errors.isNullOrEmpty()) { "Twitch user emotes query failed" }
+                val sets = checkNotNull(response.data?.user?.emoteSets) { "Twitch user emotes data is missing" }
+                sets.mapNotNull { set ->
                     set.emotes?.mapNotNull { emote ->
                         if (emote?.token != null && (!emote.type?.toString().equals("follower", true) || (emote.owner?.id == null || emote.owner.id == channelId))) {
                             TwitchEmote(
@@ -2188,7 +2194,7 @@ class PlayerRepository(
                             )
                         } else null
                     }
-                }?.flatten() ?: emptyList()
+                }.flatten().also { check(it.isNotEmpty()) { "Twitch user emotes response was empty" } }
             } catch (e: Exception) {
                 if (e is CancellationException) throw e
                 if (helixHeaders[C.HEADER_TOKEN].isNullOrBlank()) throw Exception()

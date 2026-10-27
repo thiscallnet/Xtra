@@ -73,6 +73,8 @@ data class HudPlacement(
     val scale: Float,
     /** Follows the responsive action row until the user moves the control. */
     val autoArrange: Boolean = false,
+    /** Keeps edge-aligned status text attached to layout-end as its width changes. */
+    val anchorToEnd: Boolean = false,
 )
 
 /**

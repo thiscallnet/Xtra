@@ -81,6 +81,9 @@ fun interface ChatCatalogSource {
     val hasIndependentBadgeProvider: Boolean
         get() = false
 
+    /** A prior successful-but-empty response may no longer be a usable cache. */
+    fun isCacheUsable(snapshot: ChatCatalogSnapshot): Boolean = true
+
     /** Returns the Twitch badge result as soon as that provider finishes. */
     suspend fun loadBadges(): ChatCatalogProviderUpdate<Map<String, ChatCatalogBadge>>? = null
 
@@ -430,6 +433,7 @@ class ChatCatalogRepository(
                                     structuralCatalogSettled = currentState.structuralCatalogSettled,
                                     refreshFailed = currentState.refreshFailed,
                                     thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
+                                    twitchRefreshFailed = currentState.twitchRefreshFailed,
                                     forceRefreshRevision = currentState.forceRefreshRevision,
                                 )
                             } else {
@@ -455,6 +459,7 @@ class ChatCatalogRepository(
                                         structuralCatalogSettled = currentState.structuralCatalogSettled,
                                         refreshFailed = currentState.refreshFailed,
                                         thirdPartyRefreshFailed = currentState.thirdPartyRefreshFailed,
+                                        twitchRefreshFailed = currentState.twitchRefreshFailed,
                                         forceRefreshRevision = currentState.forceRefreshRevision,
                                     )
                                 } else {
@@ -584,6 +589,7 @@ class ChatCatalogRepository(
             if (closed || requestGeneration != generation) return@synchronized
             if (result == null || !result.hasSuccessfulProvider) {
                 if (!_state.value.refreshFailed ||
+                    !_state.value.twitchRefreshFailed ||
                     !_state.value.thirdPartyRefreshFailed ||
                     (!source.hasIndependentBadgeProvider && !_state.value.badgesSettled) ||
                     !_state.value.structuralCatalogSettled
@@ -593,6 +599,7 @@ class ChatCatalogRepository(
                         structuralCatalogSettled = true,
                         refreshFailed = true,
                         thirdPartyRefreshFailed = true,
+                        twitchRefreshFailed = true,
                     )
                 }
                 refreshJob = launchRefresh(
@@ -646,6 +653,7 @@ class ChatCatalogRepository(
                     result.hasFailedProvider
                 },
                 thirdPartyRefreshFailed = result.hasFailedThirdPartyProvider,
+                twitchRefreshFailed = result.twitch == null,
                 forceRefreshRevision = currentState.forceRefreshRevision,
             )
             val nextForceRefreshRevision = currentState.forceRefreshRevision +
@@ -668,6 +676,7 @@ class ChatCatalogRepository(
             } else if (
                 currentState.refreshFailed != nextState.refreshFailed ||
                 currentState.thirdPartyRefreshFailed != nextState.thirdPartyRefreshFailed ||
+                currentState.twitchRefreshFailed != nextState.twitchRefreshFailed ||
                 currentState.badgesSettled != nextState.badgesSettled ||
                 currentState.structuralCatalogSettled != nextState.structuralCatalogSettled ||
                 currentState.forceRefreshRevision != nextStateWithRefresh.forceRefreshRevision
@@ -809,7 +818,8 @@ class ChatCatalogRepository(
 
     private fun isCacheFresh(nowMs: Long = System.currentTimeMillis()): Boolean =
         cacheFetchedAtMs?.let { fetchedAt ->
-            cacheConfigIsCurrent() && isFresh(fetchedAt, cacheFreshnessMs, nowMs)
+            cacheConfigIsCurrent() && source.isCacheUsable(_state.value.snapshot) &&
+                isFresh(fetchedAt, cacheFreshnessMs, nowMs)
         } == true
 
     private fun isBadgeCacheFresh(nowMs: Long = System.currentTimeMillis()): Boolean {

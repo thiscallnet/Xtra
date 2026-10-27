@@ -62,6 +62,9 @@ class TwitchChatCatalogSource(
 
     override val hasIndependentBadgeProvider: Boolean = true
 
+    override fun isCacheUsable(snapshot: ChatCatalogSnapshot): Boolean =
+        context.tokenPrefs().getString(C.USER_ID, null).isNullOrBlank() || snapshot.twitch.isNotEmpty()
+
     override val catalogConfigFingerprint: String
         get() = listOf(
             context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
@@ -102,16 +105,22 @@ class TwitchChatCatalogSource(
             val ffz = async { if (context.prefs().getBoolean(C.CHAT_ENABLE_FFZ, true)) previous?.ffz?.takeUnless { it.hasFailedScope } ?: loadFfz(network, force, previous?.ffz) else emptyProviderUpdate() }
             val twitch = async<ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>?> {
                 previous?.twitch?.let { return@async it }
+                val viewerId = context.tokenPrefs().getString(C.USER_ID, null)
+                if (viewerId.isNullOrBlank()) return@async ChatCatalogProviderUpdate(emptyMap())
                 try {
                     val emotes = playerRepository.loadUserEmotes(
                         network,
                         helix,
                         gql,
                         channelId,
-                        context.tokenPrefs().getString(C.USER_ID, null),
+                        viewerId,
                         animateGifs = context.prefs().getBoolean(C.ANIMATED_EMOTES, true),
                     )
-                    ChatCatalogProviderUpdate(twitchEmoteMap(emotes))
+                    val mapped = twitchEmoteMap(emotes)
+                    // Signed-in viewers always have global Twitch emotes. An empty
+                    // response must stay retryable and must not erase a good catalog.
+                    check(mapped.isNotEmpty()) { "Twitch user emotes are unavailable" }
+                    ChatCatalogProviderUpdate(mapped)
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Throwable) {

@@ -96,7 +96,11 @@ class EmotesFragment : Fragment() {
         val expectedChannelLogin = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_LOGIN)
         val usesV2 = chatFragment?.isUsingChatV2 == true
         binding.emptyState.setOnClickListener {
-            (thirdPartyPickerState as? ChatViewModel.ThirdPartyPickerState.Error)?.retry?.invoke()
+            if (section == EmotePickerSection.TWITCH && pickerCatalog?.twitchFailed == true) {
+                viewModel.retryTwitchPicker(expectedChannelId, expectedChannelLogin)
+            } else {
+                (thirdPartyPickerState as? ChatViewModel.ThirdPartyPickerState.Error)?.retry?.invoke()
+            }
         }
         val emotesAdapter = EmotesAdapter(
             this,
@@ -573,7 +577,12 @@ class EmotesFragment : Fragment() {
         } else if (section == EmotePickerSection.TWITCH && list.isEmpty()) {
             val loggedIn = !requireContext().tokenPrefs().getString(C.USER_ID, null).isNullOrBlank()
             binding.emptyState.setText(
-                if (loggedIn) R.string.twitch_emotes_empty else R.string.twitch_emotes_login_required,
+                when {
+                    !loggedIn -> R.string.twitch_emotes_login_required
+                    pickerCatalog?.twitchFailed == true -> R.string.twitch_emotes_error
+                    pickerCatalog?.twitchLoading != false -> R.string.twitch_emotes_loading
+                    else -> R.string.twitch_emotes_empty
+                },
             )
             binding.emptyState.isVisible = true
         } else {

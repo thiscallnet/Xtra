@@ -148,6 +148,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -421,6 +422,8 @@ class ChatViewModel(
     data class PickerCatalog(
         val twitch: List<Emote>,
         val thirdParty: List<Emote>,
+        val twitchLoading: Boolean = false,
+        val twitchFailed: Boolean = false,
     ) {
         val all: List<Emote> by lazy {
             FavoriteEmoteCatalog.deduplicate(twitch + thirdParty)
@@ -449,10 +452,28 @@ class ChatViewModel(
                     session.catalog.state,
                     merge(userEmotesUpdated, thirdPartyEmotesUpdated).onStart { emit(Unit) },
                 ) { state, _ ->
-                    if (!state.hydrated) PickerCatalog(emptyList(), emptyList())
-                    else pickerCatalogFor(state.snapshot)
+                    if (!state.hydrated) PickerCatalog(emptyList(), emptyList(), twitchLoading = true)
+                    else pickerCatalogFor(state.snapshot).let { catalog ->
+                        if (state.structuralCatalogSettled && !state.twitchRefreshFailed) catalog
+                        else catalog.copy(
+                            twitchLoading = !state.structuralCatalogSettled,
+                            twitchFailed = state.twitchRefreshFailed,
+                        )
+                    }
+                }.distinctUntilChanged { previous, next ->
+                    // Emote.equals compares names only. A new catalog may change an
+                    // emote's ID, image or group while retaining the same names.
+                    previous.twitch === next.twitch && previous.thirdParty === next.thirdParty &&
+                        previous.twitchLoading == next.twitchLoading && previous.twitchFailed == next.twitchFailed
                 }
             }
+        }
+    }
+
+    fun retryTwitchPicker(expectedChannelId: String?, expectedChannelLogin: String?) {
+        val session = v2ActiveSession.value ?: return
+        if (matchesV2PickerSession(session.spec, expectedChannelId, expectedChannelLogin)) {
+            session.catalog.refresh(force = true)
         }
     }
 

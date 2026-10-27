@@ -502,7 +502,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         val spec = HudElementRegistry.get(id)
         return when (spec.pivot) {
             HudPivot.TOP_START -> {
-                val x = if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+                val x = if ((layoutDirection == View.LAYOUT_DIRECTION_RTL) xor element.anchorToEnd) {
                     element.visualRect.right
                 } else {
                     element.visualRect.left
@@ -522,7 +522,7 @@ class PlayerHudLayout @JvmOverloads constructor(
     ): Pair<Float, Float> {
         val spec = HudElementRegistry.get(id)
         val x = when (spec.pivot) {
-            HudPivot.TOP_START -> if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+            HudPivot.TOP_START -> if ((layoutDirection == View.LAYOUT_DIRECTION_RTL) xor element.anchorToEnd) {
                 centerX + element.visualRect.width / 2f
             } else {
                 centerX - element.visualRect.width / 2f
@@ -545,7 +545,7 @@ class PlayerHudLayout @JvmOverloads constructor(
     ): Float {
         val spec = HudElementRegistry.get(id)
         return when (spec.pivot) {
-            HudPivot.TOP_START -> if (layoutDirection == View.LAYOUT_DIRECTION_RTL) {
+            HudPivot.TOP_START -> if ((layoutDirection == View.LAYOUT_DIRECTION_RTL) xor element.anchorToEnd) {
                 if (leftEdge) coordinate + element.visualRect.width else coordinate
             } else {
                 if (leftEdge) coordinate else coordinate - element.visualRect.width
@@ -654,8 +654,14 @@ class PlayerHudLayout @JvmOverloads constructor(
         val maximumCorrection = EDITOR_MAX_AUTONUDGE_DP * density
         val gap = EDITOR_AUTONUDGE_GAP_DP * density
         val bottomLimit = safe.bottom - EDITOR_BOTTOM_CHROME_CLEARANCE_DP * density
-        val intendedDx = dragStart?.let { (raw.x - it.x) * safe.width } ?: 0f
-        val intendedDy = dragStart?.let { (raw.y - it.y) * safe.height } ?: 0f
+        val rawRect = editorElements(rawProfile).firstOrNull { it.id == id }?.visualRect ?: return null
+        val startRect = dragStart?.let { start ->
+            editorElements(editorProfileWith(id, start)).firstOrNull { it.id == id }?.visualRect
+        }
+        // Edge alignment can change the stored horizontal pivot without moving
+        // the control. Measure intent and corrections in visible coordinates.
+        val intendedDx = startRect?.let { rawRect.centerX - it.centerX } ?: 0f
+        val intendedDy = startRect?.let { rawRect.centerY - it.centerY } ?: 0f
 
         data class Candidate(
             val placement: HudPlacement,
@@ -687,12 +693,12 @@ class PlayerHudLayout @JvmOverloads constructor(
 
         fun candidate(placement: HudPlacement): Candidate? {
             val clamped = clampEditorPlacement(id, placement.copy(enabled = true))
-            val correctionX = (clamped.x - raw.x) * safe.width
-            val correctionY = (clamped.y - raw.y) * safe.height
-            val distance = kotlin.math.sqrt(correctionX * correctionX + correctionY * correctionY)
-            if (distance > maximumCorrection + 0.5f) return null
             val profile = editorProfileWith(id, clamped)
             val element = editorElements(profile).firstOrNull { it.id == id } ?: return null
+            val correctionX = element.visualRect.centerX - rawRect.centerX
+            val correctionY = element.visualRect.centerY - rawRect.centerY
+            val distance = kotlin.math.sqrt(correctionX * correctionX + correctionY * correctionY)
+            if (distance > maximumCorrection + 0.5f) return null
             return Candidate(
                 placement = clamped,
                 profile = profile,
@@ -741,15 +747,18 @@ class PlayerHudLayout @JvmOverloads constructor(
                 result += listOfNotNull(translated(value, 0f, bottomLimit - value.element.visualRect.bottom))
             }
             return result
-                .distinctBy { it.placement.x to it.placement.y }
+                .distinctBy { Triple(it.placement.x, it.placement.y, it.placement.anchorToEnd) }
                 .sortedWith(Comparator { left, right -> score(left).compareTo(score(right)) })
         }
 
         val initial = candidate(raw) ?: return null
         val frontier = ArrayDeque<Candidate>().apply { add(initial) }
-        val visited = mutableSetOf<Pair<Int, Int>>()
-        fun key(value: HudPlacement): Pair<Int, Int> =
-            (value.x * 10000f).roundToInt() to (value.y * 10000f).roundToInt()
+        val visited = mutableSetOf<Triple<Int, Int, Boolean>>()
+        fun key(value: HudPlacement): Triple<Int, Int, Boolean> = Triple(
+            (value.x * 10000f).roundToInt(),
+            (value.y * 10000f).roundToInt(),
+            value.anchorToEnd,
+        )
         visited += key(initial.placement)
         var best = initial
         repeat(6) {
@@ -872,8 +881,17 @@ class PlayerHudLayout @JvmOverloads constructor(
         val testProfile = profile.copy(mode = HudProfileMode.CUSTOM, placements = profile.placements + (id to placement))
         val test = editorElements(testProfile).firstOrNull { it.id == id } ?: return placement
         val spec = HudElementRegistry.get(id)
+        val rtl = layoutDirection == View.LAYOUT_DIRECTION_RTL
+        // Pin only explicit edge placements. Existing saved coordinates keep their semantics.
+        val anchorToEnd = if (id == HudElementId.TIME_STATUS) {
+            when {
+                abs((if (rtl) test.visualRect.left - safe.left else safe.right - test.visualRect.right)) <= 1f -> true
+                abs((if (rtl) safe.right - test.visualRect.right else test.visualRect.left - safe.left)) <= 1f -> false
+                else -> placement.anchorToEnd
+            }
+        } else false
         val x = when (spec.pivot) {
-            HudPivot.TOP_START -> if (layoutDirection == View.LAYOUT_DIRECTION_RTL) test.visualRect.right else test.visualRect.left
+            HudPivot.TOP_START -> if (rtl xor anchorToEnd) test.visualRect.right else test.visualRect.left
             else -> test.visualRect.centerX
         }
         val y = when (spec.pivot) {
@@ -884,6 +902,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         return placement.copy(
             x = ((x - safe.left) / safe.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
             y = ((y - safe.top) / safe.height.coerceAtLeast(1f)).coerceIn(0f, 1f),
+            anchorToEnd = anchorToEnd,
         )
     }
 
@@ -968,7 +987,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         val safe = safeRect(width.toFloat(), height.toFloat())
         val spec = HudElementRegistry.get(id)
         val x = when (spec.pivot) {
-            HudPivot.TOP_START -> if (layoutDirection == View.LAYOUT_DIRECTION_RTL) element.visualRect.right else element.visualRect.left
+            HudPivot.TOP_START -> if ((layoutDirection == View.LAYOUT_DIRECTION_RTL) xor element.anchorToEnd) element.visualRect.right else element.visualRect.left
             else -> element.visualRect.centerX
         }
         val y = when (spec.pivot) {
@@ -1010,8 +1029,10 @@ class PlayerHudLayout @JvmOverloads constructor(
         val eligible = blockers.filter { isMovableDefaultBlocker(it) }
         if (eligible.size != blockers.size) return null
         val safe = safeRect(width.toFloat(), height.toFloat())
-        val dx = (selectedPlacement.x - dragStart.x) * safe.width
-        val dy = (selectedPlacement.y - dragStart.y) * safe.height
+        val startRect = editorElements(editorProfileWith(id, dragStart))
+            .firstOrNull { it.id == id }?.visualRect ?: return null
+        val dx = selected.visualRect.centerX - startRect.centerX
+        val dy = selected.visualRect.centerY - startRect.centerY
         val blockerSets = eligible
             .groupBy { defaultLane(it) }
             .filterKeys { it != null }
@@ -1158,7 +1179,7 @@ class PlayerHudLayout @JvmOverloads constructor(
         val safe = safeRect(width.toFloat(), height.toFloat())
         val spec = HudElementRegistry.get(id)
         val x = when (spec.pivot) {
-            HudPivot.TOP_START -> if (layoutDirection == View.LAYOUT_DIRECTION_RTL) element.visualRect.right else element.visualRect.left
+            HudPivot.TOP_START -> if ((layoutDirection == View.LAYOUT_DIRECTION_RTL) xor element.anchorToEnd) element.visualRect.right else element.visualRect.left
             else -> element.visualRect.centerX
         }
         val y = when (spec.pivot) {
@@ -1171,6 +1192,7 @@ class PlayerHudLayout @JvmOverloads constructor(
             x = ((x - safe.left) / safe.width.coerceAtLeast(1f)).coerceIn(0f, 1f),
             y = ((y - safe.top) / safe.height.coerceAtLeast(1f)).coerceIn(0f, 1f),
             scale = candidateProfile.placements[id]?.scale ?: 1f,
+            anchorToEnd = element.anchorToEnd,
         )
     }
 
@@ -1801,7 +1823,7 @@ class PlayerHudLayout @JvmOverloads constructor(
                 val safe = safeRect(width.toFloat(), height.toFloat())
                 val spec = HudElementRegistry.get(id)
                 val x = when (spec.pivot) {
-                    HudPivot.TOP_START -> if (layoutDirection == View.LAYOUT_DIRECTION_RTL) element.visualRect.right else element.visualRect.left
+                    HudPivot.TOP_START -> if ((layoutDirection == View.LAYOUT_DIRECTION_RTL) xor element.anchorToEnd) element.visualRect.right else element.visualRect.left
                     else -> element.visualRect.centerX
                 }
                 val y = when (spec.pivot) {
