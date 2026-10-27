@@ -91,6 +91,7 @@ class PlayerHudEditorFragment : Fragment() {
     private lateinit var scaleValueText: TextView
     private lateinit var globalScaleValueText: TextView
     private lateinit var enabledSwitch: MaterialSwitch
+    private lateinit var placementHintText: TextView
     private lateinit var scaleSlider: Slider
     private lateinit var globalScaleSlider: Slider
     private lateinit var selectedControlsContainer: LinearLayout
@@ -399,6 +400,19 @@ class PlayerHudEditorFragment : Fragment() {
         }
         enabledRow.addView(enabledSwitch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
         selectedControlsContainer.addView(enabledRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        placementHintText = TextView(editorContext).apply {
+            text = "Not on the canvas at this size. Playback shows it under More options."
+            textSize = 12f
+            setTextColor(0xFFB8B0C2.toInt())
+            isVisible = false
+        }
+        selectedControlsContainer.addView(
+            placementHintText,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(4)
+                bottomMargin = dp(8)
+            },
+        )
 
         val scaleHeader = LinearLayout(editorContext).apply { gravity = Gravity.CENTER_VERTICAL }
         scaleHeader.addView(TextView(editorContext).apply {
@@ -1020,6 +1034,10 @@ class PlayerHudEditorFragment : Fragment() {
         setSwapButtonVisible(value.enabled && spec.isInteractive && spec.pivot == HudPivot.CENTER)
         suppressPanelCallbacks = true
         enabledSwitch.isChecked = value.enabled
+        // Canvas placement needs a measured safe area. The post-layout refresh
+        // in onCreateView updates this hint once the preview has a size.
+        placementHintText.isVisible = value.enabled && preview.isLaidOut &&
+            !preview.editorDrawsElement(currentProfile(), id)
         bindSlider(
             scaleSlider,
             (spec.minimumScale * 100f).roundToInt(),

@@ -1266,6 +1266,13 @@ class PlayerHudLayout @JvmOverloads constructor(
         )?.takeIf { abs(it.snapCoordinate - coordinate) <= threshold }
     }
 
+    /**
+     * False for an enabled control the layout omits from the canvas, such as a
+     * compact bottom-row control that would overlap protected transport bounds.
+     */
+    fun editorDrawsElement(candidateProfile: HudProfile, id: HudElementId): Boolean =
+        editorElements(candidateProfile).any { it.id == id }
+
     fun editorDropHasCollision(id: HudElementId, placement: HudPlacement): Boolean {
         val candidateProfile = editorProfileWith(id, placement)
         val element = editorElements(candidateProfile).firstOrNull { it.id == id }

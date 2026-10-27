@@ -489,6 +489,10 @@ object HudDefaultLayout {
             add(HudElementId.SEEK_FORWARD, forwardCenterX, playCenterY)
         }
 
+        // Compact rows slide each control past transport or lock bounds to the
+        // next free slot. A control with no free slot is omitted and does not
+        // reserve row width for its neighbors.
+        val placedBottomRects = mutableListOf<HudRect>()
         fun placeBottomRow(ids: List<HudElementId>, start: Boolean) {
             var x = if (start) {
                 if (compact) safeRect.left else inner.left
@@ -497,24 +501,52 @@ object HudDefaultLayout {
             }
             ids.forEach { id ->
                 val hit = hitSize(id)
-                val center = if (start) x + hit.width / 2f else x - hit.width / 2f
                 // Keep bottom-row hit bounds above the fixed timeline scrub
                 // lane so the two controls cannot compete for the same tap.
                 val centerY = safeRect.bottom -
                     (TIMELINE_TOUCH_TARGET_HEIGHT + BOTTOM_CONTROL_TIMELINE_CLEARANCE) * density -
                     hit.height / 2f
-                val candidate = HudRect(
+                fun rectAt(center: Float) = HudRect(
                     center - hit.width / 2f,
                     centerY - hit.height / 2f,
                     center + hit.width / 2f,
                     centerY + hit.height / 2f,
                 )
-                if (!compact || protectedControlRects.none { it.overlaps(candidate) }) add(id, center, centerY)
-                x += if (start) hit.width + gap else -(hit.width + gap)
+                var center = if (start) x + hit.width / 2f else x - hit.width / 2f
+                var candidate = rectAt(center)
+                if (compact) {
+                    val obstacles = protectedControlRects + placedBottomRects
+                    var blocker = obstacles.firstOrNull { it.overlaps(candidate) }
+                    var slides = 0
+                    while (blocker != null && slides++ < obstacles.size) {
+                        center = if (start) {
+                            blocker.right + gap + hit.width / 2f
+                        } else {
+                            blocker.left - gap - hit.width / 2f
+                        }
+                        candidate = rectAt(center)
+                        // The end-anchored row is placed first and stays on its half.
+                        // A start-side control may use free space past the transport.
+                        if (!start && candidate.left < safeRect.centerX) return@forEach
+                        blocker = obstacles.firstOrNull { it.overlaps(candidate) }
+                    }
+                    if (blocker != null || !candidate.isInside(safeRect)) return@forEach
+                }
+                add(id, center, candidate.centerY)
+                if (id !in placements) return@forEach
+                placedBottomRects += candidate
+                x = if (start) candidate.right + gap else candidate.left - gap
             }
         }
-        placeBottomRow(bottomStart, start = !rtl)
-        placeBottomRow(bottomEnd, start = rtl)
+        // The row anchored to the far edge goes first, so start-side slides
+        // only search for space that the far-side controls have not claimed.
+        if (rtl) {
+            placeBottomRow(bottomStart, start = false)
+            placeBottomRow(bottomEnd, start = true)
+        } else {
+            placeBottomRow(bottomEnd, start = false)
+            placeBottomRow(bottomStart, start = true)
+        }
 
         if (HudElementId.TIME_STATUS in availability && enabledByDefault(
                 HudElementId.TIME_STATUS,
@@ -566,7 +598,7 @@ object HudDefaultLayout {
                 // Short viewports push the transport buttons down into this row;
                 // keep the label clear of them instead of overlapping.
                 val aligned = HudRect(x, alignedY, x + timeSize.width, alignedY + timeSize.height)
-                if (protectedControlRects.any { it.overlaps(aligned) }) legacyY else alignedY
+                if ((protectedControlRects + placedBottomRects).any { it.overlaps(aligned) }) legacyY else alignedY
             } else {
                 legacyY
             }
