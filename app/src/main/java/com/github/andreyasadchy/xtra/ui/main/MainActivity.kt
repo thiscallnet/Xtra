@@ -683,7 +683,7 @@ class MainActivity : AppCompatActivity() {
                             val exitsPictureInPicture =
                                 isInPictureInPictureMode || wasInPictureInPictureMode
                             backgroundAudioActionExitingPictureInPicture = exitsPictureInPicture
-                            player.startAudioOnly()
+                            player.startBackgroundPlayback()
                             if (exitsPictureInPicture) {
                                 preserveBackgroundPlaybackOnDestroy = true
                                 finish()

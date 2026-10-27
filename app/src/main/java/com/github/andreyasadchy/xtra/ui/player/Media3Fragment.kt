@@ -5079,6 +5079,21 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         releaseController()
     }
 
+    override fun startBackgroundPlayback() {
+        if (isClipEditorVisible()) {
+            player?.pause()
+            return
+        }
+        if (!requireContext().prefs().getBoolean(C.SETTINGS_BACKGROUND_PLAYBACK, true)) {
+            // The background transition would pause playback with this setting off,
+            // so keep the explicit audio-only behavior for this action.
+            startAudioOnly()
+            return
+        }
+        applyBackgroundPlayback(isInPIPMode = false)
+        releaseController()
+    }
+
     fun requestAudioOnly() {
         pendingAudioOnlyRequest = true
         tryStartPendingAudioOnly()
@@ -5950,23 +5965,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         continuation.invokeOnCancellation { cancel(true) }
     }
 
-    override fun onStop() {
-        view?.findViewById<VaftAdPreviewView>(R.id.vaftAdPreview)?.release()
-        cancelLiveRewindStateSync()
-        logVideoSurfaceBinding("on_stop", player, view?.let { videoOutputView })
-        super.onStop()
-        invalidateResumeQualityConfirmation("fragment_on_stop")
-        qualityRequestDeferred = false
-        invalidateQualityRequest()
-        if (isClipEditorVisible()) {
-            player?.pause()
-            return
-        }
-        val isInPIPMode = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
-            else -> false
-        }
+    private fun applyBackgroundPlayback(isInPIPMode: Boolean) {
         player?.let { player ->
             if (player.isConnected) {
                 savePosition()
@@ -6028,6 +6027,26 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 )
             }
         }
+    }
+
+    override fun onStop() {
+        view?.findViewById<VaftAdPreviewView>(R.id.vaftAdPreview)?.release()
+        cancelLiveRewindStateSync()
+        logVideoSurfaceBinding("on_stop", player, view?.let { videoOutputView })
+        super.onStop()
+        invalidateResumeQualityConfirmation("fragment_on_stop")
+        qualityRequestDeferred = false
+        invalidateQualityRequest()
+        if (isClipEditorVisible()) {
+            player?.pause()
+            return
+        }
+        val isInPIPMode = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R -> requireActivity().isInPictureInPictureMode
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> !useController && isMaximized
+            else -> false
+        }
+        applyBackgroundPlayback(isInPIPMode)
         binding.playerControls.root.removeCallbacks(updateProgressAction)
         if (isClipEditorVisible()) {
             player?.pause()

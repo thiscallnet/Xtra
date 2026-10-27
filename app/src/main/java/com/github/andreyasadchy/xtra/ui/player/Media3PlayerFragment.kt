@@ -657,6 +657,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         persistPlaybackState: Boolean = persistSavedQuality,
     ) {}
     open fun startAudioOnly() {}
+    open fun startBackgroundPlayback() {}
     open fun downloadVideo() {}
     open fun close() {}
 
