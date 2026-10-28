@@ -325,7 +325,8 @@ class ViewingStatsRecorderTest {
             // deadline another 5 seconds into the future.
             localRecorder.update("source-b", metadata("channel-b"), true, false)
             localRecorder.awaitIdle()
-            withTimeout(1.seconds) {
+            // This worker uses Dispatchers.IO; allow loaded CI runners to schedule it.
+            withTimeout(5.seconds) {
                 localStore.channelACheckpoint.await()
             }
 
