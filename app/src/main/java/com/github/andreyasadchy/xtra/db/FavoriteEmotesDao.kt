@@ -29,10 +29,36 @@ interface FavoriteEmotesDao {
     @Query("UPDATE favorite_emotes SET sort_order = :sortOrder WHERE provider = :provider AND emote_id = :emoteId")
     suspend fun updateSortOrder(provider: String, emoteId: String, sortOrder: Int)
 
+    @Query("SELECT * FROM favorite_emotes WHERE provider = :provider AND emote_id = :emoteId LIMIT 1")
+    suspend fun get(provider: String, emoteId: String): FavoriteEmote?
+
+    @Query("UPDATE favorite_emotes SET provider = :newProvider, emote_id = :newEmoteId WHERE provider = :oldProvider AND emote_id = :oldEmoteId")
+    suspend fun updateKey(
+        oldProvider: String,
+        oldEmoteId: String,
+        newProvider: String,
+        newEmoteId: String,
+    )
+
     @Transaction
     suspend fun updateOrder(order: List<FavoriteEmoteKey>) {
         order.forEachIndexed { index, key ->
             updateSortOrder(key.provider.name, key.emoteId, index)
+        }
+    }
+
+    @Transaction
+    suspend fun migrateKey(oldKey: FavoriteEmoteKey, newKey: FavoriteEmoteKey) {
+        if (get(oldKey.provider.name, oldKey.emoteId) == null) return
+        if (get(newKey.provider.name, newKey.emoteId) != null) {
+            delete(oldKey.provider.name, oldKey.emoteId)
+        } else {
+            updateKey(
+                oldProvider = oldKey.provider.name,
+                oldEmoteId = oldKey.emoteId,
+                newProvider = newKey.provider.name,
+                newEmoteId = newKey.emoteId,
+            )
         }
     }
 

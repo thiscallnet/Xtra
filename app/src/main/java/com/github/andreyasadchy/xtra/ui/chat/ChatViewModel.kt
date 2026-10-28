@@ -30,6 +30,7 @@ import com.github.andreyasadchy.xtra.model.chat.toState
 import com.github.andreyasadchy.xtra.model.chat.Chatter
 import com.github.andreyasadchy.xtra.model.chat.CheerEmote
 import com.github.andreyasadchy.xtra.model.chat.Emote
+import com.github.andreyasadchy.xtra.model.chat.EmoteProvider
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmote
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteCatalog
 import com.github.andreyasadchy.xtra.model.chat.FavoriteEmoteKey
@@ -431,6 +432,17 @@ class ChatViewModel(
         }
     }
 
+    private data class SevenTvFavoriteCatalog(
+        val channelId: String?,
+        val keysByName: Map<String, FavoriteEmoteKey>,
+        val namesByKey: Map<FavoriteEmoteKey, String>,
+    )
+
+    private data class SevenTvFavoriteCatalogTransition(
+        val previous: SevenTvFavoriteCatalog,
+        val current: SevenTvFavoriteCatalog,
+    )
+
     private val pickerCatalogCacheLock = Any()
     private var cachedPickerSnapshot: com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot? = null
     private var cachedPickerProviders = 0
@@ -545,7 +557,10 @@ class ChatViewModel(
                 ChatEmoteScope.PERSONAL -> Emote.PERSONAL_STV
                 ChatEmoteScope.CHANNEL -> Emote.CHANNEL_STV
                 ChatEmoteScope.GLOBAL -> Emote.GLOBAL_STV
-                ChatEmoteScope.LEGACY_COMBINED -> null
+                // The legacy cache did not record scope, but it did record provider.
+                // Keep the emote identified as 7TV so favorites retain the provider
+                // key when this cached entry is replaced by the scoped catalog.
+                ChatEmoteScope.LEGACY_COMBINED -> Emote.GLOBAL_STV
             }
             com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.BTTV ->
                 if (emote.scope == ChatEmoteScope.GLOBAL) Emote.GLOBAL_BTTV else Emote.CHANNEL_BTTV
@@ -836,11 +851,25 @@ class ChatViewModel(
         SharingStarted.Eagerly,
         false,
     )
-    val favoriteEmotes: StateFlow<List<FavoriteEmote>> = playerRepository.loadFavoriteEmotesFlow().stateIn(
+    private val favoriteEmotesState: StateFlow<Pair<Boolean, List<FavoriteEmote>>> =
+        playerRepository.loadFavoriteEmotesFlow()
+            .map { true to it }
+            .stateIn(
+                viewModelScope,
+                SharingStarted.Eagerly,
+                false to emptyList(),
+            )
+    val favoriteEmotes: StateFlow<List<FavoriteEmote>> = favoriteEmotesState.map { it.second }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
         emptyList(),
     )
+    private val legacySevenTvFavoriteRepairs = ConcurrentHashMap.newKeySet<FavoriteEmoteKey>()
+    private var lastSevenTvFavoriteCatalog: SevenTvFavoriteCatalog? = null
+    private val pendingSevenTvFavoriteCatalogTransitions = mutableListOf<SevenTvFavoriteCatalogTransition>()
+    private var favoriteCatalogChannelId: String? = null
+    private val pendingLegacySevenTvFavoriteNames = mutableMapOf<String, String>()
+    private val pendingLegacySevenTvFavoriteIds = mutableSetOf<String>()
     val favoriteKeys: StateFlow<Set<FavoriteEmoteKey>> = favoriteEmotes.map { favorites ->
         favorites.mapNotNull { it.key() }.toSet()
     }.stateIn(
@@ -3969,6 +3998,22 @@ class ChatViewModel(
         ) return null
         val state = session.catalog.state.value
         return state.snapshot.takeIf { state.hydrated }?.let(::pickerCatalogFor)
+    }
+
+    private fun sevenTvFavoriteCatalog(
+        snapshot: ChatCatalogSnapshot,
+        channelId: String?,
+    ): SevenTvFavoriteCatalog {
+        val byName = linkedMapOf<String, FavoriteEmoteKey>()
+        val byKey = linkedMapOf<FavoriteEmoteKey, String>()
+        snapshot.sevenTv.sendableValues().forEach { catalogEmote ->
+            val emote = toPickerEmote(catalogEmote)
+            val key = emote.favoriteKey() ?: return@forEach
+            val name = emote.name?.takeIf { it.isNotBlank() } ?: return@forEach
+            byName.putIfAbsent(name, key)
+            byKey.putIfAbsent(key, name)
+        }
+        return SevenTvFavoriteCatalog(channelId, byName, byKey)
     }
 
     private fun pickerCatalogFor(
@@ -8227,6 +8272,88 @@ class ChatViewModel(
                 delay(PICKER_WARM_DELAY_MILLIS)
                 val emotes = withContext(Dispatchers.Default) { currentPickerEmotes() }
                 EmotePickerImageLoader.warm(applicationContext, emotes, "4")
+            }
+        }
+        // Keep favorites attached to 7TV entries across set refreshes, including both changed IDs
+        // with the same name and keys saved as Twitch from the old combined-scope cache.
+        viewModelScope.launch {
+            combine(
+                favoriteEmotesState,
+                pickerCatalogUpdates.onStart { emit(Unit) },
+            ) { favoritesState, _ -> favoritesState }.collect { (loaded, favorites) ->
+                val active = v2ActiveSession.value ?: return@collect
+                val state = active.catalog.state.value
+                val snapshot = state.snapshot.takeIf { state.hydrated } ?: return@collect
+                val channelId = active.spec.channelId
+                val currentCatalog = sevenTvFavoriteCatalog(snapshot, channelId)
+                if (favoriteCatalogChannelId != channelId) {
+                    pendingSevenTvFavoriteCatalogTransitions.clear()
+                    pendingLegacySevenTvFavoriteNames.clear()
+                    pendingLegacySevenTvFavoriteIds.clear()
+                    lastSevenTvFavoriteCatalog = null
+                    favoriteCatalogChannelId = channelId
+                }
+                lastSevenTvFavoriteCatalog?.let { previous ->
+                    if (previous.keysByName != currentCatalog.keysByName) {
+                        pendingSevenTvFavoriteCatalogTransitions += SevenTvFavoriteCatalogTransition(
+                            previous,
+                            currentCatalog,
+                        )
+                        if (pendingSevenTvFavoriteCatalogTransitions.size > 4) {
+                            pendingSevenTvFavoriteCatalogTransitions.removeAt(0)
+                        }
+                    }
+                }
+                lastSevenTvFavoriteCatalog = currentCatalog
+
+                val twitchIds = snapshot.twitch.values.mapTo(mutableSetOf()) { it.id }
+                snapshot.sevenTv.legacyCombined.values.forEach { emote ->
+                    val id = emote.id
+                    if (id !in twitchIds) {
+                        pendingLegacySevenTvFavoriteNames[id] = emote.name
+                        pendingLegacySevenTvFavoriteIds += id
+                    }
+                }
+                if (!loaded) return@collect
+
+                val migrations = linkedMapOf<FavoriteEmoteKey, FavoriteEmoteKey>()
+                favorites.forEach { favorite ->
+                    val oldKey = favorite.key() ?: return@forEach
+                    if (oldKey.provider == EmoteProvider.SEVENTV) {
+                        var resolvedKey = oldKey
+                        pendingSevenTvFavoriteCatalogTransitions.forEach transitionLoop@{ transition ->
+                            if (channelId.isNullOrBlank() ||
+                                transition.previous.channelId != channelId ||
+                                transition.current.channelId != channelId
+                            ) return@transitionLoop
+                            val oldName = transition.previous.namesByKey[resolvedKey]
+                                ?: return@transitionLoop
+                            if (resolvedKey in transition.current.namesByKey) return@transitionLoop
+                            transition.current.keysByName[oldName]?.let { resolvedKey = it }
+                        }
+                        if (resolvedKey != oldKey) migrations[oldKey] = resolvedKey
+                    } else if (oldKey.provider == EmoteProvider.TWITCH &&
+                        oldKey.emoteId in pendingLegacySevenTvFavoriteIds &&
+                        oldKey.emoteId !in twitchIds
+                    ) {
+                        val emoteName = pendingLegacySevenTvFavoriteNames[oldKey.emoteId]
+                        val currentKey = emoteName?.let(currentCatalog.keysByName::get)
+                            ?: FavoriteEmoteKey(EmoteProvider.SEVENTV, oldKey.emoteId)
+                        migrations[oldKey] = currentKey
+                    }
+                }
+                pendingSevenTvFavoriteCatalogTransitions.clear()
+                pendingLegacySevenTvFavoriteNames.clear()
+                pendingLegacySevenTvFavoriteIds.clear()
+
+                migrations.forEach { (oldKey, newKey) ->
+                    if (!legacySevenTvFavoriteRepairs.add(oldKey)) return@forEach
+                    try {
+                        playerRepository.migrateFavoriteEmoteKey(oldKey, newKey)
+                    } finally {
+                        legacySevenTvFavoriteRepairs.remove(oldKey)
+                    }
+                }
             }
         }
     }

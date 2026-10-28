@@ -2350,6 +2350,10 @@ class PlayerRepository(
         )
     }
 
+    suspend fun migrateFavoriteEmoteKey(oldKey: FavoriteEmoteKey, newKey: FavoriteEmoteKey) = withContext(Dispatchers.IO) {
+        favoriteEmotes.migrateKey(oldKey, newKey)
+    }
+
     suspend fun reorderFavoriteEmotes(order: List<FavoriteEmoteKey>) = withContext(Dispatchers.IO) {
         favoriteEmotes.updateOrder(order)
     }
