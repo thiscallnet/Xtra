@@ -61,11 +61,6 @@ class DropsRepository(
         SupervisorJob() + Dispatchers.IO,
     )
     private val channelDropSemaphore = Semaphore(MAX_CHANNEL_DROP_REQUESTS)
-    private val channelDropIds = ExpiringSingleFlightCache<String, Set<String>>(
-        ttlMillis = INVENTORY_CACHE_MILLIS,
-        scope = channelDropScope,
-        loadSemaphore = channelDropSemaphore,
-    )
     private val channelDropCatalog = ExpiringSingleFlightCache<String, List<TwitchChannelDropCampaign>>(
         ttlMillis = CHANNEL_CATALOG_CACHE_MILLIS,
         scope = channelDropScope,
@@ -314,55 +309,25 @@ class DropsRepository(
         currentSession: CurrentDropSessionResult? = null,
         currentSessionKey: String? = null,
         isSessionCurrent: () -> Boolean = { true },
+        channelGameId: String? = null,
     ): List<TwitchDrop> {
         val id = channelId?.takeIf { it.isNotBlank() } ?: return emptyList()
+        val gameId = channelGameId?.takeIf { it.isNotBlank() } ?: return emptyList()
         val headers = TwitchApiHelper.getGQLHeaders(context, true)
         if (headers[C.HEADER_TOKEN].isNullOrBlank()) return emptyList()
 
         var available = refreshChannelDropCatalog(id)
-        val availableIds = available?.flatMap { campaign ->
-            listOf(campaign.id) + campaign.drops.map { it.id }
-        }?.toSet()
-        // CurrentDrop identifies the Drop Twitch says is active in this session. Use it
-        // alongside AvailableDrops so a changed/partial private response cannot make the
-        // channel projection unnecessarily stale. The cache owns only bookkeeping; network
-        // work runs in its keyed request scope.
-        val networkLibrary = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+            ?: throw IOException("Channel Drops are temporarily unavailable")
+        val matchingGameCampaigns = available.filter { campaign -> campaign.gameId == gameId }
+        val availableIds = matchingGameCampaigns
+            .flatMap { campaign -> campaign.drops.filter(TwitchChannelDrop::isWatchTimeDrop) }
+            .mapTo(mutableSetOf(), TwitchChannelDrop::id)
         val effectiveSession = currentSession.takeIf { currentSession == null || isSessionCurrent() }
         val sessionProgress = (effectiveSession as? CurrentDropSessionResult.Present)?.progress
-        val currentIds = when (effectiveSession) {
-            is CurrentDropSessionResult.Present -> setOf(effectiveSession.progress.dropId)
-            CurrentDropSessionResult.None -> emptySet()
-            is CurrentDropSessionResult.Unavailable -> null
-            null -> channelDropIds.get(channelCacheKey(id)) {
-                try {
-                    GqlDropsParser.parseCurrentDropIds(
-                        graphQLRepository.loadCurrentDrop(networkLibrary, headers, id),
-                    )
-                } catch (error: CancellationException) {
-                    throw error
-                } catch (_: Exception) {
-                    null
-                }
-            }
-        }
-        val channelIds = when {
-            availableIds != null && currentIds != null -> availableIds + currentIds
-            availableIds != null -> availableIds
-            currentIds != null -> currentIds
-            else -> throw IOException("Channel Drops are temporarily unavailable")
-        }
-
-        // An empty current session cannot confirm that the channel catalog is empty.
-        if (availableIds == null && channelIds.isEmpty()) {
-            throw IOException("Channel Drops are temporarily unavailable")
-        }
-
-        val projected = if (channelIds.isEmpty()) {
-            emptyList()
-        } else {
-            projectDropsForChannel(inventory.value.drops, channelIds)
-        }
+        // CurrentDropSessionContext is account scoped: Twitch ignores its channel variables.
+        // Use it only to update a drop the channel catalog independently confirms as a
+        // watch-time drop. Never let a session ID expand the channel's eligible drops.
+        val projected = projectDropsForChannel(inventory.value.drops, availableIds)
         val progress = sessionProgress ?: return projected
         val inventoryDrop = projected.firstOrNull { it.id == progress.dropId }
         if (inventoryDrop != null) {
@@ -381,18 +346,18 @@ class DropsRepository(
             }
         }
 
-        fun matchingCatalogDrops(campaigns: List<TwitchChannelDropCampaign>?): List<Pair<TwitchChannelDropCampaign, TwitchChannelDrop>> =
-            campaigns.orEmpty().flatMap { campaign ->
+        fun matchingCatalogDrops(campaigns: List<TwitchChannelDropCampaign>): List<Pair<TwitchChannelDropCampaign, TwitchChannelDrop>> =
+            campaigns.flatMap { campaign ->
                 campaign.drops
                     .filter { it.id == progress.dropId && it.isWatchTimeDrop }
                     .map { campaign to it }
             }
 
-        var catalogMatches = matchingCatalogDrops(available)
+        var catalogMatches = matchingCatalogDrops(matchingGameCampaigns)
         val reconciliationKey = "${channelCacheKey(id)}:${progress.dropId}"
         val sessionKey = currentSessionKey.orEmpty()
         var shouldReconcileCatalog = false
-        if (catalogMatches.isEmpty() && available != null) {
+        if (catalogMatches.isEmpty()) {
             channelCatalogReconcileAttempts.compute(reconciliationKey) { _, previousSession ->
                 if (previousSession == sessionKey) {
                     previousSession
@@ -415,16 +380,15 @@ class DropsRepository(
                     ),
                 )
             }
-            available = refreshChannelDropCatalog(id, force = true)
-            catalogMatches = matchingCatalogDrops(available)
+            refreshChannelDropCatalog(id, force = true)?.let { refreshed ->
+                available = refreshed
+                catalogMatches = matchingCatalogDrops(refreshed.filter { campaign -> campaign.gameId == gameId })
+            }
         }
 
         if (!isSessionCurrent()) return projected
 
         if (catalogMatches.isEmpty()) {
-            if (available == null && projected.isEmpty()) {
-                throw IOException("Channel Drops are temporarily unavailable")
-            }
             logDiagnostics {
                 event(
                     category = DiagnosticsCategory.DROPS,
@@ -434,7 +398,7 @@ class DropsRepository(
                     fields = listOf(
                         DiagnosticsField(DiagnosticsFieldKey.CHANNEL_ID, id),
                         DiagnosticsField(DiagnosticsFieldKey.DROP_ID, progress.dropId),
-                        DiagnosticsField(DiagnosticsFieldKey.COUNT, available?.sumOf { it.drops.size }?.toString() ?: "unknown"),
+                        DiagnosticsField(DiagnosticsFieldKey.COUNT, available.sumOf { it.drops.size }.toString()),
                     ),
                 )
             }
@@ -756,7 +720,6 @@ class DropsRepository(
             _dashboard.value = emptyList()
             _dashboardError.value = null
             dashboardLoaded = false
-            channelDropIds.clear()
             channelDropCatalog.clear()
             channelCatalogReconcileAttempts.clear()
             campaignDetails.clear()
@@ -806,9 +769,7 @@ class DropsRepository(
 internal fun projectDropsForChannel(
     drops: List<TwitchDrop>,
     availableIds: Set<String>,
-): List<TwitchDrop> = drops.filter {
-    it.id in availableIds || it.campaignId in availableIds
-}
+): List<TwitchDrop> = drops.filter { it.id in availableIds }
 
 internal fun mergeDropsWithDashboard(
     drops: List<TwitchDrop>,

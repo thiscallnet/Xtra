@@ -4571,6 +4571,20 @@ class ChatViewModel(
                 playback.metadata.contentId == session.broadcastId
     }
 
+    private fun currentLivePlaybackGameId(channelId: String?): String? {
+        val expectedChannelId = channelId?.takeIf(String::isNotBlank) ?: return null
+        val metadata = (applicationContext.applicationContext as? XtraApp)
+            ?.xtraModule
+            ?.primaryPlaybackWatchState
+            ?.state
+            ?.value
+            ?.metadata ?: return null
+        if (metadata.contentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
+            !metadata.normalizedChannelId.equals(expectedChannelId, ignoreCase = true)
+        ) return null
+        return metadata.categoryId?.takeIf(String::isNotBlank)
+    }
+
     private fun clearSessionOnlyDrops() {
         dropsSessionGeneration.incrementAndGet()
         _dropsUiState.update { state ->
@@ -4749,15 +4763,18 @@ class ChatViewModel(
                     }
 
                     val drops = if (showDropsNow) {
+                        val channelGameId = currentLivePlaybackGameId(expectedChannelId)
                         dropsRepository.refreshChannelDrops(
                             expectedChannelId,
                             currentSessionResult,
                             currentSessionKey = "$expectedSessionToken:${streamId.orEmpty()}",
+                            channelGameId = channelGameId,
                             isSessionCurrent = {
                                     dropsSessionGeneration.get() == observedSessionGeneration &&
                                     dropsStreamLive &&
                                     predictionSessionToken == expectedSessionToken &&
                                     activeChannelId == expectedChannelId &&
+                                    currentLivePlaybackGameId(expectedChannelId) == channelGameId &&
                                     applicationContext.tokenPrefs().getString(C.USER_ID, null) == expectedAccountId
                             },
                         )
@@ -6494,13 +6511,16 @@ class ChatViewModel(
                     )
                 }
                 val drops = if (showDrops) {
+                    val channelGameId = currentLivePlaybackGameId(channelId)
                     dropsRepository.refreshChannelDrops(
                         channelId,
                         currentSession,
                         currentSessionKey = "$sessionToken:${this@ChatViewModel.streamId.orEmpty()}",
+                        channelGameId = channelGameId,
                         isSessionCurrent = {
                             isActiveWatchCreditSession() &&
                                 dropsStreamLive &&
+                                currentLivePlaybackGameId(channelId) == channelGameId &&
                                 dropsSessionGeneration.get() == expectedGeneration
                         },
                     )
