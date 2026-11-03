@@ -164,7 +164,10 @@ class GqlDropsParserTest {
 
         assertEquals(
             listOf("drop-1"),
-            projectDropsForChannel(drops + unrelated, setOf("campaign-included")).map { it.id },
+            projectDropsForChannel(drops + unrelated, setOf("drop-1")).map { it.id },
+        )
+        assertTrue(
+            projectDropsForChannel(drops + unrelated, setOf("campaign-included")).isEmpty(),
         )
     }
 
