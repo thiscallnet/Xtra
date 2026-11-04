@@ -10,8 +10,8 @@ class DeviceUiModeTest {
     @Test fun normalIsNotTelevision() = assertFalse(isTelevisionUiMode(Configuration.UI_MODE_TYPE_NORMAL))
     @Test fun carIsNotTelevision() = assertFalse(isTelevisionUiMode(Configuration.UI_MODE_TYPE_CAR))
     @Test fun watchIsNotTelevision() = assertFalse(isTelevisionUiMode(Configuration.UI_MODE_TYPE_WATCH))
-    @Test fun leanbackFeatureIdentifiesTelevisionWhenUiModeIsNormal() =
-        assertTrue(isTelevisionDevice(Configuration.UI_MODE_TYPE_NORMAL, supportsLeanback = true))
-    @Test fun normalDeviceWithoutLeanbackIsNotTelevision() =
-        assertFalse(isTelevisionDevice(Configuration.UI_MODE_TYPE_NORMAL, supportsLeanback = false))
+    @Test fun televisionFeatureIdentifiesDeviceWhenUiModeIsNormal() =
+        assertTrue(isTelevisionDevice(Configuration.UI_MODE_TYPE_NORMAL, supportsTelevisionFeature = true))
+    @Test fun normalDeviceWithoutTelevisionFeatureIsNotTelevision() =
+        assertFalse(isTelevisionDevice(Configuration.UI_MODE_TYPE_NORMAL, supportsTelevisionFeature = false))
 }
