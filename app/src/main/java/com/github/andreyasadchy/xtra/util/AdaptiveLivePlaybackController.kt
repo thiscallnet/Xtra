@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.util
 
 import android.util.Log
+import android.os.SystemClock
 import androidx.annotation.OptIn
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -18,6 +19,7 @@ import androidx.media3.common.util.UnstableApi
 import com.github.andreyasadchy.xtra.BuildConfig
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 
@@ -25,6 +27,7 @@ import kotlin.math.max
 class AdaptiveLivePlaybackController(
     initialPolicy: LivePlaybackPolicy,
     @Volatile private var adaptiveEnabled: Boolean = initialPolicy.lowLatency,
+    private var policySet: LivePlaybackPolicySet = LivePlaybackPolicies.forSettings(LivePlaybackSettings.defaults()),
 ) {
     enum class State { NORMAL, LOW_LATENCY, BUFFERED, RECOVERING }
 
@@ -35,7 +38,12 @@ class AdaptiveLivePlaybackController(
     private var stableSinceRealtimeMs = Long.MIN_VALUE
 
     @Synchronized
-    fun reset(initialPolicy: LivePlaybackPolicy, enabled: Boolean) {
+    fun reset(
+        initialPolicy: LivePlaybackPolicy,
+        enabled: Boolean,
+        policies: LivePlaybackPolicySet? = null,
+    ) {
+        if (policies != null) policySet = policies
         adaptiveEnabled = enabled
         state = if (enabled && initialPolicy.lowLatency) State.LOW_LATENCY else State.NORMAL
         recentRebuffers = 0
@@ -101,12 +109,7 @@ class AdaptiveLivePlaybackController(
         state = next
         stableSinceRealtimeMs = Long.MIN_VALUE
         policy.set(
-            when (next) {
-                State.NORMAL -> LivePlaybackPolicies.NORMAL
-                State.LOW_LATENCY -> LivePlaybackPolicies.LOW_LATENCY
-                State.BUFFERED -> LivePlaybackPolicies.BUFFERED
-                State.RECOVERING -> LivePlaybackPolicies.RECOVERING
-            },
+            policySet.forAdaptiveState(next),
         )
         if (BuildConfig.DEBUG) {
             val nextPolicy = policy.get()
@@ -252,15 +255,29 @@ class AdaptiveLivePlaybackSpeedControl(
 ) : LivePlaybackSpeedControl {
     private val adaptiveTargetOffsetUs = AtomicLong(C.TIME_UNSET)
     private val media3OverrideOffsetUs = AtomicLong(C.TIME_UNSET)
+    private val rebufferTargetAdaptationEnabled = AtomicBoolean(true)
+    private val lastSpeedDiagnosticRealtimeMs = AtomicLong(C.TIME_UNSET)
     private var appliedAdaptiveTargetOffsetUs = C.TIME_UNSET
 
     fun setAdaptiveTargetLiveOffsetUs(offsetUs: Long) {
         adaptiveTargetOffsetUs.set(offsetUs)
     }
 
+    fun setRebufferTargetAdaptationEnabled(enabled: Boolean) {
+        rebufferTargetAdaptationEnabled.set(enabled)
+    }
+
     override fun setLiveConfiguration(liveConfiguration: MediaItem.LiveConfiguration) {
         delegate.setLiveConfiguration(liveConfiguration)
         applyAdaptiveTargetIfAllowed()
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                TAG,
+                "liveConfiguration targetMs=${liveConfiguration.targetOffsetMs} " +
+                    "minOffsetMs=${liveConfiguration.minOffsetMs} maxOffsetMs=${liveConfiguration.maxOffsetMs} " +
+                    "minSpeed=${liveConfiguration.minPlaybackSpeed} maxSpeed=${liveConfiguration.maxPlaybackSpeed}",
+            )
+        }
     }
 
     override fun setTargetLiveOffsetOverrideUs(liveOffsetUs: Long) {
@@ -270,11 +287,28 @@ class AdaptiveLivePlaybackSpeedControl(
         if (liveOffsetUs == C.TIME_UNSET) applyAdaptiveTargetIfAllowed()
     }
 
-    override fun notifyRebuffer() = delegate.notifyRebuffer()
+    override fun notifyRebuffer() {
+        if (rebufferTargetAdaptationEnabled.get()) delegate.notifyRebuffer()
+    }
 
     override fun getAdjustedPlaybackSpeed(liveOffsetUs: Long, bufferedDurationUs: Long): Float {
         applyAdaptiveTargetIfAllowed()
-        return delegate.getAdjustedPlaybackSpeed(liveOffsetUs, bufferedDurationUs)
+        val speed = delegate.getAdjustedPlaybackSpeed(liveOffsetUs, bufferedDurationUs)
+        if (BuildConfig.DEBUG) {
+            val now = SystemClock.elapsedRealtime()
+            val previous = lastSpeedDiagnosticRealtimeMs.get()
+            if ((previous == C.TIME_UNSET || now - previous >= SPEED_DIAGNOSTIC_INTERVAL_MS) &&
+                lastSpeedDiagnosticRealtimeMs.compareAndSet(previous, now)
+            ) {
+                Log.d(
+                    TAG,
+                    "speed=$speed liveOffsetMs=${liveOffsetUs / 1_000L} " +
+                        "bufferedMs=${bufferedDurationUs / 1_000L} " +
+                        "targetMs=${delegate.getTargetLiveOffsetUs() / 1_000L}",
+                )
+            }
+        }
+        return speed
     }
 
     override fun getTargetLiveOffsetUs(): Long {
@@ -296,5 +330,6 @@ class AdaptiveLivePlaybackSpeedControl(
 
     private companion object {
         const val TAG = "AdaptiveLivePlayback"
+        const val SPEED_DIAGNOSTIC_INTERVAL_MS = 1_000L
     }
 }

@@ -139,6 +139,14 @@ class StreamMedia3Runtime(
         C.PROXY_USER,
         C.PROXY_PASSWORD,
         C.PLAYER_LOW_LATENCY,
+        C.PLAYER_LIVE_MODE,
+        C.PLAYER_BUFFER_MIN,
+        C.PLAYER_BUFFER_MAX,
+        C.PLAYER_BUFFER_PLAYBACK,
+        C.PLAYER_BUFFER_REBUFFER,
+        C.PLAYER_LIVE_MIN_SPEED,
+        C.PLAYER_LIVE_MAX_SPEED,
+        C.PLAYER_LIVE_TARGET_OFFSET,
         C.TOKEN_INCLUDE_TOKEN_STREAM,
         C.TOKEN_RANDOM_DEVICE_ID,
         C.TOKEN_X_DEVICE_ID,
@@ -747,10 +755,12 @@ class StreamMedia3Runtime(
             }
         }
         currentGeneration = null
-        val initialLivePolicy = LivePlaybackPolicies.forLowLatency(configuration.lowLatency)
+        val livePolicies = configuration.livePlaybackSettings.policies()
+        val initialLivePolicy = livePolicies.forMode(configuration.livePlaybackSettings.mode)
         val adaptiveLiveController = AdaptiveLivePlaybackController(
             initialPolicy = initialLivePolicy,
             adaptiveEnabled = false,
+            policySet = livePolicies,
         )
         val playbackLoadControl = AdaptiveLiveLoadControl(
             controller = adaptiveLiveController,
