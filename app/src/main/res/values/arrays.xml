@@ -885,7 +885,7 @@
         <item>drop</item>
     </string-array>
 
-    <string-array name="playerLiveModeEntries">
+    <string-array name="playerLiveModeEntries" translatable="false">
         <item>@string/settings_live_mode_minimum_delay</item>
         <item>@string/settings_live_mode_adaptive</item>
         <item>@string/settings_live_mode_normal</item>
