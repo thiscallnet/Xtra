@@ -49,6 +49,15 @@ object SettingsMigration {
         C.SETTINGS_BACKGROUND_PLAYBACK,
         C.SETTINGS_HTTP_PROXY_ENABLED,
         C.PLAYER_HUD_LAYOUT_V2,
+        C.PLAYER_LOW_LATENCY,
+        C.PLAYER_LIVE_MODE,
+        C.PLAYER_BUFFER_MIN,
+        C.PLAYER_BUFFER_MAX,
+        C.PLAYER_BUFFER_PLAYBACK,
+        C.PLAYER_BUFFER_REBUFFER,
+        C.PLAYER_LIVE_MIN_SPEED,
+        C.PLAYER_LIVE_MAX_SPEED,
+        C.PLAYER_LIVE_TARGET_OFFSET,
         C.SETTINGS_PLAYER_SPEED_OPTIONS,
         C.SETTINGS_DEVELOPER_UNLOCKED,
         C.SETTINGS_DEVELOPER_ENABLED,
@@ -382,13 +391,6 @@ object SettingsMigration {
         "player_audio_focus",
         "player_handle_audio_becoming_noisy",
         C.PLAYER_LOW_LATENCY,
-        "player_buffer_min",
-        "player_buffer_max",
-        "player_buffer_playback",
-        "player_buffer_rebuffer",
-        "player_live_min_speed",
-        "player_live_max_speed",
-        "player_live_target_offset",
         "chat_limit",
         "chat_recent_limit",
         "chat_recent_messages_url",
@@ -490,6 +492,18 @@ object SettingsMigration {
             }
         }
         migrateAppearancePreferences(preferences)
+        if (!preferences.contains(C.PLAYER_LIVE_MODE)) {
+            preferences.edit {
+                putString(
+                    C.PLAYER_LIVE_MODE,
+                    if (preferences.getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY)) {
+                        C.PLAYER_LIVE_MODE_MINIMUM_DELAY
+                    } else {
+                        C.PLAYER_LIVE_MODE_NORMAL
+                    },
+                )
+            }
+        }
         // Apply the new artwork default once, including already-current installs.
         // Save the marker with the value so later user choices survive migration.
         if (!preferences.getBoolean(C.SYSTEM_MEDIA_ARTWORK_DEFAULT_MIGRATED, false)) {

@@ -243,11 +243,10 @@ class StreamHlsMediaSourceFactory(
         .setUri(uri.toUri())
         .setMimeType(MimeTypes.APPLICATION_M3U8)
         .setLiveConfiguration(
-            MediaItem.LiveConfiguration.Builder()
-                .setTargetOffsetMs(
-                    LivePlaybackPolicies.forLowLatency(configuration.lowLatency).targetOffsetMs,
-                )
-                .build()
+            configuration.livePlaybackSettings.liveConfiguration(
+                configuration.livePlaybackSettings.policies()
+                    .forMode(configuration.livePlaybackSettings.mode),
+            ),
         )
         .setMediaMetadata(
             MediaMetadata.Builder()

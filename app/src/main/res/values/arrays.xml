@@ -884,4 +884,16 @@
         <item>percent</item>
         <item>drop</item>
     </string-array>
+
+    <string-array name="playerLiveModeEntries">
+        <item>@string/settings_live_mode_minimum_delay</item>
+        <item>@string/settings_live_mode_adaptive</item>
+        <item>@string/settings_live_mode_normal</item>
+    </string-array>
+
+    <string-array name="playerLiveModeValues" translatable="false">
+        <item>minimum_delay</item>
+        <item>adaptive</item>
+        <item>normal</item>
+    </string-array>
 </resources>

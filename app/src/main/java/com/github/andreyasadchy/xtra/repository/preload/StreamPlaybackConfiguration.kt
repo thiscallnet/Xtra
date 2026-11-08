@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.repository.preload
 import android.content.Context
 import android.content.SharedPreferences
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.LivePlaybackSettings
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
 import com.github.andreyasadchy.xtra.util.httpProxyPort
@@ -28,6 +29,7 @@ data class StreamPlaybackConfiguration(
     val streamHeaders: Map<String, String>,
     val customStreamProxyEnabled: Boolean,
     val customStreamProxyUrl: String?,
+    val livePlaybackSettings: LivePlaybackSettings = LivePlaybackSettings.defaults(),
 ) {
     val fingerprint: String by lazy {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -42,6 +44,11 @@ data class StreamPlaybackConfiguration(
             append(proxyHost).append('\u0000').append(proxyPort).append('\u0000')
             append(proxyUser).append('\u0000').append(proxyPassword).append('\u0000')
             append(lowLatency).append('\u0000')
+            append(livePlaybackSettings.mode.preferenceValue).append('\u0000')
+            append(livePlaybackSettings.targetOffsetMs).append('\u0000')
+            append(livePlaybackSettings.buffers).append('\u0000')
+            append(livePlaybackSettings.minPlaybackSpeed).append('\u0000')
+            append(livePlaybackSettings.maxPlaybackSpeed).append('\u0000')
             append(proxyMultivariantPlaylist).append('\u0000')
             streamHeaders.toSortedMap().forEach { (key, value) -> append(key).append('=').append(value).append('\u0000') }
             append(customStreamProxyEnabled).append('\u0000').append(customStreamProxyUrl)
@@ -53,6 +60,7 @@ data class StreamPlaybackConfiguration(
         fun from(context: Context): StreamPlaybackConfiguration {
             val appContext = context.applicationContext
             val prefs = appContext.prefs()
+            val livePlaybackSettings = LivePlaybackSettings.fromPreferences(prefs)
             return StreamPlaybackConfiguration(
                 networkLibrary = prefs.getString(C.NETWORK_LIBRARY, C.OKHTTP),
                 gqlHeaders = TwitchApiHelper.getGQLHeaders(
@@ -68,11 +76,12 @@ data class StreamPlaybackConfiguration(
                 proxyPort = prefs.httpProxyPort(),
                 proxyUser = prefs.getString(C.PROXY_USER, null),
                 proxyPassword = prefs.getString(C.PROXY_PASSWORD, null),
-                lowLatency = prefs.getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY),
+                lowLatency = livePlaybackSettings.lowLatencyEnabled,
                 proxyMultivariantPlaylist = prefs.getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false),
                 streamHeaders = prefs.getString(C.PLAYER_STREAM_HEADERS, null).parseHeaders(),
                 customStreamProxyEnabled = prefs.getBoolean(C.PLAYER_STREAM_PROXY, false),
                 customStreamProxyUrl = prefs.getString(C.PLAYER_PROXY_URL, null),
+                livePlaybackSettings = livePlaybackSettings,
             )
         }
     }
@@ -151,6 +160,14 @@ class StreamPlaybackConfigurationStore private constructor(
             C.PROXY_USER,
             C.PROXY_PASSWORD,
             C.PLAYER_LOW_LATENCY,
+            C.PLAYER_LIVE_MODE,
+            C.PLAYER_BUFFER_MIN,
+            C.PLAYER_BUFFER_MAX,
+            C.PLAYER_BUFFER_PLAYBACK,
+            C.PLAYER_BUFFER_REBUFFER,
+            C.PLAYER_LIVE_MIN_SPEED,
+            C.PLAYER_LIVE_MAX_SPEED,
+            C.PLAYER_LIVE_TARGET_OFFSET,
             C.TOKEN_INCLUDE_TOKEN_STREAM,
             C.TOKEN_RANDOM_DEVICE_ID,
             C.TOKEN_X_DEVICE_ID,

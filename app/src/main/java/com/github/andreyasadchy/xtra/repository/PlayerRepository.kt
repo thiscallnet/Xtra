@@ -55,6 +55,7 @@ import com.github.andreyasadchy.xtra.model.misc.STVChannelResponse
 import com.github.andreyasadchy.xtra.model.misc.STVEmoteSetResponse
 import com.github.andreyasadchy.xtra.model.ui.TranslatedChannel
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.LivePlaybackSettings
 import com.github.andreyasadchy.xtra.util.NetworkInterferenceReporter
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -328,7 +329,7 @@ class PlayerRepository(
         }
     }
 
-    suspend fun loadStreamPlaylistUrl(context: Context, networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?, lowLatency: Boolean = context.prefs().getBoolean(C.PLAYER_LOW_LATENCY, C.DEFAULT_PLAYER_LOW_LATENCY)): String = withContext(Dispatchers.IO) {
+    suspend fun loadStreamPlaylistUrl(context: Context, networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?, lowLatency: Boolean = LivePlaybackSettings.fromPreferences(context.prefs()).lowLatencyEnabled): String = withContext(Dispatchers.IO) {
         val logger = diagnosticsLogger
         val diagnosticsToken = if (logger?.isEnabled == true) {
             logger.beginRequest(
