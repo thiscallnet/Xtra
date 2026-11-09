@@ -5,15 +5,8 @@
     <ListPreference android:defaultValue="mobile_data" android:entries="@array/playerMeteredWifiQualityEntries" android:entryValues="@array/playerMeteredWifiQualityValues" android:key="player_default_metered_wifi_quality" android:summary="%s" android:title="@string/settings_metered_wifi_quality" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_live_playback_category" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="minimum_delay" android:entries="@array/playerLiveModeEntries" android:entryValues="@array/playerLiveModeValues" android:key="player_live_mode" android:title="@string/settings_live_mode" app:iconSpaceReserved="false" />
+    <ListPreference android:defaultValue="continuity" android:entries="@array/vaftPlaybackPriorityEntries" android:entryValues="@array/vaftPlaybackPriorityValues" android:key="player_vaft_playback_priority" android:title="@string/settings_live_playback_priority" app:iconSpaceReserved="false" />
 
-    <PreferenceCategory android:summary="@string/settings_live_tuning_summary" android:title="@string/settings_live_tuning" app:iconSpaceReserved="false" />
-    <EditTextPreference android:dialogMessage="@string/live_target_offset_summary" android:inputType="number" android:key="player_live_target_offset" android:singleLine="true" android:title="@string/live_target_offset" app:iconSpaceReserved="false" />
-    <EditTextPreference android:dialogMessage="@string/min_buffer_summary" android:inputType="number" android:key="player_buffer_min" android:singleLine="true" android:title="@string/min_buffer" app:iconSpaceReserved="false" />
-    <EditTextPreference android:dialogMessage="@string/max_buffer_summary" android:inputType="number" android:key="player_buffer_max" android:singleLine="true" android:title="@string/max_buffer" app:iconSpaceReserved="false" />
-    <EditTextPreference android:dialogMessage="@string/buffer_for_playback_summary" android:inputType="number" android:key="player_buffer_playback" android:singleLine="true" android:title="@string/buffer_for_playback" app:iconSpaceReserved="false" />
-    <EditTextPreference android:dialogMessage="@string/rebuffer_summary" android:inputType="number" android:key="player_buffer_rebuffer" android:singleLine="true" android:title="@string/rebuffer" app:iconSpaceReserved="false" />
-    <EditTextPreference android:defaultValue="1.00" android:dialogMessage="@string/live_min_speed_summary" android:inputType="numberDecimal" android:key="player_live_min_speed" android:singleLine="true" android:title="@string/live_min_speed" app:iconSpaceReserved="false" />
-    <EditTextPreference android:defaultValue="1.20" android:dialogMessage="@string/live_max_speed_summary" android:inputType="numberDecimal" android:key="player_live_max_speed" android:singleLine="true" android:title="@string/live_max_speed" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_live_rewind" android:summary="@string/settings_live_rewind_summary" android:title="@string/settings_live_rewind" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="left" android:entries="@array/liveRewindTimePositionEntries" android:entryValues="@array/liveRewindTimePositionValues" android:key="player_live_rewind_time_side" android:summary="%s" android:title="@string/settings_live_rewind_time_position" app:iconSpaceReserved="false" />
 
@@ -33,7 +26,6 @@
 
     <PreferenceCategory android:title="@string/settings_playback_behavior" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="player_avoid_ads" android:summary="@string/settings_alternate_streams_summary" android:title="@string/settings_alternate_streams" app:iconSpaceReserved="false" />
-    <ListPreference android:defaultValue="continuity" android:dependency="player_avoid_ads" android:entries="@array/vaftPlaybackPriorityEntries" android:entryValues="@array/vaftPlaybackPriorityValues" android:key="player_vaft_playback_priority" android:title="@string/settings_vaft_playback_priority" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:dependency="player_avoid_ads" android:key="player_hide_ads" android:summary="@string/settings_hide_switching_summary" android:title="@string/settings_hide_switching" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="false" android:dependency="player_avoid_ads" android:key="player_vaft_ad_preview" android:summary="@string/settings_vaft_ad_preview_summary" android:title="@string/settings_vaft_ad_preview" app:iconSpaceReserved="false" />
 
@@ -42,4 +34,11 @@
     <Preference android:key="delete_video_positions" android:title="@string/settings_clear_positions" app:iconSpaceReserved="false" />
     <PreferenceCategory android:title="@string/settings_system_media_controls" app:iconSpaceReserved="false" />
     <Preference android:key="system_media_controls_page" android:title="@string/settings_system_media_controls" android:summary="@string/settings_system_media_controls_summary" app:iconSpaceReserved="false" />
+
+    <PreferenceCategory android:summary="@string/settings_live_tuning_summary" android:title="@string/settings_live_tuning" app:iconSpaceReserved="false" />
+    <EditTextPreference android:dialogMessage="@string/live_target_offset_summary" android:inputType="number" android:key="player_live_target_offset" android:singleLine="true" android:title="@string/live_target_offset" app:iconSpaceReserved="false" />
+    <EditTextPreference android:dialogMessage="@string/min_buffer_summary" android:inputType="number" android:key="player_buffer_min" android:singleLine="true" android:title="@string/min_buffer" app:iconSpaceReserved="false" />
+    <EditTextPreference android:dialogMessage="@string/max_buffer_summary" android:inputType="number" android:key="player_buffer_max" android:singleLine="true" android:title="@string/max_buffer" app:iconSpaceReserved="false" />
+    <EditTextPreference android:dialogMessage="@string/buffer_for_playback_summary" android:inputType="number" android:key="player_buffer_playback" android:singleLine="true" android:title="@string/buffer_for_playback" app:iconSpaceReserved="false" />
+    <EditTextPreference android:dialogMessage="@string/rebuffer_summary" android:inputType="number" android:key="player_buffer_rebuffer" android:singleLine="true" android:title="@string/rebuffer" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>

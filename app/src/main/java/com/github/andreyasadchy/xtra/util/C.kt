@@ -240,7 +240,9 @@ object C {
     const val DEFAULT_PLAYER_LOW_LATENCY = true
     const val PLAYER_LIVE_MODE = "player_live_mode"
     const val PLAYER_LIVE_MODE_MINIMUM_DELAY = "minimum_delay"
+    // Kept so existing Adaptive selections migrate to Custom without losing preference state.
     const val PLAYER_LIVE_MODE_ADAPTIVE = "adaptive"
+    const val PLAYER_LIVE_MODE_CUSTOM = "custom"
     const val PLAYER_LIVE_MODE_NORMAL = "normal"
     const val DEFAULT_PLAYER_LIVE_MODE = PLAYER_LIVE_MODE_MINIMUM_DELAY
     const val PLAYER_BUFFER_MIN = "player_buffer_min"
@@ -250,8 +252,6 @@ object C {
     const val PLAYER_LIVE_MIN_SPEED = "player_live_min_speed"
     const val PLAYER_LIVE_MAX_SPEED = "player_live_max_speed"
     const val PLAYER_LIVE_TARGET_OFFSET = "player_live_target_offset"
-    const val DEFAULT_PLAYER_LIVE_MIN_SPEED = 1.0f
-    const val DEFAULT_PLAYER_LIVE_MAX_SPEED = 1.20f
     const val LOW_LATENCY_TARGET_OFFSET_MS = 2_000L
     const val NORMAL_LATENCY_TARGET_OFFSET_MS = 10_000L
     const val PLAYER_QUALITY = "player_quality"

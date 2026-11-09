@@ -32,12 +32,13 @@ data class LivePlaybackPolicy(
 data class LivePlaybackPolicySet(
     val normal: LivePlaybackPolicy,
     val minimumDelay: LivePlaybackPolicy,
+    val custom: LivePlaybackPolicy,
     val buffered: LivePlaybackPolicy,
     val recovering: LivePlaybackPolicy,
 ) {
     fun forMode(mode: LivePlaybackMode): LivePlaybackPolicy = when (mode) {
         LivePlaybackMode.MINIMUM_DELAY -> minimumDelay
-        LivePlaybackMode.ADAPTIVE -> minimumDelay
+        LivePlaybackMode.CUSTOM -> custom
         LivePlaybackMode.NORMAL -> normal
     }
 
@@ -101,35 +102,17 @@ object LivePlaybackPolicies {
     fun forLowLatency(enabled: Boolean): LivePlaybackPolicy = if (enabled) LOW_LATENCY else NORMAL
 
     fun forSettings(settings: LivePlaybackSettings): LivePlaybackPolicySet {
-        val minimumDelayBuffers = LOW_LATENCY.buffers.withOverrides(settings.buffers)
-        val bufferedBuffers = BUFFERED.buffers.scaledOverridesFrom(
-            base = LOW_LATENCY.buffers,
-            customizedBase = minimumDelayBuffers,
-            overrides = settings.buffers,
-        )
-        val recoveringBuffers = RECOVERING.buffers.scaledOverridesFrom(
-            base = LOW_LATENCY.buffers,
-            customizedBase = minimumDelayBuffers,
-            overrides = settings.buffers,
-        )
-        val minimumDelayOffsetMs = settings.targetOffsetMs ?: LOW_LATENCY.targetOffsetMs
+        val customBuffers = NORMAL.buffers.withOverrides(settings.buffers)
         return LivePlaybackPolicySet(
-            normal = NORMAL.copy(
-                buffers = NORMAL.buffers.withOverrides(settings.buffers),
+            normal = NORMAL,
+            minimumDelay = LOW_LATENCY,
+            custom = LivePlaybackPolicy(
+                lowLatency = true,
+                buffers = customBuffers,
                 targetOffsetMs = settings.targetOffsetMs ?: NORMAL.targetOffsetMs,
             ),
-            minimumDelay = LOW_LATENCY.copy(
-                buffers = minimumDelayBuffers,
-                targetOffsetMs = minimumDelayOffsetMs,
-            ),
-            buffered = BUFFERED.copy(
-                buffers = bufferedBuffers,
-                targetOffsetMs = maxOf(BUFFERED.targetOffsetMs, minimumDelayOffsetMs + 4_000L),
-            ),
-            recovering = RECOVERING.copy(
-                buffers = recoveringBuffers,
-                targetOffsetMs = maxOf(RECOVERING.targetOffsetMs, minimumDelayOffsetMs + 8_000L),
-            ),
+            buffered = BUFFERED,
+            recovering = RECOVERING,
         )
     }
 
@@ -158,53 +141,5 @@ object LivePlaybackPolicies {
         )
     }
 
-    private fun PlaybackBufferPolicy.scaledOverridesFrom(
-        base: PlaybackBufferPolicy,
-        customizedBase: PlaybackBufferPolicy,
-        overrides: PlaybackBufferOverrides,
-    ): PlaybackBufferPolicy {
-        val requestedMin = (
-            if (overrides.minBufferMs == null) minBufferMs else {
-                (customizedBase.minBufferMs * minBufferMs.toFloat() / base.minBufferMs)
-                    .toInt()
-                    .coerceAtLeast(250)
-            }
-        ).coerceAtMost(60_000)
-        val requestedMax = (
-            if (overrides.maxBufferMs == null) maxBufferMs else {
-                (customizedBase.maxBufferMs * maxBufferMs.toFloat() / base.maxBufferMs)
-                    .toInt()
-                    .coerceAtLeast(500)
-            }
-        ).coerceAtMost(120_000)
-        val min = when {
-            requestedMin < requestedMax -> requestedMin
-            overrides.minBufferMs != null -> requestedMin
-            else -> (requestedMax / 2).coerceAtLeast(250)
-        }
-        val max = when {
-            requestedMin < requestedMax -> requestedMax
-            overrides.minBufferMs != null -> (min * 2).coerceAtMost(120_000)
-            else -> requestedMax
-        }
-        return copy(
-            minBufferMs = min,
-            maxBufferMs = max,
-            bufferForPlaybackMs = (
-                if (overrides.bufferForPlaybackMs == null) bufferForPlaybackMs else {
-                    (customizedBase.bufferForPlaybackMs * bufferForPlaybackMs.toFloat() / base.bufferForPlaybackMs)
-                        .toInt()
-                        .coerceAtLeast(100)
-                }
-            ).coerceAtMost(min),
-            bufferForPlaybackAfterRebufferMs = (
-                if (overrides.bufferForPlaybackAfterRebufferMs == null) bufferForPlaybackAfterRebufferMs else {
-                    (customizedBase.bufferForPlaybackAfterRebufferMs * bufferForPlaybackAfterRebufferMs.toFloat() / base.bufferForPlaybackAfterRebufferMs)
-                        .toInt()
-                        .coerceAtLeast(100)
-                }
-            ).coerceAtMost(min),
-        )
-    }
 }
 

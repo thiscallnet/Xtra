@@ -91,8 +91,7 @@ import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
-import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackSpeedControl
-import com.github.andreyasadchy.xtra.util.LivePlaybackMode
+import com.github.andreyasadchy.xtra.util.FixedSpeedLivePlaybackControl
 import com.github.andreyasadchy.xtra.util.LivePlaybackSettings
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
@@ -143,8 +142,9 @@ class PlaybackService : MediaSessionService() {
     private var pendingSystemAudioModeDiagnostic: Boolean? = null
     private var lastSystemAudioModeAvailability: String? = null
     private var lastSystemBehindSeconds: Long? = null
+    private var lastLivePriorityCatchUpRealtimeMs = Long.MIN_VALUE
     private var adaptiveLiveController: AdaptiveLivePlaybackController? = null
-    private var adaptiveLiveSpeedControl: AdaptiveLivePlaybackSpeedControl? = null
+    private var livePlaybackSpeedControl: FixedSpeedLivePlaybackControl? = null
     private var adaptiveLiveSampleJob: Job? = null
     private val liveClipBufferManager = LiveClipBufferManager()
     private var liveClipDataSourceFactory: DataSource.Factory? = null
@@ -412,21 +412,16 @@ class PlaybackService : MediaSessionService() {
         val initialLiveSettings = LivePlaybackSettings.fromPreferences(prefs())
         val initialLivePolicies = initialLiveSettings.policies()
         val initialLivePolicy = initialLivePolicies.forMode(initialLiveSettings.mode)
-        adaptiveLiveSpeedControl = AdaptiveLivePlaybackSpeedControl(
-            DefaultLivePlaybackSpeedControl.Builder()
-                .setFallbackMinPlaybackSpeed(initialLiveSettings.minPlaybackSpeed)
-                .setFallbackMaxPlaybackSpeed(initialLiveSettings.maxPlaybackSpeed)
-                .build(),
+        livePlaybackSpeedControl = FixedSpeedLivePlaybackControl(
+            DefaultLivePlaybackSpeedControl.Builder().build(),
         )
-        adaptiveLiveSpeedControl?.setRebufferTargetAdaptationEnabled(
-            initialLiveSettings.mode != LivePlaybackMode.MINIMUM_DELAY,
-        )
+        livePlaybackSpeedControl?.setRebufferTargetAdaptationEnabled(false)
         val player = xtraModule.streamMedia3Runtime.buildPlaybackPlayer(this) {
             controller, loadControl ->
             adaptiveLiveController = controller
             loadControl.setOnPolicyChangedListener(::applyAdaptiveLivePolicy)
             controller.reset(initialLivePolicy, enabled = false, policies = initialLivePolicies)
-            setLivePlaybackSpeedControl(adaptiveLiveSpeedControl!!)
+            setLivePlaybackSpeedControl(livePlaybackSpeedControl!!)
             setAudioAttributes(AudioAttributes.DEFAULT, prefs().getBoolean(C.PLAYER_AUDIO_FOCUS, false))
             setHandleAudioBecomingNoisy(true)
             setSeekBackIncrementMs((prefs().getString(C.PLAYER_REWIND, "10")?.toLongOrNull() ?: 10) * 1000)
@@ -589,13 +584,10 @@ class PlaybackService : MediaSessionService() {
                     val liveSettings = LivePlaybackSettings.fromPreferences(prefs())
                     val livePolicies = liveSettings.policies()
                     val livePolicy = livePolicies.forMode(liveSettings.mode)
-                    adaptiveLiveSpeedControl?.setRebufferTargetAdaptationEnabled(
-                        liveSettings.mode != LivePlaybackMode.MINIMUM_DELAY,
-                    )
+                    livePlaybackSpeedControl?.setRebufferTargetAdaptationEnabled(false)
                     adaptiveLiveController?.reset(
                         initialPolicy = livePolicy,
-                        enabled = viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
-                            liveSettings.adaptiveEnabled,
+                        enabled = false,
                         policies = livePolicies,
                     )
                     applyAdaptiveLivePolicy()
@@ -2494,7 +2486,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun applyAdaptiveLivePolicy() {
         val targetOffsetMs = adaptiveLiveController?.currentPolicy()?.targetOffsetMs ?: return
-        adaptiveLiveSpeedControl?.setAdaptiveTargetLiveOffsetUs(targetOffsetMs * 1_000L)
+        livePlaybackSpeedControl?.setAdaptiveTargetLiveOffsetUs(targetOffsetMs * 1_000L)
     }
 
     private fun shouldRunLiveSampleTicker(player: Player): Boolean =
@@ -2531,6 +2523,7 @@ class PlaybackService : MediaSessionService() {
                         lastSystemBehindSeconds = behindSeconds
                         refreshSystemMediaMetadata()
                     }
+                    maybeCatchUpLivePlayback(player)
                     if (isLivePlaybackWindow(player) && player.isPlaying) {
                         adaptiveLiveController?.onStableSample(
                             bufferedMs = player.totalBufferedDuration,
@@ -2936,6 +2929,51 @@ class PlaybackService : MediaSessionService() {
         val duration = player.duration.takeIf { it != Media3C.TIME_UNSET && it > 0 } ?: return null
         // Keep the glanceable label stable while the growing recording advances.
         return ((duration - player.currentPosition).coerceAtLeast(0L) / 10_000L) * 10L
+    }
+
+    private fun maybeCatchUpLivePlayback(player: Player) {
+        if (!player.isPlaying || !isLocalLive() || liveRewindActive || liveRewindTransitioning ||
+            prefs().getString(C.PLAYER_VAFT_PLAYBACK_PRIORITY, C.VAFT_PRIORITY_CONTINUITY) != C.VAFT_PRIORITY_LIVE
+        ) return
+
+        val liveOffsetMs = player.currentLiveOffset
+        val targetOffsetMs = adaptiveLiveController?.currentPolicy()?.targetOffsetMs
+            ?: LivePlaybackSettings.fromPreferences(prefs()).let { it.policies().forMode(it.mode).targetOffsetMs }
+        val canSeekToLive = player.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
+        if (liveOffsetMs == Media3C.TIME_UNSET || liveOffsetMs < 0L || !canSeekToLive) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "PlaybackLiveCatchUp",
+                    "event=sample liveOffsetMs=$liveOffsetMs targetOffsetMs=$targetOffsetMs " +
+                        "delayBeyondTargetMs=unavailable canSeekToLive=$canSeekToLive",
+                )
+            }
+            return
+        }
+        val delayBeyondTargetMs = (liveOffsetMs - targetOffsetMs).coerceAtLeast(0L)
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLiveCatchUp",
+                "event=sample liveOffsetMs=$liveOffsetMs targetOffsetMs=$targetOffsetMs " +
+                    "delayBeyondTargetMs=$delayBeyondTargetMs canSeekToLive=$canSeekToLive",
+            )
+        }
+        if (delayBeyondTargetMs <= LIVE_PRIORITY_CATCH_UP_THRESHOLD_MS) return
+
+        val now = SystemClock.elapsedRealtime()
+        if (lastLivePriorityCatchUpRealtimeMs != Long.MIN_VALUE &&
+            now - lastLivePriorityCatchUpRealtimeMs < LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS
+        ) return
+        lastLivePriorityCatchUpRealtimeMs = now
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "PlaybackLiveCatchUp",
+                "event=skip_ahead liveOffsetMs=$liveOffsetMs " +
+                    "delayBeyondTargetMs=$delayBeyondTargetMs targetOffsetMs=$targetOffsetMs " +
+                    "positionMs=${player.currentPosition}",
+            )
+        }
+        player.seekToDefaultPosition()
     }
 
     private fun setSystemAudioOnly(audioOnly: Boolean): ListenableFuture<SessionResult> {
@@ -5544,17 +5582,15 @@ class PlaybackService : MediaSessionService() {
         val liveSettings = LivePlaybackSettings.fromPreferences(prefs())
         val livePolicies = liveSettings.policies()
         val initialLivePolicy = livePolicies.forMode(liveSettings.mode)
-        adaptiveLiveSpeedControl?.setRebufferTargetAdaptationEnabled(
-            liveSettings.mode != LivePlaybackMode.MINIMUM_DELAY,
-        )
-        adaptiveLiveController?.reset(initialLivePolicy, liveSettings.adaptiveEnabled, livePolicies)
+        livePlaybackSpeedControl?.setRebufferTargetAdaptationEnabled(false)
+        lastLivePriorityCatchUpRealtimeMs = Long.MIN_VALUE
+        adaptiveLiveController?.reset(initialLivePolicy, enabled = false, policies = livePolicies)
         if (BuildConfig.DEBUG) {
             Log.d(
                 "PlaybackLiveMode",
-                "mode=${liveSettings.mode.preferenceValue} adaptive=${liveSettings.adaptiveEnabled} " +
+                "mode=${liveSettings.mode.preferenceValue} " +
                     "targetMs=${initialLivePolicy.targetOffsetMs} bufferMs=${initialLivePolicy.buffers.minBufferMs}-" +
-                    "${initialLivePolicy.buffers.maxBufferMs} speed=${liveSettings.minPlaybackSpeed}-" +
-                    "${liveSettings.maxPlaybackSpeed}",
+                    "${initialLivePolicy.buffers.maxBufferMs} playbackSpeed=1.0",
             )
         }
         applyAdaptiveLivePolicy()
@@ -6769,12 +6805,14 @@ class PlaybackService : MediaSessionService() {
         playbackPlayer = null
         playbackSessionPlayer = null
         adaptiveLiveController = null
-        adaptiveLiveSpeedControl = null
+        livePlaybackSpeedControl = null
         super.onDestroy()
     }
 
     companion object {
         private const val PERF_TAG = "PlaybackPerf"
+        private const val LIVE_PRIORITY_CATCH_UP_THRESHOLD_MS = 6_000L
+        private const val LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS = 15_000L
         private const val RESUMPTION_TAG = "PlaybackResumption"
         private const val VAFT_PRIMARY_RETURN_MIN_HOLD_MS = 30_000L
         const val VAFT_SOURCE_MEDIA_ID_PREFIX = "vaft-source:"

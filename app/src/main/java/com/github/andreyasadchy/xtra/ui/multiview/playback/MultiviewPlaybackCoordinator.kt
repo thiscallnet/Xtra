@@ -41,8 +41,7 @@ import com.github.andreyasadchy.xtra.ui.player.TwitchVaftController
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
-import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackSpeedControl
-import com.github.andreyasadchy.xtra.util.LivePlaybackMode
+import com.github.andreyasadchy.xtra.util.FixedSpeedLivePlaybackControl
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.LivePlaybackSettings
 import com.github.andreyasadchy.xtra.util.NetworkUtils.proxyCandidates
@@ -298,17 +297,14 @@ class MultiviewPlaybackCoordinator(
         val initialLivePolicy = livePolicies.forMode(liveSettings.mode)
         val liveController = AdaptiveLivePlaybackController(
             initialPolicy = initialLivePolicy,
-            adaptiveEnabled = liveSettings.adaptiveEnabled,
+            adaptiveEnabled = false,
             policySet = livePolicies,
         )
-        val liveSpeedControl = AdaptiveLivePlaybackSpeedControl(
-            DefaultLivePlaybackSpeedControl.Builder()
-                .setFallbackMinPlaybackSpeed(liveSettings.minPlaybackSpeed)
-                .setFallbackMaxPlaybackSpeed(liveSettings.maxPlaybackSpeed)
-                .build(),
+        val liveSpeedControl = FixedSpeedLivePlaybackControl(
+            DefaultLivePlaybackSpeedControl.Builder().build(),
         ).apply {
             setAdaptiveTargetLiveOffsetUs(initialLivePolicy.targetOffsetMs * 1_000L)
-            setRebufferTargetAdaptationEnabled(liveSettings.mode != LivePlaybackMode.MINIMUM_DELAY)
+            setRebufferTargetAdaptationEnabled(false)
         }
         val applyLivePolicy = {
             liveSpeedControl.setAdaptiveTargetLiveOffsetUs(liveController.currentPolicy().targetOffsetMs * 1_000L)
@@ -339,17 +335,24 @@ class MultiviewPlaybackCoordinator(
             liveSpeedControl,
             applyLivePolicy,
         ).also { slot ->
-            if (liveSettings.adaptiveEnabled) {
-                slot.adaptiveLiveSampleJob = scope.launch {
-                    while (isActive) {
-                        delay(5_000L)
-                        if (player.isCurrentMediaItemDynamic &&
-                            player.currentLiveOffset != androidx.media3.common.C.TIME_UNSET &&
-                            player.isPlaying &&
-                            liveController.onStableSample(player.totalBufferedDuration, SystemClock.elapsedRealtime())
-                        ) {
-                            applyLivePolicy()
-                        }
+            slot.livePriorityCatchUpJob = scope.launch {
+                while (isActive) {
+                    delay(5_000L)
+                    val liveOffsetMs = player.currentLiveOffset
+                    val now = SystemClock.elapsedRealtime()
+                    if (player.isPlaying && player.isCurrentMediaItemDynamic && liveOffsetMs >= 0L &&
+                        liveOffsetMs != androidx.media3.common.C.TIME_UNSET &&
+                        applicationContext.prefs().getString(
+                            C.PLAYER_VAFT_PLAYBACK_PRIORITY,
+                            C.VAFT_PRIORITY_CONTINUITY,
+                        ) == C.VAFT_PRIORITY_LIVE &&
+                        liveOffsetMs - liveController.currentPolicy().targetOffsetMs > LIVE_PRIORITY_CATCH_UP_THRESHOLD_MS &&
+                        (slot.lastLivePriorityCatchUpRealtimeMs == Long.MIN_VALUE ||
+                            now - slot.lastLivePriorityCatchUpRealtimeMs >= LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS) &&
+                        player.isCommandAvailable(Player.COMMAND_SEEK_TO_DEFAULT_POSITION)
+                    ) {
+                        slot.lastLivePriorityCatchUpRealtimeMs = now
+                        player.seekToDefaultPosition()
                     }
                 }
             }
@@ -483,12 +486,10 @@ class MultiviewPlaybackCoordinator(
         val initialPolicy = slot.liveSettings.policies().forMode(slot.liveSettings.mode)
         slot.liveController.reset(
             initialPolicy = initialPolicy,
-            enabled = slot.liveSettings.adaptiveEnabled,
+            enabled = false,
             policies = slot.liveSettings.policies(),
         )
-        slot.liveSpeedControl.setRebufferTargetAdaptationEnabled(
-            slot.liveSettings.mode != LivePlaybackMode.MINIMUM_DELAY,
-        )
+        slot.liveSpeedControl.setRebufferTargetAdaptationEnabled(false)
         slot.applyLivePolicy()
         slot.loadJob = scope.launch {
             publish(slot, MultiviewSlotStatus.LOADING)
@@ -1209,14 +1210,15 @@ class MultiviewPlaybackCoordinator(
         val player: ExoPlayer,
         val liveSettings: LivePlaybackSettings,
         val liveController: AdaptiveLivePlaybackController,
-        val liveSpeedControl: AdaptiveLivePlaybackSpeedControl,
+        val liveSpeedControl: FixedSpeedLivePlaybackControl,
         val applyLivePolicy: () -> Unit,
     ) {
         var attachedView: PlayerView? = null
         var loadJob: Job? = null
         var retryJob: Job? = null
         var stableRecoveryJob: Job? = null
-        var adaptiveLiveSampleJob: Job? = null
+        var livePriorityCatchUpJob: Job? = null
+        var lastLivePriorityCatchUpRealtimeMs: Long = Long.MIN_VALUE
         var vaftAvoidanceJob: Job? = null
         var primaryRestoreJob: Job? = null
         val vaftController = TwitchVaftController()
@@ -1284,7 +1286,7 @@ class MultiviewPlaybackCoordinator(
             loadJob?.cancel()
             retryJob?.cancel()
             stableRecoveryJob?.cancel()
-            adaptiveLiveSampleJob?.cancel()
+            livePriorityCatchUpJob?.cancel()
             vaftAvoidanceJob?.cancel()
             primaryRestoreJob?.cancel()
             attachedView?.let { view ->
@@ -1300,6 +1302,8 @@ class MultiviewPlaybackCoordinator(
 
     companion object {
         private const val TAG = "MultiviewPlayback"
+        private const val LIVE_PRIORITY_CATCH_UP_THRESHOLD_MS = 6_000L
+        private const val LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS = 15_000L
         private const val MAX_RETRIES = 6
         private const val NETWORK_RETRY_DELAY_MS = 15_000L
         private const val PRIMARY_RESTORE_INTERVAL_MS = 10_000L
