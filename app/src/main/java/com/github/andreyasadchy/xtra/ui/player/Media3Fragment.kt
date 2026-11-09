@@ -416,8 +416,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         } else getString(R.string.vaft_ad_duration_unknown)
         val priority = getString(if (requireContext().prefs().getString(C.PLAYER_VAFT_PLAYBACK_PRIORITY,
                 C.VAFT_PRIORITY_CONTINUITY) == C.VAFT_PRIORITY_LIVE) {
-            R.string.settings_vaft_priority_live
-        } else R.string.settings_vaft_priority_continuity)
+            R.string.settings_live_priority_live
+        } else R.string.settings_live_priority_continuity)
         val playback = if (status.containsKey(PlaybackService.VAFT_LIVE_DELAY_MS)) {
             getString(R.string.vaft_playback_delay, priority, status.getLong(PlaybackService.VAFT_LIVE_DELAY_MS) / 1_000L)
         } else priority

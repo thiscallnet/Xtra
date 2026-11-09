@@ -250,7 +250,7 @@ class AdaptiveLiveLoadControl(
 
 /** Keeps Media3's seek override separate from Xtra's adaptive target. */
 @OptIn(UnstableApi::class)
-class AdaptiveLivePlaybackSpeedControl(
+class FixedSpeedLivePlaybackControl(
     private val delegate: DefaultLivePlaybackSpeedControl,
 ) : LivePlaybackSpeedControl {
     private val adaptiveTargetOffsetUs = AtomicLong(C.TIME_UNSET)
@@ -293,7 +293,6 @@ class AdaptiveLivePlaybackSpeedControl(
 
     override fun getAdjustedPlaybackSpeed(liveOffsetUs: Long, bufferedDurationUs: Long): Float {
         applyAdaptiveTargetIfAllowed()
-        val speed = delegate.getAdjustedPlaybackSpeed(liveOffsetUs, bufferedDurationUs)
         if (BuildConfig.DEBUG) {
             val now = SystemClock.elapsedRealtime()
             val previous = lastSpeedDiagnosticRealtimeMs.get()
@@ -302,13 +301,13 @@ class AdaptiveLivePlaybackSpeedControl(
             ) {
                 Log.d(
                     TAG,
-                    "speed=$speed liveOffsetMs=${liveOffsetUs / 1_000L} " +
+                    "speed=1.0 liveOffsetMs=${liveOffsetUs / 1_000L} " +
                         "bufferedMs=${bufferedDurationUs / 1_000L} " +
                         "targetMs=${delegate.getTargetLiveOffsetUs() / 1_000L}",
                 )
             }
         }
-        return speed
+        return 1f
     }
 
     override fun getTargetLiveOffsetUs(): Long {

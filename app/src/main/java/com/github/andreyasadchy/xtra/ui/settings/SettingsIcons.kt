@@ -203,8 +203,6 @@ object SettingsIcons {
         "player_buffer_max" to R.drawable.ic_pref_expand,
         "player_buffer_playback" to R.drawable.ic_pref_play,
         "player_buffer_rebuffer" to R.drawable.ic_pref_restart,
-        "player_live_min_speed" to R.drawable.ic_pref_speed,
-        "player_live_max_speed" to R.drawable.ic_pref_speed,
         "player_live_rewind_time_side" to R.drawable.ic_pref_swap,
         "player_pip_chat" to R.drawable.ic_settings_chat,
         "player_vaft_playback_priority" to R.drawable.ic_pref_tune,

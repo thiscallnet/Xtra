@@ -47,8 +47,6 @@ data class StreamPlaybackConfiguration(
             append(livePlaybackSettings.mode.preferenceValue).append('\u0000')
             append(livePlaybackSettings.targetOffsetMs).append('\u0000')
             append(livePlaybackSettings.buffers).append('\u0000')
-            append(livePlaybackSettings.minPlaybackSpeed).append('\u0000')
-            append(livePlaybackSettings.maxPlaybackSpeed).append('\u0000')
             append(proxyMultivariantPlaylist).append('\u0000')
             streamHeaders.toSortedMap().forEach { (key, value) -> append(key).append('=').append(value).append('\u0000') }
             append(customStreamProxyEnabled).append('\u0000').append(customStreamProxyUrl)

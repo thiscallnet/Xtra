@@ -59,14 +59,6 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
         }
         setPreferencesFromResource(R.xml.playback_preferences, rootKey)
         configureLivePlaybackPreferences()
-        findPreference<ListPreference>(C.PLAYER_VAFT_PLAYBACK_PRIORITY)?.summaryProvider =
-            Preference.SummaryProvider<ListPreference> { preference ->
-                getString(if (preference.value == C.VAFT_PRIORITY_LIVE) {
-                    R.string.settings_vaft_priority_live_summary
-                } else {
-                    R.string.settings_vaft_priority_continuity_summary
-                })
-            }
         findPreference<Preference>("live_caption_page")?.setOnPreferenceClickListener {
             findNavController().navigate(R.id.liveCaptionsFragment)
             true
@@ -105,11 +97,16 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
     }
 
     private fun configureLivePlaybackPreferences() {
-        findPreference<ListPreference>(C.PLAYER_LIVE_MODE)?.summaryProvider =
+        val liveModePreference = findPreference<ListPreference>(C.PLAYER_LIVE_MODE)
+        if (liveModePreference?.value == C.PLAYER_LIVE_MODE_ADAPTIVE) {
+            // Keep existing Adaptive users' selection and custom values under the renamed mode.
+            liveModePreference.value = C.PLAYER_LIVE_MODE_CUSTOM
+        }
+        liveModePreference?.summaryProvider =
             Preference.SummaryProvider<ListPreference> { preference ->
                 val modeDescription = getString(
                     when (preference.value) {
-                        C.PLAYER_LIVE_MODE_ADAPTIVE -> R.string.settings_live_mode_adaptive_summary
+                        C.PLAYER_LIVE_MODE_CUSTOM -> R.string.settings_live_mode_custom_summary
                         C.PLAYER_LIVE_MODE_NORMAL -> R.string.settings_live_mode_normal_summary
                         else -> R.string.settings_live_mode_minimum_summary
                     },
@@ -121,14 +118,21 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
                 )
             }
 
+        findPreference<ListPreference>(C.PLAYER_VAFT_PLAYBACK_PRIORITY)?.summaryProvider =
+            Preference.SummaryProvider<ListPreference> { preference ->
+                getString(if (preference.value == C.VAFT_PRIORITY_LIVE) {
+                    R.string.settings_live_priority_live_summary
+                } else {
+                    R.string.settings_live_priority_continuity_summary
+                })
+            }
+
         val numericPreferences = listOf(
             C.PLAYER_LIVE_TARGET_OFFSET to (InputType.TYPE_CLASS_NUMBER to 500..30_000),
             C.PLAYER_BUFFER_MIN to (InputType.TYPE_CLASS_NUMBER to 250..60_000),
             C.PLAYER_BUFFER_MAX to (InputType.TYPE_CLASS_NUMBER to 500..120_000),
             C.PLAYER_BUFFER_PLAYBACK to (InputType.TYPE_CLASS_NUMBER to 100..60_000),
             C.PLAYER_BUFFER_REBUFFER to (InputType.TYPE_CLASS_NUMBER to 100..60_000),
-            C.PLAYER_LIVE_MIN_SPEED to ((InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL) to 0..100),
-            C.PLAYER_LIVE_MAX_SPEED to ((InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL) to 0..150),
         )
         val descriptions = mapOf(
             C.PLAYER_LIVE_TARGET_OFFSET to R.string.settings_live_tuning_target_description,
@@ -136,18 +140,21 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
             C.PLAYER_BUFFER_MAX to R.string.settings_live_tuning_max_buffer_description,
             C.PLAYER_BUFFER_PLAYBACK to R.string.settings_live_tuning_start_buffer_description,
             C.PLAYER_BUFFER_REBUFFER to R.string.settings_live_tuning_rebuffer_description,
-            C.PLAYER_LIVE_MIN_SPEED to R.string.settings_live_tuning_min_speed_description,
-            C.PLAYER_LIVE_MAX_SPEED to R.string.settings_live_tuning_max_speed_description,
         )
+        val setCustomTuningEnabled: (Boolean) -> Unit = { enabled ->
+            numericPreferences.forEach { (key, _) ->
+                findPreference<EditTextPreference>(key)?.isEnabled = enabled
+            }
+        }
+        setCustomTuningEnabled(liveModePreference?.value == C.PLAYER_LIVE_MODE_CUSTOM)
+        liveModePreference?.setOnPreferenceChangeListener { _, newValue ->
+            setCustomTuningEnabled(newValue == C.PLAYER_LIVE_MODE_CUSTOM)
+            true
+        }
         numericPreferences.forEach { (key, inputAndRange) ->
             val preference = findPreference<EditTextPreference>(key) ?: return@forEach
             val (inputType, _) = inputAndRange
-            preference.setOnBindEditTextListener { editText ->
-                editText.inputType = inputType
-                if (key == C.PLAYER_LIVE_MIN_SPEED || key == C.PLAYER_LIVE_MAX_SPEED) {
-                    editText.hint = getString(R.string.live_speed_range)
-                }
-            }
+            preference.setOnBindEditTextListener { editText -> editText.inputType = inputType }
             preference.extras.putString(
                 MaterialEditTextPreference.VALIDATION_ERROR,
                 getString(R.string.settings_invalid_value),
@@ -156,8 +163,6 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
                 val value = current.text?.trim().orEmpty()
                 val setting = if (value.isEmpty()) {
                     getString(R.string.settings_live_tuning_mode_default)
-                } else if (key == C.PLAYER_LIVE_MIN_SPEED || key == C.PLAYER_LIVE_MAX_SPEED) {
-                    getString(R.string.settings_live_tuning_current, "$value×")
                 } else {
                     getString(R.string.settings_live_tuning_current, "$value ms")
                 }
@@ -165,48 +170,18 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
             }
             preference.setOnPreferenceChangeListener { _, newValue ->
                 val text = newValue.toString().trim()
-                val valid = when (key) {
-                    C.PLAYER_LIVE_MIN_SPEED, C.PLAYER_LIVE_MAX_SPEED -> {
-                        val isMinimum = key == C.PLAYER_LIVE_MIN_SPEED
-                        val defaultValue = if (isMinimum) {
-                            C.DEFAULT_PLAYER_LIVE_MIN_SPEED
-                        } else {
-                            C.DEFAULT_PLAYER_LIVE_MAX_SPEED
-                        }
-                        val parsed = text.replace(',', '.').toFloatOrNull()
-                        val effectiveValue = if (text.isEmpty()) defaultValue else parsed
-                        val inRange = text.isEmpty() || (
-                            effectiveValue != null && effectiveValue.isFinite() &&
-                                if (isMinimum) effectiveValue in 0.5f..1.0f else effectiveValue in 1.0f..1.5f
-                            )
-                        val otherKey = if (isMinimum) C.PLAYER_LIVE_MAX_SPEED else C.PLAYER_LIVE_MIN_SPEED
-                        val otherDefault = if (isMinimum) {
-                            C.DEFAULT_PLAYER_LIVE_MAX_SPEED
-                        } else {
-                            C.DEFAULT_PLAYER_LIVE_MIN_SPEED
-                        }
-                        val other = requireContext().prefs().getString(otherKey, null)
-                            ?.trim()
-                            ?.takeIf { it.isNotEmpty() }
-                            ?.replace(',', '.')
-                            ?.toFloatOrNull()
-                            ?: otherDefault
-                        inRange && effectiveValue != null &&
-                            if (isMinimum) effectiveValue < other else other < effectiveValue
+                val valid = if (text.isEmpty()) {
+                    true
+                } else {
+                    val parsed = text.toIntOrNull()
+                    val inRange = parsed != null && parsed in inputAndRange.second
+                    val otherBuffer = when (key) {
+                        C.PLAYER_BUFFER_MIN -> C.PLAYER_BUFFER_MAX
+                        C.PLAYER_BUFFER_MAX -> C.PLAYER_BUFFER_MIN
+                        else -> null
                     }
-                    else -> {
-                        if (text.isEmpty()) true else {
-                            val parsed = text.toIntOrNull()
-                            val inRange = parsed != null && parsed in inputAndRange.second
-                            val otherBuffer = when (key) {
-                                C.PLAYER_BUFFER_MIN -> C.PLAYER_BUFFER_MAX
-                                C.PLAYER_BUFFER_MAX -> C.PLAYER_BUFFER_MIN
-                                else -> null
-                            }
-                            val other = otherBuffer?.let { requireContext().prefs().getString(it, null)?.toIntOrNull() }
-                            inRange && (other == null || if (key == C.PLAYER_BUFFER_MIN) parsed < other else parsed > other)
-                        }
-                    }
+                    val other = otherBuffer?.let { requireContext().prefs().getString(it, null)?.toIntOrNull() }
+                    inRange && (other == null || if (key == C.PLAYER_BUFFER_MIN) parsed < other else parsed > other)
                 }
                 valid
             }
