@@ -2384,6 +2384,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val channelLogin = args.getString(KEY_CHANNEL_LOGIN) ?: return
         val channelName = args.getString(KEY_CHANNEL_NAME)?.takeIf { it.isNotBlank() } ?: channelLogin
         toggleEmoteMenu(false)
+        binding.editText.dismissDropDown()
         chatIdentityPopup = ChatIdentityPopup(
             context = requireContext(),
             rootView = binding.root,
@@ -2395,9 +2396,11 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             channelLogin = channelLogin,
             onDismissed = {
                 chatIdentityPopup = null
+                updateRecommendationVisibility()
                 refreshBackPressedCallback()
             },
         ).also { it.show() }
+        updateRecommendationVisibility()
         refreshBackPressedCallback()
     }
 
@@ -2640,7 +2643,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     private fun updateRecommendationVisibility() {
         val currentBinding = _binding ?: return
-        val visible = messagingEnabled && currentBinding.messageView.isVisible
+        val visible = messagingEnabled && currentBinding.messageView.isVisible &&
+                chatIdentityPopup?.isShowing != true
         val showCommandRecommendations = currentCommandRecommendations.isNotEmpty() && visible
         val showUserRecommendations = !showCommandRecommendations && usernameRecommendationsEnabled &&
                 currentUserRecommendations.isNotEmpty() &&
