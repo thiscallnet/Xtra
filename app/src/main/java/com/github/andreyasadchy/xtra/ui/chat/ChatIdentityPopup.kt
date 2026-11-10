@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
@@ -69,6 +70,17 @@ class ChatIdentityPopup(
     private var popupWindow: PopupWindow? = null
     private var stateJob: Job? = null
     private val imageRequests = mutableListOf<Disposable>()
+    private var rootLayoutView: View? = null
+    private var rootLayoutListener: ViewTreeObserver.OnGlobalLayoutListener? = null
+    private var contentLayoutListener: View.OnLayoutChangeListener? = null
+    private var lastPopupFrame: PopupFrame? = null
+
+    private data class PopupFrame(
+        val left: Int,
+        val top: Int,
+        val width: Int,
+        val height: Int,
+    )
 
     val isShowing: Boolean
         get() = popupWindow?.isShowing == true
@@ -85,6 +97,16 @@ class ChatIdentityPopup(
             setOnDismissListener {
                 stateJob?.cancel()
                 stateJob = null
+                contentLayoutListener?.let(content::removeOnLayoutChangeListener)
+                contentLayoutListener = null
+                rootLayoutListener?.let { listener ->
+                    rootLayoutView?.viewTreeObserver
+                        ?.takeIf { it.isAlive }
+                        ?.removeOnGlobalLayoutListener(listener)
+                }
+                rootLayoutView = null
+                rootLayoutListener = null
+                lastPopupFrame = null
                 clearImageRequests()
                 popupWindow = null
                 onDismissed()
@@ -99,7 +121,20 @@ class ChatIdentityPopup(
         }
         hideIme()
         viewModel.ensureChatIdentityLoaded(channelId, channelLogin)
-        popup.showAtLocation(rootView, Gravity.TOP or Gravity.START, 0, 0)
+        val initialFrame = calculatePopupFrame(content)
+        popup.setWidth(initialFrame.width)
+        popup.setHeight(initialFrame.height)
+        lastPopupFrame = initialFrame
+        popup.showAtLocation(rootView, Gravity.TOP or Gravity.START, initialFrame.left, initialFrame.top)
+        rootLayoutView = rootView.rootView
+        rootLayoutListener = ViewTreeObserver.OnGlobalLayoutListener {
+            if (popup.isShowing) positionPopup(content, popup)
+        }.also { listener ->
+            rootLayoutView?.viewTreeObserver?.addOnGlobalLayoutListener(listener)
+        }
+        contentLayoutListener = View.OnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (popup.isShowing) positionPopup(content, popup)
+        }.also(content::addOnLayoutChangeListener)
         content.post { positionPopup(content, popup) }
     }
 
@@ -554,16 +589,32 @@ class ChatIdentityPopup(
     }
 
     private fun positionPopup(content: View, popup: PopupWindow) {
-        val screenWidth = rootView.rootView.width.takeIf { it > 0 }
+        val frame = calculatePopupFrame(content)
+        if (frame != lastPopupFrame) {
+            popup.update(frame.left, frame.top, frame.width, frame.height)
+            lastPopupFrame = frame
+        }
+    }
+
+    private fun calculatePopupFrame(content: View): PopupFrame {
+        val root = rootView.rootView
+        val screenWidth = root.width.takeIf { it > 0 }
             ?: context.resources.displayMetrics.widthPixels
         val rootInsets = ViewCompat.getRootWindowInsets(rootView)
         val safeInsets = rootInsets?.getInsets(
             WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
         ) ?: androidx.core.graphics.Insets.NONE
-        val screenHeight = rootView.rootView.height.takeIf { it > 0 }
+        val screenHeight = root.height.takeIf { it > 0 }
             ?: context.resources.displayMetrics.heightPixels
+        val rootLocation = IntArray(2)
+        root.getLocationInWindow(rootLocation)
         val geometry = PlayerUiGeometry.from(
-            Rect(0, 0, screenWidth, screenHeight),
+            Rect(
+                rootLocation[0],
+                rootLocation[1],
+                rootLocation[0] + screenWidth,
+                rootLocation[1] + screenHeight,
+            ),
             Rect(safeInsets.left, safeInsets.top, safeInsets.right, safeInsets.bottom),
             context.resources.displayMetrics.density,
             edgePaddingDp = 12,
@@ -594,7 +645,7 @@ class ChatIdentityPopup(
             aboveTop >= safeTop -> aboveTop
             else -> belowTop.coerceIn(safeTop, (safeBottom - height).coerceAtLeast(safeTop))
         }
-        popup.update(left, top, desiredWidth, height)
+        return PopupFrame(left, top, desiredWidth, height.coerceAtLeast(1))
     }
 
     private fun Context.dp(value: Int): Int =
