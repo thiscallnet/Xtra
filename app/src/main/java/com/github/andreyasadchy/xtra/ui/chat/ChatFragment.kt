@@ -235,6 +235,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var pinnedMessageTimerJob: Job? = null
     private var channelPointsAccessibilityLabel: String? = null
     private var chatIdentityPopup: ChatIdentityPopup? = null
+    private var pendingChatIdentityDraft: ChatComposerDraft? = null
+    private var activeChatIdentityDraft: ChatComposerDraft? = null
     private var chatIdentityBadgeRequest: Disposable? = null
     private var chatIdentityBadgeUrl: String? = null
     private var anonymousModePreferenceListener: SharedPreferences.OnSharedPreferenceChangeListener? = null
@@ -251,6 +253,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val text: String,
         val selection: Int?,
         val reply: ReplyComposerState?,
+    )
+
+    private data class ChatComposerDraft(
+        val text: String,
+        val selectionStart: Int,
+        val selectionEnd: Int,
     )
 
     private data class PendingOverlaySubmission(
@@ -983,6 +991,13 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                         }
                                     }
                                 }
+                            }
+                            chatIdentity.setOnTouchListener { _, event ->
+                                when (event.actionMasked) {
+                                    MotionEvent.ACTION_DOWN -> pendingChatIdentityDraft = captureChatComposerDraft()
+                                    MotionEvent.ACTION_CANCEL -> pendingChatIdentityDraft = null
+                                }
+                                false
                             }
                             chatIdentity.setOnClickListener { toggleChatIdentityPopup() }
                         }
@@ -2374,8 +2389,32 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
 
     fun emoteMenuIsVisible() = _binding?.emoteMenu?.isVisible == true
 
+    private fun captureChatComposerDraft(): ChatComposerDraft? {
+        val editText = _binding?.editText ?: return null
+        val text = editText.text.toString()
+        return ChatComposerDraft(
+            text = text,
+            selectionStart = editText.selectionStart.takeIf { it >= 0 } ?: text.length,
+            selectionEnd = editText.selectionEnd.takeIf { it >= 0 } ?: text.length,
+        )
+    }
+
+    private fun restoreChatComposerDraft(draft: ChatComposerDraft?) {
+        val editText = _binding?.editText ?: return
+        draft ?: return
+        if (editText.text.toString() != draft.text) {
+            editText.setText(draft.text)
+        }
+        val start = draft.selectionStart.coerceIn(0, editText.length())
+        val end = draft.selectionEnd.coerceIn(0, editText.length())
+        if (editText.selectionStart != start || editText.selectionEnd != end) {
+            editText.setSelection(start, end)
+        }
+    }
+
     private fun toggleChatIdentityPopup() {
         if (chatIdentityPopup?.isShowing == true) {
+            pendingChatIdentityDraft = null
             chatIdentityPopup?.dismiss()
             return
         }
@@ -2383,8 +2422,12 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val channelId = args.getString(KEY_CHANNEL_ID) ?: return
         val channelLogin = args.getString(KEY_CHANNEL_LOGIN) ?: return
         val channelName = args.getString(KEY_CHANNEL_NAME)?.takeIf { it.isNotBlank() } ?: channelLogin
+        val draft = pendingChatIdentityDraft ?: captureChatComposerDraft()
+        pendingChatIdentityDraft = null
+        activeChatIdentityDraft = draft
         toggleEmoteMenu(false)
         binding.editText.dismissDropDown()
+        restoreChatComposerDraft(draft)
         chatIdentityPopup = ChatIdentityPopup(
             context = requireContext(),
             rootView = binding.root,
@@ -2396,10 +2439,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             channelLogin = channelLogin,
             onDismissed = {
                 chatIdentityPopup = null
+                restoreChatComposerDraft(activeChatIdentityDraft)
+                activeChatIdentityDraft = null
+                updateRecommendationInput()
                 updateRecommendationVisibility()
                 refreshBackPressedCallback()
             },
         ).also { it.show() }
+        restoreChatComposerDraft(draft)
         updateRecommendationVisibility()
         refreshBackPressedCallback()
     }
@@ -4260,6 +4307,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         interactionAdapterFactory = null
         chatIdentityPopup?.dismiss()
         chatIdentityPopup = null
+        pendingChatIdentityDraft = null
+        activeChatIdentityDraft = null
         chatIdentityBadgeRequest?.dispose()
         chatIdentityBadgeRequest = null
         chatIdentityBadgeUrl = null
