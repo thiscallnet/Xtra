@@ -25,6 +25,7 @@ class StatisticsDetailViewModel(
     private val bucketFrom: Long?,
     private val bucketTo: Long?,
     initialRange: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
+    private val categoryImageResolver: StatisticsCategoryImageResolver? = null,
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(StatisticsDetailUiState(isLoading = true, range = initialRange))
@@ -55,10 +56,14 @@ class StatisticsDetailViewModel(
             repository.loadBucketDetail(bucketFrom!!, bucketTo!!)
         }
         currentCoroutineContext().ensureActive()
+        val resolvedSnapshot = snapshot.copy(topCategories = withContext(Dispatchers.IO) {
+            categoryImageResolver?.resolve(snapshot.topCategories) ?: snapshot.topCategories
+        })
+        currentCoroutineContext().ensureActive()
         _uiState.value = StatisticsDetailUiState(
             isLoading = false,
             range = ViewingStatsRange.LAST_7_DAYS,
-            snapshot = snapshot,
+            snapshot = resolvedSnapshot,
             title = title,
             selectedBucketIndex = -1,
         )
@@ -74,10 +79,16 @@ class StatisticsDetailViewModel(
             }
         }
         currentCoroutineContext().ensureActive()
+        val resolvedSnapshot = snapshot?.let { detail ->
+            detail.copy(topCategories = withContext(Dispatchers.IO) {
+                categoryImageResolver?.resolve(detail.topCategories) ?: detail.topCategories
+            })
+        }
+        currentCoroutineContext().ensureActive()
         _uiState.value = StatisticsDetailUiState(
             isLoading = false,
             range = range,
-            snapshot = snapshot,
+            snapshot = resolvedSnapshot,
             title = title,
             selectedBucketIndex = -1,
         )
@@ -97,6 +108,7 @@ class StatisticsDetailViewModel(
             bucketFrom: Long?,
             bucketTo: Long?,
             initialRange: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
+            categoryImageResolver: StatisticsCategoryImageResolver? = null,
         ): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -109,6 +121,7 @@ class StatisticsDetailViewModel(
                     bucketFrom = bucketFrom,
                     bucketTo = bucketTo,
                     initialRange = initialRange,
+                    categoryImageResolver = categoryImageResolver,
                 ) as T
             }
         }

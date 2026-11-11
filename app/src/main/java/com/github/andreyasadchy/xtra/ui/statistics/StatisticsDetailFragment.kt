@@ -56,6 +56,7 @@ class StatisticsDetailFragment : Fragment() {
             this,
             StatisticsDetailViewModel.factory(
                 repository = app.xtraModule.viewingStatsRepository,
+                categoryImageResolver = app.xtraModule.viewingStatsCategoryImageResolver,
                 type = args.getString(ARG_TYPE).orEmpty(),
                 channelId = args.getString(ARG_CHANNEL_ID),
                 categoryKey = args.getString(ARG_CATEGORY_KEY),

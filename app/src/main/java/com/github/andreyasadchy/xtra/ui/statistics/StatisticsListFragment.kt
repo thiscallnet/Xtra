@@ -38,9 +38,10 @@ class StatisticsListFragment : Fragment() {
         viewModel = ViewModelProvider(
             this,
             StatisticsListViewModel.factory(
-                app.xtraModule.viewingStatsRepository,
-                requireArguments().getString(ARG_TYPE, StatisticsListViewModel.TYPE_CHANNEL),
-                initialStatisticsRange(R.id.statisticsListFragment),
+                repository = app.xtraModule.viewingStatsRepository,
+                type = requireArguments().getString(ARG_TYPE, StatisticsListViewModel.TYPE_CHANNEL),
+                initialRange = initialStatisticsRange(R.id.statisticsListFragment),
+                categoryImageResolver = app.xtraModule.viewingStatsCategoryImageResolver,
             ),
         )[StatisticsListViewModel::class.java]
     }
