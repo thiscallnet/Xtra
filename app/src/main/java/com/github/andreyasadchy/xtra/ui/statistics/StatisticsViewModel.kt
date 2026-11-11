@@ -28,6 +28,7 @@ import java.util.TimeZone
 class StatisticsViewModel(
     private val repository: ViewingStatsRepository,
     private val recorder: ViewingStatsRecorder,
+    private val categoryImageResolver: StatisticsCategoryImageResolver? = null,
 ) : ViewModel() {
 
     private val selectedRange = MutableStateFlow(ViewingStatsRange.LAST_7_DAYS)
@@ -144,6 +145,15 @@ class StatisticsViewModel(
             selectedBucketIndex = selectedBucketIndex,
             selectedBucketDetail = if (selectedBucketIndex >= 0) previousState.selectedBucketDetail else null,
         )
+        viewModelScope.launch {
+            val resolvedCategories = withContext(Dispatchers.IO) {
+                categoryImageResolver?.resolve(snapshot.topCategories) ?: snapshot.topCategories
+            }
+            currentCoroutineContext().ensureActive()
+            if (selectedRange.value == range && _uiState.value.snapshot === snapshot && resolvedCategories != snapshot.topCategories) {
+                _uiState.value = _uiState.value.copy(snapshot = snapshot.copy(topCategories = resolvedCategories))
+            }
+        }
     }
 
     companion object {
@@ -154,6 +164,7 @@ class StatisticsViewModel(
                 StatisticsViewModel(
                     repository = module.viewingStatsRepository,
                     recorder = module.viewingStatsRecorder,
+                    categoryImageResolver = module.viewingStatsCategoryImageResolver,
                 )
             }
         }

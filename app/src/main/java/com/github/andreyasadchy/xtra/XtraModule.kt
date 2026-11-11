@@ -57,6 +57,7 @@ import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedPager
 import com.github.andreyasadchy.xtra.repository.gamefeed.GameFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.ui.common.StreamPreviewCoordinator
 import com.github.andreyasadchy.xtra.ui.following.overview.FollowingOverviewSections
+import com.github.andreyasadchy.xtra.ui.statistics.StatisticsCategoryImageResolver
 import com.github.andreyasadchy.xtra.ui.player.PlaybackPersistence
 import com.github.andreyasadchy.xtra.ui.player.captions.LiveCaptionManager
 import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelManager
@@ -719,6 +720,10 @@ class XtraModule(application: Application) {
 
     val viewingStatsRepository by lazy {
         ViewingStatsRepository(database.viewingStats())
+    }
+
+    val viewingStatsCategoryImageResolver by lazy {
+        StatisticsCategoryImageResolver(application.applicationContext, helixRepository)
     }
 
     val viewingStatsRecorder by lazy {

@@ -21,6 +21,7 @@ class StatisticsListViewModel(
     private val repository: ViewingStatsRepository,
     private val type: String,
     initialRange: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
+    private val categoryImageResolver: StatisticsCategoryImageResolver? = null,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(StatisticsListUiState(isLoading = true, range = initialRange))
     val uiState: StateFlow<StatisticsListUiState> = _uiState.asStateFlow()
@@ -40,7 +41,11 @@ class StatisticsListViewModel(
             if (type == TYPE_CHANNEL) {
                 StatisticsListResult.Channels(total, repository.loadAllChannels(range))
             } else {
-                StatisticsListResult.Categories(total, repository.loadAllCategories(range))
+                val categories = repository.loadAllCategories(range)
+                StatisticsListResult.Categories(
+                    total,
+                    categoryImageResolver?.resolve(categories) ?: categories,
+                )
             }
         }
         currentCoroutineContext().ensureActive()
@@ -54,10 +59,11 @@ class StatisticsListViewModel(
             repository: ViewingStatsRepository,
             type: String,
             initialRange: ViewingStatsRange = ViewingStatsRange.LAST_7_DAYS,
+            categoryImageResolver: StatisticsCategoryImageResolver? = null,
         ) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                StatisticsListViewModel(repository, type, initialRange) as T
+                StatisticsListViewModel(repository, type, initialRange, categoryImageResolver) as T
         }
     }
 }
