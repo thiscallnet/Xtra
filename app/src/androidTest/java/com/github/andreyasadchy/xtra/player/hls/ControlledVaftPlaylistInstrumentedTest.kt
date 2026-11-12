@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.player.hls
 
 import android.net.Uri
 import android.os.SystemClock
+import androidx.core.content.edit
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.datasource.DataSource
@@ -13,6 +14,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.ui.player.TwitchVaftController
+import com.github.andreyasadchy.xtra.util.C as XtraC
+import com.github.andreyasadchy.xtra.util.rawPrefs
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -153,6 +156,28 @@ class ControlledVaftPlaylistInstrumentedTest {
         }
     }
 
+    private fun <T> withPlaybackPriority(priority: String?, block: () -> T): T {
+        val preferences = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext.rawPrefs()
+        val key = XtraC.PLAYER_VAFT_PLAYBACK_PRIORITY
+        val hadSavedValue = preferences.contains(key)
+        val previousValue = preferences.getString(key, null)
+        val hadVaftEnabledValue = preferences.contains(XtraC.PLAYER_VAFT_ENABLED)
+        val previousVaftEnabledValue = preferences.getBoolean(XtraC.PLAYER_VAFT_ENABLED, true)
+        preferences.edit {
+            putBoolean(XtraC.PLAYER_VAFT_ENABLED, true)
+            if (priority == null) remove(key) else putString(key, priority)
+        }
+        return try {
+            block()
+        } finally {
+            preferences.edit {
+                if (hadSavedValue) putString(key, previousValue) else remove(key)
+                if (hadVaftEnabledValue) putBoolean(XtraC.PLAYER_VAFT_ENABLED, previousVaftEnabledValue)
+                else remove(XtraC.PLAYER_VAFT_ENABLED)
+            }
+        }
+    }
+
     @Test fun markedRequestedRungDoesNotHideCleanLowerRung() {
         val network = Network().apply {
             response = media(0..4)
@@ -285,24 +310,25 @@ class ControlledVaftPlaylistInstrumentedTest {
         } finally { controlled.close() }
     }
 
-    @Test fun expiredWindowRecoversOntoCleanReplacementWhilePrimaryRemainsMarked() {
-        val network = Network().apply { response = media(100..104) }
-        val controlled = controlled(network)
-        try {
-            val before = publish(controlled, media(0..2))
-            Thread.sleep(8_100)
-            val after = awaitPublication(controlled, media(100..104, (100..104).toSet())) {
-                it.startTimeUs >= epoch + 200_000_000L
-            }
-            assertTrue(after.mediaSequence > before.mediaSequence)
-            assertEquals(before.discontinuitySequence + 1, after.discontinuitySequence)
-            assertTrue(after.segments.none { it.url.contains("vaft") })
-            assertEquals(ControlledVaftPlaylist.Recovery(after.startTimeUs, prioritizeLive = false),
-                controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
-            assertNull(controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
-            assertEquals(720, controlled.formatAt(after.startTimeUs)?.height)
-        } finally { controlled.close() }
-    }
+    @Test fun expiredWindowRecoversOntoCleanReplacementWhilePrimaryRemainsMarked() =
+        withPlaybackPriority(XtraC.VAFT_PRIORITY_CONTINUITY) {
+            val network = Network().apply { response = media(100..104) }
+            val controlled = controlled(network)
+            try {
+                val before = publish(controlled, media(0..2))
+                Thread.sleep(8_100)
+                val after = awaitPublication(controlled, media(100..104, (100..104).toSet())) {
+                    it.startTimeUs >= epoch + 200_000_000L
+                }
+                assertTrue(after.mediaSequence > before.mediaSequence)
+                assertEquals(before.discontinuitySequence + 1, after.discontinuitySequence)
+                assertTrue(after.segments.none { it.url.contains("vaft") })
+                assertEquals(ControlledVaftPlaylist.Recovery(after.startTimeUs, prioritizeLive = false),
+                    controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
+                assertNull(controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
+                assertEquals(720, controlled.formatAt(after.startTimeUs)?.height)
+            } finally { controlled.close() }
+        }
 
     @Test fun coldMarkedEntryRetriesWithoutBlockingParser() {
         val network = Network().apply { response = media(0..4); delayMs = 1_000 }
@@ -394,17 +420,17 @@ class ControlledVaftPlaylistInstrumentedTest {
         } finally { controlled.close() }
     }
 
-    @Test fun expiredWindowRecoversWithMonotonicSequenceAndExplicitSeek() {
+    @Test fun expiredWindowDefaultsToLivePriorityWithoutDiscardingCurrentWindow() = withPlaybackPriority(null) {
         val controlled = controlled(Network())
         try {
             val before = publish(controlled, media(0..2))
             Thread.sleep(8_100)
             val after = publish(controlled, media(100..104))
-            assertTrue(after.mediaSequence > before.mediaSequence)
-            assertEquals(before.discontinuitySequence + 1, after.discontinuitySequence)
-            assertEquals(epoch + 204_000_000, after.startTimeUs)
+            assertEquals(before.mediaSequence, after.mediaSequence)
+            assertEquals(before.discontinuitySequence, after.discontinuitySequence)
+            assertEquals(epoch, after.startTimeUs)
             assertNull(controlled.consumeRecovery(before.startTimeUs, before.startTimeUs + before.durationUs))
-            assertEquals(ControlledVaftPlaylist.Recovery(after.startTimeUs, prioritizeLive = false),
+            assertEquals(ControlledVaftPlaylist.Recovery(epoch + 204_000_000, prioritizeLive = true),
                 controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
             assertNull(controlled.consumeRecovery(after.startTimeUs, after.startTimeUs + after.durationUs))
         } finally { controlled.close() }

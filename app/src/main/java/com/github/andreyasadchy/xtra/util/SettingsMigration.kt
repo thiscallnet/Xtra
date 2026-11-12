@@ -504,6 +504,18 @@ object SettingsMigration {
                 )
             }
         }
+        // Continuity was the previous default. AndroidX can persist that ListPreference
+        // default when the settings screen is first opened, so update it once for existing
+        // installs as well as changing the XML/code fallback. Users can still choose it again.
+        if (!preferences.getBoolean(C.PLAYER_VAFT_PLAYBACK_PRIORITY_DEFAULT_MIGRATED, false)) {
+            val previousPriority = preferences.getString(C.PLAYER_VAFT_PLAYBACK_PRIORITY, null)
+            preferences.edit {
+                if (previousPriority == C.VAFT_PRIORITY_CONTINUITY) {
+                    putString(C.PLAYER_VAFT_PLAYBACK_PRIORITY, C.VAFT_PRIORITY_LIVE)
+                }
+                putBoolean(C.PLAYER_VAFT_PLAYBACK_PRIORITY_DEFAULT_MIGRATED, true)
+            }
+        }
         // Apply the new artwork default once, including already-current installs.
         // Save the marker with the value so later user choices survive migration.
         if (!preferences.getBoolean(C.SYSTEM_MEDIA_ARTWORK_DEFAULT_MIGRATED, false)) {
