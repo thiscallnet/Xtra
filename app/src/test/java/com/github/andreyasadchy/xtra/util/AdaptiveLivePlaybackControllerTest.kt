@@ -8,6 +8,24 @@ import org.junit.Test
 class AdaptiveLivePlaybackControllerTest {
 
     @Test
+    fun liveStartupThresholdUsesTheSelectedPolicyTarget() {
+        assertEquals(
+            2_000_000L,
+            liveStartupThresholdUs(
+                requiredBufferUs = 2_000_000L,
+                policyTargetOffsetMs = LivePlaybackPolicies.BUFFERED.targetOffsetMs,
+            ),
+        )
+        assertEquals(
+            1_000_000L,
+            liveStartupThresholdUs(
+                requiredBufferUs = 1_000_000L,
+                policyTargetOffsetMs = LivePlaybackPolicies.LOW_LATENCY.targetOffsetMs,
+            ),
+        )
+    }
+
+    @Test
     fun rebufferingMovesThroughLargerPolicies() {
         val controller = AdaptiveLivePlaybackController(LivePlaybackPolicies.LOW_LATENCY)
 
