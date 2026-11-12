@@ -234,7 +234,7 @@ class AdaptiveLiveLoadControl(
             parameters.playbackSpeed,
         )
         val startupThresholdUs = if (parameters.targetLiveOffsetUs != C.TIME_UNSET) {
-            minOf(requiredUs, parameters.targetLiveOffsetUs / 2)
+            liveStartupThresholdUs(requiredUs, controller.currentPolicy().targetOffsetMs)
         } else {
             requiredUs
         }
@@ -303,7 +303,7 @@ class FixedSpeedLivePlaybackControl(
                     TAG,
                     "speed=1.0 liveOffsetMs=${liveOffsetUs / 1_000L} " +
                         "bufferedMs=${bufferedDurationUs / 1_000L} " +
-                        "targetMs=${delegate.getTargetLiveOffsetUs() / 1_000L}",
+                        "targetMs=${getTargetLiveOffsetUs().takeIf { it != C.TIME_UNSET }?.div(1_000L) ?: -1L}",
                 )
             }
         }
@@ -312,7 +312,14 @@ class FixedSpeedLivePlaybackControl(
 
     override fun getTargetLiveOffsetUs(): Long {
         applyAdaptiveTargetIfAllowed()
-        return delegate.getTargetLiveOffsetUs()
+        val delegateTargetUs = delegate.getTargetLiveOffsetUs()
+        if (delegateTargetUs != C.TIME_UNSET) return delegateTargetUs
+
+        // Media3 clears its internal target when the media configuration fixes
+        // playback speed at 1.0x. Keep exposing the selected offset so the load
+        // controller can still apply the live buffering policy.
+        return media3OverrideOffsetUs.get().takeIf { it != C.TIME_UNSET }
+            ?: adaptiveTargetOffsetUs.get()
     }
 
     private fun applyAdaptiveTargetIfAllowed() {
@@ -332,3 +339,6 @@ class FixedSpeedLivePlaybackControl(
         const val SPEED_DIAGNOSTIC_INTERVAL_MS = 1_000L
     }
 }
+
+internal fun liveStartupThresholdUs(requiredBufferUs: Long, policyTargetOffsetMs: Long): Long =
+    minOf(requiredBufferUs, policyTargetOffsetMs * 1_000L / 2L)

@@ -69,7 +69,7 @@ object LivePlaybackPolicies {
             minBufferMs = 1_500,
             maxBufferMs = 6_000,
             bufferForPlaybackMs = 250,
-            bufferForPlaybackAfterRebufferMs = 500,
+            bufferForPlaybackAfterRebufferMs = 1_000,
             prioritizeTimeOverSizeThresholds = true,
         ),
         targetOffsetMs = C.LOW_LATENCY_TARGET_OFFSET_MS,
