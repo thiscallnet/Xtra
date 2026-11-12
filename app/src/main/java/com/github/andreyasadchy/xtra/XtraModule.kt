@@ -103,10 +103,16 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateRepository
 import com.github.andreyasadchy.xtra.util.DatabaseRestoreRecovery
 import com.github.andreyasadchy.xtra.ui.settings.SettingsRestoreCoordinator
 import java.io.File
+import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import java.security.KeyStore
@@ -120,7 +126,88 @@ private const val RECENT_HISTORY_WINDOW_SECONDS = 10 * 60
 private const val RECENT_HISTORY_LOG_TAG = "RecentChatHistory"
 
 @OptIn(UnstableApi::class)
-class XtraModule(application: Application) {
+class XtraModule(private val application: Application) {
+
+    private val blockedChatUsersMutex = Mutex()
+    private var blockedChatUsersViewerId: String? = null
+    private var blockedChatUsersLastAttemptAt = 0L
+    private var blockedChatUserIds = emptySet<String>()
+    private var blockedChatUserLogins = emptySet<String>()
+
+    suspend fun isBlockedChatUser(userId: String?, userLogin: String?): Boolean {
+        val viewerId = application.tokenPrefs().getString(C.USER_ID, null)
+            ?.takeIf(String::isNotBlank) ?: return false
+        blockedChatUsersMutex.withLock {
+            val now = System.currentTimeMillis()
+            if (blockedChatUsersViewerId != viewerId) {
+                blockedChatUsersViewerId = viewerId
+                blockedChatUsersLastAttemptAt = 0L
+                blockedChatUserIds = emptySet()
+                blockedChatUserLogins = emptySet()
+            }
+            if (now - blockedChatUsersLastAttemptAt >= 30_000L) {
+                blockedChatUsersLastAttemptAt = now
+                val scopes = application.tokenPrefs().getString(C.TOKEN_SCOPES, null)
+                    .orEmpty().split(Regex("\\s+")).toSet()
+                val webToken = application.tokenPrefs().getString(C.GQL_TOKEN_WEB, null)
+                try {
+                    val ids = linkedSetOf<String>()
+                    val logins = linkedSetOf<String>()
+                    if (!webToken.isNullOrBlank()) {
+                        val headers = TwitchApiHelper.getGQLHeaders(application, true)
+                        val response = graphQLRepository.executeRawOperation(
+                            application.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                            headers,
+                            "CurrentUserBlockedUsers",
+                            """
+                            query CurrentUserBlockedUsers {
+                                currentUser {
+                                    blockedUsers { id login displayName }
+                                }
+                            }
+                            """.trimIndent(),
+                        )
+                        val users = response["data"]!!.jsonObject["currentUser"]!!.jsonObject["blockedUsers"]!!.jsonArray
+                        users.forEach { item ->
+                            val user = item.jsonObject
+                            user["id"]?.jsonPrimitive?.content?.takeIf(String::isNotBlank)?.let(ids::add)
+                            user["login"]?.jsonPrimitive?.content?.takeIf(String::isNotBlank)
+                                ?.lowercase(Locale.ROOT)?.let(logins::add)
+                        }
+                    } else if ("user:read:blocked_users" in scopes) {
+                        val headers = TwitchApiHelper.getHelixHeaders(application)
+                        val network = application.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+                        var cursor: String? = null
+                        val seenCursors = mutableSetOf<String>()
+                        do {
+                            val response = helixRepository.getBlockedUsers(
+                                networkLibrary = network,
+                                headers = headers,
+                                broadcasterId = viewerId,
+                                cursor = cursor,
+                            )
+                            response.data.forEach { user ->
+                                user.id?.takeIf(String::isNotBlank)?.let(ids::add)
+                                user.login?.takeIf(String::isNotBlank)?.lowercase(Locale.ROOT)?.let(logins::add)
+                            }
+                            cursor = response.pagination?.cursor
+                            if (!cursor.isNullOrBlank() && !seenCursors.add(cursor)) {
+                                error("Twitch repeated the blocked-user pagination cursor")
+                            }
+                        } while (!cursor.isNullOrBlank())
+                    } else error("Blocked-user access is unavailable")
+                    blockedChatUserIds = ids
+                    blockedChatUserLogins = logins
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // Keep the last successful list during transient authentication/network errors.
+                }
+            }
+            return userId?.let(blockedChatUserIds::contains) == true ||
+                userLogin?.lowercase(Locale.ROOT)?.let(blockedChatUserLogins::contains) == true
+        }
+    }
 
     val playbackPersistence by lazy {
         PlaybackPersistence(this)
@@ -776,6 +863,7 @@ class XtraModule(application: Application) {
         val appContext = application.applicationContext
         ChatSessionManager(
             parentScope = (application as XtraApp).applicationScope,
+            allowMessage = { message -> !isBlockedChatUser(message.user?.id, message.user?.login) },
             transportFactory = { spec: LiveChatSessionSpec ->
                 val scopes = appContext.tokenPrefs().getString(C.TOKEN_SCOPES, null)
                     .orEmpty().split(Regex("\\s+")).filter(String::isNotBlank).toSet()
