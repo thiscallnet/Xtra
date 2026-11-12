@@ -344,7 +344,7 @@ class MultiviewPlaybackCoordinator(
                         liveOffsetMs != androidx.media3.common.C.TIME_UNSET &&
                         applicationContext.prefs().getString(
                             C.PLAYER_VAFT_PLAYBACK_PRIORITY,
-                            C.VAFT_PRIORITY_CONTINUITY,
+                            C.VAFT_PRIORITY_LIVE,
                         ) == C.VAFT_PRIORITY_LIVE &&
                         liveOffsetMs - liveController.currentPolicy().targetOffsetMs > LIVE_PRIORITY_CATCH_UP_THRESHOLD_MS &&
                         (slot.lastLivePriorityCatchUpRealtimeMs == Long.MIN_VALUE ||

@@ -482,7 +482,7 @@ class ControlledVaftPlaylist(
         val preferences = context.prefs()
         val prioritizeLive = preferences.isVaftEnabled() &&
             preferences.getString(Settings.PLAYER_VAFT_PLAYBACK_PRIORITY,
-                Settings.VAFT_PRIORITY_CONTINUITY) == Settings.VAFT_PRIORITY_LIVE
+                Settings.VAFT_PRIORITY_LIVE) == Settings.VAFT_PRIORITY_LIVE
         val previousEndUs = previous.epochUs + previous.segment.durationUs
         if (prioritizeLive) {
             // Only jump to a verified clean suffix which is meaningfully newer.

@@ -299,6 +299,7 @@ object C {
     const val PLAYER_VAFT_ENABLED = "player_avoid_ads"
     const val PLAYER_VAFT_AD_NOTICE_SEEN = "player_vaft_ad_notice_seen"
     const val PLAYER_VAFT_PLAYBACK_PRIORITY = "player_vaft_playback_priority"
+    const val PLAYER_VAFT_PLAYBACK_PRIORITY_DEFAULT_MIGRATED = "player_vaft_playback_priority_default_migrated"
     const val VAFT_PRIORITY_CONTINUITY = "continuity"
     const val VAFT_PRIORITY_LIVE = "live"
     const val PLAYER_HIDE_VAFT_OUTPUT = "player_hide_ads"
