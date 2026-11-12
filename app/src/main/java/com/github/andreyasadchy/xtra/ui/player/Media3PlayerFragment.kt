@@ -106,6 +106,7 @@ import com.github.andreyasadchy.xtra.ui.player.Media3PlayerViewModel.Companion.M
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_LIVE_CAPTIONS
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -570,6 +571,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     open fun playPause() {}
     open fun rewind() {}
     open fun fastForward() {}
+    protected open fun onHudSeekForwardPressed() {}
     open fun seek(position: Long) {}
     open fun seekToLivePosition() {}
     protected open fun seekToLivePosition(origin: String) = seekToLivePosition()
@@ -646,6 +648,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             if (videoType == STREAM) {
                 putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, C.PLAYER_LIVE_CAPTION_MODEL)
             }
+        }
+        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+            ?: startActivity(intent)
+    }
+
+    protected fun openPlayerSettingsAtPreference(preferenceKey: String) {
+        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+            putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, preferenceKey)
         }
         (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
             ?: startActivity(intent)
@@ -1363,6 +1374,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 fastForward.text = (requireContext().prefs().getString(C.PLAYER_FORWARD, "10")?.toLongOrNull() ?: 10).toString()
                 fastForward.setOnClickListener {
                     showController(force = true)
+                    onHudSeekForwardPressed()
                     fastForward()
                 }
                 progressBar.addListener(
