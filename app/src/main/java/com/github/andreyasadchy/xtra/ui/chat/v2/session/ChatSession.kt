@@ -28,11 +28,12 @@ class ChatSession(
     maxTimelineSize: Int = 600,
     private val onTransportDisconnected: suspend (ChatSessionKey, String?) -> Unit = { _, _ -> },
     private val onDecorationUpdated: suspend (ChatDecorationUpdate) -> Unit = {},
+    private val allowMessage: suspend (com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage) -> Boolean = { true },
 ) {
     private val job = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + job)
     val timeline = ChatTimelineStore(scope, maxTimelineSize)
-    private val processor = ChatEventProcessor(scope, timeline)
+    private val processor = ChatEventProcessor(scope, timeline, allowMessage)
     private val transitionMutex = Mutex()
     private var transportJob: Job? = null
     private var desiredKey: ChatSessionKey? = null

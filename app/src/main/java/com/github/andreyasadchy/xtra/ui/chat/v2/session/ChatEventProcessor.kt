@@ -12,7 +12,11 @@ import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicReference
 
 /** Lossless canonical event ingress. Only UI snapshots may be conflated. */
-class ChatEventProcessor(scope: CoroutineScope, private val store: ChatTimelineStore) {
+class ChatEventProcessor(
+    scope: CoroutineScope,
+    private val store: ChatTimelineStore,
+    private val allowMessage: suspend (com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage) -> Boolean = { true },
+) {
     private data class Envelope(val key: ChatSessionKey, val event: ChatEvent)
     private sealed interface Command {
         data class Activate(val key: ChatSessionKey, val acknowledged: CompletableDeferred<Unit>) : Command
@@ -49,10 +53,15 @@ class ChatEventProcessor(scope: CoroutineScope, private val store: ChatTimelineS
                         val dedupeKey = eventDedupeKey(event)
                         if (dedupeKey != null && !seen.add(dedupeKey)) continue
                         if (seen.size > 4096) seen.remove(seen.first())
-                        store.accept(event)
+                        if (event !is ChatEvent.Message || allowMessage(event.message)) {
+                            store.accept(event)
+                        }
                     }
                     is Command.Reconcile -> {
-                        if (command.key == activeKey) store.apply(TimelineOperation.Reconcile(command.recent))
+                        if (command.key == activeKey) {
+                            val allowed = command.recent.filter { allowMessage(it) }
+                            store.apply(TimelineOperation.Reconcile(allowed))
+                        }
                         command.acknowledged.complete(Unit)
                     }
                 }

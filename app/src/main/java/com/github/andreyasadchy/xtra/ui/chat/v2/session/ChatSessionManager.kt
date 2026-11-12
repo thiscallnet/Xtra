@@ -94,6 +94,7 @@ class ChatSessionFactory(
     private val rewardCatalogFactory: (LiveChatSessionSpec, CoroutineScope) -> Flow<ChatRewardCatalog> = { _, _ -> flowOf(ChatRewardCatalog()) },
     private val maxTimelineSize: Int = 600,
     private val automaticCatalogRefreshGate: ChatCatalogRefreshGate = ChatCatalogRefreshGate(),
+    private val allowMessage: suspend (ChatMessage) -> Boolean = { true },
 ) {
     private var generation = 0L
 
@@ -118,6 +119,7 @@ class ChatSessionFactory(
             maxTimelineSize = maxTimelineSize,
             onTransportDisconnected = { _, _ -> reconcileRecent() },
             onDecorationUpdated = catalog::applyDecorationUpdate,
+            allowMessage = allowMessage,
         )
         // Keep the public flow stable for renderers, but defer the actual provider construction
         // until the owner explicitly starts this handle.
@@ -227,6 +229,7 @@ class ChatSessionManager(
     private val rewardCatalogFactory: (LiveChatSessionSpec, CoroutineScope) -> Flow<ChatRewardCatalog> = { _, _ -> flowOf(ChatRewardCatalog()) },
     private val maxTimelineSize: Int = 600,
     private val automaticCatalogRefreshGate: ChatCatalogRefreshGate = ChatCatalogRefreshGate(),
+    private val allowMessage: suspend (ChatMessage) -> Boolean = { true },
 ) {
     private val managerJob = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + managerJob)
@@ -246,6 +249,7 @@ class ChatSessionManager(
         rewardCatalogFactory = rewardCatalogFactory,
         maxTimelineSize = maxTimelineSize,
         automaticCatalogRefreshGate = automaticCatalogRefreshGate,
+        allowMessage = allowMessage,
     )
 
     /** Multiview entry point. It does not touch [_active]. */
@@ -284,6 +288,7 @@ class ChatSessionManager(
                     ?.let(::scheduleRecentHistory)
             },
             onDecorationUpdated = catalog::applyDecorationUpdate,
+            allowMessage = allowMessage,
         )
         session.start(key)
         val active = ActiveChatSession(spec, key, session, catalog, rewardCatalogFactory(spec, scope))

@@ -1968,6 +1968,10 @@ class ChatViewModel(
                             "NOTICE" -> ChatUtils.parseNotice(ircMessage)
                             else -> null
                         }?.let {
+                            if (it.type == ChatMessage.USER_MESSAGE &&
+                                (applicationContext.applicationContext as? XtraApp)?.xtraModule
+                                    ?.isBlockedChatUser(it.userId, it.userLogin) == true
+                            ) return@forEach
                             if (it.reply?.message != null) {
                                 list.add(ChatMessage(
                                     type = ChatMessage.REPLY_MESSAGE,
@@ -2017,6 +2021,10 @@ class ChatViewModel(
     }
 
     suspend fun onMessage(message: ChatMessage) {
+        if (message.type == ChatMessage.USER_MESSAGE &&
+            (applicationContext.applicationContext as? XtraApp)?.xtraModule
+                ?.isBlockedChatUser(message.userId, message.userLogin) == true
+        ) return
         if (message.type == ChatMessage.USER_MESSAGE && message.message != null && message.msgId == null && isOwnChatMessage(message)) {
             updateSlowModeApplicabilityFromBadges(message.badges)
             onAcceptedOwnChatMessage(
