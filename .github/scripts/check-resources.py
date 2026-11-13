@@ -203,8 +203,8 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     # until their translations are reviewed by native speakers.
     "settings_metered_wifi_quality",
     "settings_metered_wifi_quality_use_mobile",
-    # Live playback mode and tuning copy ships in English until these new
-    # settings are translated across the supported locales.
+    # Live playback mode, tuning, and catch-up hint copy ships in English until
+    # these new settings and prompts are translated across the supported locales.
     "settings_live_playback_category",
     "settings_live_mode",
     "settings_live_mode_summary",
@@ -232,6 +232,7 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_live_tuning_min_speed_description",
     "settings_live_tuning_max_speed_description",
     "live_speed_range",
+    "player_live_catch_up_hint",
     # Backup and restore result messages are shipped in English until localized.
     "settings_backup_complete",
     "settings_restore_complete",
