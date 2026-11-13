@@ -364,7 +364,7 @@ class ChatTimelineStore(
             other.channelId == message.channelId &&
                 other.rewardId == rewardId &&
                 other.user?.id == userId &&
-                normalizedRewardInput(other.rawText) == input &&
+                sameRewardInputOrTruncatedChatCopy(other, message, input) &&
                 !other.rewardSourcesMerged && !message.rewardSourcesMerged &&
                 // Each input pairs with one notice. Repeated identical inputs and separate
                 // notices are distinct redemptions even when their input is identical.
@@ -376,6 +376,32 @@ class ChatTimelineStore(
     /** Provider payloads can pad the same input differently from the rendered chat text. */
     private fun normalizedRewardInput(text: String?): String? =
         text?.trim()?.takeIf { it.isNotEmpty() }
+
+    /**
+     * Tangia can publish a chat copy truncated to its message limit while the reward feed keeps
+     * the full text input. Only accept a prefix match for a long chat copy with a substantial
+     * omitted suffix; short prefix collisions remain separate redemptions.
+     */
+    private fun sameRewardInputOrTruncatedChatCopy(
+        existing: ChatMessage,
+        incoming: ChatMessage,
+        incomingInput: String,
+    ): Boolean {
+        val existingInput = normalizedRewardInput(existing.rawText) ?: return false
+        if (existingInput == incomingInput) return true
+
+        val syntheticIsExisting = when {
+            isSyntheticRedemption(existing) -> true
+            isSyntheticRedemption(incoming) -> false
+            else -> return false
+        }
+        val synthetic = if (syntheticIsExisting) existing else incoming
+        val chatCopy = if (syntheticIsExisting) incomingInput else existingInput
+        val rawInput = normalizedRewardInput(synthetic.rawText) ?: return false
+        if (chatCopy.length < MIN_TRUNCATED_CHAT_COPY_LENGTH) return false
+        if (rawInput.length - chatCopy.length < MIN_TRUNCATED_CHAT_SUFFIX_LENGTH) return false
+        return rawInput.startsWith(chatCopy)
+    }
 
     private fun isSyntheticRedemption(message: ChatMessage): Boolean =
         message.noticeType == "channel_points_custom_reward_redemption"
@@ -462,6 +488,8 @@ class ChatTimelineStore(
                 (userLogin != null && message.user?.login?.equals(userLogin, ignoreCase = true) == true))
 
     private companion object {
+        const val MIN_TRUNCATED_CHAT_COPY_LENGTH = 256
+        const val MIN_TRUNCATED_CHAT_SUFFIX_LENGTH = 32
         const val MODERATION_TOMBSTONE_LIMIT = 4096
         // At the measured 11.7 messages/sec this covers roughly 90 seconds while retaining at
         // most 1,024 append records. Collectors outside that window safely request a full tail.

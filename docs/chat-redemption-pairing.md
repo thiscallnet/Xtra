@@ -20,11 +20,16 @@ canonical rows with that implementation. This reproduces the duplicate at the
 session store, before presentation. Earlier arrival-order and resume fixes did
 not remove this timestamp assumption.
 
-`ChatTimelineStore` now pairs the first unmatched opposite-source row with the
-same channel, user ID, reward ID, and exact nonblank input in its retained tail.
-Each pairing consumes one chat input and one redemption notice. Timestamp
-proximity is not an identity requirement. Known redemption IDs still take
-precedence, and distinct known IDs cannot match by input.
+`ChatTimelineStore` pairs the first unmatched opposite-source row with the same
+channel, user ID, and reward ID in its retained tail. Exact nonblank inputs are
+preferred. A chat copy of at least 256 characters can also pair when it is a
+prefix of the raw reward input and at least 32 characters were omitted. This
+handles providers such as Tangia that truncate their chat copy while keeping
+the full redemption input.
+Short prefix collisions remain separate. Each pairing consumes one chat input
+and one redemption notice. Timestamp proximity is not an identity requirement.
+Known redemption IDs still take precedence, and distinct known IDs cannot match
+by input.
 
 The chat row remains authoritative for message ID, color, badges, segments,
 replies, and moderation. The notice supplies missing reward metadata. A paired
@@ -42,6 +47,7 @@ opening sockets or redeeming anything. It supports these intent extras:
 - `chat_eventsub`: use EventSub chat instead of IRC.
 - `eventsub`: use EventSub redemption instead of Hermes.
 - `notice_first`, `batch_sources`, `same_text`: vary arrival order and repeated input.
+- `truncated_input`: send two long reward inputs while publishing only their first 400 characters to chat.
 - `redelivery`, `reconcile`: replay deliveries and recent history.
 - `no_input`: submit two distinct no-input redemption notices without chat rows.
 
