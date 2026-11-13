@@ -93,6 +93,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
 import com.github.andreyasadchy.xtra.util.FixedSpeedLivePlaybackControl
 import com.github.andreyasadchy.xtra.util.LivePlaybackSettings
+import com.github.andreyasadchy.xtra.util.LivePriorityCatchUpPolicy
 import com.github.andreyasadchy.xtra.util.shouldRunAdaptiveLiveSampleTicker
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
@@ -2958,14 +2959,16 @@ class PlaybackService : MediaSessionService() {
             return
         }
         val delayBeyondTargetMs = (liveOffsetMs - targetOffsetMs).coerceAtLeast(0L)
+        val catchUpThresholdMs = LivePriorityCatchUpPolicy.thresholdMs(targetOffsetMs)
         if (BuildConfig.DEBUG) {
             Log.d(
                 "PlaybackLiveCatchUp",
                 "event=sample liveOffsetMs=$liveOffsetMs targetOffsetMs=$targetOffsetMs " +
-                    "delayBeyondTargetMs=$delayBeyondTargetMs canSeekToLive=$canSeekToLive",
+                    "delayBeyondTargetMs=$delayBeyondTargetMs catchUpThresholdMs=$catchUpThresholdMs " +
+                    "canSeekToLive=$canSeekToLive",
             )
         }
-        if (delayBeyondTargetMs <= LIVE_PRIORITY_CATCH_UP_THRESHOLD_MS) return
+        if (liveOffsetMs <= catchUpThresholdMs) return
 
         val now = SystemClock.elapsedRealtime()
         if (lastLivePriorityCatchUpRealtimeMs != Long.MIN_VALUE &&
@@ -2977,6 +2980,7 @@ class PlaybackService : MediaSessionService() {
                 "PlaybackLiveCatchUp",
                 "event=skip_ahead liveOffsetMs=$liveOffsetMs " +
                     "delayBeyondTargetMs=$delayBeyondTargetMs targetOffsetMs=$targetOffsetMs " +
+                    "catchUpThresholdMs=$catchUpThresholdMs " +
                     "positionMs=${player.currentPosition}",
             )
         }
@@ -3840,22 +3844,47 @@ class PlaybackService : MediaSessionService() {
                 val windowEndUs = windowStartUs + durationMs * 1_000L
                 val targetOffsetMs = adaptiveLiveController?.currentPolicy()?.targetOffsetMs
                     ?: LivePlaybackSettings.fromPreferences(prefs()).let { it.policies().forMode(it.mode).targetOffsetMs }
-                // Media3's default position can retain the delay learned during a stall.
-                // Use the verified playlist tail and the active buffer policy for live priority.
+                // Prefer Media3's live default position for catch-up so seeks stay within
+                // the published live range and honor the configured target offset.
                 val livePositionMs = (durationMs - targetOffsetMs).coerceAtLeast(0L)
+                val allowedDelayBeyondTargetMs =
+                    (LivePriorityCatchUpPolicy.thresholdMs(targetOffsetMs) - targetOffsetMs).coerceAtLeast(0L)
+                var recoveredToLive = false
                 if (player.playWhenReady) controlled.consumeRecovery(windowStartUs, windowEndUs)?.let { recovery ->
                     if (recovery.prioritizeLive) {
-                        player.seekTo(maxOf(livePositionMs, (recovery.epochUs - windowStartUs) / 1_000L))
+                        player.seekToDefaultPosition()
+                        lastLivePriorityCatchUpRealtimeMs = SystemClock.elapsedRealtime()
+                        recoveredToLive = true
+                        if (BuildConfig.DEBUG) Log.d("XtraVaftFeed", "event=live_priority_recovery_seek method=default")
                     } else {
                         player.seekToDefaultPosition()
                     }
                 }
-                if (player.isPlaying && prefs().isVaftEnabled() &&
+                val liveOffsetMs = player.currentLiveOffset
+                val hasLiveOffset = liveOffsetMs != Media3C.TIME_UNSET
+                // Fall back to the current window tail only when Media3 has no live offset.
+                val delayBeyondTargetMs = when {
+                    !hasLiveOffset -> (livePositionMs - player.currentPosition).coerceAtLeast(0L)
+                    liveOffsetMs >= 0L -> (liveOffsetMs - targetOffsetMs).coerceAtLeast(0L)
+                    else -> 0L
+                }
+                val catchUpThresholdMs = LivePriorityCatchUpPolicy.thresholdMs(targetOffsetMs)
+                val shouldCatchUp = if (hasLiveOffset) {
+                    liveOffsetMs > catchUpThresholdMs
+                } else {
+                    delayBeyondTargetMs > allowedDelayBeyondTargetMs
+                }
+                val now = SystemClock.elapsedRealtime()
+                val cooldownElapsed = lastLivePriorityCatchUpRealtimeMs == Long.MIN_VALUE ||
+                    now - lastLivePriorityCatchUpRealtimeMs >= LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS
+                if (!recoveredToLive && player.isPlaying && prefs().isVaftEnabled() &&
                     prefs().getString(C.PLAYER_VAFT_PLAYBACK_PRIORITY, C.VAFT_PRIORITY_LIVE) == C.VAFT_PRIORITY_LIVE &&
-                    livePositionMs - player.currentPosition > 6_000L) {
+                    shouldCatchUp && cooldownElapsed) {
+                    lastLivePriorityCatchUpRealtimeMs = now
                     if (BuildConfig.DEBUG) Log.d("XtraVaftFeed",
-                        "event=live_priority_catch_up skippedMs=${livePositionMs - player.currentPosition}")
-                    player.seekTo(livePositionMs)
+                        "event=live_priority_catch_up liveOffsetMs=$liveOffsetMs " +
+                            "delayBeyondTargetMs=$delayBeyondTargetMs catchUpThresholdMs=$catchUpThresholdMs method=default")
+                    player.seekToDefaultPosition()
                 }
                 val epochUs = window.windowStartTimeMs * 1_000L + player.currentPosition * 1_000L
                 val alternate = controlled.isAlternateAt(epochUs)
@@ -6818,7 +6847,6 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val PERF_TAG = "PlaybackPerf"
-        private const val LIVE_PRIORITY_CATCH_UP_THRESHOLD_MS = 6_000L
         private const val LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS = 15_000L
         private const val RESUMPTION_TAG = "PlaybackResumption"
         private const val VAFT_PRIMARY_RETURN_MIN_HOLD_MS = 30_000L

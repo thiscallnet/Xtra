@@ -2,6 +2,15 @@ package com.github.andreyasadchy.xtra.util
 
 import androidx.media3.exoplayer.DefaultLoadControl
 
+/** Catches up at the later of six seconds total offset or four seconds beyond the target. */
+object LivePriorityCatchUpPolicy {
+    private const val MINIMUM_CATCH_UP_OFFSET_MS = 6_000L
+    private const val ALLOWED_DELAY_BEYOND_TARGET_MS = 4_000L
+
+    fun thresholdMs(targetOffsetMs: Long): Long =
+        maxOf(MINIMUM_CATCH_UP_OFFSET_MS, targetOffsetMs + ALLOWED_DELAY_BEYOND_TARGET_MS)
+}
+
 data class PlaybackBufferPolicy(
     val minBufferMs: Int,
     val maxBufferMs: Int,
