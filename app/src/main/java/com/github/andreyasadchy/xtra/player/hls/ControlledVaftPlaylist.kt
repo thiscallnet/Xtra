@@ -102,14 +102,14 @@ class ControlledVaftPlaylist(
         initializationClocks.clear()
     }
 
-    data class Recovery(val epochUs: Long, val prioritizeLive: Boolean)
+    data class Recovery(val prioritizeLive: Boolean)
 
     fun consumeRecovery(windowStartUs: Long, windowEndUs: Long): Recovery? = currentFeed?.let { feed -> synchronized(feed) {
         val recovery = feed.recoveryEpochUs
         val epochUs = if (feed.recoveryAtWindowEnd) windowEndUs else windowStartUs
         if (recovery != null && epochUs >= recovery) {
             feed.recoveryEpochUs = null
-            Recovery(recovery, feed.recoveryAtWindowEnd)
+            Recovery(feed.recoveryAtWindowEnd)
         } else null
     } }
 
