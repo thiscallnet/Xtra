@@ -90,6 +90,90 @@ class ChatTimelineArchitectureTest {
     }
 
     @Test
+    fun truncatedChatCopiesPairWithFullRewardInputsInEitherArrivalOrder() = runBlocking {
+        val chatLimitCopy = "Kappa Jensen is Love, Jensen is Life. ".repeat(12)
+        val fullInputs = listOf(
+            chatLimitCopy + "first redemption has a long provider-only suffix ".repeat(3),
+            chatLimitCopy + "second redemption has a different long provider-only suffix ".repeat(3),
+        )
+        val events = fullInputs.mapIndexed { index, fullInput ->
+            val chat = TwitchChatEventParser.fromEventSub(
+                JSONObject()
+                    .put("broadcaster_user_id", "channel")
+                    .put("chatter_user_id", "user")
+                    .put("chatter_user_login", "viewer")
+                    .put("chatter_user_name", "Viewer")
+                    .put("message_id", "chat-$index")
+                    .put("message", JSONObject().put("text", chatLimitCopy).put("fragments", org.json.JSONArray()
+                        .put(JSONObject().put("type", "text").put("text", chatLimitCopy))))
+                    .put("badges", org.json.JSONArray().put(JSONObject().put("set_id", "subscriber").put("id", "12")))
+                    .put("message_type", "text")
+                    .put("channel_points_custom_reward_id", "reward-1"),
+                "2026-10-17T12:00:00Z",
+            )
+            val redemption = TwitchChatEventParser.fromEventSubRewardRedemption(
+                JSONObject()
+                    .put("id", "redemption-$index")
+                    .put("broadcaster_user_id", "channel")
+                    .put("user_id", "user")
+                    .put("user_login", "viewer")
+                    .put("user_name", "Viewer")
+                    .put("user_input", fullInput)
+                    .put("redeemed_at", "2026-10-17T12:00:00Z")
+                    .put("reward", JSONObject().put("id", "reward-1").put("title", "Tangia TTS").put("cost", 1000)),
+                "2026-10-17T12:00:00Z",
+            )
+            chat to redemption
+        }
+
+        listOf(
+            events.flatMap { listOf(it.first, it.second) },
+            events.asReversed().flatMap { listOf(it.second, it.first) },
+        ).forEach { orderedEvents ->
+            val scope = CoroutineScope(Dispatchers.Default)
+            val store = ChatTimelineStore(scope, maxSize = 10)
+            val processor = ChatEventProcessor(scope, store)
+            val key = com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey("channel", 1)
+            try {
+                processor.activate(key)
+                orderedEvents.forEach { processor.submit(key, it) }
+
+                val rows = awaitSnapshot(store) { it.size == 2 && it.all { row -> row.rewardSourcesMerged } }
+                assertEquals(2, rows.size)
+                assertEquals(setOf("chat-0", "chat-1"), rows.map { it.id.value }.toSet())
+                assertEquals(setOf(chatLimitCopy), rows.map { it.rawText }.toSet())
+                assertTrue(rows.all { it.badges.single().setId == "subscriber" })
+                assertEquals(setOf("redemption-0", "redemption-1"), rows.map { it.rewardRedemptionId }.toSet())
+            } finally {
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test
+    fun shortRewardInputPrefixDoesNotCollapseSeparateMessages() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 10)
+        try {
+            val chat = message(1, "user").copy(
+                rawText = "short reward input",
+                rewardId = "reward-1",
+            )
+            val redemption = message(2, "user").copy(
+                rawText = "short reward input with an unrelated suffix",
+                rewardId = "reward-1",
+                rewardRedemptionId = "redemption-1",
+                noticeType = "channel_points_custom_reward_redemption",
+            )
+            store.apply(com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation.Append(listOf(chat, redemption)))
+
+            assertEquals(2, store.snapshot().size)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun appendDeltasAreRepeatableForIndependentUiCollectors() = runBlocking {
         val scope = CoroutineScope(Dispatchers.Default)
         val store = ChatTimelineStore(scope, maxSize = 2)

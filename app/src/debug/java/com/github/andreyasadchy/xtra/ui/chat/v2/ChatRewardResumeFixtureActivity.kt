@@ -132,19 +132,23 @@ class ChatRewardResumeFixtureActivity : AppCompatActivity() {
                 val input = when {
                     intent.getBooleanExtra("no_input", false) -> ""
                     intent.getBooleanExtra("same_text", false) -> "Same viewer input"
+                    intent.getBooleanExtra("truncated_input", false) ->
+                        "Kappa " + "Jensen is Love, Jensen is Life. ".repeat(12) +
+                            "redemption $index has a raw-only suffix. ".repeat(5)
                     else -> "Viewer input ${index + 1}"
                 }
+                val chatInput = if (intent.getBooleanExtra("truncated_input", false)) input.take(400) else input
                 val chat = if (intent.getBooleanExtra("chat_eventsub", false)) {
                     TwitchChatEventParser.fromEventSub(
                         JSONObject().put("message_id", "chat-$index").put("broadcaster_user_id", key.channelId)
                             .put("chatter_user_id", "fixture-viewer").put("chatter_user_login", "fixtureviewer")
                             .put("chatter_user_name", "FixtureViewer").put("color", "#E8712A")
                             .put("channel_points_custom_reward_id", "tts")
-                            .put("message", JSONObject().put("text", input)),
+                            .put("message", JSONObject().put("text", chatInput)),
                         Instant.ofEpochMilli(chatAt).toString(),
                     )
                 } else TwitchChatEventParser.fromIrc(
-                    ChatUtils.parseIRCMessage("@id=chat-$index;user-id=fixture-viewer;display-name=FixtureViewer;color=#E8712A;custom-reward-id=tts;tmi-sent-ts=$chatAt :fixtureviewer!fixtureviewer@fixtureviewer.tmi.twitch.tv PRIVMSG #fixture :$input"),
+                    ChatUtils.parseIRCMessage("@id=chat-$index;user-id=fixture-viewer;display-name=FixtureViewer;color=#E8712A;custom-reward-id=tts;tmi-sent-ts=$chatAt :fixtureviewer!fixtureviewer@fixtureviewer.tmi.twitch.tv PRIVMSG #fixture :$chatInput"),
                     key.channelId,
                 )!!
                 val notice = if (intent.getBooleanExtra("eventsub", false)) {
