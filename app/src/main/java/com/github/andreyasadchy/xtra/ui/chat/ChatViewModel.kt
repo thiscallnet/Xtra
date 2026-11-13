@@ -748,6 +748,7 @@ class ChatViewModel(
     val chatIdentityError: Flow<String> = chatIdentityErrors
     private val channelPointsBalanceReducer = ChannelPointsBalanceReducer()
     private val channelPointsBalanceLock = Any()
+    private val perStreamUnavailableChannelPointRewardIds = mutableSetOf<String>()
     private var channelPointsBalanceState = ChannelPointsBalanceReducer.State()
     private var slowModeLastMessageElapsedRealtime: Long? = null
     private var slowModeCountdownJob: Job? = null
@@ -3060,7 +3061,7 @@ class ChatViewModel(
                         } else {
                             ChannelPointRewardInput.NONE
                         },
-                        isAvailable = reward.isInStock != false,
+                        isAvailable = reward.isInStock != false && id !in perStreamUnavailableChannelPointRewardIds,
                     )
                 } else null
             }
@@ -3094,7 +3095,7 @@ class ChatViewModel(
                             ?: automaticRewardColor(type),
                         inputType = redemptionType.inputType(),
                         redemptionType = redemptionType,
-                        isAvailable = reward.isInStock != false,
+                        isAvailable = reward.isInStock != false && id !in perStreamUnavailableChannelPointRewardIds,
                     )
                 } else null
             }
@@ -3803,6 +3804,9 @@ class ChatViewModel(
                 val error = response.errors?.firstOrNull()?.message
                     ?: response.data?.errorCode()
                 if (error != null || response.data?.hasPayload() != true) {
+                    if (error?.contains("MAX_PER_USER_PER_STREAM", ignoreCase = true) == true) {
+                        markChannelPointRewardUnavailableForStream(reward.id)
+                    }
                     channelPointRedemptionEvents.send(
                         ChannelPointRedemptionResult(
                             reward.title,
@@ -3837,6 +3841,15 @@ class ChatViewModel(
                     )
                 }
             }
+        }
+    }
+
+    private fun markChannelPointRewardUnavailableForStream(rewardId: String) {
+        perStreamUnavailableChannelPointRewardIds.add(rewardId)
+        channelPoints.value = channelPoints.value?.let { points ->
+            points.copy(rewards = points.rewards.map { reward ->
+                if (reward.id == rewardId) reward.copy(isAvailable = false) else reward
+            })
         }
     }
 
@@ -4185,6 +4198,7 @@ class ChatViewModel(
                 !activeChannelLogin.equals(channelLogin, ignoreCase = true)
         stopLiveChat()
         if (channelChanged) {
+            perStreamUnavailableChannelPointRewardIds.clear()
             resetViewerRoleForSessionChange()
             clearChatUserSuggestions()
             synchronized(userEmotes) { userEmotes.clear() }
@@ -6632,6 +6646,7 @@ class ChatViewModel(
                     val previousStreamId = this@ChatViewModel.streamId
                     this@ChatViewModel.streamId = resolvedStreamId
                     if (!previousStreamId.isNullOrBlank() && previousStreamId != resolvedStreamId) {
+                        perStreamUnavailableChannelPointRewardIds.clear()
                         this@ChatViewModel.clearSessionOnlyDrops()
                     }
                     Log.d(
