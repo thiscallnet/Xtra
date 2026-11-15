@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra
 
 import android.annotation.SuppressLint
 import android.app.ActivityManager
+import android.app.ApplicationExitInfo
 import android.app.Application
 import android.os.Build
 import android.os.Process
@@ -32,6 +33,12 @@ import com.github.andreyasadchy.xtra.util.coil.EmoteRoutingDiskCache
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.repository.auth.AuthSessionStore
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedPrewarmScheduler
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
 import kotlinx.coroutines.CancellationException
@@ -54,6 +61,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
     companion object {
         lateinit var INSTANCE: Application
         private const val BYTES_PER_MIB = 1024L * 1024L
+        private const val KEY_LAST_DIAGNOSTIC_EXIT_TIMESTAMP = "diagnostics_last_process_exit_timestamp"
         private const val EMOTE_CACHE_ALLOCATION_NUMERATOR = 2L
         private const val EMOTE_CACHE_ALLOCATION_DENOMINATOR = 3L
         private const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
@@ -108,6 +116,7 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
         MainLooperStallWatchdog.start()
         val pendingSettingsRestore = SettingsRestoreCoordinator.installPendingDatabase(this)
         xtraModule = XtraModule(this)
+        if (processName == packageName) recordPreviousProcessExit()
         if (pendingSettingsRestore) {
             val database = xtraModule.database
             try {
@@ -131,6 +140,64 @@ class XtraApp : Application(), SingletonImageLoader.Factory {
             val conscrypt = Conscrypt.newProvider()
             Security.insertProviderAt(conscrypt, 1)
         }
+    }
+
+    private fun recordPreviousProcessExit() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
+        val logger = xtraModule.diagnosticsLogger
+        if (!logger.isEnabled) return
+        val reportableReasons = setOf(
+            ApplicationExitInfo.REASON_ANR,
+            ApplicationExitInfo.REASON_CRASH,
+            ApplicationExitInfo.REASON_CRASH_NATIVE,
+            ApplicationExitInfo.REASON_LOW_MEMORY,
+            ApplicationExitInfo.REASON_SIGNALED,
+            ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE,
+            ApplicationExitInfo.REASON_INITIALIZATION_FAILURE,
+            ApplicationExitInfo.REASON_DEPENDENCY_DIED,
+        )
+        val lastReportedTimestamp = prefs().getLong(KEY_LAST_DIAGNOSTIC_EXIT_TIMESTAMP, 0L)
+        val previousExit = runCatching {
+            getSystemService(ActivityManager::class.java)
+                ?.getHistoricalProcessExitReasons(packageName, 0, 8)
+                ?.firstOrNull { exit ->
+                    exit.processName == packageName &&
+                        exit.timestamp > lastReportedTimestamp &&
+                        exit.reason in reportableReasons
+                }
+        }.getOrNull() ?: return
+        val reason = processExitReason(previousExit.reason)
+        logger.event(
+            category = DiagnosticsCategory.PLAYBACK,
+            severity = if (previousExit.reason == ApplicationExitInfo.REASON_CRASH ||
+                previousExit.reason == ApplicationExitInfo.REASON_CRASH_NATIVE ||
+                previousExit.reason == ApplicationExitInfo.REASON_ANR
+            ) DiagnosticsSeverity.ERROR else DiagnosticsSeverity.WARN,
+            transport = DiagnosticsTransport.LOCAL,
+            operation = "app_process",
+            event = "previous_process_exit",
+            phase = DiagnosticsPhase.ERROR,
+            code = reason,
+            fields = listOf(
+                DiagnosticsField(DiagnosticsFieldKey.PROCESS_EXIT_REASON, reason),
+                DiagnosticsField(DiagnosticsFieldKey.PROCESS_IMPORTANCE, previousExit.importance.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.EXIT_TIMESTAMP_MS, previousExit.timestamp.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.EXIT_STATUS_CODE, previousExit.status.toString()),
+            ),
+        )
+        prefs().edit { putLong(KEY_LAST_DIAGNOSTIC_EXIT_TIMESTAMP, previousExit.timestamp) }
+    }
+
+    private fun processExitReason(reason: Int): String = when (reason) {
+        ApplicationExitInfo.REASON_ANR -> "anr"
+        ApplicationExitInfo.REASON_CRASH -> "crash"
+        ApplicationExitInfo.REASON_CRASH_NATIVE -> "native_crash"
+        ApplicationExitInfo.REASON_LOW_MEMORY -> "low_memory"
+        ApplicationExitInfo.REASON_SIGNALED -> "signaled"
+        ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE -> "excessive_resource_usage"
+        ApplicationExitInfo.REASON_INITIALIZATION_FAILURE -> "initialization_failure"
+        ApplicationExitInfo.REASON_DEPENDENCY_DIED -> "dependency_died"
+        else -> "other_$reason"
     }
 
     internal fun completeRestoredSettingsMigration() {

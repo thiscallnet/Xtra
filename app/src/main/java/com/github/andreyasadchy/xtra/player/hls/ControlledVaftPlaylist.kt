@@ -15,6 +15,12 @@ import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import androidx.media3.exoplayer.hls.playlist.HlsPlaylist
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.ui.player.TwitchVaftController
 import com.github.andreyasadchy.xtra.util.C as Settings
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -46,6 +52,8 @@ import java.time.Instant
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
+
+private const val VAFT_RESOLUTION_DIAGNOSTIC_INTERVAL_MS = 15_000L
 
 /** Owns the sequence that the HLS loader sees, before any media is queued. */
 @androidx.media3.common.util.UnstableApi
@@ -85,6 +93,12 @@ class ControlledVaftPlaylist(
         var qualityRefresh: Job? = null
         var lastQualityRefreshMs = Long.MIN_VALUE
         var improved: Resolution? = null
+        var initialResolutionStartedMs: Long? = null
+        var initialResolutionStartReported = false
+        var initialResolutionReported = false
+        var initialResolutionTimeoutReported = false
+        var lastResolutionDiagnosticMs = Long.MIN_VALUE
+        var lastResolutionDiagnosticOutcome: String? = null
         @Volatile var visible: List<Published> = emptyList()
         @Volatile var primaryVaftRanges = emptyList<VaftBoundaryObservation>()
     }
@@ -262,15 +276,70 @@ class ControlledVaftPlaylist(
             val last = feed.published.lastOrNull()
             val needsResolution = tailBlocked || blockedAhead ||
                 (!primaryExtended && feed.candidate != null) || (last != null && last.playerType != primaryType)
+            val resolutionReason = when {
+                feed.published.isEmpty() -> "initial_empty"
+                tailBlocked -> "blocked_tail"
+                blockedAhead -> "blocked_ahead"
+                feed.candidate != null -> "candidate_pending"
+                last?.playerType != null && last.playerType != primaryType -> "alternate_active"
+                else -> "unknown"
+            }
             if (!needsResolution && primaryExtended) {
                 feed.generation++
                 feed.resolving?.cancel()
                 feed.resolved = null
             }
             if (feed.published.isEmpty()) {
-                if (needsResolution) resolveAsync(feed, format, uri, playlist, blocked, now)
+                if (feed.initialResolutionStartedMs == null) {
+                    feed.initialResolutionStartedMs = now
+                }
+                if (!feed.initialResolutionStartReported && module.diagnosticsLogger.isEnabled) {
+                    feed.initialResolutionStartReported = true
+                    reportVaftResolution(
+                        event = "resolution_wait_started",
+                        phase = DiagnosticsPhase.REQUEST,
+                        severity = DiagnosticsSeverity.INFO,
+                        code = resolutionReason,
+                        elapsedMs = null,
+                        format = format,
+                        fields = listOf(
+                            DiagnosticsField(DiagnosticsFieldKey.RESOLUTION_REASON, resolutionReason),
+                            DiagnosticsField(DiagnosticsFieldKey.COUNT, blocked.count { it }.toString()),
+                        ),
+                    )
+                }
+                if (needsResolution) resolveAsync(feed, format, uri, playlist, blocked, now, resolutionReason)
                 if (now - feed.createdMs < 20_000L) throw WaitingForVerifiedMediaException()
+                if (!feed.initialResolutionTimeoutReported && module.diagnosticsLogger.isEnabled) {
+                    feed.initialResolutionTimeoutReported = true
+                    reportVaftResolution(
+                        event = "resolution_wait_timeout",
+                        phase = DiagnosticsPhase.ERROR,
+                        severity = DiagnosticsSeverity.ERROR,
+                        code = "no_verified_media",
+                        elapsedMs = (now - (feed.initialResolutionStartedMs ?: feed.createdMs)).coerceAtLeast(0L),
+                        format = format,
+                        fields = listOf(DiagnosticsField(DiagnosticsFieldKey.RESOLUTION_REASON, resolutionReason)),
+                    )
+                }
                 throw IOException("No verified live media is available yet")
+            }
+            feed.initialResolutionStartedMs?.let { startedAtMs ->
+                if (!feed.initialResolutionReported && module.diagnosticsLogger.isEnabled) {
+                    feed.initialResolutionReported = true
+                    reportVaftResolution(
+                        event = "resolution_wait_ready",
+                        phase = DiagnosticsPhase.RESULT,
+                        severity = DiagnosticsSeverity.INFO,
+                        code = if (feed.published.lastOrNull()?.playerType == primaryType) "primary_media" else "replacement_media",
+                        elapsedMs = (now - startedAtMs).coerceAtLeast(0L),
+                        format = format,
+                        fields = listOf(
+                            DiagnosticsField(DiagnosticsFieldKey.RESOLUTION_REASON, "initial_empty"),
+                            DiagnosticsField(DiagnosticsFieldKey.RESULT_COUNT, feed.published.size.toString()),
+                        ),
+                    )
+                }
             }
             while (feed.published.size > 30) feed.published.removeAt(0)
             if (feed.fingerprints.size > 120) feed.fingerprints.clear()
@@ -278,7 +347,7 @@ class ControlledVaftPlaylist(
             val first = feed.published.first()
             val publishedLast = feed.published.last()
             val result = snapshot(playlist, feed.published, feed.candidate)
-            if (needsResolution) resolveAsync(feed, format, uri, playlist, blocked, now)
+            if (needsResolution) resolveAsync(feed, format, uri, playlist, blocked, now, resolutionReason)
             if (publishedLast.playerType != primaryType) refreshAlternateQuality(feed, format, now)
             if (VaftPlaylistCapture.isEnabled) {
                 VaftPlaylistCapture.record(uri.toString(), buildString {
@@ -307,7 +376,7 @@ class ControlledVaftPlaylist(
     }
 
     private fun resolveAsync(feed: Feed, format: Format, uri: Uri, primary: HlsMediaPlaylist,
-                             blocked: List<Boolean>, now: Long) {
+                             blocked: List<Boolean>, now: Long, resolutionReason: String) {
         if (closed || feed.resolving?.isActive == true ||
             (feed.lastSearchMs != Long.MIN_VALUE && now - feed.lastSearchMs < 500L)) return
         feed.lastSearchMs = now
@@ -331,11 +400,71 @@ class ControlledVaftPlaylist(
                     resolveReplacement(wanted, probe, known) ?: Resolution(null, null, false)
                 }
             }
-            synchronized(feed) {
-                if (!closed && generation == feed.generation) feed.resolved = result ?: Resolution(null, null, false)
+            val isCurrentResult = synchronized(feed) {
+                if (closed || generation != feed.generation) {
+                    false
+                } else {
+                    feed.resolved = result ?: Resolution(null, null, false)
+                    true
+                }
+            }
+            if (!isCurrentResult) return@launch
+            val outcome = when {
+                result == null -> "timed_out"
+                result.candidate == null -> "no_media"
+                result.primary -> "primary_media"
+                else -> "replacement_media"
+            }
+            val completedAtMs = SystemClock.elapsedRealtime()
+            val shouldReport = synchronized(feed) {
+                if (!module.diagnosticsLogger.isEnabled) return@synchronized false
+                val changed = feed.lastResolutionDiagnosticOutcome != outcome
+                val intervalElapsed = feed.lastResolutionDiagnosticMs == Long.MIN_VALUE ||
+                    completedAtMs - feed.lastResolutionDiagnosticMs >= VAFT_RESOLUTION_DIAGNOSTIC_INTERVAL_MS
+                if (!changed && !intervalElapsed) return@synchronized false
+                feed.lastResolutionDiagnosticOutcome = outcome
+                feed.lastResolutionDiagnosticMs = completedAtMs
+                true
+            }
+            if (shouldReport) {
+                reportVaftResolution(
+                    event = "resolution_completed",
+                    phase = if (result?.candidate != null) DiagnosticsPhase.RESULT else DiagnosticsPhase.EVENT,
+                    severity = if (result?.candidate != null) DiagnosticsSeverity.INFO else DiagnosticsSeverity.WARN,
+                    code = outcome,
+                    elapsedMs = (completedAtMs - now).coerceAtLeast(0L),
+                    format = format,
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.RESOLUTION_REASON, resolutionReason),
+                        DiagnosticsField(DiagnosticsFieldKey.RESULT_COUNT, if (result?.candidate != null) "1" else "0"),
+                    ),
+                )
             }
             if (BuildConfig.DEBUG) Log.d("XtraVaftFeed", "event=resolve_complete channel=$channel elapsedMs=${SystemClock.elapsedRealtime() - now} ready=${result?.candidate != null}")
         }
+    }
+
+    private fun reportVaftResolution(
+        event: String,
+        phase: DiagnosticsPhase,
+        severity: DiagnosticsSeverity,
+        code: String,
+        elapsedMs: Long?,
+        format: Format,
+        fields: List<DiagnosticsField>,
+    ) {
+        if (!module.diagnosticsLogger.isEnabled) return
+        module.diagnosticsLogger.event(
+            category = DiagnosticsCategory.PLAYBACK,
+            severity = severity,
+            transport = DiagnosticsTransport.PLAYER,
+            operation = "vaft_playlist",
+            event = event,
+            phase = phase,
+            code = code,
+            elapsedMs = elapsedMs,
+            fields = fields + DiagnosticsField(DiagnosticsFieldKey.VIDEO_HEIGHT, format.height.toString()),
+        )
     }
 
     private fun wantedFormat(format: Format): Format {

@@ -20,9 +20,20 @@ internal object DiagnosticsSanitizer {
     private val labelKeys = setOf(
         DiagnosticsFieldKey.ACCOUNT_LOGIN,
         DiagnosticsFieldKey.NETWORK_LIBRARY,
+        DiagnosticsFieldKey.REQUEST_TYPE,
         DiagnosticsFieldKey.HOST,
         DiagnosticsFieldKey.CACHE_STATE,
         DiagnosticsFieldKey.SESSION_STATE,
+        DiagnosticsFieldKey.TAP_SOURCE,
+        DiagnosticsFieldKey.MEDIA_SOURCE,
+        DiagnosticsFieldKey.PROXY_ROUTE,
+        DiagnosticsFieldKey.PROCESS_EXIT_REASON,
+        DiagnosticsFieldKey.PLAYBACK_SURFACE,
+        DiagnosticsFieldKey.RESOLUTION_REASON,
+    )
+    private val playbackFormatKeys = setOf(
+        DiagnosticsFieldKey.VIDEO_CODEC,
+        DiagnosticsFieldKey.VIDEO_DECODER,
     )
     private val loginPattern = Regex("[a-z0-9_]{1,30}")
     private val accountIdPattern = Regex("[0-9]{1,32}")
@@ -36,6 +47,13 @@ internal object DiagnosticsSanitizer {
         DiagnosticsFieldKey.ACTIVE,
         DiagnosticsFieldKey.AUTHENTICATED,
         DiagnosticsFieldKey.LIVE,
+        DiagnosticsFieldKey.PLAY_WHEN_READY,
+        DiagnosticsFieldKey.URL_WARM,
+        DiagnosticsFieldKey.PREVIEW_ALREADY_PLAYING,
+        DiagnosticsFieldKey.VIDEO_DECODER_HARDWARE,
+        DiagnosticsFieldKey.LOW_LATENCY,
+        DiagnosticsFieldKey.BACKGROUND_PLAYBACK,
+        DiagnosticsFieldKey.CASTING,
     )
     private val numberKeys = setOf(
         DiagnosticsFieldKey.COUNT,
@@ -51,9 +69,31 @@ internal object DiagnosticsSanitizer {
         DiagnosticsFieldKey.KEEPALIVE_SEC,
         DiagnosticsFieldKey.ANDROID_API,
         DiagnosticsFieldKey.RECONNECT_DELAY_MS,
+        DiagnosticsFieldKey.BUFFER_AHEAD_MS,
+        DiagnosticsFieldKey.LIVE_OFFSET_MS,
+        DiagnosticsFieldKey.BUFFERING_DURATION_MS,
+        DiagnosticsFieldKey.TAP_TO_URL_MS,
+        DiagnosticsFieldKey.TAP_TO_START_MS,
+        DiagnosticsFieldKey.TAP_TO_PREPARE_MS,
+        DiagnosticsFieldKey.TAP_TO_READY_MS,
+        DiagnosticsFieldKey.TAP_TO_FIRST_FRAME_MS,
+        DiagnosticsFieldKey.TAP_TO_FAILURE_MS,
+        DiagnosticsFieldKey.TAP_TO_STALL_MS,
+        DiagnosticsFieldKey.PREPARE_TO_READY_MS,
+        DiagnosticsFieldKey.PREPARE_TO_FIRST_FRAME_MS,
+        DiagnosticsFieldKey.PREPARE_TO_FAILURE_MS,
+        DiagnosticsFieldKey.PREPARE_TO_STALL_MS,
+        DiagnosticsFieldKey.BANDWIDTH_ESTIMATE_BPS,
+        DiagnosticsFieldKey.VIDEO_BITRATE_BPS,
+        DiagnosticsFieldKey.VIDEO_HEIGHT,
+        DiagnosticsFieldKey.DROPPED_VIDEO_FRAMES,
+        DiagnosticsFieldKey.PROCESS_IMPORTANCE,
+        DiagnosticsFieldKey.EXIT_TIMESTAMP_MS,
+        DiagnosticsFieldKey.EXIT_STATUS_CODE,
     )
     private val idPattern = Regex("[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}")
     private val numberPattern = Regex("-?[0-9]+(?:\\.[0-9]+)?")
+    private val playbackFormatPattern = Regex("[A-Za-z0-9][A-Za-z0-9_.:,/+ -]{0,63}")
     private val progressPattern = Regex("[0-9]+(?:\\.[0-9]+)?/(?:[0-9]+(?:\\.[0-9]+)?|\\?)")
     private val statePattern = Regex("[A-Za-z][A-Za-z0-9_.:_-]{0,63}")
 
@@ -101,6 +141,7 @@ internal object DiagnosticsSanitizer {
         key in idKeys -> idPattern.matches(value)
         key == DiagnosticsFieldKey.ACCOUNT_LOGIN -> loginPattern.matches(value.lowercase())
         key in labelKeys -> statePattern.matches(value)
+        key in playbackFormatKeys -> playbackFormatPattern.matches(value)
         key in booleanKeys -> value == "true" || value == "false"
         key in numberKeys -> numberPattern.matches(value)
         key == DiagnosticsFieldKey.PROGRESS -> progressPattern.matches(value)
