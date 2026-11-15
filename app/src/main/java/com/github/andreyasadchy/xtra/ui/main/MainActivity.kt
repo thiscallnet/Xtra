@@ -115,6 +115,12 @@ import com.github.andreyasadchy.xtra.util.updater.UpdateCheckScheduler
 import com.github.andreyasadchy.xtra.util.updater.UpdateState
 import com.github.andreyasadchy.xtra.ui.update.UpdateDetailsBottomSheet
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.util.applyTheme
 import com.github.andreyasadchy.xtra.util.rawPrefs
 import com.github.andreyasadchy.xtra.util.prefs
@@ -861,6 +867,23 @@ class MainActivity : AppCompatActivity() {
         val wasInPictureInPicture = wasInPictureInPictureMode
         wasInPictureInPictureMode = isInPictureInPictureMode
         super.onPictureInPictureModeChanged(isInPictureInPictureMode)
+        if (wasInPictureInPicture != isInPictureInPictureMode && playerFragment != null) {
+            (application as? XtraApp)?.xtraModule?.diagnosticsLogger?.event(
+                category = DiagnosticsCategory.PLAYBACK,
+                severity = DiagnosticsSeverity.INFO,
+                transport = DiagnosticsTransport.PLAYER,
+                operation = "stream_surface",
+                event = "surface_changed",
+                phase = DiagnosticsPhase.EVENT,
+                fields = listOf(
+                    DiagnosticsField(
+                        DiagnosticsFieldKey.PLAYBACK_SURFACE,
+                        if (isInPictureInPictureMode) "picture_in_picture" else "fullscreen",
+                    ),
+                    DiagnosticsField(DiagnosticsFieldKey.ACTIVE, "true"),
+                ),
+            )
+        }
         val backgroundAudioActionExitedPictureInPicture = wasInPictureInPicture &&
             !isInPictureInPictureMode &&
             backgroundAudioActionExitingPictureInPicture

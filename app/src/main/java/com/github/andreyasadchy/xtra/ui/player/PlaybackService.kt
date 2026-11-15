@@ -69,6 +69,12 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.player.hls.HiddenStreamAudioPlaylist
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
@@ -111,6 +117,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
 import java.util.Timer
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
@@ -127,12 +134,15 @@ import kotlin.concurrent.scheduleAtFixedRate
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
+    private val reportedPlaybackDiagnosticLoads = ConcurrentHashMap.newKeySet<String>()
+    private val reportedPlaybackDiagnosticLoadErrors = ConcurrentHashMap<String, Long>()
 
     lateinit var xtraModule: XtraModule
 
     private var mediaSession: MediaSession? = null
     private var bootstrapForegroundActive = false
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var streamStartupStallCheck: Runnable? = null
     private var playbackPlayer: ExoPlayer? = null
     private var playbackSessionPlayer: PlaybackSessionPlayer? = null
     private var castPlayer: CastPlayer? = null
@@ -161,6 +171,8 @@ class PlaybackService : MediaSessionService() {
     private val diagnostics = PlaybackVideoDiagnosticsStore()
     private var dynamicsProcessing: DynamicsProcessing? = null
     private var backgroundPlayback = false
+    private var liveReadyReachedForCurrentItem = false
+    private var liveRebufferStartedAtMs: Long? = null
     private var hiddenAudioJob: Job? = null
     private var hiddenAudioSource: HiddenStreamAudioPlaylist? = null
     private val screenVisibilityReceiver = object : BroadcastReceiver() {
@@ -196,6 +208,7 @@ class PlaybackService : MediaSessionService() {
     private var viewingContentType: String? = null
     private var viewingContentId: String? = null
     private var streamStartupTrace: StreamStartupTrace? = null
+    private var streamStartupMediaId: String? = null
     private var liveRewindActive = false
     private var liveRewindVodId: String? = null
     private var liveRewindTransitioning = false
@@ -472,6 +485,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    cancelStreamStartupStallCheck()
                     systemReplayRollback?.takeIf { it.first == player.currentMediaItem?.mediaId && !isCasting() }?.let { (_, snapshot) ->
                         systemReplayRollback = null
                         setLiveRewindSessionState(active = snapshot.liveRewindActive, vodId = snapshot.liveRewindVodId)
@@ -488,6 +502,47 @@ class PlaybackService : MediaSessionService() {
                                 "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)}",
                         )
                     }
+                    if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE) {
+                        finishLiveRebuffer(player, SystemClock.elapsedRealtime(), "player_error")
+                        streamStartupTrace?.markFailure()?.let { milestone ->
+                            if (xtraModule.diagnosticsLogger.isEnabled) xtraModule.diagnosticsLogger.event(
+                                category = DiagnosticsCategory.PLAYBACK,
+                                severity = DiagnosticsSeverity.ERROR,
+                                transport = DiagnosticsTransport.PLAYER,
+                                operation = "stream_startup",
+                                event = "startup_failed",
+                                phase = DiagnosticsPhase.ERROR,
+                                elapsedMs = milestone.tapToMilestoneMs,
+                                code = error.errorCodeName,
+                                fields = startupDiagnosticFields(milestone, "startup_failed") +
+                                    playbackNetworkDiagnosticFields(player),
+                            )
+                        }
+                        val responseCode = generateSequence(error.cause) { it.cause }
+                            .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                            .firstOrNull()?.responseCode
+                        if (xtraModule.diagnosticsLogger.isEnabled) xtraModule.diagnosticsLogger.event(
+                            category = DiagnosticsCategory.PLAYBACK,
+                            severity = DiagnosticsSeverity.ERROR,
+                            transport = DiagnosticsTransport.PLAYER,
+                            operation = "stream_player",
+                            event = "player_error",
+                            phase = DiagnosticsPhase.ERROR,
+                            httpStatus = responseCode,
+                            code = error.errorCodeName,
+                            fields = listOf(
+                                DiagnosticsField(DiagnosticsFieldKey.STATE, when (player.playbackState) {
+                                    Player.STATE_IDLE -> "idle"
+                                    Player.STATE_BUFFERING -> "buffering"
+                                    Player.STATE_READY -> "ready"
+                                    Player.STATE_ENDED -> "ended"
+                                    else -> "unknown_${player.playbackState}"
+                                }),
+                                DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, error.cause?.javaClass?.simpleName ?: "unknown"),
+                                DiagnosticsField(DiagnosticsFieldKey.ACTIVE, player.isPlaying.toString()),
+                            ) + playbackNetworkDiagnosticFields(player),
+                        )
+                    }
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFailed() }
                     if (backgroundPlayback && vaftCoordinatorJob?.isActive != true
                         && player.playWhenReady && viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
@@ -502,6 +557,34 @@ class PlaybackService : MediaSessionService() {
                     updateAdaptiveLiveSampleTicker(player)
                     updateVaft(player)
                     updateViewingStats(player)
+                    recordLiveBufferingTransition(playbackState, player)
+                    if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                        xtraModule.diagnosticsLogger.isEnabled
+                    ) {
+                        val liveOffsetMs = player.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET }
+                        xtraModule.diagnosticsLogger.event(
+                            category = DiagnosticsCategory.PLAYBACK,
+                            severity = if (playbackState == Player.STATE_BUFFERING) DiagnosticsSeverity.WARN else DiagnosticsSeverity.INFO,
+                            transport = DiagnosticsTransport.PLAYER,
+                            operation = "stream_player",
+                            event = "state_changed",
+                            fields = buildList {
+                                add(DiagnosticsField(DiagnosticsFieldKey.STATE, when (playbackState) {
+                                    Player.STATE_IDLE -> "idle"
+                                    Player.STATE_BUFFERING -> "buffering"
+                                    Player.STATE_READY -> "ready"
+                                    Player.STATE_ENDED -> "ended"
+                                    else -> "unknown_$playbackState"
+                                }))
+                                add(DiagnosticsField(DiagnosticsFieldKey.ACTIVE, player.isPlaying.toString()))
+                                add(DiagnosticsField(DiagnosticsFieldKey.PLAY_WHEN_READY, player.playWhenReady.toString()))
+                                add(DiagnosticsField(DiagnosticsFieldKey.BUFFER_AHEAD_MS,
+                                    (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L).toString()))
+                                liveOffsetMs?.let { add(DiagnosticsField(DiagnosticsFieldKey.LIVE_OFFSET_MS, it.toString())) }
+                                addAll(playbackNetworkDiagnosticFields(player))
+                            },
+                        )
+                    }
                     if (BuildConfig.DEBUG) {
                         val positionMs = player.currentPosition
                         val bufferedPositionMs = player.bufferedPosition
@@ -519,7 +602,19 @@ class PlaybackService : MediaSessionService() {
                         )
                     }
                     if (playbackState == Player.STATE_READY) {
-                        streamStartupTrace?.markReady()
+                        streamStartupTrace?.markReady()?.let { milestone ->
+                            if (xtraModule.diagnosticsLogger.isEnabled) xtraModule.diagnosticsLogger.event(
+                                category = DiagnosticsCategory.PLAYBACK,
+                                severity = DiagnosticsSeverity.INFO,
+                                transport = DiagnosticsTransport.PLAYER,
+                                operation = "stream_startup",
+                                event = "player_ready",
+                                phase = DiagnosticsPhase.RESULT,
+                                elapsedMs = milestone.tapToMilestoneMs,
+                                fields = startupDiagnosticFields(milestone, "player_ready") +
+                                    playbackNetworkDiagnosticFields(player),
+                            )
+                        }
                         backgroundRecoveryTimer?.cancel()
                         backgroundRecoveryTimer = null
                     } else if (playbackState == Player.STATE_BUFFERING && backgroundPlayback &&
@@ -546,6 +641,7 @@ class PlaybackService : MediaSessionService() {
                         )
                     }
                     if (!playWhenReady) {
+                        endLiveRebufferForPause(player)
                         backgroundRecoveryTimer?.cancel()
                         backgroundRecoveryTimer = null
                         backgroundRecoveryAttempt = 0
@@ -574,6 +670,20 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    if (mediaItem?.mediaId != streamStartupMediaId) {
+                        cancelStreamStartupStallCheck()
+                        streamStartupTrace = null
+                        streamStartupMediaId = null
+                    }
+                    reportedPlaybackDiagnosticLoads.clear()
+                    reportedPlaybackDiagnosticLoadErrors.clear()
+                    liveReadyReachedForCurrentItem = false
+                    liveRebufferStartedAtMs = null
+                    if (viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE) {
+                        streamStartupTrace = null
+                        streamStartupMediaId = null
+                        cancelStreamStartupStallCheck()
+                    }
                     updateHiddenStreamAudio()
                     if (BuildConfig.DEBUG) {
                         Log.d(
@@ -644,7 +754,20 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onRenderedFirstFrame() {
-                    streamStartupTrace?.markFirstFrame()
+                    cancelStreamStartupStallCheck()
+                    streamStartupTrace?.markFirstFrame()?.let { milestone ->
+                        if (xtraModule.diagnosticsLogger.isEnabled) xtraModule.diagnosticsLogger.event(
+                            category = DiagnosticsCategory.PLAYBACK,
+                            severity = DiagnosticsSeverity.INFO,
+                            transport = DiagnosticsTransport.PLAYER,
+                            operation = "stream_startup",
+                            event = "first_frame",
+                            phase = DiagnosticsPhase.RESULT,
+                            elapsedMs = milestone.tapToMilestoneMs,
+                            fields = startupDiagnosticFields(milestone, "first_frame") +
+                                playbackNetworkDiagnosticFields(player),
+                        )
+                    }
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFirstFrame(it.channelLogin) }
                     diagnostics.recordRenderedFirstFrame(player.currentTracks)
                     val firstFrameElapsedMs = SystemClock.elapsedRealtime()
@@ -738,6 +861,90 @@ class PlaybackService : MediaSessionService() {
             }
         )
         player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onLoadError(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+                error: java.io.IOException,
+                wasCanceled: Boolean,
+            ) {
+                if (wasCanceled || viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
+                    !xtraModule.diagnosticsLogger.isEnabled
+                ) return
+                val loadedMediaItem = runCatching {
+                    eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
+                }.getOrNull()
+                if (loadedMediaItem == null || loadedMediaItem.mediaId != player.currentMediaItem?.mediaId) return
+                val uri = loadEventInfo.dataSpec.uri
+                val responseCode = generateSequence(error as Throwable?) { it.cause }
+                    .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                    .firstOrNull()?.responseCode
+                val dataType = when (mediaLoadData.dataType) {
+                    Media3C.DATA_TYPE_MANIFEST -> "manifest"
+                    Media3C.DATA_TYPE_MEDIA -> "media"
+                    Media3C.DATA_TYPE_MEDIA_INITIALIZATION -> "media_initialization"
+                    Media3C.DATA_TYPE_DRM -> "drm"
+                    else -> "unknown_${mediaLoadData.dataType}"
+                }
+                val errorKey = "${loadedMediaItem.mediaId}:$dataType:${uri.host}:${error.javaClass.simpleName}:${responseCode ?: "none"}"
+                val nowMs = SystemClock.elapsedRealtime()
+                var shouldReport = false
+                reportedPlaybackDiagnosticLoadErrors.compute(errorKey) { _, lastReportedAtMs ->
+                    if (lastReportedAtMs == null || nowMs - lastReportedAtMs >= PLAYBACK_LOAD_ERROR_DIAGNOSTIC_INTERVAL_MS) {
+                        shouldReport = true
+                        nowMs
+                    } else lastReportedAtMs
+                }
+                if (!shouldReport) return
+                xtraModule.diagnosticsLogger.event(
+                    category = DiagnosticsCategory.PLAYBACK,
+                    severity = DiagnosticsSeverity.WARN,
+                    transport = DiagnosticsTransport.PLAYER,
+                    operation = "stream_hls_load",
+                    event = "load_error",
+                    phase = DiagnosticsPhase.ERROR,
+                    httpStatus = responseCode,
+                    code = error.javaClass.simpleName,
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, dataType),
+                        DiagnosticsField(DiagnosticsFieldKey.HOST, uri.host.orEmpty()),
+                    ) + playbackNetworkDiagnosticFields(player),
+                )
+            }
+
+            @Suppress("OVERRIDE_DEPRECATION")
+            override fun onLoadStarted(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+            ) {
+                if (viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
+                    !xtraModule.diagnosticsLogger.isEnabled
+                ) return
+                val loadedMediaItem = runCatching {
+                    eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
+                }.getOrNull()
+                if (loadedMediaItem == null || loadedMediaItem.mediaId != player.currentMediaItem?.mediaId) return
+                val dataType = when (mediaLoadData.dataType) {
+                    Media3C.DATA_TYPE_MANIFEST -> "manifest"
+                    Media3C.DATA_TYPE_MEDIA_INITIALIZATION -> "media_initialization"
+                    else -> return
+                }
+                if (!reportedPlaybackDiagnosticLoads.add("${loadedMediaItem.mediaId}:started:$dataType")) return
+                xtraModule.diagnosticsLogger.event(
+                    category = DiagnosticsCategory.PLAYBACK,
+                    severity = DiagnosticsSeverity.DEBUG,
+                    transport = DiagnosticsTransport.PLAYER,
+                    operation = "stream_hls_load",
+                    event = "load_started",
+                    phase = DiagnosticsPhase.REQUEST,
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, dataType),
+                        DiagnosticsField(DiagnosticsFieldKey.HOST, loadEventInfo.dataSpec.uri.host.orEmpty()),
+                    ),
+                )
+            }
+
             override fun onAudioUnderrun(eventTime: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) {
                 if (BuildConfig.DEBUG) Log.d("HiddenStreamAudio", "event=audio_underrun bufferMs=$bufferSizeMs elapsedSinceFeedMs=$elapsedSinceLastFeedMs")
             }
@@ -877,6 +1084,37 @@ class PlaybackService : MediaSessionService() {
                 mediaLoadData: MediaLoadData,
             ) {
                 diagnostics.recordLoad(mediaLoadData.dataType, loadEventInfo.bytesLoaded)
+                if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                    xtraModule.diagnosticsLogger.isEnabled
+                ) {
+                    val loadedMediaItem = runCatching {
+                        eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
+                    }.getOrNull()
+                    val dataType = when (mediaLoadData.dataType) {
+                        Media3C.DATA_TYPE_MANIFEST -> "manifest"
+                        Media3C.DATA_TYPE_MEDIA_INITIALIZATION -> "media_initialization"
+                        else -> null
+                    }
+                    if (loadedMediaItem != null && loadedMediaItem.mediaId == player.currentMediaItem?.mediaId && dataType != null &&
+                        reportedPlaybackDiagnosticLoads.add("${loadedMediaItem.mediaId}:completed:$dataType")
+                    ) {
+                        val uri = loadEventInfo.dataSpec.uri
+                        xtraModule.diagnosticsLogger.event(
+                            category = DiagnosticsCategory.PLAYBACK,
+                            severity = DiagnosticsSeverity.INFO,
+                            transport = DiagnosticsTransport.PLAYER,
+                            operation = "stream_hls_load",
+                            event = "load_completed",
+                            phase = DiagnosticsPhase.RESULT,
+                            elapsedMs = loadEventInfo.loadDurationMs,
+                            fields = listOf(
+                                DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, dataType),
+                                DiagnosticsField(DiagnosticsFieldKey.HOST, uri.host.orEmpty()),
+                                DiagnosticsField(DiagnosticsFieldKey.RESPONSE_BYTES, loadEventInfo.bytesLoaded.toString()),
+                            ),
+                        )
+                    }
+                }
                 if (BuildConfig.DEBUG && hiddenAudioSource != null && mediaLoadData.dataType == Media3C.DATA_TYPE_MEDIA) {
                     Log.d("HiddenStreamAudio", "event=loaded bytes=${loadEventInfo.bytesLoaded} positionMs=${player.currentPosition} bufferMs=${player.totalBufferedDuration} videoInputs=${player.videoDecoderCounters?.queuedInputBufferCount} audioInputs=${player.audioDecoderCounters?.queuedInputBufferCount}")
                 }
@@ -955,6 +1193,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    if (mediaItem?.mediaId != streamStartupMediaId) cancelStreamStartupStallCheck()
                     refreshSystemMediaMetadata()
                     refreshMediaButtonPreferences(configuredCastPlayer)
                 }
@@ -5697,6 +5936,7 @@ class PlaybackService : MediaSessionService() {
         }
         diagnostics.resetRenderedVideoSize()
         val playbackMediaItem = preloaded?.mediaItem ?: mediaItem
+        streamStartupMediaId = playbackMediaItem.mediaId
         val playbackSource = preloaded?.mediaSource ?: runtime.createLiveMediaSource(mediaItem)
         updateLiveClipSource(playbackMediaItem)
         val activePlayer = setPlaybackSource(player, playbackSource)
@@ -5704,8 +5944,21 @@ class PlaybackService : MediaSessionService() {
         runtime.setPrimaryPlaybackMediaItem(playbackMediaItem)
         activePlayer.volume = if (extras.getBoolean(SUPPRESS_VAFT_OUTPUT)) 0f else prefs().getInt(C.PLAYER_VOLUME, 100) / 100f
         activePlayer.setPlaybackSpeed(1f)
-        activePlayer.prepare()
         streamStartupTrace?.prepareCalledAtMs = SystemClock.elapsedRealtime()
+        streamStartupTrace?.markPrepareStarted()?.let { milestone ->
+            if (xtraModule.diagnosticsLogger.isEnabled) xtraModule.diagnosticsLogger.event(
+                category = DiagnosticsCategory.PLAYBACK,
+                severity = DiagnosticsSeverity.INFO,
+                transport = DiagnosticsTransport.PLAYER,
+                operation = "stream_startup",
+                event = "prepare_started",
+                phase = DiagnosticsPhase.REQUEST,
+                elapsedMs = milestone.tapToPrepareMs,
+                fields = startupDiagnosticFields(milestone, "prepare_started"),
+            )
+        }
+        activePlayer.prepare()
+        scheduleStreamStartupStallCheck(activePlayer, playbackMediaItem.mediaId)
         activePlayer.playWhenReady = extras.getBoolean(PLAY_WHEN_READY, true)
         refreshSystemMediaMetadata()
         refreshMediaButtonPreferences(player)
@@ -6116,6 +6369,196 @@ class PlaybackService : MediaSessionService() {
         xtraModule.streamMedia3Runtime.hlsDiagnosticsFor(mediaId)?.let {
             diagnostics.recordTwitchHlsDiagnostics(it)
         }
+    }
+
+    private fun startupDiagnosticFields(
+        milestone: StreamStartupMilestone,
+        event: String,
+    ): List<DiagnosticsField> = buildList {
+        add(DiagnosticsField(DiagnosticsFieldKey.TAP_SOURCE, milestone.tapSource))
+        add(DiagnosticsField(DiagnosticsFieldKey.MEDIA_SOURCE, milestone.mediaLabel))
+        add(DiagnosticsField(DiagnosticsFieldKey.URL_WARM, milestone.urlWarm.toString()))
+        add(DiagnosticsField(DiagnosticsFieldKey.PREVIEW_ALREADY_PLAYING, milestone.previewAlreadyPlaying.toString()))
+        milestone.tapToUrlAvailableMs?.let { add(DiagnosticsField(DiagnosticsFieldKey.TAP_TO_URL_MS, it.toString())) }
+        add(DiagnosticsField(DiagnosticsFieldKey.TAP_TO_START_MS, milestone.tapToStartStreamMs.toString()))
+        milestone.tapToPrepareMs?.let { add(DiagnosticsField(DiagnosticsFieldKey.TAP_TO_PREPARE_MS, it.toString())) }
+        if (event != "prepare_started") {
+            val tapKey = when (event) {
+                "player_ready" -> DiagnosticsFieldKey.TAP_TO_READY_MS
+                "first_frame" -> DiagnosticsFieldKey.TAP_TO_FIRST_FRAME_MS
+                "startup_stalled" -> DiagnosticsFieldKey.TAP_TO_STALL_MS
+                else -> DiagnosticsFieldKey.TAP_TO_FAILURE_MS
+            }
+            add(DiagnosticsField(tapKey, milestone.tapToMilestoneMs.toString()))
+            milestone.prepareToMilestoneMs?.let { prepareMs ->
+                val prepareKey = when (event) {
+                    "player_ready" -> DiagnosticsFieldKey.PREPARE_TO_READY_MS
+                    "first_frame" -> DiagnosticsFieldKey.PREPARE_TO_FIRST_FRAME_MS
+                    "startup_stalled" -> DiagnosticsFieldKey.PREPARE_TO_STALL_MS
+                    else -> DiagnosticsFieldKey.PREPARE_TO_FAILURE_MS
+                }
+                add(DiagnosticsField(prepareKey, prepareMs.toString()))
+            }
+        }
+    }
+
+    private fun scheduleStreamStartupStallCheck(player: Player, mediaId: String) {
+        cancelStreamStartupStallCheck()
+        if (!xtraModule.diagnosticsLogger.isEnabled) return
+        val trace = streamStartupTrace ?: return
+        lateinit var check: Runnable
+        check = Runnable {
+            if (streamStartupTrace !== trace || player.currentMediaItem?.mediaId != mediaId) {
+                if (streamStartupStallCheck === check) streamStartupStallCheck = null
+                return@Runnable
+            }
+            if (xtraModule.diagnosticsLogger.isEnabled) trace.markStalled()?.let { milestone ->
+                xtraModule.diagnosticsLogger.event(
+                    category = DiagnosticsCategory.PLAYBACK,
+                    severity = DiagnosticsSeverity.WARN,
+                    transport = DiagnosticsTransport.PLAYER,
+                    operation = "stream_startup",
+                    event = "startup_stalled",
+                    phase = DiagnosticsPhase.EVENT,
+                    code = if (player.playbackState == Player.STATE_READY) "awaiting_first_frame" else "awaiting_player_ready",
+                    elapsedMs = milestone.tapToMilestoneMs,
+                    fields = startupDiagnosticFields(milestone, "startup_stalled") +
+                        listOf(
+                            DiagnosticsField(DiagnosticsFieldKey.STATE, when (player.playbackState) {
+                                Player.STATE_IDLE -> "idle"
+                                Player.STATE_BUFFERING -> "buffering"
+                                Player.STATE_READY -> "ready"
+                                Player.STATE_ENDED -> "ended"
+                                else -> "unknown_${player.playbackState}"
+                            }),
+                            DiagnosticsField(DiagnosticsFieldKey.PLAY_WHEN_READY, player.playWhenReady.toString()),
+                        ) + playbackNetworkDiagnosticFields(player),
+                )
+            }
+            streamStartupStallCheck = null
+        }
+        streamStartupStallCheck = check
+        mainHandler.postDelayed(check, STREAM_STARTUP_STALL_DIAGNOSTIC_INTERVAL_MS)
+    }
+
+    private fun cancelStreamStartupStallCheck() {
+        streamStartupStallCheck?.let(mainHandler::removeCallbacks)
+        streamStartupStallCheck = null
+    }
+
+    private fun playbackNetworkDiagnosticFields(player: Player): List<DiagnosticsField> {
+        val info = diagnostics.snapshot(player)
+        val request = player.currentMediaItem?.mediaId
+            ?.let(xtraModule.streamMedia3Runtime::proxyPlaylistObservationFor)
+        return buildList {
+            add(DiagnosticsField(
+                DiagnosticsFieldKey.NETWORK_LIBRARY,
+                prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP) ?: C.OKHTTP,
+            ))
+            request?.let { add(DiagnosticsField(DiagnosticsFieldKey.PROXY_ROUTE, it.route.name.lowercase())) }
+            request?.let { add(DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, it.requestType)) }
+            add(DiagnosticsField(DiagnosticsFieldKey.LOW_LATENCY, info.lowLatencyRequested.toString()))
+            info.bandwidthEstimateBitsPerSecond?.let {
+                add(DiagnosticsField(DiagnosticsFieldKey.BANDWIDTH_ESTIMATE_BPS, it.toString()))
+            }
+            info.videoBitrate?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_BITRATE_BPS, it.toString())) }
+            info.selectedVideoHeight?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_HEIGHT, it.toString())) }
+            info.videoCodec?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_CODEC, it)) }
+            info.videoDecoderName?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_DECODER, it)) }
+            info.videoDecoderHardwareAccelerated?.let {
+                add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_DECODER_HARDWARE, it.toString()))
+            }
+            add(DiagnosticsField(DiagnosticsFieldKey.DROPPED_VIDEO_FRAMES, info.droppedVideoFrames.toString()))
+            add(DiagnosticsField(DiagnosticsFieldKey.BACKGROUND_PLAYBACK, backgroundPlayback.toString()))
+            add(DiagnosticsField(DiagnosticsFieldKey.CASTING, isCasting().toString()))
+        }
+    }
+
+    private fun recordLiveBufferingTransition(playbackState: Int, player: Player) {
+        if (viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE) return
+        val nowMs = SystemClock.elapsedRealtime()
+        when (playbackState) {
+            Player.STATE_READY -> {
+                val startedAtMs = liveRebufferStartedAtMs
+                if (startedAtMs != null) {
+                    val recovered = player.playWhenReady
+                    if (xtraModule.diagnosticsLogger.isEnabled) xtraModule.diagnosticsLogger.event(
+                        category = DiagnosticsCategory.PLAYBACK,
+                        severity = if (recovered) DiagnosticsSeverity.INFO else DiagnosticsSeverity.WARN,
+                        transport = DiagnosticsTransport.PLAYER,
+                        operation = "stream_buffering",
+                        event = if (recovered) "buffering_recovered" else "buffering_interrupted",
+                        phase = if (recovered) DiagnosticsPhase.RESULT else DiagnosticsPhase.EVENT,
+                        code = if (recovered) "ready" else "playback_paused",
+                        elapsedMs = (nowMs - startedAtMs).coerceAtLeast(0L),
+                        fields = listOf(
+                            DiagnosticsField(
+                                DiagnosticsFieldKey.BUFFERING_DURATION_MS,
+                                (nowMs - startedAtMs).coerceAtLeast(0L).toString(),
+                            ),
+                        ) + playbackStateDiagnosticFields(player),
+                    )
+                    liveRebufferStartedAtMs = null
+                }
+                liveReadyReachedForCurrentItem = true
+            }
+            Player.STATE_BUFFERING -> {
+                if (liveReadyReachedForCurrentItem && player.playWhenReady && liveRebufferStartedAtMs == null) {
+                    liveRebufferStartedAtMs = nowMs
+                    if (xtraModule.diagnosticsLogger.isEnabled) xtraModule.diagnosticsLogger.event(
+                        category = DiagnosticsCategory.PLAYBACK,
+                        severity = DiagnosticsSeverity.WARN,
+                        transport = DiagnosticsTransport.PLAYER,
+                        operation = "stream_buffering",
+                        event = "buffering_started",
+                        fields = playbackStateDiagnosticFields(player),
+                    )
+                }
+            }
+            Player.STATE_IDLE, Player.STATE_ENDED -> finishLiveRebuffer(player, nowMs, "player_state_changed")
+        }
+    }
+
+    private fun endLiveRebufferForPause(player: Player) {
+        finishLiveRebuffer(player, SystemClock.elapsedRealtime(), "playback_paused")
+    }
+
+    private fun finishLiveRebuffer(player: Player, nowMs: Long, reason: String) {
+        val startedAtMs = liveRebufferStartedAtMs ?: return
+        val durationMs = (nowMs - startedAtMs).coerceAtLeast(0L)
+        if (xtraModule.diagnosticsLogger.isEnabled) xtraModule.diagnosticsLogger.event(
+            category = DiagnosticsCategory.PLAYBACK,
+            severity = DiagnosticsSeverity.WARN,
+            transport = DiagnosticsTransport.PLAYER,
+            operation = "stream_buffering",
+            event = "buffering_interrupted",
+            phase = DiagnosticsPhase.EVENT,
+            code = reason,
+            elapsedMs = durationMs,
+            fields = listOf(DiagnosticsField(DiagnosticsFieldKey.BUFFERING_DURATION_MS, durationMs.toString())) +
+                playbackStateDiagnosticFields(player),
+        )
+        liveRebufferStartedAtMs = null
+    }
+
+    private fun playbackStateDiagnosticFields(player: Player): List<DiagnosticsField> = buildList {
+        add(DiagnosticsField(DiagnosticsFieldKey.STATE, when (player.playbackState) {
+            Player.STATE_IDLE -> "idle"
+            Player.STATE_BUFFERING -> "buffering"
+            Player.STATE_READY -> "ready"
+            Player.STATE_ENDED -> "ended"
+            else -> "unknown_${player.playbackState}"
+        }))
+        add(DiagnosticsField(DiagnosticsFieldKey.ACTIVE, player.isPlaying.toString()))
+        add(DiagnosticsField(DiagnosticsFieldKey.PLAY_WHEN_READY, player.playWhenReady.toString()))
+        add(DiagnosticsField(
+            DiagnosticsFieldKey.BUFFER_AHEAD_MS,
+            (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L).toString(),
+        ))
+        player.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET }?.let {
+            add(DiagnosticsField(DiagnosticsFieldKey.LIVE_OFFSET_MS, it.toString()))
+        }
+        addAll(playbackNetworkDiagnosticFields(player))
     }
 
     private fun videoDiagnosticsSnapshot(player: Player): PlaybackVideoInfo {
@@ -6813,6 +7256,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        cancelStreamStartupStallCheck()
         unregisterReceiver(screenVisibilityReceiver)
         hiddenAudioJob?.cancel()
         hiddenAudioSource?.setHidden(false)
@@ -6847,6 +7291,8 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val PERF_TAG = "PlaybackPerf"
+        private const val PLAYBACK_LOAD_ERROR_DIAGNOSTIC_INTERVAL_MS = 5_000L
+        private const val STREAM_STARTUP_STALL_DIAGNOSTIC_INTERVAL_MS = 15_000L
         private const val LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS = 15_000L
         private const val RESUMPTION_TAG = "PlaybackResumption"
         private const val VAFT_PRIMARY_RETURN_MIN_HOLD_MS = 30_000L

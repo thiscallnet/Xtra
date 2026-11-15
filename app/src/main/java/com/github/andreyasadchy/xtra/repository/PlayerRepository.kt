@@ -372,9 +372,9 @@ class PlayerRepository(
             logger?.finishRequest(
                 diagnosticsToken,
                 successful = true,
-                code = "source_ready",
+                code = "playlist_url_ready",
                 fields = playbackDiagnosticsFields(
-                    state = "ready",
+                    state = "url_ready",
                     resultCount = 1,
                     host = "usher.ttvnw.net",
                 ),
