@@ -69,6 +69,12 @@ import androidx.media3.session.SessionError
 import androidx.media3.session.SessionResult
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.player.hls.HiddenStreamAudioPlaylist
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
@@ -738,6 +744,47 @@ class PlaybackService : MediaSessionService() {
             }
         )
         player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onLoadError(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+                error: java.io.IOException,
+                wasCanceled: Boolean,
+            ) {
+                if (wasCanceled || viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
+                    !xtraModule.diagnosticsLogger.isEnabled
+                ) return
+                val loadedMediaItem = runCatching {
+                    eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
+                }.getOrNull()
+                if (loadedMediaItem?.mediaId != player.currentMediaItem?.mediaId) return
+                val uri = loadEventInfo.dataSpec.uri
+                val responseCode = generateSequence(error as Throwable?) { it.cause }
+                    .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                    .firstOrNull()?.responseCode
+                val dataType = when (mediaLoadData.dataType) {
+                    Media3C.DATA_TYPE_MANIFEST -> "manifest"
+                    Media3C.DATA_TYPE_MEDIA -> "media"
+                    Media3C.DATA_TYPE_MEDIA_INITIALIZATION -> "media_initialization"
+                    Media3C.DATA_TYPE_DRM -> "drm"
+                    else -> "unknown_${mediaLoadData.dataType}"
+                }
+                xtraModule.diagnosticsLogger.event(
+                    category = DiagnosticsCategory.PLAYBACK,
+                    severity = DiagnosticsSeverity.WARN,
+                    transport = DiagnosticsTransport.PLAYER,
+                    operation = "stream_hls_load",
+                    event = "load_error",
+                    phase = DiagnosticsPhase.ERROR,
+                    httpStatus = responseCode,
+                    code = error.javaClass.simpleName,
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, dataType),
+                        DiagnosticsField(DiagnosticsFieldKey.HOST, uri.host.orEmpty()),
+                    ),
+                )
+            }
+
             override fun onAudioUnderrun(eventTime: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) {
                 if (BuildConfig.DEBUG) Log.d("HiddenStreamAudio", "event=audio_underrun bufferMs=$bufferSizeMs elapsedSinceFeedMs=$elapsedSinceLastFeedMs")
             }

@@ -75,6 +75,7 @@ enum class DiagnosticsFieldKey {
     RECONNECT_COUNT,
     KEEPALIVE_SEC,
     NETWORK_LIBRARY,
+    REQUEST_TYPE,
     HOST,
     ANDROID_API,
     CACHE_STATE,
