@@ -117,6 +117,7 @@ import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
 import java.util.Timer
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Deferred
@@ -133,6 +134,7 @@ import kotlin.concurrent.scheduleAtFixedRate
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
+    private val reportedPlaybackDiagnosticLoads = ConcurrentHashMap.newKeySet<String>()
 
     lateinit var xtraModule: XtraModule
 
@@ -494,6 +496,32 @@ class PlaybackService : MediaSessionService() {
                                 "itemToken=${diagnosticToken(player.currentMediaItem?.mediaId)}",
                         )
                     }
+                    if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE) {
+                        val responseCode = generateSequence(error.cause) { it.cause }
+                            .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                            .firstOrNull()?.responseCode
+                        xtraModule.diagnosticsLogger.event(
+                            category = DiagnosticsCategory.PLAYBACK,
+                            severity = DiagnosticsSeverity.ERROR,
+                            transport = DiagnosticsTransport.PLAYER,
+                            operation = "stream_player",
+                            event = "player_error",
+                            phase = DiagnosticsPhase.ERROR,
+                            httpStatus = responseCode,
+                            code = error.errorCodeName,
+                            fields = listOf(
+                                DiagnosticsField(DiagnosticsFieldKey.STATE, when (player.playbackState) {
+                                    Player.STATE_IDLE -> "idle"
+                                    Player.STATE_BUFFERING -> "buffering"
+                                    Player.STATE_READY -> "ready"
+                                    Player.STATE_ENDED -> "ended"
+                                    else -> "unknown_${player.playbackState}"
+                                }),
+                                DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, error.cause?.javaClass?.simpleName ?: "unknown"),
+                                DiagnosticsField(DiagnosticsFieldKey.ACTIVE, player.isPlaying.toString()),
+                            ),
+                        )
+                    }
                     streamStartupTrace?.let { xtraModule.streamPreviewCoordinator.onFullscreenPlaybackFailed() }
                     if (backgroundPlayback && vaftCoordinatorJob?.isActive != true
                         && player.playWhenReady && viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE
@@ -508,6 +536,32 @@ class PlaybackService : MediaSessionService() {
                     updateAdaptiveLiveSampleTicker(player)
                     updateVaft(player)
                     updateViewingStats(player)
+                    if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                        xtraModule.diagnosticsLogger.isEnabled
+                    ) {
+                        val liveOffsetMs = player.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET }
+                        xtraModule.diagnosticsLogger.event(
+                            category = DiagnosticsCategory.PLAYBACK,
+                            severity = if (playbackState == Player.STATE_BUFFERING) DiagnosticsSeverity.WARN else DiagnosticsSeverity.INFO,
+                            transport = DiagnosticsTransport.PLAYER,
+                            operation = "stream_player",
+                            event = "state_changed",
+                            fields = buildList {
+                                add(DiagnosticsField(DiagnosticsFieldKey.STATE, when (playbackState) {
+                                    Player.STATE_IDLE -> "idle"
+                                    Player.STATE_BUFFERING -> "buffering"
+                                    Player.STATE_READY -> "ready"
+                                    Player.STATE_ENDED -> "ended"
+                                    else -> "unknown_$playbackState"
+                                }))
+                                add(DiagnosticsField(DiagnosticsFieldKey.ACTIVE, player.isPlaying.toString()))
+                                add(DiagnosticsField(DiagnosticsFieldKey.PLAY_WHEN_READY, player.playWhenReady.toString()))
+                                add(DiagnosticsField(DiagnosticsFieldKey.BUFFER_AHEAD_MS,
+                                    (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L).toString()))
+                                liveOffsetMs?.let { add(DiagnosticsField(DiagnosticsFieldKey.LIVE_OFFSET_MS, it.toString())) }
+                            },
+                        )
+                    }
                     if (BuildConfig.DEBUG) {
                         val positionMs = player.currentPosition
                         val bufferedPositionMs = player.bufferedPosition
@@ -580,6 +634,7 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    reportedPlaybackDiagnosticLoads.clear()
                     updateHiddenStreamAudio()
                     if (BuildConfig.DEBUG) {
                         Log.d(
@@ -757,7 +812,7 @@ class PlaybackService : MediaSessionService() {
                 val loadedMediaItem = runCatching {
                     eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
                 }.getOrNull()
-                if (loadedMediaItem?.mediaId != player.currentMediaItem?.mediaId) return
+                if (loadedMediaItem == null || loadedMediaItem.mediaId != player.currentMediaItem?.mediaId) return
                 val uri = loadEventInfo.dataSpec.uri
                 val responseCode = generateSequence(error as Throwable?) { it.cause }
                     .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
@@ -781,6 +836,39 @@ class PlaybackService : MediaSessionService() {
                     fields = listOf(
                         DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, dataType),
                         DiagnosticsField(DiagnosticsFieldKey.HOST, uri.host.orEmpty()),
+                    ),
+                )
+            }
+
+            @Suppress("OVERRIDE_DEPRECATION")
+            override fun onLoadStarted(
+                eventTime: AnalyticsListener.EventTime,
+                loadEventInfo: LoadEventInfo,
+                mediaLoadData: MediaLoadData,
+            ) {
+                if (viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE ||
+                    !xtraModule.diagnosticsLogger.isEnabled
+                ) return
+                val loadedMediaItem = runCatching {
+                    eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
+                }.getOrNull()
+                if (loadedMediaItem == null || loadedMediaItem.mediaId != player.currentMediaItem?.mediaId) return
+                val dataType = when (mediaLoadData.dataType) {
+                    Media3C.DATA_TYPE_MANIFEST -> "manifest"
+                    Media3C.DATA_TYPE_MEDIA_INITIALIZATION -> "media_initialization"
+                    else -> return
+                }
+                if (!reportedPlaybackDiagnosticLoads.add("${loadedMediaItem.mediaId}:started:$dataType")) return
+                xtraModule.diagnosticsLogger.event(
+                    category = DiagnosticsCategory.PLAYBACK,
+                    severity = DiagnosticsSeverity.DEBUG,
+                    transport = DiagnosticsTransport.PLAYER,
+                    operation = "stream_hls_load",
+                    event = "load_started",
+                    phase = DiagnosticsPhase.REQUEST,
+                    fields = listOf(
+                        DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, dataType),
+                        DiagnosticsField(DiagnosticsFieldKey.HOST, loadEventInfo.dataSpec.uri.host.orEmpty()),
                     ),
                 )
             }
@@ -924,6 +1012,37 @@ class PlaybackService : MediaSessionService() {
                 mediaLoadData: MediaLoadData,
             ) {
                 diagnostics.recordLoad(mediaLoadData.dataType, loadEventInfo.bytesLoaded)
+                if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
+                    xtraModule.diagnosticsLogger.isEnabled
+                ) {
+                    val loadedMediaItem = runCatching {
+                        eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).mediaItem
+                    }.getOrNull()
+                    val dataType = when (mediaLoadData.dataType) {
+                        Media3C.DATA_TYPE_MANIFEST -> "manifest"
+                        Media3C.DATA_TYPE_MEDIA_INITIALIZATION -> "media_initialization"
+                        else -> null
+                    }
+                    if (loadedMediaItem != null && loadedMediaItem.mediaId == player.currentMediaItem?.mediaId && dataType != null &&
+                        reportedPlaybackDiagnosticLoads.add("${loadedMediaItem.mediaId}:completed:$dataType")
+                    ) {
+                        val uri = loadEventInfo.dataSpec.uri
+                        xtraModule.diagnosticsLogger.event(
+                            category = DiagnosticsCategory.PLAYBACK,
+                            severity = DiagnosticsSeverity.INFO,
+                            transport = DiagnosticsTransport.PLAYER,
+                            operation = "stream_hls_load",
+                            event = "load_completed",
+                            phase = DiagnosticsPhase.RESULT,
+                            elapsedMs = loadEventInfo.loadDurationMs,
+                            fields = listOf(
+                                DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, dataType),
+                                DiagnosticsField(DiagnosticsFieldKey.HOST, uri.host.orEmpty()),
+                                DiagnosticsField(DiagnosticsFieldKey.RESPONSE_BYTES, loadEventInfo.bytesLoaded.toString()),
+                            ),
+                        )
+                    }
+                }
                 if (BuildConfig.DEBUG && hiddenAudioSource != null && mediaLoadData.dataType == Media3C.DATA_TYPE_MEDIA) {
                     Log.d("HiddenStreamAudio", "event=loaded bytes=${loadEventInfo.bytesLoaded} positionMs=${player.currentPosition} bufferMs=${player.totalBufferedDuration} videoInputs=${player.videoDecoderCounters?.queuedInputBufferCount} audioInputs=${player.audioDecoderCounters?.queuedInputBufferCount}")
                 }
