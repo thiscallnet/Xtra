@@ -135,6 +135,7 @@ import kotlin.concurrent.scheduleAtFixedRate
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
     private val reportedPlaybackDiagnosticLoads = ConcurrentHashMap.newKeySet<String>()
+    private val reportedPlaybackDiagnosticLoadErrors = ConcurrentHashMap<String, Long>()
 
     lateinit var xtraModule: XtraModule
 
@@ -635,6 +636,7 @@ class PlaybackService : MediaSessionService() {
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     reportedPlaybackDiagnosticLoads.clear()
+                    reportedPlaybackDiagnosticLoadErrors.clear()
                     updateHiddenStreamAudio()
                     if (BuildConfig.DEBUG) {
                         Log.d(
@@ -824,6 +826,16 @@ class PlaybackService : MediaSessionService() {
                     Media3C.DATA_TYPE_DRM -> "drm"
                     else -> "unknown_${mediaLoadData.dataType}"
                 }
+                val errorKey = "${loadedMediaItem.mediaId}:$dataType:${uri.host}:${error.javaClass.simpleName}:${responseCode ?: "none"}"
+                val nowMs = SystemClock.elapsedRealtime()
+                var shouldReport = false
+                reportedPlaybackDiagnosticLoadErrors.compute(errorKey) { _, lastReportedAtMs ->
+                    if (lastReportedAtMs == null || nowMs - lastReportedAtMs >= PLAYBACK_LOAD_ERROR_DIAGNOSTIC_INTERVAL_MS) {
+                        shouldReport = true
+                        nowMs
+                    } else lastReportedAtMs
+                }
+                if (!shouldReport) return
                 xtraModule.diagnosticsLogger.event(
                     category = DiagnosticsCategory.PLAYBACK,
                     severity = DiagnosticsSeverity.WARN,
@@ -7013,6 +7025,7 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val PERF_TAG = "PlaybackPerf"
+        private const val PLAYBACK_LOAD_ERROR_DIAGNOSTIC_INTERVAL_MS = 5_000L
         private const val LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS = 15_000L
         private const val RESUMPTION_TAG = "PlaybackResumption"
         private const val VAFT_PRIMARY_RETURN_MIN_HOLD_MS = 30_000L
