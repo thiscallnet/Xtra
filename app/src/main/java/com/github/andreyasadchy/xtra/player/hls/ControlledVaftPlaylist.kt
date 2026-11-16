@@ -54,6 +54,8 @@ import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.abs
 
 private const val VAFT_RESOLUTION_DIAGNOSTIC_INTERVAL_MS = 15_000L
+private const val VAFT_RESOLUTION_RETRY_INITIAL_DELAY_MS = 1_000L
+private const val VAFT_RESOLUTION_RETRY_MAX_DELAY_MS = 10_000L
 
 /** Owns the sequence that the HLS loader sees, before any media is queued. */
 @androidx.media3.common.util.UnstableApi
@@ -96,7 +98,9 @@ class ControlledVaftPlaylist(
         var initialResolutionStartedMs: Long? = null
         var initialResolutionStartReported = false
         var initialResolutionReported = false
-        var initialResolutionTimeoutReported = false
+        var lastInitialWaitDiagnosticMs = Long.MIN_VALUE
+        var nextResolutionAttemptMs = Long.MIN_VALUE
+        var resolutionRetryDelayMs = VAFT_RESOLUTION_RETRY_INITIAL_DELAY_MS
         var lastResolutionDiagnosticMs = Long.MIN_VALUE
         var lastResolutionDiagnosticOutcome: String? = null
         @Volatile var visible: List<Published> = emptyList()
@@ -155,6 +159,8 @@ class ControlledVaftPlaylist(
             feed.candidate = null
             feed.lastSearchMs = Long.MIN_VALUE
             feed.lastQualityRefreshMs = Long.MIN_VALUE
+            feed.nextResolutionAttemptMs = Long.MIN_VALUE
+            feed.resolutionRetryDelayMs = VAFT_RESOLUTION_RETRY_INITIAL_DELAY_MS
         } }
     }
 
@@ -259,6 +265,8 @@ class ControlledVaftPlaylist(
                         feed.generation++
                         feed.resolving?.cancel()
                         feed.resolved = null
+                        feed.nextResolutionAttemptMs = Long.MIN_VALUE
+                        feed.resolutionRetryDelayMs = VAFT_RESOLUTION_RETRY_INITIAL_DELAY_MS
                     }
                 }
             }
@@ -288,6 +296,8 @@ class ControlledVaftPlaylist(
                 feed.generation++
                 feed.resolving?.cancel()
                 feed.resolved = null
+                feed.nextResolutionAttemptMs = Long.MIN_VALUE
+                feed.resolutionRetryDelayMs = VAFT_RESOLUTION_RETRY_INITIAL_DELAY_MS
             }
             if (feed.published.isEmpty()) {
                 if (feed.initialResolutionStartedMs == null) {
@@ -309,20 +319,31 @@ class ControlledVaftPlaylist(
                     )
                 }
                 if (needsResolution) resolveAsync(feed, format, uri, playlist, blocked, now, resolutionReason)
-                if (now - feed.createdMs < 20_000L) throw WaitingForVerifiedMediaException()
-                if (!feed.initialResolutionTimeoutReported && module.diagnosticsLogger.isEnabled) {
-                    feed.initialResolutionTimeoutReported = true
+                val waitStartedMs = feed.initialResolutionStartedMs ?: feed.createdMs
+                val waitElapsedMs = (now - waitStartedMs).coerceAtLeast(0L)
+                if (waitElapsedMs >= VAFT_RESOLUTION_DIAGNOSTIC_INTERVAL_MS &&
+                    (feed.lastInitialWaitDiagnosticMs == Long.MIN_VALUE ||
+                        now - feed.lastInitialWaitDiagnosticMs >= VAFT_RESOLUTION_DIAGNOSTIC_INTERVAL_MS) &&
+                    module.diagnosticsLogger.isEnabled
+                ) {
+                    feed.lastInitialWaitDiagnosticMs = now
                     reportVaftResolution(
-                        event = "resolution_wait_timeout",
-                        phase = DiagnosticsPhase.ERROR,
-                        severity = DiagnosticsSeverity.ERROR,
+                        event = "resolution_wait_pending",
+                        phase = DiagnosticsPhase.EVENT,
+                        severity = DiagnosticsSeverity.WARN,
                         code = "no_verified_media",
-                        elapsedMs = (now - (feed.initialResolutionStartedMs ?: feed.createdMs)).coerceAtLeast(0L),
+                        elapsedMs = waitElapsedMs,
                         format = format,
-                        fields = listOf(DiagnosticsField(DiagnosticsFieldKey.RESOLUTION_REASON, resolutionReason)),
+                        fields = listOf(
+                            DiagnosticsField(DiagnosticsFieldKey.RESOLUTION_REASON, resolutionReason),
+                            DiagnosticsField(DiagnosticsFieldKey.COUNT, blocked.count { it }.toString()),
+                        ),
                     )
                 }
-                throw IOException("No verified live media is available yet")
+                // Keep this source alive while an ad window or an empty live edge is
+                // being resolved. Turning the wait into a terminal IOException makes
+                // the player restart the source and can repeatedly reset VAFT state.
+                throw WaitingForVerifiedMediaException()
             }
             feed.initialResolutionStartedMs?.let { startedAtMs ->
                 if (!feed.initialResolutionReported && module.diagnosticsLogger.isEnabled) {
@@ -378,6 +399,7 @@ class ControlledVaftPlaylist(
     private fun resolveAsync(feed: Feed, format: Format, uri: Uri, primary: HlsMediaPlaylist,
                              blocked: List<Boolean>, now: Long, resolutionReason: String) {
         if (closed || feed.resolving?.isActive == true ||
+            (feed.nextResolutionAttemptMs != Long.MIN_VALUE && now < feed.nextResolutionAttemptMs) ||
             (feed.lastSearchMs != Long.MIN_VALUE && now - feed.lastSearchMs < 500L)) return
         feed.lastSearchMs = now
         val probe = Feed(feed.fingerprints).also {
@@ -400,11 +422,21 @@ class ControlledVaftPlaylist(
                     resolveReplacement(wanted, probe, known) ?: Resolution(null, null, false)
                 }
             }
+            val completedAtMs = SystemClock.elapsedRealtime()
             val isCurrentResult = synchronized(feed) {
                 if (closed || generation != feed.generation) {
                     false
                 } else {
                     feed.resolved = result ?: Resolution(null, null, false)
+                    if (result?.candidate == null) {
+                        val retryDelayMs = feed.resolutionRetryDelayMs
+                        feed.nextResolutionAttemptMs = completedAtMs + retryDelayMs
+                        feed.resolutionRetryDelayMs = (retryDelayMs * 2L)
+                            .coerceAtMost(VAFT_RESOLUTION_RETRY_MAX_DELAY_MS)
+                    } else {
+                        feed.nextResolutionAttemptMs = Long.MIN_VALUE
+                        feed.resolutionRetryDelayMs = VAFT_RESOLUTION_RETRY_INITIAL_DELAY_MS
+                    }
                     true
                 }
             }
@@ -415,7 +447,6 @@ class ControlledVaftPlaylist(
                 result.primary -> "primary_media"
                 else -> "replacement_media"
             }
-            val completedAtMs = SystemClock.elapsedRealtime()
             val shouldReport = synchronized(feed) {
                 if (!module.diagnosticsLogger.isEnabled) return@synchronized false
                 val changed = feed.lastResolutionDiagnosticOutcome != outcome
@@ -632,6 +663,8 @@ class ControlledVaftPlaylist(
         feed.resolving?.cancel()
         feed.candidate = null
         feed.resolved = null
+        feed.nextResolutionAttemptMs = Long.MIN_VALUE
+        feed.resolutionRetryDelayMs = VAFT_RESOLUTION_RETRY_INITIAL_DELAY_MS
         feed.published.addAll(fresh.mapIndexed { offset, item -> item.copy(
             sequence = previous.sequence + offset + 1, discontinuity = previous.discontinuity + 1,
         ) })
