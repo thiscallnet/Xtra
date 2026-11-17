@@ -49,6 +49,10 @@ import kotlinx.coroutines.launch
 
 class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSortDialog.OnFilter {
 
+    private companion object {
+        const val STATE_GAME_IDENTITY = "game_streams:identity"
+    }
+
     override val initializeWithoutNetwork = true
 
     private var _binding: CommonRecyclerViewLayoutBinding? = null
@@ -58,6 +62,14 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
     private val viewModel: GameStreamsViewModel by viewModels { GameStreamsViewModelFactory }
     private lateinit var pagingAdapter: PagingDataAdapter<Stream, out RecyclerView.ViewHolder>
     private lateinit var streamFeedScreenController: StreamFeedScreenController
+    private var resetFreshPageToTop = false
+    private var initialPageUpdateListener: (() -> Unit)? = null
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // Keep scroll restoration for this game, but never carry another game's list position over.
+        resetFreshPageToTop = savedInstanceState?.getString(STATE_GAME_IDENTITY) != gameIdentity()
+    }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = CommonRecyclerViewLayoutBinding.inflate(inflater, container, false)
@@ -94,6 +106,7 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
     }
 
     override fun initialize() {
+        resetFreshPageToTopWhenLoaded()
         viewLifecycleOwner.lifecycleScope.launch {
             if (viewModel.filter.value == null) {
                 val sortValues = args.gameId?.let { viewModel.getGameSort(it) }?.takeIf { it.hasStreamSort() }
@@ -320,11 +333,46 @@ class GameStreamsFragment : PagedListFragment(), Scrollable, Sortable, StreamsSo
     override fun onDestroyView() {
         sortBarJob?.cancel()
         sortBarJob = null
+        initialPageUpdateListener?.let(pagingAdapter::removeOnPagesUpdatedListener)
+        initialPageUpdateListener = null
         if (::streamFeedScreenController.isInitialized) {
             streamFeedScreenController.onDestroyView()
         }
         super.onDestroyView()
         _binding = null
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_GAME_IDENTITY, gameIdentity())
+    }
+
+    private fun gameIdentity(): String = args.gameId?.let { "id:$it" }
+        ?: args.gameSlug?.let { "slug:$it" }
+        ?: "name:${args.gameName.orEmpty()}"
+
+    private fun resetFreshPageToTopWhenLoaded() {
+        if (!resetFreshPageToTop) return
+
+        // Wait for rows to arrive so RecyclerView cannot apply a stale saved position afterward.
+        lateinit var listener: () -> Unit
+        listener = {
+            if (pagingAdapter.itemCount > 0) {
+                pagingAdapter.removeOnPagesUpdatedListener(listener)
+                initialPageUpdateListener = null
+                resetFreshPageToTop = false
+                _binding?.let { currentBinding ->
+                    currentBinding.recyclerView.post {
+                        if (_binding === currentBinding) {
+                            currentBinding.recyclerView.scrollToPosition(0)
+                            currentBinding.scrollTop.isVisible = false
+                        }
+                    }
+                }
+            }
+        }
+        initialPageUpdateListener = listener
+        pagingAdapter.addOnPagesUpdatedListener(listener)
     }
 }
 

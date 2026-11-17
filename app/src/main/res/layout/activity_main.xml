@@ -120,7 +120,7 @@
                 android:padding="16dp"
                 android:src="@drawable/baseline_search_black_24"
                 android:visibility="gone"
-                app:tint="?attr/colorOnSurfaceVariant"
+                app:tint="@color/picker_tab_icon_tint"
                 tools:visibility="visible" />
         </LinearLayout>
     </LinearLayout>
