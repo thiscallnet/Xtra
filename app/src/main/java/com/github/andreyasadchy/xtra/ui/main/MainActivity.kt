@@ -55,6 +55,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.withStarted
 import androidx.navigation.NavController
+import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
@@ -275,9 +276,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateBottomSearchVisibility() {
-        binding.bottomSearch.isVisible = binding.navBarContainer.isVisible &&
-            (!::navController.isInitialized || navController.currentDestination?.id != R.id.searchPagerFragment)
+        binding.bottomSearch.isVisible = binding.navBarContainer.isVisible
+        binding.bottomSearch.isSelected = isSearchDestination()
     }
+
+    private fun isSearchDestination(): Boolean =
+        ::navController.isInitialized &&
+            navController.currentDestination?.hierarchy?.any { it.id == R.id.searchPagerFragment } == true
 
     fun setDropsFilterKeyboardVisible(visible: Boolean) {
         if (dropsFilterKeyboardVisible == visible) return
@@ -364,7 +369,9 @@ class MainActivity : AppCompatActivity() {
             navController.navigate(R.id.action_global_searchPagerFragment)
         }
         binding.bottomSearch.setOnClickListener {
-            navController.navigate(R.id.action_global_searchPagerFragment)
+            if (::navController.isInitialized && !isSearchDestination()) {
+                navController.navigate(R.id.action_global_searchPagerFragment)
+            }
         }
         binding.bottomSearch.setOnLongClickListener {
             openNavigationTabCustomization()
