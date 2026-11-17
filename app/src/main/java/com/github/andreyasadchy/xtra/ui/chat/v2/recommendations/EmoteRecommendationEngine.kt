@@ -69,6 +69,7 @@ class EmoteRecommendationEngine(
         usage: List<EmoteUsage>,
         viewerId: String,
         emojiQuery: String? = null,
+        includeEmojis: Boolean = true,
     ): List<EmoteRecommendation> {
         val normalizedQuery = query.trim().removePrefix(":").removeSuffix(":")
         val trimmedQuery = query.trim()
@@ -91,7 +92,7 @@ class EmoteRecommendationEngine(
                 lastUsedAt = record?.lastUsedAt ?: 0L,
             )
         }
-        val emojiRecommendations = catalog.emojis.mapNotNull { emoji ->
+        val emojiRecommendations = if (includeEmojis) catalog.emojis.mapNotNull { emoji ->
             if (emojiSearchQuery.isBlank()) return@mapNotNull null
             val aliasMatch = emoji.aliases.asSequence()
                 .filter { alias ->
@@ -110,8 +111,10 @@ class EmoteRecommendationEngine(
                 lastUsedAt = 0L,
                 emoji = emoji.copy(matchedAlias = aliasMatch.alias),
             )
+        } else {
+            emptyList()
         }
-        val exactEmoji = if (trimmedQuery.startsWith(":")) {
+        val exactEmoji = if (includeEmojis && trimmedQuery.startsWith(":")) {
             EmojiPickerCatalog.findByAlias(
                 if (trimmedQuery.endsWith(":")) trimmedQuery else "$trimmedQuery:",
             )

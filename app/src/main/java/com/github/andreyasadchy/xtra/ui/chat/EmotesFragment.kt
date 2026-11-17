@@ -257,13 +257,6 @@ class EmotesFragment : Fragment() {
             )
         }
         applyCompactPickerSize()
-        val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS || key == C.CHAT_COMPACT_PICKER_ITEM_SIZE) {
-                applyCompactPickerSize()
-            }
-        }
-        compactLayoutPreferenceListener = preferenceListener
-        preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
         binding.editFavorites.setOnClickListener {
             setFavoriteEditMode(!favoriteEditMode, adapter)
         }
@@ -332,7 +325,16 @@ class EmotesFragment : Fragment() {
         itemTouchHelper.attachToRecyclerView(binding.emotesRecyclerView)
         fun updateFavorites() {
             val emotes = pickerCatalog?.let(viewModel::availableFavoriteEmotesFor) ?: availableEmotes
-            val items = favoritePickerItems(favoriteEmotes, emotes, EmojiPickerCatalog.items)
+            val visibleTabs = preferences.getStringSet(
+                C.CHAT_EMOTE_PICKER_TABS,
+                EmotePickerSection.entries.map { it.name }.toSet(),
+            ).orEmpty()
+            val emojis = if (EmotePickerSection.EMOJI.name in visibleTabs) {
+                EmojiPickerCatalog.items
+            } else {
+                emptyList()
+            }
+            val items = favoritePickerItems(favoriteEmotes, emotes, emojis)
             if (favoriteDragActive) {
                 pendingFavoriteItems = items
                 updateFavoriteEditControls(items.isNotEmpty(), adapter)
@@ -343,6 +345,15 @@ class EmotesFragment : Fragment() {
             updateFavoriteEditControls(items.isNotEmpty(), adapter)
             updateFavoritesEmptyState(items)
         }
+        val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == C.CHAT_EMOTE_PICKER_TABS) {
+                updateFavorites()
+            } else if (key == C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS || key == C.CHAT_COMPACT_PICKER_ITEM_SIZE) {
+                applyCompactPickerSize()
+            }
+        }
+        compactLayoutPreferenceListener = preferenceListener
+        preferences.registerOnSharedPreferenceChangeListener(preferenceListener)
         adapter.setFavoriteKeys(viewModel.favoriteKeys.value)
         adapter.setFavoriteValues(EmojiFavoritesCatalog.favoriteValues(favoriteEmotes))
         updateFavorites()

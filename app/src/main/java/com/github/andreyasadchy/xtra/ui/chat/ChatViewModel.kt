@@ -4002,13 +4002,25 @@ class ChatViewModel(
             catalog?.all ?: currentPickerEmotes(),
         )
 
-    fun refreshV2AutoCompleteList(catalog: PickerCatalog) {
+    fun refreshV2AutoCompleteList(catalog: PickerCatalog, includeEmojis: Boolean = true) {
         synchronized(autoCompleteList) {
             val nonEmotes = autoCompleteList.filterNot { it is Emote || it is EmojiPickerItem }
             autoCompleteList.clear()
             autoCompleteList.addAll(nonEmotes)
-            autoCompleteList.addAll(EmojiPickerCatalog.items)
+            if (includeEmojis) autoCompleteList.addAll(EmojiPickerCatalog.items)
             autoCompleteList.addAll(catalog.all)
+        }
+    }
+
+    fun setQuickEmojiAutocompleteEnabled(enabled: Boolean) {
+        synchronized(autoCompleteList) {
+            autoCompleteList.removeAll { it is EmojiPickerItem }
+            if (enabled) {
+                val firstEmoteIndex = autoCompleteList.indexOfFirst { it is Emote }
+                    .takeIf { it >= 0 }
+                    ?: autoCompleteList.size
+                autoCompleteList.addAll(firstEmoteIndex, EmojiPickerCatalog.items)
+            }
         }
     }
 
