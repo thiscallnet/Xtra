@@ -30,6 +30,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.ActiveChatSession
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineDelta
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.VersionedTimelineSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.ChatRenderStyle
+import com.github.andreyasadchy.xtra.ui.chat.resolveChatTranslationAppearance
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
 import com.github.andreyasadchy.xtra.util.ChatBatchingPreferences
 import com.github.andreyasadchy.xtra.util.ChatRenderDiagnostics
@@ -114,6 +115,7 @@ class ChatV2RendererController(
     private val onGifClick: (ChatGifInteraction) -> Unit = {},
     private val onPublicationChanged: (List<ChatMessage>, List<ChatRowUiModel>, Int?, Int?) -> Unit = { _, _, _, _ -> },
 ) {
+    private var translationAppearance = resolveChatTranslationAppearance(recyclerView.context)
     private var renderStyle = ChatRenderStyle(
         textSizeSp = messageTextSizeSp,
         emoteHeightPx = emoteHeightPx,
@@ -343,11 +345,13 @@ class ChatV2RendererController(
 
     internal fun refreshStyle(style: ChatRenderStyle) {
         val nextHighlightSettings = resolveChatHighlightSettings(recyclerView.context)
-        if (style == renderStyle && nextHighlightSettings == highlightSettings) return
+        val nextTranslationAppearance = resolveChatTranslationAppearance(recyclerView.context)
+        if (style == renderStyle && nextHighlightSettings == highlightSettings && nextTranslationAppearance == translationAppearance) return
         val edgePaddingChanged = style.edgePaddingDp != renderStyle.edgePaddingDp
         renderStyle = style
         adapter.setEdgePaddingDp(style.edgePaddingDp)
         highlightSettings = nextHighlightSettings
+        translationAppearance = nextTranslationAppearance
         presentation.replaceCompiler(createPresentationCompiler(style))
         adapter.setMessageTextSizeSp(style.textSizeSp)
         adapter.setAnimateGifs(style.animateGifs)
@@ -785,6 +789,8 @@ class ChatV2RendererController(
             showThirdPartyBadges = showThirdPartyBadges,
             showPersonalEmotes = showPersonalEmotes,
             translation = translation,
+            translationItalic = translationAppearance.italic,
+            translationTextColor = translationAppearance.textColor,
             timestampText = if (style.showTimestamps) {
                 { timestamp -> com.github.andreyasadchy.xtra.util.TwitchApiHelper.getTimestamp(timestamp, style.timestampFormat) }
             } else {

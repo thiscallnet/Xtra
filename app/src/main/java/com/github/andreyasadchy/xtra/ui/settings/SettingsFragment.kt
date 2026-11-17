@@ -42,6 +42,7 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.MultiSelectListPreference
 import androidx.preference.Preference
+import androidx.preference.PreferenceCategory
 import androidx.preference.PreferenceDataStore
 import androidx.preference.PreferenceGroupAdapter
 import androidx.preference.SeekBarPreference
@@ -1426,6 +1427,7 @@ class SettingsFragment : MaterialPreferenceFragment() {
             findPreference<SwitchPreferenceCompat>("chat_translate")?.isVisible = false
             findPreference<Preference>("downloaded_languages")?.isVisible = false
             findPreference<ListPreference>("chat_translate_target")?.isVisible = false
+            findPreference<PreferenceCategory>("chat_translation_appearance")?.isVisible = false
             return
         }
         val languages = TranslateLanguage.getAllLanguages()
@@ -1464,6 +1466,9 @@ class SettingsFragment : MaterialPreferenceFragment() {
             entries = names
             entryValues = languages.toTypedArray()
         }
+        findPreference<EditTextPreference>(C.CHAT_TRANSLATION_TEXT_COLOR)?.summary = requireContext().prefs()
+            .getString(C.CHAT_TRANSLATION_TEXT_COLOR, null)
+            ?: getString(R.string.settings_chat_translation_color_default_summary)
     }
 
     private fun openExternal(url: String) {

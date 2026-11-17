@@ -513,7 +513,9 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         // pick up a changed edge padding until the player is reopened.
         chatEdgePaddingListener?.let { requireContext().prefs().unregisterOnSharedPreferenceChangeListener(it) }
         chatEdgePaddingListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == C.CHAT_EDGE_PADDING && isAdded) {
+            if ((key == C.CHAT_EDGE_PADDING || key == C.CHAT_TRANSLATION_ITALIC ||
+                    key == C.CHAT_TRANSLATION_TEXT_COLOR) && isAdded
+            ) {
                 chatV2Renderer?.refreshStyle(resolveCurrentChatRenderStyle())
             }
         }.also { requireContext().prefs().registerOnSharedPreferenceChangeListener(it) }

@@ -83,6 +83,8 @@ class ChatRowCompiler(
     private val showThirdPartyBadges: Boolean = true,
     private val showPersonalEmotes: Boolean = true,
     private val translation: (ChatMessage) -> String? = { null },
+    private val translationItalic: Boolean = false,
+    private val translationTextColor: Int? = null,
     private val timestampText: (Long) -> String? = { null },
     private val background: (ChatMessage) -> Int = { 0 },
     private val readabilityBackground: (ChatMessage) -> Int = background,
@@ -200,7 +202,7 @@ class ChatRowCompiler(
                 add(ChatPiece.Text(" $suffix", color = colors.brightTextColor(rowReadabilityBackground)))
             }
             translation(message)?.takeIf { it.isNotBlank() }?.let {
-                add(ChatPiece.Text("\n$it", color = mutedColor))
+                add(ChatPiece.Text("\n$it", color = translationTextColor ?: mutedColor, italic = translationItalic))
             }
         }
         return ChatRowUiModel(
@@ -348,7 +350,7 @@ class ChatRowCompiler(
             }
             message.moderation?.let { add(ChatPiece.Text(" ${labels.moderationSuffix(it)}", color = colors.brightTextColor(eventBackground))) }
             translation(message)?.takeIf { it.isNotBlank() }?.let {
-                add(ChatPiece.Text("\n$it", color = mutedColor))
+                add(ChatPiece.Text("\n$it", color = translationTextColor ?: mutedColor, italic = translationItalic))
             }
         }
         val accessibility = buildString {

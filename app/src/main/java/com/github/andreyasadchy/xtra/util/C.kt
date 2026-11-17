@@ -371,6 +371,8 @@ object C {
     const val CHAT_REMEMBER_DISMISSED_PINNED_MESSAGES_DEFAULT = true
     const val CHAT_TRANSLATE = "chat_translate"
     const val CHAT_TRANSLATE_TARGET = "chat_translate_target"
+    const val CHAT_TRANSLATION_ITALIC = "chat_translation_italic"
+    const val CHAT_TRANSLATION_TEXT_COLOR = "chat_translation_text_color"
     const val CHAT_SHOW_USER_NOTICE = "chat_show_usernotice"
     const val CHAT_SHOW_CLEAR_MSG = "chat_show_clearmsg"
     const val CHAT_SHOW_CLEAR_CHAT = "chat_show_clearchat"

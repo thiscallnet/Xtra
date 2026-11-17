@@ -458,7 +458,7 @@ open class ChatMessageTextView private constructor(
         row.pieces.forEachIndexed { index, piece ->
             val pieceStart = output.length
             when (piece) {
-                is ChatPiece.Text -> appendStyled(output, piece.value, piece.color, piece.bold)
+                is ChatPiece.Text -> appendStyled(output, piece.value, piece.color, piece.bold, piece.italic)
                 is ChatPiece.Reply -> appendReply(output, piece, row.timestampText)
                 is ChatPiece.Username -> appendUsername(output, piece)
                 is ChatPiece.Source -> appendStyled(output, "[${piece.value}] ", piece.color)
@@ -1179,11 +1179,24 @@ open class ChatMessageTextView private constructor(
         longPressConsumed = false
     }
 
-    private fun appendStyled(output: SpannableStringBuilder, value: String, color: Int?, bold: Boolean = false) {
+    private fun appendStyled(
+        output: SpannableStringBuilder,
+        value: String,
+        color: Int?,
+        bold: Boolean = false,
+        italic: Boolean = false,
+    ) {
         val start = output.length
         output.append(value)
         if (color != null) output.setSpan(ForegroundColorSpan(color), start, output.length, 0)
-        if (bold) output.setSpan(StyleSpan(Typeface.BOLD), start, output.length, 0)
+        if (bold || italic) {
+            val style = when {
+                bold && italic -> Typeface.BOLD_ITALIC
+                bold -> Typeface.BOLD
+                else -> Typeface.ITALIC
+            }
+            output.setSpan(StyleSpan(style), start, output.length, 0)
+        }
     }
 
     private fun appendUsername(output: SpannableStringBuilder, piece: ChatPiece.Username) {

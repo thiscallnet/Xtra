@@ -581,6 +581,13 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_chat_message_text",
     "settings_chat_metadata_text",
     "settings_chat_text_default_summary",
+    # Translation appearance settings ship in English until their labels are
+    # reviewed by native speakers.
+    "settings_chat_translation_appearance",
+    "settings_chat_translation_italic",
+    "settings_chat_translation_italic_summary",
+    "settings_chat_translation_color",
+    "settings_chat_translation_color_default_summary",
     "settings_chat_restore_text_defaults",
     "settings_chat_appearance_preview",
     "settings_chat_appearance_preview_summary",
