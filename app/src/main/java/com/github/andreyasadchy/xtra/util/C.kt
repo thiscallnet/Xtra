@@ -455,6 +455,7 @@ object C {
     const val UPDATE_NOTIFICATION_PERMISSION_PROMPT_SHOWN = "update_notification_permission_prompt_shown"
     const val UPDATE_RELEASE_HISTORY = "update_release_history"
     const val UPDATE_RELEASE_HISTORY_COMPLETE = "update_release_history_complete"
+    const val UPDATE_RELEASE_HISTORY_NOTES_VERSION = "update_release_history_notes_version"
     const val UPDATE_IGNORED_VERSION = "update_ignored_version"
     const val UPDATE_DOWNLOADED_VERSION = "update_downloaded_version"
     const val UPDATE_DOWNLOAD_ID = "update_download_id"

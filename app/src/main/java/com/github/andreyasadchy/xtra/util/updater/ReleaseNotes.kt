@@ -57,11 +57,10 @@ object ReleaseNotes {
                 items += ChangeItem(parsed.text, finalKind)
             }
         }
-        if (hasUsefulBody) parseLines(lines)
-        if (commits.isNotEmpty()) {
-            kind = ChangeKind.OTHER
-            parseLines(commits)
-        }
+        // Release bodies are the curated user-facing notes. Compare commits contain the same
+        // changes with implementation-oriented wording, so use them only when the body is empty
+        // or contains generated changelog boilerplate.
+        parseLines(if (hasUsefulBody) lines else commits)
         val merged = mutableListOf<ChangeItem>()
         items.asSequence()
             .filterNot { isNoise(it.text) }
