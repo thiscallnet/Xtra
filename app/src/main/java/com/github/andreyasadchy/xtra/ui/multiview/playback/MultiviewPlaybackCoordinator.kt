@@ -41,7 +41,7 @@ import com.github.andreyasadchy.xtra.ui.player.TwitchVaftController
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.AdaptiveLiveLoadControl
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
-import com.github.andreyasadchy.xtra.util.FixedSpeedLivePlaybackControl
+import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackSpeedControl
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.LivePlaybackSettings
 import com.github.andreyasadchy.xtra.util.LivePriorityCatchUpPolicy
@@ -301,7 +301,7 @@ class MultiviewPlaybackCoordinator(
             adaptiveEnabled = false,
             policySet = livePolicies,
         )
-        val liveSpeedControl = FixedSpeedLivePlaybackControl(
+        val liveSpeedControl = AdaptiveLivePlaybackSpeedControl(
             DefaultLivePlaybackSpeedControl.Builder().build(),
         ).apply {
             setAdaptiveTargetLiveOffsetUs(initialLivePolicy.targetOffsetMs * 1_000L)
@@ -1213,7 +1213,7 @@ class MultiviewPlaybackCoordinator(
         val player: ExoPlayer,
         val liveSettings: LivePlaybackSettings,
         val liveController: AdaptiveLivePlaybackController,
-        val liveSpeedControl: FixedSpeedLivePlaybackControl,
+        val liveSpeedControl: AdaptiveLivePlaybackSpeedControl,
         val applyLivePolicy: () -> Unit,
     ) {
         var attachedView: PlayerView? = null

@@ -251,6 +251,7 @@ object C {
     const val PLAYER_BUFFER_REBUFFER = "player_buffer_rebuffer"
     const val PLAYER_LIVE_MIN_SPEED = "player_live_min_speed"
     const val PLAYER_LIVE_MAX_SPEED = "player_live_max_speed"
+    const val PLAYER_LIVE_MAX_SPEED_ENABLED = "player_live_max_speed_enabled"
     const val PLAYER_LIVE_TARGET_OFFSET = "player_live_target_offset"
     const val LOW_LATENCY_TARGET_OFFSET_MS = 2_000L
     const val NORMAL_LATENCY_TARGET_OFFSET_MS = 10_000L

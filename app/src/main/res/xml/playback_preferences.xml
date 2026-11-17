@@ -41,4 +41,6 @@
     <EditTextPreference android:dialogMessage="@string/max_buffer_summary" android:inputType="number" android:key="player_buffer_max" android:singleLine="true" android:title="@string/max_buffer" app:iconSpaceReserved="false" />
     <EditTextPreference android:dialogMessage="@string/buffer_for_playback_summary" android:inputType="number" android:key="player_buffer_playback" android:singleLine="true" android:title="@string/buffer_for_playback" app:iconSpaceReserved="false" />
     <EditTextPreference android:dialogMessage="@string/rebuffer_summary" android:inputType="number" android:key="player_buffer_rebuffer" android:singleLine="true" android:title="@string/rebuffer" app:iconSpaceReserved="false" />
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="player_live_max_speed_enabled" android:summary="@string/settings_live_max_speed_enabled_summary" android:title="@string/settings_live_max_speed_enabled" app:iconSpaceReserved="false" />
+    <EditTextPreference android:defaultValue="1.20" android:dependency="player_live_max_speed_enabled" android:dialogMessage="@string/live_max_speed_summary" android:inputType="numberDecimal" android:key="player_live_max_speed" android:singleLine="true" android:title="@string/live_max_speed" app:iconSpaceReserved="false" />
 </androidx.preference.PreferenceScreen>
