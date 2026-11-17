@@ -109,7 +109,12 @@ object ChatEventVisualTokens {
 }
 
 sealed interface ChatPiece {
-    data class Text(val value: String, val color: Int? = null, val bold: Boolean = false) : ChatPiece
+    data class Text(
+        val value: String,
+        val color: Int? = null,
+        val bold: Boolean = false,
+        val italic: Boolean = false,
+    ) : ChatPiece
     data class Reply(
         val value: String,
         val color: Int,

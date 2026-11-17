@@ -2,4 +2,8 @@
     <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_translate" android:summary="@string/settings_translate_summary" android:title="@string/translate_chat_messages" app:iconSpaceReserved="false" />
     <ListPreference android:defaultValue="en" android:dependency="chat_translate" android:key="chat_translate_target" android:summary="%s" android:title="@string/translate_target_language" app:iconSpaceReserved="false" />
     <Preference android:dependency="chat_translate" android:key="downloaded_languages" android:title="@string/downloaded_languages" app:iconSpaceReserved="false" />
+    <PreferenceCategory android:dependency="chat_translate" android:key="chat_translation_appearance" android:title="@string/settings_chat_translation_appearance" app:iconSpaceReserved="false">
+        <SwitchPreferenceCompat android:defaultValue="false" android:dependency="chat_translate" android:key="chat_translation_italic" android:summary="@string/settings_chat_translation_italic_summary" android:title="@string/settings_chat_translation_italic" app:iconSpaceReserved="false" />
+        <EditTextPreference android:dependency="chat_translate" android:key="chat_translation_text_color" android:summary="@string/settings_chat_translation_color_default_summary" android:title="@string/settings_chat_translation_color" app:iconSpaceReserved="false" />
+    </PreferenceCategory>
 </androidx.preference.PreferenceScreen>

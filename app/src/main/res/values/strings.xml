@@ -656,6 +656,11 @@
     <string name="settings_chat_message_text">Message text</string>
     <string name="settings_chat_metadata_text">Metadata text</string>
     <string name="settings_chat_text_default_summary">Use the current theme color.</string>
+    <string name="settings_chat_translation_appearance">Translated message appearance</string>
+    <string name="settings_chat_translation_italic">Use italic text</string>
+    <string name="settings_chat_translation_italic_summary">Show translated messages in italics.</string>
+    <string name="settings_chat_translation_color">Text color</string>
+    <string name="settings_chat_translation_color_default_summary">Use the theme-aware muted chat color.</string>
     <string name="settings_chat_restore_text_defaults">Restore text defaults</string>
     <string name="settings_chat_appearance_preview">Preview</string>
     <string name="settings_chat_appearance_preview_summary">Preview of your player and chat background and text colors.</string>

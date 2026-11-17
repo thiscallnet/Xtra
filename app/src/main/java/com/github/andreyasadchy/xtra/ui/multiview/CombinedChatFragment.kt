@@ -29,6 +29,7 @@ import com.github.andreyasadchy.xtra.model.ui.Stream
 import com.github.andreyasadchy.xtra.ui.chat.ChatInteractionAdapterConfiguration
 import com.github.andreyasadchy.xtra.ui.chat.ChatInteractionAdapterFactory
 import com.github.andreyasadchy.xtra.ui.chat.resolveChatHighlightSettings
+import com.github.andreyasadchy.xtra.ui.chat.resolveChatTranslationAppearance
 import com.github.andreyasadchy.xtra.ui.chat.ImageClickedDialog
 import com.github.andreyasadchy.xtra.ui.chat.MessageClickedChatAdapter
 import com.github.andreyasadchy.xtra.ui.chat.MessageClickedDialog
@@ -600,6 +601,7 @@ private class CombinedChatAdapter(
         private val style = com.github.andreyasadchy.xtra.ui.chat.resolveChatRenderStyle(context)
         private val surface = MaterialColors.getColor(fragment.requireView(), com.google.android.material.R.attr.colorSurface)
         private var highlightSettings = resolveChatHighlightSettings(context)
+        private var translationAppearance = resolveChatTranslationAppearance(context)
         private fun createCompiler() = ChatRowCompiler(
             colors = ChatColorResolver(
                     readable = preferences.getBoolean(C.CHAT_THEME_ADAPTED_USERNAME_COLOR, true),
@@ -624,6 +626,8 @@ private class CombinedChatAdapter(
                 { null }
             },
             translation = fragment::translationFor,
+            translationItalic = translationAppearance.italic,
+            translationTextColor = translationAppearance.textColor,
             background = { surface },
             eventPalette = { kind, baseColor ->
                 resolveChatEventPalette(kind, baseColor) { attribute ->
@@ -677,8 +681,10 @@ private class CombinedChatAdapter(
 
         fun refreshChatHighlightSettings(): Boolean {
             val next = resolveChatHighlightSettings(context)
-            if (next == highlightSettings) return false
+            val nextTranslationAppearance = resolveChatTranslationAppearance(context)
+            if (next == highlightSettings && nextTranslationAppearance == translationAppearance) return false
             highlightSettings = next
+            translationAppearance = nextTranslationAppearance
             presentation.replaceCompiler(createCompiler())
             return true
         }

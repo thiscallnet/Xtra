@@ -93,11 +93,16 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
     internal fun createColorPicker(preference: EditTextPreference, savedState: Bundle?): ColorPickerDialog.Session {
         val config = requireNotNull(colorPickerConfig(preference))
         val defaultAction: (() -> Boolean)? = if (preference.key == C.PLAYER_MESSAGE_TEXT_COLOR ||
-            preference.key == C.PLAYER_METADATA_TEXT_COLOR
+            preference.key == C.PLAYER_METADATA_TEXT_COLOR ||
+            preference.key == C.CHAT_TRANSLATION_TEXT_COLOR
         ) {
             {
                 preference.text = null
-                preference.summary = getString(R.string.settings_chat_text_default_summary)
+                preference.summary = if (preference.key == C.CHAT_TRANSLATION_TEXT_COLOR) {
+                    getString(R.string.settings_chat_translation_color_default_summary)
+                } else {
+                    getString(R.string.settings_chat_text_default_summary)
+                }
                 findPreference<ChatAppearancePreviewPreference>("chat_appearance_preview")?.refreshPreview()
                 (requireActivity() as? SettingsActivity)?.setResult()
                 true
@@ -142,6 +147,10 @@ abstract class MaterialPreferenceFragment : PreferenceFragmentCompat() {
                 com.google.android.material.R.attr.colorOnSurface,
             ) to false
             C.PLAYER_METADATA_TEXT_COLOR -> MaterialColors.getColor(
+                listView,
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+            ) to false
+            C.CHAT_TRANSLATION_TEXT_COLOR -> MaterialColors.getColor(
                 listView,
                 com.google.android.material.R.attr.colorOnSurfaceVariant,
             ) to false
