@@ -110,18 +110,6 @@
                 android:layout_weight="1"
                 android:minHeight="?attr/bottomNavigationHeight"
                 app:labelVisibilityMode="labeled" />
-
-            <ImageButton
-                android:id="@+id/bottomSearch"
-                android:layout_width="56dp"
-                android:layout_height="?attr/bottomNavigationHeight"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="@string/search"
-                android:padding="16dp"
-                android:src="@drawable/baseline_search_black_24"
-                android:visibility="gone"
-                app:tint="@color/picker_tab_icon_tint"
-                tools:visibility="visible" />
         </LinearLayout>
     </LinearLayout>
 
