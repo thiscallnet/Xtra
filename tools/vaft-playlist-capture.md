@@ -29,3 +29,11 @@ responses and `/control?token_fail=true` makes those responses fail with HTTP
 503. Reset with `/control?token_delay=0&token_fail=false`. These controls allow
 reproducing a refresh during an in-flight URL lookup and confirming that a failed
 lookup is reported, then a later HUD restart can resolve and play normally.
+
+For live-edge recovery checks, `/control?primary_date_offset=-30` makes the
+primary playlist's program-date-time mapping appear 30 seconds behind wall
+clock at the next segment while sequence numbers and media timestamps continue
+unchanged. It intentionally omits a discontinuity marker at that boundary to
+reproduce a reconnect with a stale HLS clock. Reset with
+`/control?primary_date_offset=0`. To reproduce a stale clock from stream start,
+start the fixture with `--primary-date-offset=-30`.

@@ -155,6 +155,9 @@ class PlaybackService : MediaSessionService() {
     private var lastSystemAudioModeAvailability: String? = null
     private var lastSystemBehindSeconds: Long? = null
     private var lastLivePriorityCatchUpRealtimeMs = Long.MIN_VALUE
+    private var lastLivePriorityCatchUpOffsetMs: Long? = null
+    private var livePriorityCatchUpSuppressed = false
+    private var livePriorityCatchUpAttempt = 0
     private var adaptiveLiveController: AdaptiveLivePlaybackController? = null
     private var livePlaybackSpeedControl: AdaptiveLivePlaybackSpeedControl? = null
     private var adaptiveLiveSampleJob: Job? = null
@@ -581,6 +584,8 @@ class PlaybackService : MediaSessionService() {
                                 add(DiagnosticsField(DiagnosticsFieldKey.BUFFER_AHEAD_MS,
                                     (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L).toString()))
                                 liveOffsetMs?.let { add(DiagnosticsField(DiagnosticsFieldKey.LIVE_OFFSET_MS, it.toString())) }
+                                add(DiagnosticsField(DiagnosticsFieldKey.PLAYBACK_SPEED,
+                                    player.playbackParameters.speed.toString()))
                                 addAll(playbackNetworkDiagnosticFields(player))
                             },
                         )
@@ -641,6 +646,11 @@ class PlaybackService : MediaSessionService() {
                         )
                     }
                     if (!playWhenReady) {
+                        if (player.isCurrentMediaItemLive) {
+                            lastLivePriorityCatchUpRealtimeMs = Long.MIN_VALUE
+                            lastLivePriorityCatchUpOffsetMs = null
+                            livePriorityCatchUpSuppressed = false
+                        }
                         endLiveRebufferForPause(player)
                         backgroundRecoveryTimer?.cancel()
                         backgroundRecoveryTimer = null
@@ -3207,13 +3217,7 @@ class PlaybackService : MediaSessionService() {
                     "canSeekToLive=$canSeekToLive",
             )
         }
-        if (liveOffsetMs <= catchUpThresholdMs) return
-
-        val now = SystemClock.elapsedRealtime()
-        if (lastLivePriorityCatchUpRealtimeMs != Long.MIN_VALUE &&
-            now - lastLivePriorityCatchUpRealtimeMs < LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS
-        ) return
-        lastLivePriorityCatchUpRealtimeMs = now
+        if (!requestLivePriorityCatchUp(player, liveOffsetMs, targetOffsetMs, "live_ticker")) return
         if (BuildConfig.DEBUG) {
             Log.d(
                 "PlaybackLiveCatchUp",
@@ -3224,6 +3228,120 @@ class PlaybackService : MediaSessionService() {
             )
         }
         player.seekToDefaultPosition()
+    }
+
+    /** Avoid repeating a seek when the HLS live offset did not improve after the prior seek. */
+    private fun requestLivePriorityCatchUp(
+        player: Player,
+        liveOffsetMs: Long,
+        targetOffsetMs: Long,
+        source: String,
+    ): Boolean {
+        val catchUpThresholdMs = LivePriorityCatchUpPolicy.thresholdMs(targetOffsetMs)
+        val recoveredThresholdMs = targetOffsetMs + LIVE_PRIORITY_CATCH_UP_RECOVERY_MARGIN_MS
+        if (liveOffsetMs <= recoveredThresholdMs) {
+            val wasSuppressed = livePriorityCatchUpSuppressed
+            lastLivePriorityCatchUpRealtimeMs = Long.MIN_VALUE
+            lastLivePriorityCatchUpOffsetMs = null
+            livePriorityCatchUpSuppressed = false
+            if (wasSuppressed) {
+                reportLivePriorityCatchUp(
+                    player = player,
+                    event = "suppression_cleared",
+                    phase = DiagnosticsPhase.EVENT,
+                    severity = DiagnosticsSeverity.INFO,
+                    code = "offset_recovered",
+                    liveOffsetMs = liveOffsetMs,
+                    targetOffsetMs = targetOffsetMs,
+                    source = source,
+                )
+            }
+        }
+        if (liveOffsetMs <= catchUpThresholdMs || livePriorityCatchUpSuppressed) return false
+
+        val now = SystemClock.elapsedRealtime()
+        if (lastLivePriorityCatchUpRealtimeMs != Long.MIN_VALUE) {
+            if (now - lastLivePriorityCatchUpRealtimeMs < LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS) return false
+            val previousOffsetMs = lastLivePriorityCatchUpOffsetMs
+            if (previousOffsetMs != null &&
+                !LivePriorityCatchUpPolicy.madeProgress(previousOffsetMs, liveOffsetMs)
+            ) {
+                livePriorityCatchUpSuppressed = true
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "PlaybackLiveCatchUp",
+                        "event=suppress_no_progress previousOffsetMs=$previousOffsetMs " +
+                            "liveOffsetMs=$liveOffsetMs targetOffsetMs=$targetOffsetMs " +
+                            "thresholdMs=$catchUpThresholdMs",
+                    )
+                }
+                reportLivePriorityCatchUp(
+                    player = player,
+                    event = "seek_suppressed",
+                    phase = DiagnosticsPhase.EVENT,
+                    severity = DiagnosticsSeverity.WARN,
+                    code = "no_offset_progress",
+                    liveOffsetMs = liveOffsetMs,
+                    previousLiveOffsetMs = previousOffsetMs,
+                    targetOffsetMs = targetOffsetMs,
+                    source = source,
+                )
+                return false
+            }
+        }
+
+        lastLivePriorityCatchUpRealtimeMs = now
+        lastLivePriorityCatchUpOffsetMs = liveOffsetMs
+        livePriorityCatchUpAttempt++
+        reportLivePriorityCatchUp(
+            player = player,
+            event = "seek_requested",
+            phase = DiagnosticsPhase.REQUEST,
+            severity = DiagnosticsSeverity.INFO,
+            code = "live_priority",
+            liveOffsetMs = liveOffsetMs,
+            targetOffsetMs = targetOffsetMs,
+            source = source,
+        )
+        return true
+    }
+
+    private fun reportLivePriorityCatchUp(
+        player: Player,
+        event: String,
+        phase: DiagnosticsPhase,
+        severity: DiagnosticsSeverity,
+        code: String,
+        liveOffsetMs: Long?,
+        previousLiveOffsetMs: Long? = null,
+        targetOffsetMs: Long,
+        source: String,
+    ) {
+        if (!xtraModule.diagnosticsLogger.isEnabled) return
+        xtraModule.diagnosticsLogger.event(
+            category = DiagnosticsCategory.PLAYBACK,
+            severity = severity,
+            transport = DiagnosticsTransport.PLAYER,
+            operation = "live_catch_up",
+            event = event,
+            phase = phase,
+            code = code,
+            fields = buildList {
+                liveOffsetMs?.let {
+                    add(DiagnosticsField(DiagnosticsFieldKey.LIVE_OFFSET_MS, it.toString()))
+                }
+                previousLiveOffsetMs?.let {
+                    add(DiagnosticsField(DiagnosticsFieldKey.PREVIOUS_LIVE_OFFSET_MS, it.toString()))
+                }
+                add(DiagnosticsField(DiagnosticsFieldKey.TARGET, targetOffsetMs.toString()))
+                add(DiagnosticsField(DiagnosticsFieldKey.ATTEMPT, livePriorityCatchUpAttempt.toString()))
+                add(DiagnosticsField(DiagnosticsFieldKey.BUFFER_AHEAD_MS,
+                    (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L).toString()))
+                add(DiagnosticsField(DiagnosticsFieldKey.PLAYBACK_SPEED,
+                    player.playbackParameters.speed.toString()))
+                add(DiagnosticsField(DiagnosticsFieldKey.SOURCE_REASON, source))
+            },
+        )
     }
 
     private fun setSystemAudioOnly(audioOnly: Boolean): ListenableFuture<SessionResult> {
@@ -4086,11 +4204,23 @@ class PlaybackService : MediaSessionService() {
                 // Prefer Media3's live default position for catch-up so seeks stay within
                 // the published live range and honor the configured target offset.
                 val livePositionMs = (durationMs - targetOffsetMs).coerceAtLeast(0L)
-                val allowedDelayBeyondTargetMs =
-                    (LivePriorityCatchUpPolicy.thresholdMs(targetOffsetMs) - targetOffsetMs).coerceAtLeast(0L)
                 var recoveredToLive = false
                 if (player.playWhenReady) controlled.consumeRecovery(windowStartUs, windowEndUs)?.let { recovery ->
                     if (recovery.prioritizeLive) {
+                        val recoveryOffsetMs = player.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET && it >= 0L }
+                        lastLivePriorityCatchUpOffsetMs = recoveryOffsetMs
+                        livePriorityCatchUpSuppressed = false
+                        livePriorityCatchUpAttempt++
+                        reportLivePriorityCatchUp(
+                            player = player,
+                            event = "seek_requested",
+                            phase = DiagnosticsPhase.REQUEST,
+                            severity = DiagnosticsSeverity.INFO,
+                            code = "vaft_recovery",
+                            liveOffsetMs = recoveryOffsetMs,
+                            targetOffsetMs = targetOffsetMs,
+                            source = "vaft_recovery",
+                        )
                         player.seekToDefaultPosition()
                         lastLivePriorityCatchUpRealtimeMs = SystemClock.elapsedRealtime()
                         recoveredToLive = true
@@ -4108,18 +4238,15 @@ class PlaybackService : MediaSessionService() {
                     else -> 0L
                 }
                 val catchUpThresholdMs = LivePriorityCatchUpPolicy.thresholdMs(targetOffsetMs)
-                val shouldCatchUp = if (hasLiveOffset) {
-                    liveOffsetMs > catchUpThresholdMs
-                } else {
-                    delayBeyondTargetMs > allowedDelayBeyondTargetMs
-                }
-                val now = SystemClock.elapsedRealtime()
-                val cooldownElapsed = lastLivePriorityCatchUpRealtimeMs == Long.MIN_VALUE ||
-                    now - lastLivePriorityCatchUpRealtimeMs >= LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS
                 if (!recoveredToLive && player.isPlaying && prefs().isVaftEnabled() &&
                     prefs().getString(C.PLAYER_VAFT_PLAYBACK_PRIORITY, C.VAFT_PRIORITY_LIVE) == C.VAFT_PRIORITY_LIVE &&
-                    shouldCatchUp && cooldownElapsed) {
-                    lastLivePriorityCatchUpRealtimeMs = now
+                    requestLivePriorityCatchUp(
+                        player = player,
+                        liveOffsetMs = if (hasLiveOffset && liveOffsetMs >= 0L) liveOffsetMs
+                        else targetOffsetMs + delayBeyondTargetMs,
+                        targetOffsetMs = targetOffsetMs,
+                        source = "vaft_live_priority",
+                    )) {
                     if (BuildConfig.DEBUG) Log.d("XtraVaftFeed",
                         "event=live_priority_catch_up liveOffsetMs=$liveOffsetMs " +
                             "delayBeyondTargetMs=$delayBeyondTargetMs catchUpThresholdMs=$catchUpThresholdMs method=default")
@@ -5859,6 +5986,9 @@ class PlaybackService : MediaSessionService() {
         val initialLivePolicy = livePolicies.forMode(liveSettings.mode)
         livePlaybackSpeedControl?.setRebufferTargetAdaptationEnabled(false)
         lastLivePriorityCatchUpRealtimeMs = Long.MIN_VALUE
+        lastLivePriorityCatchUpOffsetMs = null
+        livePriorityCatchUpSuppressed = false
+        livePriorityCatchUpAttempt = 0
         adaptiveLiveController?.reset(initialLivePolicy, enabled = false, policies = livePolicies)
         if (BuildConfig.DEBUG) {
             Log.d(
@@ -7296,6 +7426,7 @@ class PlaybackService : MediaSessionService() {
         private const val PLAYBACK_LOAD_ERROR_DIAGNOSTIC_INTERVAL_MS = 5_000L
         private const val STREAM_STARTUP_STALL_DIAGNOSTIC_INTERVAL_MS = 15_000L
         private const val LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS = 15_000L
+        private const val LIVE_PRIORITY_CATCH_UP_RECOVERY_MARGIN_MS = 2_000L
         private const val RESUMPTION_TAG = "PlaybackResumption"
         private const val VAFT_PRIMARY_RETURN_MIN_HOLD_MS = 30_000L
         const val VAFT_SOURCE_MEDIA_ID_PREFIX = "vaft-source:"

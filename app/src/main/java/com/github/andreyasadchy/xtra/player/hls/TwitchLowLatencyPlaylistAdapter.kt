@@ -35,6 +35,8 @@ data class TwitchHlsPlaylistDiagnostics(
     val mediaSequence: Long? = null,
     val playlistDurationMs: Long? = null,
     val segmentCount: Int? = null,
+    /** Difference between the playlist's PDT start and the prior overlapping segment timeline. */
+    val programDateTimeShiftMs: Long? = null,
 )
 
 /**

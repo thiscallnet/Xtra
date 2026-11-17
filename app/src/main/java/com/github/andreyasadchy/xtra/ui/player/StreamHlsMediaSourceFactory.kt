@@ -22,6 +22,12 @@ import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
@@ -66,6 +72,8 @@ class StreamProxyState {
     @Volatile
     private var vaftAlternateEvidenceSource = false
 
+    private var lastReportedProgramDateTimeShiftMs: Long? = null
+
     @Volatile
     var proxyMediaPlaylist: Boolean = false
 
@@ -88,6 +96,28 @@ class StreamProxyState {
         if (observation.requestType.endsWith("playlist", ignoreCase = true)) {
             onProxyPlaylistObservation(observation)
         }
+    }
+
+    @Synchronized
+    fun shouldReportProgramDateTimeShift(
+        shiftMs: Long?,
+        thresholdMs: Long,
+        diagnosticsEnabled: Boolean,
+    ): Boolean {
+        if (shiftMs == null || shiftMs > -thresholdMs && shiftMs < thresholdMs) {
+            lastReportedProgramDateTimeShiftMs = null
+            return false
+        }
+        if (!diagnosticsEnabled) return false
+
+        val lastReportedShiftMs = lastReportedProgramDateTimeShiftMs
+        if (lastReportedShiftMs == null ||
+            kotlin.math.abs(shiftMs - lastReportedShiftMs) >= thresholdMs
+        ) {
+            lastReportedProgramDateTimeShiftMs = shiftMs
+            return true
+        }
+        return false
     }
 
     fun setPrimaryPlayback(isPrimary: Boolean) {
@@ -171,6 +201,38 @@ class StreamHlsMediaSourceFactory(
                         hiddenAudio?.transform(published) ?: published
                     },
                     diagnostics = TwitchHlsDiagnosticsSink { diagnostics, parsed ->
+                        val programDateTimeShiftMs = diagnostics.programDateTimeShiftMs
+                        if (state.shouldReportProgramDateTimeShift(
+                                shiftMs = programDateTimeShiftMs,
+                                thresholdMs = PROGRAM_DATE_TIME_SHIFT_DIAGNOSTIC_THRESHOLD_MS,
+                                diagnosticsEnabled = xtraModule.diagnosticsLogger.isEnabled,
+                            )
+                        ) {
+                            programDateTimeShiftMs?.let { shiftMs ->
+                                xtraModule.diagnosticsLogger.event(
+                                    category = DiagnosticsCategory.PLAYBACK,
+                                    severity = DiagnosticsSeverity.WARN,
+                                    transport = DiagnosticsTransport.PLAYER,
+                                    operation = "hls_timeline",
+                                    event = "pdt_rebased",
+                                    phase = DiagnosticsPhase.EVENT,
+                                    code = "program_date_time_shift",
+                                    fields = buildList {
+                                        add(DiagnosticsField(
+                                            DiagnosticsFieldKey.PROGRAM_DATE_TIME_SHIFT_MS,
+                                            shiftMs.toString(),
+                                        ))
+                                        diagnostics.mediaSequence?.let { sequence ->
+                                            add(DiagnosticsField(DiagnosticsFieldKey.MEDIA_SEQUENCE, sequence.toString()))
+                                        }
+                                        add(DiagnosticsField(
+                                            DiagnosticsFieldKey.SOURCE_REASON,
+                                            "overlap_continuity",
+                                        ))
+                                    },
+                                )
+                            }
+                        }
                         if (parsed is androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist) {
                             if (BuildConfig.DEBUG) {
                                 state.recordVaftSegmentEvidence(
@@ -231,6 +293,10 @@ class StreamHlsMediaSourceFactory(
             DefaultDataSource.Factory(context, dataSourceFactory(StreamProxyState(), streamSource = false)),
         )
             .getSupportedTypes() + defaultMediaSourceFactory.getSupportedTypes()).distinct().toIntArray()
+
+    private companion object {
+        const val PROGRAM_DATE_TIME_SHIFT_DIAGNOSTIC_THRESHOLD_MS = 1_000L
+    }
 
     fun createLiveMediaItem(
         mediaId: String,

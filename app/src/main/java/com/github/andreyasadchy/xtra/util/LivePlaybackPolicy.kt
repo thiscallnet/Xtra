@@ -6,9 +6,14 @@ import androidx.media3.exoplayer.DefaultLoadControl
 object LivePriorityCatchUpPolicy {
     private const val MINIMUM_CATCH_UP_OFFSET_MS = 6_000L
     private const val ALLOWED_DELAY_BEYOND_TARGET_MS = 4_000L
+    // The user's reported offset varied by about two seconds while the clock was stale.
+    const val MINIMUM_PROGRESS_MS = 3_000L
 
     fun thresholdMs(targetOffsetMs: Long): Long =
         maxOf(MINIMUM_CATCH_UP_OFFSET_MS, targetOffsetMs + ALLOWED_DELAY_BEYOND_TARGET_MS)
+
+    fun madeProgress(previousOffsetMs: Long, currentOffsetMs: Long): Boolean =
+        previousOffsetMs - currentOffsetMs >= MINIMUM_PROGRESS_MS
 }
 
 data class PlaybackBufferPolicy(
