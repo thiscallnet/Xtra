@@ -10,12 +10,16 @@ class CursorAwareMultiAutoCompleteTextView @JvmOverloads constructor(
     defStyleAttr: Int = android.R.attr.autoCompleteTextViewStyle,
 ) : MultiAutoCompleteTextView(context, attrs, defStyleAttr) {
     var onSelectionChangedListener: ((selectionStart: Int, selectionEnd: Int) -> Unit)? = null
+    var onPrepareDropDown: (() -> Unit)? = null
     var suppressAutocomplete = false
 
     override fun enoughToFilter(): Boolean = !suppressAutocomplete && super.enoughToFilter()
 
     override fun showDropDown() {
-        if (!suppressAutocomplete) super.showDropDown()
+        if (!suppressAutocomplete) {
+            onPrepareDropDown?.invoke()
+            super.showDropDown()
+        }
     }
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {

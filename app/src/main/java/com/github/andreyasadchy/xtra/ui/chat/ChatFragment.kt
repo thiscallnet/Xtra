@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.os.Build
 import android.os.Bundle
@@ -1056,6 +1057,31 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 chatAssets = (requireContext().applicationContext as XtraApp).xtraModule.chatAssetRepository,
                             ).apply {
                                 setNotifyOnChange(false)
+                                editText.onPrepareDropDown = {
+                                    val token = ChatInputToken.aroundCursor(
+                                        editText.text,
+                                        editText.selectionStart.coerceAtLeast(0),
+                                    )
+                                    if (emoteAutocompleteEnabled && token?.text?.startsWith(":") == true) {
+                                        val visibleFrame = Rect()
+                                        editText.getWindowVisibleDisplayFrame(visibleFrame)
+                                        val margin = resources.getDimensionPixelSize(
+                                            R.dimen.chat_emote_suggestion_popup_margin,
+                                        )
+                                        val popupWidth = (visibleFrame.width() - margin * 2).coerceAtLeast(1)
+                                        val anchorLocation = IntArray(2)
+                                        editText.getLocationOnScreen(anchorLocation)
+                                        val minLeft = visibleFrame.left + margin
+                                        val maxLeft = (visibleFrame.right - margin - popupWidth).coerceAtLeast(minLeft)
+                                        val preferredLeft = anchorLocation[0] + (editText.width - popupWidth) / 2
+                                        editText.dropDownWidth = popupWidth
+                                        editText.dropDownHorizontalOffset =
+                                            preferredLeft.coerceIn(minLeft, maxLeft) - anchorLocation[0]
+                                    } else {
+                                        editText.dropDownWidth = ViewGroup.LayoutParams.WRAP_CONTENT
+                                        editText.dropDownHorizontalOffset = 0
+                                    }
+                                }
                                 editText.setAdapter(this)
                                 editText.setOnDismissListener {
                                     autoCompleteAdapter?.dispose()
@@ -2739,14 +2765,22 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val currentBinding = _binding ?: return
         val visible = messagingEnabled && currentBinding.messageView.isVisible &&
                 chatIdentityPopup?.isShowing != true
-        val showCommandRecommendations = currentCommandRecommendations.isNotEmpty() && visible
-        val showUserRecommendations = !showCommandRecommendations && usernameRecommendationsEnabled &&
+        val emoteAutocompleteActive = emoteAutocompleteEnabled &&
+                ChatInputToken.aroundCursor(
+                    currentBinding.editText.text,
+                    currentBinding.editText.selectionStart.coerceAtLeast(0),
+                )?.text?.startsWith(":") == true
+        val showCommandRecommendations = !emoteAutocompleteActive &&
+                currentCommandRecommendations.isNotEmpty() && visible
+        val showUserRecommendations = !emoteAutocompleteActive && !showCommandRecommendations &&
+                usernameRecommendationsEnabled &&
                 currentUserRecommendations.isNotEmpty() &&
                 visible
         currentBinding.commandRecommendationStrip.isVisible = showCommandRecommendations
         currentBinding.userRecommendationStrip.isVisible = showUserRecommendations
         currentBinding.recommendationStrip.isVisible = !showCommandRecommendations &&
                 !showUserRecommendations &&
+                !emoteAutocompleteActive &&
                 emoteRecommendationsEnabled &&
                 currentRecommendations.isNotEmpty() &&
                 visible
@@ -4362,6 +4396,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         backPressedCallback.remove()
         backPressedCallbackAdded = false
         _binding?.recommendationStrip?.adapter = null
+        _binding?.editText?.onPrepareDropDown = null
         _binding?.commandRecommendationStrip?.adapter = null
         commandRecommendationAdapter?.submitList(emptyList())
         commandRecommendationAdapter = null

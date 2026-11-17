@@ -190,14 +190,35 @@ class AutoCompleteAdapter<T>(
                 val regex = constraint.map {
                     "${Pattern.quote(it.lowercase(Locale.ROOT))}\\S*?"
                 }.joinToString("").toRegex()
+                val aliasPrefix = constraint.toString()
+                    .takeIf { it.startsWith(":") && it.length > 1 }
+                    ?.removePrefix(":")
+                    ?.removeSuffix(":")
+                    ?.takeIf { it.isNotBlank() }
                 val results = list.mapNotNull { item ->
                     when (item) {
-                        is EmojiPickerItem -> matchingEmojiAlias(item, regex)?.let { alias ->
-                            @Suppress("UNCHECKED_CAST")
-                            item.copy(matchedAlias = alias) as T?
+                        is EmojiPickerItem -> {
+                            val alias = if (aliasPrefix != null) {
+                                matchingEmojiAliasPrefix(item, aliasPrefix)
+                            } else {
+                                matchingEmojiAlias(item, regex)
+                            }
+                            alias?.let {
+                                @Suppress("UNCHECKED_CAST")
+                                item.copy(matchedAlias = it) as T?
+                            }
                         }
                         null -> null
-                        else -> item.takeIf { regex.matches(it.toString().lowercase(Locale.ROOT)) }
+                        is Emote -> if (aliasPrefix != null) {
+                            item.takeIf { it.name?.startsWith(aliasPrefix, ignoreCase = true) == true }
+                        } else {
+                            item.takeIf { regex.matches(it.toString().lowercase(Locale.ROOT)) }
+                        }
+                        else -> if (aliasPrefix == null) {
+                            item.takeIf { regex.matches(it.toString().lowercase(Locale.ROOT)) }
+                        } else {
+                            null
+                        }
                     }
                 }
                 FilterResults().apply {
@@ -224,6 +245,9 @@ class AutoCompleteAdapter<T>(
 
     private fun matchingEmojiAlias(item: EmojiPickerItem, regex: Regex): String? =
         item.aliases.firstOrNull { alias -> regex.matches(":$alias:".lowercase(Locale.ROOT)) }
+
+    private fun matchingEmojiAliasPrefix(item: EmojiPickerItem, prefix: String): String? =
+        item.aliases.firstOrNull { alias -> alias.startsWith(prefix, ignoreCase = true) }
 
     private fun clearEmojiSubscription(image: ImageView) {
         (image.tag as? EmojiAssetSubscription)?.let { subscription ->
