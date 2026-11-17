@@ -129,6 +129,8 @@ object SettingsIcons {
         "chat_show_stv_badges" to R.drawable.ic_pref_shield,
         "chat_emote_autocomplete" to R.drawable.ic_pref_list,
         "chat_emote_recommendations" to R.drawable.ic_pref_star,
+        "chat_emote_picker_tabs" to R.drawable.ic_picker_grid_24,
+        "chat_quick_emote_emojis" to R.drawable.ic_pref_emoji,
         "chat_compact_twitch_emote_groups" to R.drawable.ic_pref_dashboard,
         "chat_animate_picker_emotes" to R.drawable.ic_pref_play,
         "chat_input_emotes" to R.drawable.ic_pref_image,

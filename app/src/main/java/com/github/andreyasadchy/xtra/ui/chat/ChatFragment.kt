@@ -318,6 +318,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var commandRecommendationAdapter: ChatCommandSuggestionAdapter? = null
     private var emoteAutocompleteEnabled = true
     private var emoteRecommendationsEnabled = true
+    private var quickEmojisEnabled = true
     private var usernameRecommendationsEnabled = true
     private var chatInputEmoteRenderer: ChatInputEmoteRenderer? = null
     private val recommendationEngine = EmoteRecommendationEngine()
@@ -805,6 +806,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         C.CHAT_EMOTE_RECOMMENDATIONS,
                         true,
                     )
+                    quickEmojisEnabled = requireContext().prefs().getBoolean(
+                        C.CHAT_QUICK_EMOTE_EMOJIS,
+                        true,
+                    )
                     usernameRecommendationsEnabled = requireContext().prefs().getBoolean(
                         C.CHAT_USERNAME_RECOMMENDATIONS,
                         true,
@@ -1120,7 +1125,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                     viewModel.pickerCatalogFor(channelId, channelLogin, useV2 = true)
                                         .collectLatest { catalog ->
                                             if (catalog != null) {
-                                                viewModel.refreshV2AutoCompleteList(catalog)
+                                                viewModel.refreshV2AutoCompleteList(catalog, quickEmojisEnabled)
                                                 autoCompleteAdapter?.notifyDataSetChanged()
                                             }
                                     }
@@ -1153,6 +1158,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                                             usage = catalog.usage,
                                                             viewerId = catalog.viewerId,
                                                             emojiQuery = emojiPrefix?.text ?: "",
+                                                            includeEmojis = quickEmojisEnabled,
                                                         ),
                                                         catalog = catalog.catalog,
                                                     )
@@ -1279,13 +1285,25 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             updateComposerDensity()
                         }
                         updateComposerDensity()
-                        viewPager.adapter = object : FragmentStateAdapter(this@ChatFragment) {
-                            override fun getItemCount(): Int = EmotePickerSection.entries.size
+                        val pickerPreferences = requireContext().prefs()
+                        val allPickerSectionNames = EmotePickerSection.entries.map { it.name }.toSet()
+                        var pickerSections = EmotePickerSection.entries.filter {
+                            it.name in pickerPreferences.getStringSet(C.CHAT_EMOTE_PICKER_TABS, allPickerSectionNames)
+                                .orEmpty()
+                        }
+                        if (pickerSections.isEmpty()) pickerSections = listOf(EmotePickerSection.TWITCH)
+                        val pickerAdapter = object : FragmentStateAdapter(this@ChatFragment) {
+                            override fun getItemCount(): Int = pickerSections.size
+
+                            override fun getItemId(position: Int): Long = pickerSections[position].ordinal.toLong()
+
+                            override fun containsItem(itemId: Long): Boolean = pickerSections.any { it.ordinal.toLong() == itemId }
 
                             override fun createFragment(position: Int): Fragment {
-                                return EmotesFragment.newInstance(EmotePickerSection.fromPosition(position))
+                                return EmotesFragment.newInstance(pickerSections[position])
                             }
                         }
+                        viewPager.adapter = pickerAdapter
                         viewPager.offscreenPageLimit = 2
                         viewPager.reduceDragSensitivity()
                         fun tabLabel(section: EmotePickerSection): String = when (section) {
@@ -1303,7 +1321,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             EmotePickerSection.THIRD_PARTY -> R.drawable.ic_picker_extension_24
                         }
                         fun configurePickerTab(tab: TabLayout.Tab, position: Int, compact: Boolean) {
-                            val section = EmotePickerSection.fromPosition(position)
+                            val section = pickerSections[position]
                             if (compact) {
                                 tab.text = null
                                 tab.setIcon(compactTabIcon(section))
@@ -1320,7 +1338,6 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         TabLayoutMediator(compactTabLayout, viewPager) { tab, position ->
                             configurePickerTab(tab, position, compact = true)
                         }.attach()
-                        val pickerPreferences = requireContext().prefs()
                         fun updateCompactPickerChrome(enabled: Boolean) {
                             tabLayout.isVisible = !enabled
                             compactTabLayout.isVisible = enabled
@@ -1336,6 +1353,30 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 updateCompactPickerChrome(
                                     pickerPreferences.getBoolean(C.CHAT_COMPACT_TWITCH_EMOTE_GROUPS, false),
                                 )
+                            } else if (key == C.CHAT_QUICK_EMOTE_EMOJIS) {
+                                quickEmojisEnabled = pickerPreferences.getBoolean(C.CHAT_QUICK_EMOTE_EMOJIS, true)
+                                viewModel.setQuickEmojiAutocompleteEnabled(quickEmojisEnabled)
+                                autoCompleteAdapter?.notifyDataSetChanged()
+                                updateRecommendationInput()
+                            } else if (key == C.CHAT_EMOTE_PICKER_TABS) {
+                                val selectedSection = pickerSections.getOrNull(viewPager.currentItem)
+                                val visibleSections = pickerPreferences.getStringSet(
+                                    C.CHAT_EMOTE_PICKER_TABS,
+                                    allPickerSectionNames,
+                                ).orEmpty()
+                                pickerSections = EmotePickerSection.entries.filter {
+                                    it.name in visibleSections
+                                }
+                                if (pickerSections.isEmpty()) {
+                                    // The settings screen prevents clearing the last selection.
+                                    pickerSections = listOf(EmotePickerSection.TWITCH)
+                                }
+                                pickerAdapter.notifyDataSetChanged()
+                                val newPosition = selectedSection?.let(pickerSections::indexOf)
+                                    ?.takeIf { it >= 0 }
+                                    ?: pickerSections.indexOf(EmotePickerSection.TWITCH).coerceAtLeast(0)
+                                viewPager.setCurrentItem(newPosition, false)
+                                updateRecommendationInput()
                             } else if (key == C.CHAT_USERNAME_RECOMMENDATIONS) {
                                 usernameRecommendationsEnabled = pickerPreferences.getBoolean(
                                     C.CHAT_USERNAME_RECOMMENDATIONS,
@@ -1362,11 +1403,15 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             //TODO add animation
                             if (emoteMenu.isGone) {
                                 val defaultSection = when {
-                                    viewModel.hasAvailableFavoriteItems.value -> EmotePickerSection.FAVORITES
+                                    viewModel.hasAvailableFavoriteEmotes.value ||
+                                            (EmotePickerSection.EMOJI in pickerSections && viewModel.hasAvailableFavoriteItems.value) -> EmotePickerSection.FAVORITES
                                     viewModel.hasRecentEmotes.value -> EmotePickerSection.RECENTS
                                     else -> EmotePickerSection.TWITCH
                                 }
-                                viewPager.setCurrentItem(defaultSection.position, false)
+                                viewPager.setCurrentItem(
+                                    pickerSections.indexOf(defaultSection).takeIf { it >= 0 } ?: 0,
+                                    false,
+                                )
                                 toggleEmoteMenu(true)
                             } else {
                                 toggleEmoteMenu(false)

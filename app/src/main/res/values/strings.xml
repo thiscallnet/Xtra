@@ -712,6 +712,11 @@ Metadata text</string>
     <string name="chat_emote_autocomplete_summary">Show matching emotes while typing.</string>
     <string name="chat_emote_recommendations">Recommendation strip</string>
     <string name="chat_emote_recommendations_summary">Show ranked emotes above the chat input.</string>
+    <string name="chat_emote_picker_tabs">Emote picker tabs</string>
+    <string name="chat_emote_picker_tabs_summary">Choose which tabs appear in the emote picker.</string>
+    <string name="chat_emote_picker_keep_one_tab">Keep at least one picker tab visible.</string>
+    <string name="chat_quick_emote_emojis">Emoji in quick suggestions</string>
+    <string name="chat_quick_emote_emojis_summary">Include emoji matches when typing : in chat.</string>
     <string name="chat_username_recommendations">Username suggestions</string>
     <string name="chat_username_recommendations_summary">Show ranked users from this chat when typing @.</string>
     <string name="chat_username_recommendation_login">@%1$s</string>
