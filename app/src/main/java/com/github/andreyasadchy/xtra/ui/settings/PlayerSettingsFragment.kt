@@ -133,6 +133,7 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
             C.PLAYER_BUFFER_MAX to (InputType.TYPE_CLASS_NUMBER to 500..120_000),
             C.PLAYER_BUFFER_PLAYBACK to (InputType.TYPE_CLASS_NUMBER to 100..60_000),
             C.PLAYER_BUFFER_REBUFFER to (InputType.TYPE_CLASS_NUMBER to 100..60_000),
+            C.PLAYER_LIVE_MAX_SPEED to ((InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL) to 100..150),
         )
         val descriptions = mapOf(
             C.PLAYER_LIVE_TARGET_OFFSET to R.string.settings_live_tuning_target_description,
@@ -140,6 +141,7 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
             C.PLAYER_BUFFER_MAX to R.string.settings_live_tuning_max_buffer_description,
             C.PLAYER_BUFFER_PLAYBACK to R.string.settings_live_tuning_start_buffer_description,
             C.PLAYER_BUFFER_REBUFFER to R.string.settings_live_tuning_rebuffer_description,
+            C.PLAYER_LIVE_MAX_SPEED to R.string.settings_live_tuning_max_speed_description,
         )
         val setCustomTuningEnabled: (Boolean) -> Unit = { enabled ->
             numericPreferences.forEach { (key, _) ->
@@ -147,14 +149,32 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
             }
         }
         setCustomTuningEnabled(liveModePreference?.value == C.PLAYER_LIVE_MODE_CUSTOM)
+        val maxSpeedPreference = findPreference<EditTextPreference>(C.PLAYER_LIVE_MAX_SPEED)
+        val maxSpeedEnabledPreference = findPreference<SwitchPreferenceCompat>(C.PLAYER_LIVE_MAX_SPEED_ENABLED)
+        val updateMaxSpeedEnabled = { customMode: Boolean ->
+            maxSpeedEnabledPreference?.isEnabled = customMode
+            maxSpeedPreference?.isEnabled = customMode && maxSpeedEnabledPreference?.isChecked == true
+        }
+        updateMaxSpeedEnabled(liveModePreference?.value == C.PLAYER_LIVE_MODE_CUSTOM)
+        maxSpeedEnabledPreference?.setOnPreferenceChangeListener { _, value ->
+            maxSpeedPreference?.isEnabled = value == true && liveModePreference?.value == C.PLAYER_LIVE_MODE_CUSTOM
+            true
+        }
         liveModePreference?.setOnPreferenceChangeListener { _, newValue ->
             setCustomTuningEnabled(newValue == C.PLAYER_LIVE_MODE_CUSTOM)
+            updateMaxSpeedEnabled(newValue == C.PLAYER_LIVE_MODE_CUSTOM)
             true
         }
         numericPreferences.forEach { (key, inputAndRange) ->
             val preference = findPreference<EditTextPreference>(key) ?: return@forEach
             val (inputType, _) = inputAndRange
             preference.setOnBindEditTextListener { editText -> editText.inputType = inputType }
+            if (key == C.PLAYER_LIVE_MAX_SPEED) {
+                preference.setOnBindEditTextListener { editText ->
+                    editText.inputType = inputType
+                    editText.hint = getString(R.string.live_speed_range)
+                }
+            }
             preference.extras.putString(
                 MaterialEditTextPreference.VALIDATION_ERROR,
                 getString(R.string.settings_invalid_value),
@@ -164,13 +184,15 @@ class PlayerSettingsFragment : MaterialPreferenceFragment() {
                 val setting = if (value.isEmpty()) {
                     getString(R.string.settings_live_tuning_mode_default)
                 } else {
-                    getString(R.string.settings_live_tuning_current, "$value ms")
+                    getString(R.string.settings_live_tuning_current, if (key == C.PLAYER_LIVE_MAX_SPEED) "$value×" else "$value ms")
                 }
                 getString(R.string.settings_live_tuning_row_summary, setting, getString(descriptions.getValue(key)))
             }
             preference.setOnPreferenceChangeListener { _, newValue ->
                 val text = newValue.toString().trim()
-                val valid = if (text.isEmpty()) {
+                val valid = if (key == C.PLAYER_LIVE_MAX_SPEED) {
+                    if (text.isEmpty()) true else text.replace(',', '.').toFloatOrNull()?.let { it.isFinite() && it in 1.0f..1.5f } == true
+                } else if (text.isEmpty()) {
                     true
                 } else {
                     val parsed = text.toIntOrNull()

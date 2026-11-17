@@ -97,7 +97,7 @@ import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.ui.main.MainActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackController
-import com.github.andreyasadchy.xtra.util.FixedSpeedLivePlaybackControl
+import com.github.andreyasadchy.xtra.util.AdaptiveLivePlaybackSpeedControl
 import com.github.andreyasadchy.xtra.util.LivePlaybackSettings
 import com.github.andreyasadchy.xtra.util.LivePriorityCatchUpPolicy
 import com.github.andreyasadchy.xtra.util.shouldRunAdaptiveLiveSampleTicker
@@ -156,7 +156,7 @@ class PlaybackService : MediaSessionService() {
     private var lastSystemBehindSeconds: Long? = null
     private var lastLivePriorityCatchUpRealtimeMs = Long.MIN_VALUE
     private var adaptiveLiveController: AdaptiveLivePlaybackController? = null
-    private var livePlaybackSpeedControl: FixedSpeedLivePlaybackControl? = null
+    private var livePlaybackSpeedControl: AdaptiveLivePlaybackSpeedControl? = null
     private var adaptiveLiveSampleJob: Job? = null
     private val liveClipBufferManager = LiveClipBufferManager()
     private var liveClipDataSourceFactory: DataSource.Factory? = null
@@ -427,7 +427,7 @@ class PlaybackService : MediaSessionService() {
         val initialLiveSettings = LivePlaybackSettings.fromPreferences(prefs())
         val initialLivePolicies = initialLiveSettings.policies()
         val initialLivePolicy = initialLivePolicies.forMode(initialLiveSettings.mode)
-        livePlaybackSpeedControl = FixedSpeedLivePlaybackControl(
+        livePlaybackSpeedControl = AdaptiveLivePlaybackSpeedControl(
             DefaultLivePlaybackSpeedControl.Builder().build(),
         )
         livePlaybackSpeedControl?.setRebufferTargetAdaptationEnabled(false)

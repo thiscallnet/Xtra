@@ -236,6 +236,8 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_live_tuning_max_buffer_description",
     "settings_live_tuning_start_buffer_description",
     "settings_live_tuning_rebuffer_description",
+    "settings_live_max_speed_enabled",
+    "settings_live_max_speed_enabled_summary",
     "settings_live_tuning_min_speed_description",
     "settings_live_tuning_max_speed_description",
     "live_speed_range",

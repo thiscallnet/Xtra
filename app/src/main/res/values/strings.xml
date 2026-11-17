@@ -317,7 +317,7 @@
     <string name="settings_live_mode_custom">Custom</string>
     <string name="settings_live_mode_normal">Standard</string>
     <string name="settings_live_mode_minimum_summary">Uses a small fixed buffer to stay close to live. Playback stays at 1.0×; weak connections may rebuffer more. Restart live playback after changing.</string>
-    <string name="settings_live_mode_custom_summary">Uses the values in Custom buffer settings below. Blank fields use Standard values. Playback stays at 1.0×. Restart live playback after changing.</string>
+    <string name="settings_live_mode_custom_summary">Uses the values in Custom buffer settings below. Playback can speed up to the optional maximum to catch up. Restart live playback after changing.</string>
     <string name="settings_live_mode_normal_summary">Uses a larger fixed buffer for steadier playback. Playback stays at 1.0×. Restart live playback after changing.</string>
     <string name="settings_live_tuning">Custom buffer settings</string>
     <string name="settings_live_tuning_summary">Custom only. Blank fields use Standard.</string>
@@ -329,6 +329,8 @@
     <string name="settings_live_tuning_max_buffer_description">Maximum amount kept buffered during live playback.</string>
     <string name="settings_live_tuning_start_buffer_description">Buffer to collect before playback starts, up to the minimum buffer.</string>
     <string name="settings_live_tuning_rebuffer_description">Buffer to collect before playback resumes, up to the minimum buffer.</string>
+    <string name="settings_live_max_speed_enabled">Catch up to target</string>
+    <string name="settings_live_max_speed_enabled_summary">Allow playback to speed up when behind your target. Off keeps playback at 1.0×.</string>
     <string name="settings_live_tuning_min_speed_description">Minimum live playback speed; 1.0× is normal.</string>
     <string name="settings_live_tuning_max_speed_description">Maximum live playback speed; 1.0× is normal.</string>
     <string name="settings_live_rewind">Live stream rewind</string>

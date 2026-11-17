@@ -40,6 +40,7 @@ data class LivePlaybackSettings(
     val mode: LivePlaybackMode,
     val targetOffsetMs: Long?,
     val buffers: PlaybackBufferOverrides,
+    val maxPlaybackSpeed: Float,
 ) {
     val lowLatencyEnabled: Boolean
         get() = mode.lowLatencyEnabled
@@ -50,7 +51,7 @@ data class LivePlaybackSettings(
         MediaItem.LiveConfiguration.Builder()
             .setTargetOffsetMs(policy.targetOffsetMs)
             .setMinPlaybackSpeed(1f)
-            .setMaxPlaybackSpeed(1f)
+            .setMaxPlaybackSpeed(if (mode == LivePlaybackMode.CUSTOM) maxPlaybackSpeed else 1f)
             // Keep the selected target stable through rebuffers in every mode.
             .setMinOffsetMs(policy.targetOffsetMs)
             .setMaxOffsetMs(policy.targetOffsetMs)
@@ -61,14 +62,16 @@ data class LivePlaybackSettings(
             mode = LivePlaybackMode.MINIMUM_DELAY,
             targetOffsetMs = null,
             buffers = PlaybackBufferOverrides(),
+            maxPlaybackSpeed = 1f,
         )
 
         fun fromPreferences(preferences: SharedPreferences): LivePlaybackSettings {
+            val mode = LivePlaybackMode.fromPreferences(preferences)
             val minBuffer = preferences.readInt(C.PLAYER_BUFFER_MIN, MIN_BUFFER_RANGE)
             val maxBuffer = preferences.readInt(C.PLAYER_BUFFER_MAX, MAX_BUFFER_RANGE)
             val validBufferPair = minBuffer == null || maxBuffer == null || minBuffer < maxBuffer
             return LivePlaybackSettings(
-                mode = LivePlaybackMode.fromPreferences(preferences),
+                mode = mode,
                 targetOffsetMs = preferences.getString(C.PLAYER_LIVE_TARGET_OFFSET, null)
                     ?.toLongOrNull()
                     ?.takeIf { it in TARGET_OFFSET_RANGE },
@@ -78,6 +81,19 @@ data class LivePlaybackSettings(
                     bufferForPlaybackMs = preferences.readInt(C.PLAYER_BUFFER_PLAYBACK, START_BUFFER_RANGE),
                     bufferForPlaybackAfterRebufferMs = preferences.readInt(C.PLAYER_BUFFER_REBUFFER, REBUFFER_RANGE),
                 ),
+                maxPlaybackSpeed = if (
+                    mode == LivePlaybackMode.CUSTOM &&
+                    preferences.getBoolean(C.PLAYER_LIVE_MAX_SPEED_ENABLED, false)
+                ) {
+                    preferences.getString(C.PLAYER_LIVE_MAX_SPEED, null)
+                        ?.trim()
+                        ?.replace(',', '.')
+                        ?.toFloatOrNull()
+                        ?.takeIf { it.isFinite() && it in MAX_SPEED_RANGE }
+                        ?: DEFAULT_MAX_SPEED
+                } else {
+                    1f
+                },
             )
         }
 
@@ -86,6 +102,8 @@ data class LivePlaybackSettings(
         private val START_BUFFER_RANGE = 100..60_000
         private val REBUFFER_RANGE = 100..60_000
         private val TARGET_OFFSET_RANGE = 500L..30_000L
+        private val MAX_SPEED_RANGE = 1.0f..1.5f
+        private const val DEFAULT_MAX_SPEED = 1.2f
     }
 }
 
