@@ -3,7 +3,9 @@
 Run with Python and ffmpeg on PATH. Media is generated in a temporary directory.
 Control it with /control?primary_vaft=true, /control?primary_vaft=false,
 /control?backup_vaft=true, /control?fail=embed, /control?delay=3,
-/control?token_delay=3, or /control?token_fail=true.
+/control?token_delay=3, /control?token_fail=true, or
+/control?primary_date_offset=-30 to simulate a stale live-edge clock. Use
+--primary-date-offset=-30 to start with a stale clock.
 Only requests for the reserved vaft_fixture channel are redirected by the app.
 """
 
@@ -26,9 +28,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CHANNEL = "vaft_fixture"
 HOST = "https://vaft-fixture.invalid"
 START = time.time() - 60
-STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "token_delay": 0.0, "token_fail": False, "segment_delay": 0.0, "backup_date_offset": 0.0, "backup_failed_top": False, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
+STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "token_delay": 0.0, "token_fail": False, "segment_delay": 0.0, "primary_date_offset": 0.0, "primary_initial_date_offset": 0.0, "primary_date_offset_changes": [], "backup_date_offset": 0.0, "backup_failed_top": False, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
 LOCK = threading.Lock()
-ROOT = pathlib.Path(tempfile.mkdtemp(prefix="xtra-vaft-fixture-"))
+ROOT: pathlib.Path | None = None
 DEVICE_ID = uuid.uuid4().hex
 VAFT_RANGE_TEMPLATE = None
 
@@ -210,6 +212,12 @@ class Handler(BaseHTTPRequestHandler):
                 for key, values in query.items():
                     if key in ("primary_vaft", "backup_vaft", "vaft_attributes_only", "ladder", "unavailable", "real_backup", "backup_failed_top"):
                         STATE[key] = values[0].lower() == "true"
+                    elif key == "primary_date_offset":
+                        date_offset = float(values[0])
+                        if date_offset != STATE["primary_date_offset"]:
+                            next_sequence = max(0, int((time.time() - START) / 2) + 1)
+                            STATE["primary_date_offset_changes"].append([next_sequence, date_offset])
+                            STATE["primary_date_offset"] = date_offset
                     elif key in ("delay", "token_delay", "segment_delay", "backup_date_offset"):
                         STATE[key] = float(values[0])
                     elif key == "token_fail":
@@ -223,10 +231,12 @@ class Handler(BaseHTTPRequestHandler):
                     elif key == "fail":
                         STATE[key] = values[0]
                 state = dict(STATE)
+                state["primary_date_offset_changes"] = list(STATE["primary_date_offset_changes"])
             self.respond(json.dumps(state), "application/json")
             return
         with LOCK:
             state = dict(STATE)
+            state["primary_date_offset_changes"] = list(STATE["primary_date_offset_changes"])
         player_type = query.get("sig", ["site"])[0] if parsed.path == "/master" else None
         if parsed.path in ("/master", "/vod/master"):
             if player_type == state["fail"]:
@@ -289,6 +299,7 @@ class Handler(BaseHTTPRequestHandler):
             if state["unavailable"] and "chunked" in parts:
                 vaft_required = True
             lines = ["#EXTM3U", "#EXT-X-VERSION:3", "#EXT-X-TARGETDURATION:2", f"#EXT-X-MEDIA-SEQUENCE:{first}"]
+            changes = state["primary_date_offset_changes"] if primary else []
             lines.append(f"#EXT-X-DISCONTINUITY-SEQUENCE:{max(0, (first - 1) // segment_count)}")
             if replay:
                 lines.append("#EXT-X-PLAYLIST-TYPE:EVENT")
@@ -305,7 +316,14 @@ class Handler(BaseHTTPRequestHandler):
             for i in range(first, last + 1):
                 if i > 0 and i % segment_count == 0:
                     lines.append("#EXT-X-DISCONTINUITY")
-                date_offset = state["backup_date_offset"] if not primary and not replay else 0.0
+                primary_date_offset = state["primary_initial_date_offset"] if primary else 0.0
+                for sequence, offset in changes:
+                    if sequence > i:
+                        break
+                    primary_date_offset = offset
+                date_offset = 0.0 if replay else (
+                    primary_date_offset if primary else state["backup_date_offset"]
+                )
                 lines += [f"#EXT-X-PROGRAM-DATE-TIME:{timestamp(START + i * 2 + date_offset)}",
                     f"#EXTINF:2.0,{'Amazon' if vaft_required and not state['vaft_attributes_only'] and VAFT_RANGE_TEMPLATE is None else 'live'}", f"{HOST}/segments/{lane}/{i:08d}.ts"]
             if not replay:
@@ -348,10 +366,14 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=8767)
     parser.add_argument("--media-dir", type=pathlib.Path)
     parser.add_argument("--start-time", type=float)
+    parser.add_argument("--primary-date-offset", type=float, default=0.0,
+                        help="offset the initial primary playlist PDT mapping in seconds")
     parser.add_argument("--generate-ladder", action="store_true")
     parser.add_argument("--vaft-range-template", type=pathlib.Path,
                         help="Private captured playlist JSON whose VAFT range is replayed locally")
     args = parser.parse_args()
+    STATE["primary_date_offset"] = args.primary_date_offset
+    STATE["primary_initial_date_offset"] = args.primary_date_offset
     if args.vaft_range_template:
         record = json.loads(args.vaft_range_template.read_text(encoding="utf-8"))
         VAFT_RANGE_TEMPLATE = next(line for line in record["playlist"].splitlines()
@@ -363,6 +385,7 @@ if __name__ == "__main__":
     if args.media_dir:
         ROOT = args.media_dir.resolve()
     else:
+        ROOT = pathlib.Path(tempfile.mkdtemp(prefix="xtra-vaft-fixture-"))
         generate_media()
     if args.generate_ladder:
         generate_ladder()

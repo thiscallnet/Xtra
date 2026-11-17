@@ -18,6 +18,7 @@ import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.AtomicInteger
 
+@androidx.media3.common.util.UnstableApi
 fun interface TwitchHlsDiagnosticsSink {
     fun onPlaylistParsed(
         diagnostics: TwitchHlsPlaylistDiagnostics,
@@ -25,6 +26,7 @@ fun interface TwitchHlsDiagnosticsSink {
     )
 }
 
+@androidx.media3.common.util.UnstableApi
 internal fun HlsMediaPlaylist.copyWithInterstitials(
     interstitials: List<HlsMediaPlaylist.Interstitial>,
 ): HlsMediaPlaylist = HlsMediaPlaylist(
@@ -53,6 +55,38 @@ internal fun HlsMediaPlaylist.copyWithInterstitials(
 )
 
 @androidx.media3.common.util.UnstableApi
+private fun HlsMediaPlaylist.copyWithStartTimeUs(startTimeUs: Long): HlsMediaPlaylist = HlsMediaPlaylist(
+    playlistType,
+    baseUri,
+    tags,
+    startOffsetUs,
+    preciseStart,
+    startTimeUs,
+    hasDiscontinuitySequence,
+    discontinuitySequence,
+    mediaSequence,
+    version,
+    targetDurationUs,
+    partTargetDurationUs,
+    hasIndependentSegments,
+    hasEndTag,
+    hasProgramDateTime,
+    protectionSchemes,
+    segments,
+    trailingParts,
+    serverControl,
+    renditionReports,
+    interstitials,
+    lastSeenInitSegment,
+)
+
+@androidx.media3.common.util.UnstableApi
+private data class ProgramDateTimeContinuityAdjustment(
+    val playlist: HlsMediaPlaylist,
+    val shiftMs: Long,
+)
+
+@androidx.media3.common.util.UnstableApi
 class TwitchHlsPlaylistParserFactory(
     private val lowLatencyEnabled: Boolean,
     private val diagnostics: TwitchHlsDiagnosticsSink? = null,
@@ -63,16 +97,20 @@ class TwitchHlsPlaylistParserFactory(
     private val parseCount = AtomicInteger()
 
     override fun createPlaylistParser(): ParsingLoadable.Parser<HlsPlaylist> =
-        wrap(delegate.createPlaylistParser())
+        wrap(delegate.createPlaylistParser(), previousMediaPlaylist = null)
 
     override fun createPlaylistParser(
         multivariantPlaylist: HlsMultivariantPlaylist,
         previousMediaPlaylist: HlsMediaPlaylist?,
     ): ParsingLoadable.Parser<HlsPlaylist> = wrap(
         delegate.createPlaylistParser(multivariantPlaylist, previousMediaPlaylist),
+        previousMediaPlaylist,
     )
 
-    private fun wrap(parser: ParsingLoadable.Parser<HlsPlaylist>): ParsingLoadable.Parser<HlsPlaylist> =
+    private fun wrap(
+        parser: ParsingLoadable.Parser<HlsPlaylist>,
+        previousMediaPlaylist: HlsMediaPlaylist?,
+    ): ParsingLoadable.Parser<HlsPlaylist> =
         ParsingLoadable.Parser { uri, input ->
             val raw = input.readBytes().toString(StandardCharsets.UTF_8)
             VaftPlaylistCapture.record(uri.toString(), raw, "player_parse")
@@ -123,6 +161,12 @@ class TwitchHlsPlaylistParserFactory(
                     playlistText = finalAdaptation.playlistText,
                 )
             }
+            val continuityAdjustment = preserveProgramDateTimeContinuity(
+                previousPlaylist = previousMediaPlaylist,
+                updatedPlaylist = parsed as? HlsMediaPlaylist,
+            )
+            if (continuityAdjustment != null) parsed = continuityAdjustment.playlist
+            val programDateTimeShiftMs = continuityAdjustment?.shiftMs
             val compatible = transform(uri, TwitchMultivariantPlaylistCompatibility.apply(
                 parsed = parsed,
                 rawPlaylist = finalAdaptation.playlistText,
@@ -165,6 +209,7 @@ class TwitchHlsPlaylistParserFactory(
                     ?.div(1_000L)
                     ?.takeIf { collectExpandedDiagnostics },
                 segmentCount = compatibleMediaPlaylist?.segments?.size?.takeIf { collectExpandedDiagnostics },
+                programDateTimeShiftMs = programDateTimeShiftMs,
             )
             diagnostics?.onPlaylistParsed(finalDiagnostics, compatible)
             logDiagnostics(finalDiagnostics, compatible)
@@ -248,12 +293,33 @@ class TwitchHlsPlaylistParserFactory(
                 "playlistType=${diagnostics.parsedPlaylistType ?: mediaPlaylist?.playlistType ?: -1} " +
                 "mediaSequence=${diagnostics.mediaSequence ?: -1L} " +
                 "playlistDurationMs=${diagnostics.playlistDurationMs ?: -1L} " +
+                "pdtShiftMs=${diagnostics.programDateTimeShiftMs ?: -1L} " +
                 "segments=${diagnostics.segmentCount ?: mediaPlaylist?.segments?.size ?: 0} " +
                 "trailingParts=${mediaPlaylist?.trailingParts?.size ?: 0}",
         )
     }
+
+    /** Keep an overlapping segment on its existing timeline when its server PDT has shifted. */
+    private fun preserveProgramDateTimeContinuity(
+        previousPlaylist: HlsMediaPlaylist?,
+        updatedPlaylist: HlsMediaPlaylist?,
+    ): ProgramDateTimeContinuityAdjustment? {
+        if (previousPlaylist == null || updatedPlaylist?.hasProgramDateTime != true) return null
+        val sequenceOffset = updatedPlaylist.mediaSequence - previousPlaylist.mediaSequence
+        if (sequenceOffset < 0L || sequenceOffset >= previousPlaylist.segments.size) return null
+
+        val overlap = previousPlaylist.segments[sequenceOffset.toInt()]
+        val continuousStartTimeUs = previousPlaylist.startTimeUs + overlap.relativeStartTimeUs
+        val shiftUs = updatedPlaylist.startTimeUs - continuousStartTimeUs
+        if (shiftUs == 0L) return null
+        return ProgramDateTimeContinuityAdjustment(
+            playlist = updatedPlaylist.copyWithStartTimeUs(continuousStartTimeUs),
+            shiftMs = shiftUs / 1_000L,
+        )
+    }
 }
 
+@androidx.media3.common.util.UnstableApi
 private object TwitchMultivariantPlaylistCompatibility {
 
     private data class RawVariant(
