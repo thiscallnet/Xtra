@@ -14,6 +14,7 @@ internal class StreamStartupTrace(
     private val streamStartElapsedMs: Long,
     private val urlAvailableElapsedMs: Long?,
     val tapSource: String,
+    val sourceStartReason: String,
 ) {
     var prepareCalledAtMs: Long? = null
     private var readyLogged = false
@@ -40,7 +41,8 @@ internal class StreamStartupTrace(
             Log.d(
                 "StreamStartup",
                 "StreamStartup channel=$channelLogin url=${if (urlWarm) "warm" else "cold"} media=$mediaLabel mediaAgeMs=${mediaAgeMs ?: -1} " +
-                    "preview=$previewAlreadyPlaying tapSource=$tapSource tapToUrlAvailableMs=${tapToUrlAvailableMs() ?: -1} " +
+                    "preview=$previewAlreadyPlaying tapSource=$tapSource sourceReason=$sourceStartReason " +
+                    "tapToUrlAvailableMs=${tapToUrlAvailableMs() ?: -1} " +
                     "tapToStartStreamMs=${tapToStartStreamMs()} tapToReadyMs=${now - tappedAtMs} " +
                     "prepareToReadyMs=${prepareCalledAtMs?.let { now - it } ?: -1}",
             )
@@ -56,7 +58,8 @@ internal class StreamStartupTrace(
             Log.d(
                 "StreamStartup",
                 "StreamStartup channel=$channelLogin url=${if (urlWarm) "warm" else "cold"} media=$mediaLabel mediaAgeMs=${mediaAgeMs ?: -1} " +
-                    "preview=$previewAlreadyPlaying tapSource=$tapSource tapToUrlAvailableMs=${tapToUrlAvailableMs() ?: -1} " +
+                    "preview=$previewAlreadyPlaying tapSource=$tapSource sourceReason=$sourceStartReason " +
+                    "tapToUrlAvailableMs=${tapToUrlAvailableMs() ?: -1} " +
                     "tapToStartStreamMs=${tapToStartStreamMs()} tapToFirstFrameMs=${now - tappedAtMs}",
             )
         }
@@ -85,6 +88,7 @@ internal class StreamStartupTrace(
         urlWarm = urlWarm,
         previewAlreadyPlaying = previewAlreadyPlaying,
         tapSource = tapSource,
+        sourceStartReason = sourceStartReason,
     )
 }
 
@@ -98,4 +102,5 @@ internal data class StreamStartupMilestone(
     val urlWarm: Boolean,
     val previewAlreadyPlaying: Boolean,
     val tapSource: String,
+    val sourceStartReason: String,
 )

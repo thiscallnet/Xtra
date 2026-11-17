@@ -23,3 +23,9 @@ retains the range attributes, shifts its dates into the local live window, and
 uses local media. Trigger it with `/control?primary_vaft=true`; return to the
 primary with `/control?primary_vaft=false`. The debug fixture receiver affects
 only the reserved fixture channel. Disable that receiver when verification ends.
+
+For startup/restart checks, `/control?token_delay=3` delays only playback-token
+responses and `/control?token_fail=true` makes those responses fail with HTTP
+503. Reset with `/control?token_delay=0&token_fail=false`. These controls allow
+reproducing a refresh during an in-flight URL lookup and confirming that a failed
+lookup is reported, then a later HUD restart can resolve and play normally.

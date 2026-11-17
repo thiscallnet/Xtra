@@ -73,17 +73,34 @@ class VaftFixtureReceiver : BroadcastReceiver() {
             }
         }.build()
         setLazyClient(lazyClient, fixtureClient)
-        preferences.edit().putString(C.NETWORK_LIBRARY, C.OKHTTP)
+        preferences.edit()
+            // Network-library overrides are gated behind Developer Options in debug builds.
+            // Enable them only for the fixture and restore the prior values on disable.
+            .putBoolean(C.SETTINGS_DEVELOPER_UNLOCKED, true)
+            .putBoolean(C.SETTINGS_DEVELOPER_ENABLED, true)
+            .putString(C.NETWORK_LIBRARY, C.OKHTTP)
             .putString(C.TOKEN_PLAYER_TYPE, "site").putBoolean(C.PLAYER_VAFT_ENABLED, true)
+            .putString(C.TOKEN_X_DEVICE_ID, C.DEFAULT_TOKEN_X_DEVICE_ID)
+            .putString(C.TOKEN_SUPPORTED_CODECS, C.DEFAULT_TOKEN_SUPPORTED_CODECS)
+            .putBoolean(C.TOKEN_RANDOM_DEVICE_ID, true)
+            .putBoolean(C.TOKEN_INCLUDE_TOKEN_STREAM, true)
+            .remove(C.PLAYER_STREAM_HEADERS)
             .putBoolean(C.PLAYER_LIVE_REWIND, true).putBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false)
+            .putBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false).putBoolean(C.PROXY_MEDIA_PLAYLIST, false)
             .putBoolean(C.PLAYER_STREAM_PROXY, false).putBoolean(C.SETTINGS_CHAT_ENABLED, false).commit()
         Log.i("VaftFixture", "enabled; only vaft_fixture traffic redirected")
     }
 
     companion object {
         private var originalClient: OkHttpClient? = null
-        private val KEYS = listOf(C.NETWORK_LIBRARY, C.TOKEN_PLAYER_TYPE, C.PLAYER_VAFT_ENABLED,
-            C.PLAYER_LIVE_REWIND, C.PROXY_PLAYBACK_ACCESS_TOKEN, C.PLAYER_STREAM_PROXY, C.SETTINGS_CHAT_ENABLED)
+        private val KEYS = listOf(
+            C.SETTINGS_DEVELOPER_UNLOCKED, C.SETTINGS_DEVELOPER_ENABLED, C.NETWORK_LIBRARY,
+            C.TOKEN_PLAYER_TYPE, C.TOKEN_X_DEVICE_ID, C.TOKEN_SUPPORTED_CODECS,
+            C.TOKEN_RANDOM_DEVICE_ID, C.TOKEN_INCLUDE_TOKEN_STREAM, C.PLAYER_STREAM_HEADERS,
+            C.PLAYER_VAFT_ENABLED, C.PLAYER_LIVE_REWIND, C.PROXY_PLAYBACK_ACCESS_TOKEN,
+            C.PROXY_MULTIVARIANT_PLAYLIST, C.PROXY_MEDIA_PLAYLIST, C.PLAYER_STREAM_PROXY,
+            C.SETTINGS_CHAT_ENABLED,
+        )
 
         // Debug-only test injection into the shared lazy client also reaches existing repositories.
         // Production source resolution and playback contain no fixture branches.

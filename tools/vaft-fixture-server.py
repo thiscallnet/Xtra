@@ -2,7 +2,8 @@
 
 Run with Python and ffmpeg on PATH. Media is generated in a temporary directory.
 Control it with /control?primary_vaft=true, /control?primary_vaft=false,
-/control?backup_vaft=true, /control?fail=embed, or /control?delay=3.
+/control?backup_vaft=true, /control?fail=embed, /control?delay=3,
+/control?token_delay=3, or /control?token_fail=true.
 Only requests for the reserved vaft_fixture channel are redirected by the app.
 """
 
@@ -25,7 +26,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 CHANNEL = "vaft_fixture"
 HOST = "https://vaft-fixture.invalid"
 START = time.time() - 60
-STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "segment_delay": 0.0, "backup_date_offset": 0.0, "backup_failed_top": False, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
+STATE = {"primary_vaft": False, "backup_vaft": False, "vaft_attributes_only": False, "prefetch": 0, "fail": "", "delay": 0.0, "token_delay": 0.0, "token_fail": False, "segment_delay": 0.0, "backup_date_offset": 0.0, "backup_failed_top": False, "range_age_seconds": None, "ladder": False, "primary_max": 720, "backup_max": 360, "unavailable": False, "real_backup": False}
 LOCK = threading.Lock()
 ROOT = pathlib.Path(tempfile.mkdtemp(prefix="xtra-vaft-fixture-"))
 DEVICE_ID = uuid.uuid4().hex
@@ -139,6 +140,15 @@ class Handler(BaseHTTPRequestHandler):
                 ("user(", "UserChannelPage"),
             ] if field in query), "")
         print(f"fixture operation={operation!r} variable_names={list(variables)}", flush=True)
+        if "PlaybackAccessToken" in operation or "PlaybackAccessToken" in data.get("query", ""):
+            with LOCK:
+                token_delay = STATE["token_delay"]
+                token_fail = STATE["token_fail"]
+            if token_delay > 0:
+                time.sleep(token_delay)
+            if token_fail:
+                self.respond("fixture playback token failure", "text/plain", 503)
+                return
         created = timestamp(START)
         duration = int(time.time() - START)
         if "PlaybackAccessToken" in operation or "PlaybackAccessToken" in data.get("query", ""):
@@ -200,8 +210,10 @@ class Handler(BaseHTTPRequestHandler):
                 for key, values in query.items():
                     if key in ("primary_vaft", "backup_vaft", "vaft_attributes_only", "ladder", "unavailable", "real_backup", "backup_failed_top"):
                         STATE[key] = values[0].lower() == "true"
-                    elif key in ("delay", "segment_delay", "backup_date_offset"):
+                    elif key in ("delay", "token_delay", "segment_delay", "backup_date_offset"):
                         STATE[key] = float(values[0])
+                    elif key == "token_fail":
+                        STATE[key] = values[0].lower() == "true"
                     elif key == "range_age_seconds":
                         STATE[key] = max(0.0, float(values[0]))
                     elif key == "prefetch":
