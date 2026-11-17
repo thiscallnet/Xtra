@@ -212,6 +212,11 @@ class UpdateRepository(
                                 )
                                 ReleaseHistoryResult.Unavailable -> markReleaseHistoryIncomplete()
                             }
+                        } else {
+                            // Refresh the cached latest release from the canonical release body.
+                            // This also repairs entries saved by older versions that combined the
+                            // body with compare commits.
+                            updateReleaseHistory(listOf(release), complete = true)
                         }
                         ensureCurrentCheck(generation)
                         val now = System.currentTimeMillis()
@@ -519,6 +524,7 @@ class UpdateRepository(
                             remove(C.UPDATE_NOT_NOW_UNTIL)
                             remove(C.UPDATE_RELEASE_HISTORY)
                             remove(C.UPDATE_RELEASE_HISTORY_COMPLETE)
+                            remove(C.UPDATE_RELEASE_HISTORY_NOTES_VERSION)
                         }
                         _releaseHistory.value = emptyList()
                         _releaseHistoryComplete.value = false
@@ -1290,6 +1296,7 @@ class UpdateRepository(
                 historyJson.encodeToString(compacted.map(UpdateRelease::toCachedHistory)),
             )
             putBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, complete)
+            putInt(C.UPDATE_RELEASE_HISTORY_NOTES_VERSION, RELEASE_HISTORY_NOTES_VERSION)
         }
     }
 
@@ -1313,7 +1320,9 @@ class UpdateRepository(
         .orEmpty()
 
     private fun loadPersistedReleaseHistoryComplete(history: List<UpdateRelease>): Boolean = preferences
-        .getBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, false) && history.isNotEmpty()
+        .getBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, false) &&
+        preferences.getInt(C.UPDATE_RELEASE_HISTORY_NOTES_VERSION, 0) == RELEASE_HISTORY_NOTES_VERSION &&
+        history.isNotEmpty()
 
     private fun compactPersistedReleaseHistory(history: List<UpdateRelease>) {
         if (!preferences.contains(C.UPDATE_RELEASE_HISTORY)) return
@@ -1321,6 +1330,7 @@ class UpdateRepository(
             if (history.isEmpty()) {
                 remove(C.UPDATE_RELEASE_HISTORY)
                 remove(C.UPDATE_RELEASE_HISTORY_COMPLETE)
+                remove(C.UPDATE_RELEASE_HISTORY_NOTES_VERSION)
             } else {
                 putString(
                     C.UPDATE_RELEASE_HISTORY,
@@ -1960,5 +1970,6 @@ class UpdateRepository(
         private const val DAY_MILLIS = 86_400_000L
         private const val NOT_NOW_MILLIS = DAY_MILLIS
         private const val MAX_RELEASE_HISTORY_PAGES = 20
+        private const val RELEASE_HISTORY_NOTES_VERSION = 1
     }
 }

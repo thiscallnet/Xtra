@@ -10,6 +10,7 @@ import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLifecycleEvent
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.util.C
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -73,6 +74,7 @@ class UpdateRepositoryTest {
         val persisted = preferences.getString(C.UPDATE_RELEASE_HISTORY, null).orEmpty()
         assertFalse(persisted.contains("rawBody"))
         assertFalse(persisted.contains("browser_download_url"))
+        assertEquals(1, preferences.getInt(C.UPDATE_RELEASE_HISTORY_NOTES_VERSION, 0))
 
         val recovered = UpdateRepository(TestContext(preferences), QueueReleaseSource(emptyList()), null)
         awaitCondition { recovered.releaseHistoryComplete.value }
@@ -85,6 +87,87 @@ class UpdateRepositoryTest {
         assertTrue(recoveredNotes.contains("2.58.6 (build 300)"))
         assertTrue(recoveredNotes.contains("2.58.6 (build 122)"))
         assertFalse(recoveredNotes.contains("2.58.6 (build 121)"))
+    }
+
+    @Test
+    fun legacyCachedHistoryIsRetainedButMarkedForRefresh() {
+        val preferences = MemoryPreferences().apply {
+            edit {
+                putString(
+                    C.UPDATE_RELEASE_HISTORY,
+                    json.encodeToString(
+                        listOf(
+                            CachedUpdateRelease(
+                                tagName = "v2.58.7-build.300",
+                                versionName = "2.58.7",
+                                buildNumber = 300L,
+                                releaseNotes = listOf(
+                                    "Improved stream startup diagnostics",
+                                    "Improved live stream startup diagnostics",
+                                ),
+                                releaseNoteKinds = listOf(ChangeKind.IMPROVED, ChangeKind.IMPROVED),
+                            ),
+                        ),
+                    ),
+                )
+                putBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, true)
+            }
+        }
+        val repository = UpdateRepository(TestContext(preferences), QueueReleaseSource(emptyList()), null)
+
+        awaitCondition { repository.releaseHistory.value.size == 1 }
+
+        assertFalse(repository.releaseHistoryComplete.value)
+        assertEquals(
+            listOf("Improved stream startup diagnostics", "Improved live stream startup diagnostics"),
+            repository.releaseHistory.value.single().releaseNotes,
+        )
+    }
+
+    @Test
+    fun checkReplacesCachedLatestNotesWithCanonicalReleaseBody() {
+        val preferences = MemoryPreferences().apply {
+            edit {
+                putString(
+                    C.UPDATE_RELEASE_HISTORY,
+                    json.encodeToString(
+                        listOf(
+                            CachedUpdateRelease(
+                                tagName = "v2.58.7-build.300",
+                                versionName = "2.58.7",
+                                buildNumber = 300L,
+                                releaseNotes = listOf(
+                                    "Improved stream startup diagnostics",
+                                    "Improved live stream startup diagnostics",
+                                ),
+                                releaseNoteKinds = listOf(ChangeKind.IMPROVED, ChangeKind.IMPROVED),
+                            ),
+                        ),
+                    ),
+                )
+                putBoolean(C.UPDATE_RELEASE_HISTORY_COMPLETE, true)
+                putInt(C.UPDATE_RELEASE_HISTORY_NOTES_VERSION, 1)
+            }
+        }
+        val latest = JsonObject(
+            response("v2.58.7-build.300").toMutableMap().apply {
+                put("body", kotlinx.serialization.json.JsonPrimitive("## Improvements\n- Improve stream startup diagnostics"))
+                put("commits", buildJsonArray {
+                    add(buildJsonObject { put("message", "Improve live stream startup diagnostics") })
+                })
+            },
+        )
+        val source = HistoryReleaseSource(latest, emptyList())
+        val repository = UpdateRepository(TestContext(preferences), source, null)
+
+        repository.check(null)
+        awaitState(repository) { it is UpdateState.Available }
+
+        assertEquals(0, source.historyCalls)
+        assertEquals(
+            listOf("Improved stream startup diagnostics"),
+            repository.releaseHistory.value.single().releaseNotes,
+        )
     }
 
     @Test

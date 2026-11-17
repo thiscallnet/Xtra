@@ -129,17 +129,14 @@ class StructuredReleaseNotesTest {
     }
 
     @Test
-    fun bodyAndCommitVariantsOfTheSameChangeAreShownOnce() {
+    fun releaseBodyIsCanonicalWhenCompareCommitsArePresent() {
         val notes = ReleaseNotes.structured(
             "## Fixed\n- Player crash (#123)",
             commits = listOf("fix: player crash", "Improve chat rendering"),
         )
 
-        assertEquals(
-            listOf("Player crash", "Improved chat rendering"),
-            notes.items.map(ChangeItem::text),
-        )
-        assertEquals(listOf(ChangeKind.FIXED, ChangeKind.IMPROVED), notes.items.map(ChangeItem::kind))
+        assertEquals(listOf("Player crash"), notes.items.map(ChangeItem::text))
+        assertEquals(listOf(ChangeKind.FIXED), notes.items.map(ChangeItem::kind))
     }
 
     @Test

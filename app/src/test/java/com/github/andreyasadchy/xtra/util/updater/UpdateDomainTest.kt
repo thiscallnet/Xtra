@@ -312,9 +312,9 @@ class UpdateDomainTest {
     }
 
     @Test
-    fun releaseBodyAndCompareSubjectsAreMergedWithoutDuplicateNotes() {
+    fun releaseBodyTakesPrecedenceOverCompareSubjects() {
         assertEquals(
-            listOf("Fixed player crash", "Improved playback recovery"),
+            listOf("Fixed player crash"),
             ReleaseNotes.normalize(
                 body = "* Fix player crash",
                 commits = listOf(
@@ -342,14 +342,13 @@ class UpdateDomainTest {
     }
 
     @Test
-    fun compareSubjectsDoNotInheritReleaseBodyHeading() {
+    fun commitFallbackUsesItsOwnKindsWhenBodyHasNoNotes() {
         val notes = ReleaseNotes.structured(
-            body = "## Fixed\n- Fix one bug",
+            body = "## Fixed",
             commits = listOf("Add new player control"),
         ).items
 
-        assertEquals(ChangeKind.FIXED, notes[0].kind)
-        assertEquals(ChangeKind.NEW, notes[1].kind)
+        assertEquals(listOf(ChangeKind.NEW), notes.map(ChangeItem::kind))
     }
 
     @Test
