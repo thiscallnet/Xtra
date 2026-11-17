@@ -260,7 +260,7 @@ class PlayerSettingsDialog : BottomSheetDialogFragment() {
                 ) {
                     menuRestart.visibility = View.VISIBLE
                     menuRestart.setOnClickListener {
-                        (parentFragment as? Media3PlayerFragment)?.restartPlayer()
+                        (parentFragment as? Media3PlayerFragment)?.restartPlayer("settings_restart")
                         dismiss()
                     }
                 }

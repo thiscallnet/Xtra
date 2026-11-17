@@ -56,6 +56,7 @@ import androidx.media3.exoplayer.hls.HlsManifest
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.ui.Clip
@@ -1200,7 +1201,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                         clearPlayerError()
                         scheduleStreamRecovery(trigger = "foreground_restore_failed")
                     } else {
-                        showPlayerError(R.string.player_error) { restartPlayer() }
+                        showPlayerError(R.string.player_error) { restartPlayer("playback_error_retry") }
                     }
                     return@launch
                 }
@@ -1682,7 +1683,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                                         showPlayerError(R.string.video_subscribers_only)
                                                     }
                                                     else -> {
-                                                        showPlayerError(R.string.player_error) { restartPlayer() }
+                                                        showPlayerError(R.string.player_error) { restartPlayer("playback_error_retry") }
                                                         viewLifecycleOwner.lifecycleScope.launch {
                                                             delay(1500.milliseconds)
                                                             try {
@@ -1694,7 +1695,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                                     }
                                                 }
                                             } else {
-                                                showPlayerError(R.string.connection_error) { restartPlayer() }
+                                                showPlayerError(R.string.connection_error) { restartPlayer("connection_error_retry") }
                                             }
                                         }
                                     }, ContextCompat.getMainExecutor(requireContext()))
@@ -2268,7 +2269,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     val lastAttempt = offlineLiveRestartAtMs
                     if (lastAttempt == null || now - lastAttempt >= 15_000L) {
                         offlineLiveRestartAtMs = now
-                        restartPlayer()
+                        restartPlayer("stream_became_live")
                         "restart_offline_source"
                     } else {
                         "await_offline_restart"
@@ -2276,7 +2277,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                 }
             }
             controller?.currentMediaItem == null -> {
-                restartPlayer()
+                restartPlayer("missing_source")
                 "start_missing_source"
             }
             state == Player.STATE_ENDED && playWhenReady -> {
@@ -2363,7 +2364,16 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         playWhenReady: Boolean?,
         preserveQuality: Boolean = false,
         automaticRecovery: Boolean = false,
+        sourceStartReasonOverride: String? = null,
     ): ListenableFuture<SessionResult>? {
+        val sourceStartReason = pendingStreamStartReason
+            ?: sourceStartReasonOverride
+            ?: when {
+                automaticRecovery -> "automatic_recovery"
+                requireArguments().getBoolean(KEY_RESTORED_PLAYBACK) -> "restored_playback"
+                else -> "card_selection"
+            }
+        pendingStreamStartReason = null
         val startupQuality = if (preserveQuality) {
             viewModel.vaftQualityState.identityForPrimaryReturn?.toQuality()
                 ?: viewModel.quality ?: pendingSourceSwitchQuality.peek()?.toQuality()
@@ -2409,7 +2419,13 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         if (!preserveQuality) viewModel.confirmedVideoQuality = null
         viewModel.updateQualities = true
         setQualityText()
-        return sendStreamToService(url, playWhenReady, startupQuality ?: VideoQuality(startupQualityName()))
+        val result = sendStreamToService(
+            url,
+            playWhenReady,
+            startupQuality ?: VideoQuality(startupQualityName()),
+            sourceStartReason,
+        )
+        return result
     }
 
     private suspend fun recoverLiveStreamAutomatically(
@@ -2524,7 +2540,17 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         return AutomaticLiveRecoveryResult.SOURCE_STARTED
     }
 
-    private fun sendStreamToService(url: String?, playWhenReady: Boolean? = null, startupQuality: VideoQuality): ListenableFuture<SessionResult>? {
+    private fun sendStreamToService(
+        url: String?,
+        playWhenReady: Boolean? = null,
+        startupQuality: VideoQuality,
+        sourceStartReason: String,
+    ): ListenableFuture<SessionResult>? {
+        reportStreamStartupStage(
+            event = "service_command_sent",
+            sourceReason = sourceStartReason,
+            phase = DiagnosticsPhase.REQUEST,
+        )
         invalidateResumeQualityConfirmation("stream_source_start")
         clearResumeAppliedQualityTarget()
         invalidateQualityRequest()
@@ -2550,6 +2576,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     putString(PlaybackService.CHANNEL_LOGO, requireArguments().getString(KEY_CHANNEL_IMAGE))
                     putString(PlaybackService.THUMBNAIL, requireArguments().getString(KEY_THUMBNAIL))
                     putBoolean(PlaybackService.URL_WARM, viewModel.streamUrlWarm.value)
+                    putString(PlaybackService.SOURCE_START_REASON, sourceStartReason)
                     requireArguments().getLong(KEY_TAP_ELAPSED_MS, -1L).takeIf { it > 0L }?.let {
                         putLong(PlaybackService.TAP_ELAPSED_MS, it)
                     }
@@ -3210,7 +3237,12 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             logLiveReturnResult("fresh_url_unavailable", controller)
             return false
         }
-        val result = startStreamInternal(url, wasPlaying, preserveQuality = true) ?: run {
+        val result = startStreamInternal(
+            url,
+            wasPlaying,
+            preserveQuality = true,
+            sourceStartReasonOverride = "return_to_live",
+        ) ?: run {
             logLiveReturnResult("source_start_unavailable", controller)
             restoreQualityAfterSourceSwitchFailure(
                 qualities = oldQualities,

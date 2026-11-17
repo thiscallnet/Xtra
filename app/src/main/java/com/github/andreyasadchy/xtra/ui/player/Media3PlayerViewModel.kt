@@ -70,6 +70,11 @@ internal sealed interface FreshLiveStatus {
     data object Unknown : FreshLiveStatus
 }
 
+internal data class StreamUrlResolutionFailure(
+    val attempt: Long,
+    val kind: String,
+)
+
 @OptIn(UnstableApi::class)
 class Media3PlayerViewModel(
     private val applicationContext: Context,
@@ -90,7 +95,11 @@ class Media3PlayerViewModel(
 
     val streamResult = MutableStateFlow<String?>(null)
     val streamUrlWarm = MutableStateFlow(false)
+    internal val streamUrlResolutionFailure = MutableStateFlow<StreamUrlResolutionFailure?>(null)
     var streamUrlAvailableElapsedMs: Long? = null
+    private var streamUrlLoadJob: Job? = null
+    private val streamUrlLoadGeneration = AtomicLong()
+    private val streamUrlLoadAttempt = AtomicLong()
     val stream = MutableStateFlow<Stream?>(null)
     val streamStatusKnown = MutableStateFlow(false)
     val waitingForLiveStream = MutableStateFlow(false)
@@ -313,19 +322,42 @@ class Media3PlayerViewModel(
     }
 
     fun loadStreamResult(networkLibrary: String?, gqlHeaders: Map<String, String>, channelLogin: String, randomDeviceId: Boolean?, xDeviceId: String?, playerType: String?, supportedCodecs: String?, proxyPlaybackAccessToken: Boolean, proxyHost: String?, proxyPort: Int?, proxyUser: String?, proxyPassword: String?) {
-        if (streamResult.value == null) {
-                viewModelScope.launch {
-                    try {
-                        val warmUrl = streamPreloadCoordinator.resolveForPlayback(channelLogin)
-                        streamUrlWarm.value = warmUrl != null
-                        streamResult.value = warmUrl
-                            ?: playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword)
-                        streamUrlAvailableElapsedMs = SystemClock.elapsedRealtime()
-                } catch (e: Exception) {
-                    if (e is CancellationException) throw e
+        if (streamResult.value != null || streamUrlLoadJob?.isActive == true) return
+        val generation = streamUrlLoadGeneration.incrementAndGet()
+        val attempt = streamUrlLoadAttempt.incrementAndGet()
+        streamUrlResolutionFailure.value = null
+        streamUrlLoadJob = viewModelScope.launch {
+            try {
+                val warmUrl = streamPreloadCoordinator.resolveForPlayback(channelLogin)
+                val url = warmUrl
+                    ?: playerRepository.loadStreamPlaylistUrl(applicationContext, networkLibrary, gqlHeaders, channelLogin, randomDeviceId, xDeviceId, playerType, supportedCodecs, proxyPlaybackAccessToken, proxyHost, proxyPort, proxyUser, proxyPassword)
+                if (generation != streamUrlLoadGeneration.get()) return@launch
+                streamUrlWarm.value = warmUrl != null
+                streamUrlAvailableElapsedMs = SystemClock.elapsedRealtime()
+                streamResult.value = url
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                if (generation == streamUrlLoadGeneration.get()) {
+                    val kind = when (e) {
+                        is MissingAuthenticationException -> "authentication"
+                        is java.net.SocketTimeoutException -> "timeout"
+                        is java.io.IOException -> "io"
+                        else -> "request_failed"
+                    }
+                    streamUrlResolutionFailure.value = StreamUrlResolutionFailure(attempt, kind)
                 }
             }
         }
+    }
+
+    fun invalidateStreamUrlLoad() {
+        streamUrlLoadGeneration.incrementAndGet()
+        streamUrlLoadJob?.cancel()
+        streamUrlLoadJob = null
+        streamResult.value = null
+        streamUrlWarm.value = false
+        streamUrlAvailableElapsedMs = null
+        streamUrlResolutionFailure.value = null
     }
 
     fun loadStreamInfo(channelId: String?, channelLogin: String?, viewerCount: Int?, loop: Boolean, networkLibrary: String?, helixHeaders: Map<String, String>, gqlHeaders: Map<String, String>, refreshForLiveRewind: Boolean = false) {
