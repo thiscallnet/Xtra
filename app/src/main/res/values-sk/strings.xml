@@ -1186,6 +1186,10 @@
     <string name="overlay_emotes">Prekrytie emotov</string>
     <string name="network_library">Sieťová knižnica</string>
     <string name="navigation_tabs">Spodné navigačné karty</string>
+    <string name="settings_show_in_top_bar">Zobraziť %1$s v hornej lište</string>
+    <string name="settings_remove_from_top_bar">Odobrať %1$s z hornej lišty</string>
+    <string name="settings_top_bar_full">Horná lišta je plná. Pred pridaním položky %1$s odstráňte inú kartu.</string>
+    <string name="settings_navigation_top_bar_hint">Klepnutím na pripináčik presuniete kartu do hornej lišty.</string>
     <string name="translate_chat_messages">Preložiť četové správy</string>
     <string name="downloaded_languages">Stiahnuté jazyky</string>
     <string name="translate_target_language">Cieľový jazyk</string>

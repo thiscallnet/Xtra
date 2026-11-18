@@ -2185,6 +2185,10 @@ Tap to search everywhere</string>
     <string name="overlay_emotes">Overlay emotes</string>
     <string name="network_library">Network library</string>
     <string name="navigation_tabs">Bottom navigation tabs</string>
+    <string name="settings_show_in_top_bar">Show %1$s in the top bar</string>
+    <string name="settings_remove_from_top_bar">Remove %1$s from the top bar</string>
+    <string name="settings_top_bar_full">Top bar is full. Remove another tab before adding %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">Tap the pin to move a tab to the top bar.</string>
     <string name="translate_chat_messages">Translate chat messages</string>
     <string name="downloaded_languages">Downloaded languages</string>
     <string name="translate_target_language">Target language</string>

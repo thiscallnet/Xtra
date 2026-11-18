@@ -506,6 +506,10 @@
     <string name="overlay_emotes">オーバーレイエモート</string>
     <string name="network_library">ネットワークライブラリ</string>
     <string name="navigation_tabs">ナビゲーションタブ</string>
+    <string name="settings_show_in_top_bar">%1$s を上部バーに表示</string>
+    <string name="settings_remove_from_top_bar">%1$s を上部バーから削除</string>
+    <string name="settings_top_bar_full">上部バーはいっぱいです。%1$s を追加する前に、別のタブを削除してください。</string>
+    <string name="settings_navigation_top_bar_hint">ピンをタップしてタブを上部バーに移動します。</string>
     <string name="translate_chat_messages">チャットメッセージを翻訳</string>
     <string name="downloaded_languages">ダウンロードされた言語</string>
     <string name="translate_target_language">対象言語</string>

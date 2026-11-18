@@ -53,7 +53,8 @@ class SettingsLayoutPreview(
         val hint = TextView(context).apply {
             text = context.getString(
                 when (mode) {
-                    Mode.NAVIGATION, Mode.TABS -> R.string.settings_tabs_preview_help
+                    Mode.NAVIGATION -> R.string.settings_navigation_top_bar_hint
+                    Mode.TABS -> R.string.settings_tabs_preview_help
                     Mode.SECTIONS -> R.string.settings_sections_preview_help
                 },
             )
@@ -80,7 +81,7 @@ class SettingsLayoutPreview(
     }
 
     private fun buildNavigationPreview() {
-        addToolbar()
+        addToolbar(showNavigationTabs = true)
         addContentLines(top = dp(38))
         addNavigationBar()
     }
@@ -132,7 +133,7 @@ class SettingsLayoutPreview(
         }
     }
 
-    private fun addToolbar() {
+    private fun addToolbar(showNavigationTabs: Boolean = false) {
         val toolbar = LinearLayout(context).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(10), 0, dp(10), 0)
@@ -143,6 +144,17 @@ class SettingsLayoutPreview(
             setTypeface(typeface, Typeface.BOLD)
             setTextColor(Color.WHITE)
         }, LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        if (showNavigationTabs) {
+            items.filter { it.topBar }
+                .take(maxTopNavigationTabs(resources.configuration.screenWidthDp))
+                .forEach { item ->
+                toolbar.addView(ImageView(context).apply {
+                    setImageResource(navigationIcon(item.key))
+                    imageTintList = android.content.res.ColorStateList.valueOf(Color.argb(190, 255, 255, 255))
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }, LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(5) })
+            }
+        }
         toolbar.addView(TextView(context).apply {
             text = "•••"
             setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f)
@@ -169,11 +181,12 @@ class SettingsLayoutPreview(
     }
 
     private fun addNavigationBar() {
-        val enabled = items.filter { it.enabled }
-        val bar = if (enabled.size > 5) {
-            compactNavigationRow(enabled)
+        val enabled = items.filter { it.enabled && !it.topBar }
+        val visibleItems = enabled + SettingsDragListItem("search", context.getString(R.string.search), false, true)
+        val bar = if (visibleItems.size > 5) {
+            compactNavigationRow(visibleItems)
         } else {
-            chipRow(enabled, selectedUsesDefault = true)
+            chipRow(visibleItems, selectedUsesDefault = true)
         }
         previewFrame.addView(bar, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(49)).apply {
             gravity = Gravity.BOTTOM
@@ -188,16 +201,7 @@ class SettingsLayoutPreview(
             val selected = item.default
             val icon = ImageView(context).apply {
                 setImageResource(
-                    when (item.key) {
-                        "0" -> R.drawable.ic_games_black_24dp
-                        "4" -> R.drawable.ic_explore
-                        "1" -> R.drawable.baseline_home_black_24
-                        "2" -> R.drawable.ic_favorite_black_24dp
-                        "3" -> R.drawable.ic_file_download_black_24dp
-                        "5" -> R.drawable.ic_statistics
-                        "6" -> R.drawable.ic_drops
-                        else -> R.drawable.baseline_home_black_24
-                    },
+                    navigationIcon(item.key),
                 )
                 imageTintList = android.content.res.ColorStateList.valueOf(
                     if (selected) themeColor(com.google.android.material.R.attr.colorOnPrimaryContainer, Color.WHITE)
@@ -219,6 +223,18 @@ class SettingsLayoutPreview(
                 marginEnd = dp(2)
             })
         }
+    }
+
+    private fun navigationIcon(key: String): Int = when (key) {
+        "0" -> R.drawable.ic_games_black_24dp
+        "4" -> R.drawable.ic_explore
+        "1" -> R.drawable.baseline_home_black_24
+        "2" -> R.drawable.ic_favorite_black_24dp
+        "3" -> R.drawable.ic_file_download_black_24dp
+        "5" -> R.drawable.ic_statistics
+        "6" -> R.drawable.ic_drops
+        "search" -> R.drawable.baseline_search_black_24
+        else -> R.drawable.baseline_home_black_24
     }
 
     private fun addTabStrip(top: Int) {

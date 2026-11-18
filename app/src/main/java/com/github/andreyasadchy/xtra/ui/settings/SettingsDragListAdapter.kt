@@ -31,7 +31,8 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
             return oldItem.text == newItem.text &&
                 oldItem.default == newItem.default &&
                 oldItem.enabled == newItem.enabled &&
-                oldItem.group == newItem.group
+                oldItem.group == newItem.group &&
+                oldItem.topBar == newItem.topBar
         }
     }
 ) {
@@ -39,8 +40,11 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
     var setDefault: ((SettingsDragListItem) -> Unit)? = null
     var cycleGroup: ((SettingsDragListItem) -> Unit)? = null
     var showVisibilityToggle = true
+    var showTopBarToggle = false
+    var maxTopBarItems = Int.MAX_VALUE
     var minimumVisibleItems = 0
     var onItemChanged: (() -> Unit)? = null
+    var onTopBarChanged: (() -> Unit)? = null
     var onMoveItem: ((Int, Int) -> Unit)? = null
 
     fun moveItem(from: Int, to: Int): Boolean {
@@ -110,6 +114,31 @@ class SettingsDragListAdapter : ListAdapter<SettingsDragListItem, SettingsDragLi
                     dragging
                 }
                 text.text = item.text
+                topBarToggle.visibility = if (showTopBarToggle) View.VISIBLE else View.GONE
+                topBarToggle.isSelected = item.topBar
+                val topBarFull = !item.topBar && currentList.count { it.topBar } >= maxTopBarItems
+                topBarToggle.isEnabled = !topBarFull
+                topBarToggle.alpha = if (topBarFull) 0.45f else 1f
+                topBarToggle.imageTintList = android.content.res.ColorStateList.valueOf(
+                    com.google.android.material.color.MaterialColors.getColor(
+                        root,
+                        if (item.topBar) androidx.appcompat.R.attr.colorPrimary
+                        else androidx.appcompat.R.attr.colorControlNormal,
+                    ),
+                )
+                topBarToggle.contentDescription = root.context.getString(
+                    when {
+                        item.topBar -> R.string.settings_remove_from_top_bar
+                        topBarFull -> R.string.settings_top_bar_full
+                        else -> R.string.settings_show_in_top_bar
+                    },
+                    item.text,
+                )
+                topBarToggle.tooltipText = topBarToggle.contentDescription
+                topBarToggle.setOnClickListener {
+                    item.topBar = !item.topBar
+                    onTopBarChanged?.invoke()
+                }
                 if (cycleGroup != null) {
                     setAsDefault.visibility = View.VISIBLE
                     setAsDefault.contentDescription = "Move to ${when (item.group) {

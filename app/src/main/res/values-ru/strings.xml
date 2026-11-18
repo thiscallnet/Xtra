@@ -506,6 +506,10 @@
     <string name="overlay_emotes">Наложение смайлов</string>
     <string name="network_library">Сетевая библиотека</string>
     <string name="navigation_tabs">Вкладки навигации</string>
+    <string name="settings_show_in_top_bar">Показывать %1$s на верхней панели</string>
+    <string name="settings_remove_from_top_bar">Убрать %1$s с верхней панели</string>
+    <string name="settings_top_bar_full">Верхняя панель заполнена. Удалите другую вкладку, прежде чем добавить %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">Нажмите на значок булавки, чтобы переместить вкладку на верхнюю панель.</string>
     <string name="translate_chat_messages">Переводить сообщения чата</string>
     <string name="downloaded_languages">Загруженные языки</string>
     <string name="translate_target_language">Целевой язык</string>

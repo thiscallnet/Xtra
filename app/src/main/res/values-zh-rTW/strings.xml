@@ -506,6 +506,10 @@
     <string name="overlay_emotes">疊加表情符號</string>
     <string name="network_library">網路函式庫</string>
     <string name="navigation_tabs">導覽分頁</string>
+    <string name="settings_show_in_top_bar">在頂端列顯示 %1$s</string>
+    <string name="settings_remove_from_top_bar">從頂端列移除 %1$s</string>
+    <string name="settings_top_bar_full">頂端列已滿。請先移除其他分頁，再新增 %1$s。</string>
+    <string name="settings_navigation_top_bar_hint">點按圖釘即可將分頁移至頂端列。</string>
     <string name="translate_chat_messages">翻譯聊天訊息</string>
     <string name="downloaded_languages">已下載語言</string>
     <string name="translate_target_language">目標語言</string>

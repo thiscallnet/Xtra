@@ -506,6 +506,10 @@
     <string name="overlay_emotes">Sobreposição de emotes</string>
     <string name="network_library">Biblioteca de rede</string>
     <string name="navigation_tabs">Navigation tabs</string>
+    <string name="settings_show_in_top_bar">Mostrar %1$s na barra superior</string>
+    <string name="settings_remove_from_top_bar">Remover %1$s da barra superior</string>
+    <string name="settings_top_bar_full">A barra superior está cheia. Remova outra aba antes de adicionar %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">Toque no alfinete para mover uma aba para a barra superior.</string>
     <string name="translate_chat_messages">Traduzir mensagens de bate-papo</string>
     <string name="downloaded_languages">Idiomas baixados</string>
     <string name="translate_target_language">Idioma alvo</string>

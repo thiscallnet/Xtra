@@ -506,6 +506,10 @@
     <string name="overlay_emotes">Emoticon sovrapposte</string>
     <string name="network_library">Libreria di rete</string>
     <string name="navigation_tabs">Navigation tabs</string>
+    <string name="settings_show_in_top_bar">Mostra %1$s nella barra superiore</string>
+    <string name="settings_remove_from_top_bar">Rimuovi %1$s dalla barra superiore</string>
+    <string name="settings_top_bar_full">La barra superiore è piena. Rimuovi un\'altra scheda prima di aggiungere %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">Tocca la puntina per spostare una scheda nella barra superiore.</string>
     <string name="translate_chat_messages">Traduci messaggi di chat</string>
     <string name="downloaded_languages">Lingue scaricate</string>
     <string name="translate_target_language">Lingua di destinazione</string>

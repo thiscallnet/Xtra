@@ -24,6 +24,9 @@ internal fun navigationTabDefaults(isTelevision: Boolean): String =
         C.DEFAULT_NAVIGATION_TAB_LIST
     }
 
+internal fun maxTopNavigationTabs(screenWidthDp: Int): Int =
+    ((screenWidthDp - 256) / 48).coerceIn(1, 4)
+
 internal fun resolveNavigationTabList(stored: String?, isTelevision: Boolean): List<String> {
     val defaults = navigationTabDefaults(isTelevision).split(',')
     val knownKeys = defaults.mapTo(hashSetOf()) { it.substringBefore(':') }
