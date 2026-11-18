@@ -169,32 +169,42 @@ class TwitchChatCatalogSource(
         previous: ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>>? = null,
     ): ChatCatalogProviderUpdate<Map<String, ChatCatalogEmote>> {
         var channelSetId: String? = previous?.channelSetId
-        val global = previous?.global?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = false) {
-            val response = globalCatalogCache.get(GlobalCatalogKey.SEVEN_TV, force) {
-                playerRepository.loadGlobalSTVEmoteSetResponse(network).also {
-                    playerRepository.loadSTVEmoteSet(it, useWebp, true)
-                }
+        val (global, channelResult) = supervisorScope {
+            val global = async {
+                previous?.global?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = false) {
+                    val response = globalCatalogCache.get(GlobalCatalogKey.SEVEN_TV, force) {
+                        playerRepository.loadGlobalSTVEmoteSetResponse(network).also {
+                            playerRepository.loadSTVEmoteSet(it, useWebp, true)
+                        }
+                    }
+                    playerRepository.loadSTVEmoteSet(response, useWebp, true).second
+                }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.GLOBAL) }
             }
-            playerRepository.loadSTVEmoteSet(response, useWebp, true).second
-        }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.GLOBAL) }
-        val channel = previous?.channel?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(channel = true, emptyValue = emptyList()) {
-            val user = playerRepository.loadSTVUser(
-                playerRepository.loadSTVUserResponse(network, channelId, throwOnHttpError = true),
-                useWebp,
-            )
-            channelSetId = user.first
-            user.second ?: if (!user.first.isNullOrBlank()) {
-                playerRepository.loadSTVEmoteSet(
-                    playerRepository.loadSTVEmoteSetResponse(
-                        network,
-                        user.first!!,
-                        throwOnHttpError = true,
-                    ),
-                    useWebp,
-                    false,
-                ).second
-            } else emptyList()
-        }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.CHANNEL) }
+            val channel = async {
+                var loadedSetId = previous?.channelSetId
+                val result = previous?.channel?.takeIf { it is ScopeUpdate.Success } ?: scopeUpdate(
+                    channel = true,
+                    emptyValue = emptyList(),
+                ) {
+                    val user = playerRepository.loadSTVUser(
+                        playerRepository.loadSTVUserResponse(network, channelId, throwOnHttpError = true),
+                        useWebp,
+                    )
+                    loadedSetId = user.first
+                    user.second ?: if (!user.first.isNullOrBlank()) {
+                        playerRepository.loadSTVEmoteSet(
+                            playerRepository.loadSTVEmoteSetResponse(network, user.first!!, throwOnHttpError = true),
+                            useWebp,
+                            false,
+                        ).second
+                    } else emptyList()
+                }.map { emoteMap(it, ChatAssetProvider.SEVEN_TV, ChatEmoteScope.CHANNEL) }
+                result to loadedSetId
+            }
+            global.await() to channel.await()
+        }
+        channelSetId = channelResult.second ?: channelSetId
+        val channel = channelResult.first
         var viewerPersonalSetIds = previous?.viewerPersonalSetIds.orEmpty()
         val personal = previous?.personal?.takeIf { it is ScopeUpdate.Success } ?: context.tokenPrefs().getString(C.USER_ID, null)?.let { accountId ->
             // Personal emotes are optional. A missing entitlement query must not make the
