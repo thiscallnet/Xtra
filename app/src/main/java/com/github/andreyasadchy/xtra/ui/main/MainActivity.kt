@@ -230,6 +230,9 @@ class MainActivity : AppCompatActivity() {
     private var dropsFilterKeyboardVisible = false
     private var hasNavigationDestinations = true
     private var enabledNavigationDestinations: List<RootNavigationDestination> = emptyList()
+    private var configuredTopNavigationKeys: Set<String> = emptySet()
+    private var topNavigationDestinations: List<RootNavigationDestination> = emptyList()
+    private var phoneBottomNavigationDestinations: List<RootNavigationDestination> = emptyList()
     private val isTv: Boolean get() = isTelevision()
 
     private fun rootNavigationView(): NavigationBarView =
@@ -241,11 +244,20 @@ class MainActivity : AppCompatActivity() {
     private fun updateNavigationPresentation(configuration: Configuration) {
         useNavigationRail = isTv || configuration.smallestScreenWidthDp >= 600
         val showNavigation = isTv || hasNavigationDestinations
+        topNavigationDestinations = ROOT_NAVIGATION_DESTINATIONS.filter {
+            !useNavigationRail && it.key in configuredTopNavigationKeys
+        }.take(com.github.andreyasadchy.xtra.ui.settings.maxTopNavigationTabs(configuration.screenWidthDp))
+        phoneBottomNavigationDestinations = enabledNavigationDestinations.filterNot {
+            it in topNavigationDestinations
+        }
         binding.tvNavigationContainer.isVisible = useNavigationRail && showNavigation
         val compactDropsFilter = dropsFilterKeyboardVisible &&
             configuration.orientation == Configuration.ORIENTATION_LANDSCAPE && configuration.screenHeightDp < 480
         binding.navBarContainer.isVisible = !useNavigationRail && showNavigation && !compactDropsFilter
-        allToolbarViews().forEach(::updateTopSearchVisibility)
+        allToolbarViews().forEach { toolbar ->
+            updateTopSearchVisibility(toolbar)
+            updateTopNavigationItems(toolbar)
+        }
         binding.tvSearch.isVisible = isTv
         binding.tvAccount.isVisible = isTv
         binding.tvSettings.isVisible = isTv
@@ -268,7 +280,7 @@ class MainActivity : AppCompatActivity() {
     private fun updatePhoneNavigationLabelVisibility() {
         val expressivePhoneNavigation = !useNavigationRail &&
             prefs.getString(C.SETTINGS_UI_STYLE, "expressive") == "expressive"
-        val phoneNavigationItemCount = enabledNavigationDestinations.size + 1 // Search
+        val phoneNavigationItemCount = phoneBottomNavigationDestinations.size + 1 // Search
         val densePhoneNavigation = !useNavigationRail && phoneNavigationItemCount > 5
         binding.navBar.labelVisibilityMode = when {
             densePhoneNavigation && isSearchDestination() -> NavigationBarView.LABEL_VISIBILITY_SELECTED
@@ -388,6 +400,7 @@ class MainActivity : AppCompatActivity() {
                     ProfileMenuBinder.bind(it, this@MainActivity)
                     TwitchInboxMenuBinder.bind(it, this@MainActivity)
                     updateTopSearchVisibility(it)
+                    updateTopNavigationItems(it)
                 }
             }
         }.also {
@@ -1956,6 +1969,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         hasNavigationDestinations = enabledNavigationDestinations.isNotEmpty()
+        configuredTopNavigationKeys = prefs.getStringSet(C.UI_NAVIGATION_TOP_TABS, emptySet()).orEmpty().toSet()
         updateNavigationPresentation(resources.configuration)
         navController.setGraph(navController.navInflater.inflate(R.navigation.nav_graph).also {
             val defaultItem = tabList.find { it.split(':')[1] != "0" }?.split(':')[0] ?: "1"
@@ -1995,7 +2009,12 @@ class MainActivity : AppCompatActivity() {
             try {
             menu.clear()
             if (hasNavigationDestinations) {
-                enabledNavigationDestinations.forEach { destination ->
+                val destinations = if (navigationView === binding.navBar) {
+                    phoneBottomNavigationDestinations
+                } else {
+                    enabledNavigationDestinations
+                }
+                destinations.forEach { destination ->
                     menu.add(Menu.NONE, destination.id, Menu.NONE, destination.label)
                         .setIcon(destination.icon)
                 }
@@ -2082,11 +2101,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun bindVisibleToolbarMenu() {
-        allToolbarViews().firstOrNull(Toolbar::isShown)?.let { toolbar ->
+        allToolbarViews().forEach { toolbar ->
             SettingsUpdateIndicator.update(toolbar, this)
             ProfileMenuBinder.bind(toolbar, this)
             TwitchInboxMenuBinder.bind(toolbar, this)
             updateTopSearchVisibility(toolbar)
+            updateTopNavigationItems(toolbar)
+        }
+    }
+
+    private fun updateTopNavigationItems(toolbar: Toolbar) {
+        ROOT_NAVIGATION_DESTINATIONS.forEach { toolbar.menu.removeItem(it.id) }
+        if (!::navController.isInitialized || useNavigationRail) return
+        topNavigationDestinations.forEachIndexed { index, destination ->
+            toolbar.menu.add(Menu.NONE, destination.id, 50 + index, destination.label).apply {
+                setIcon(destination.icon)
+                setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                setOnMenuItemClickListener {
+                    if (navigationDestinationId(navController.currentDestination) == destination.id) {
+                        reselectNavigationDestination(destination.id)
+                    } else {
+                        pendingBottomNavigationItemId = destination.id
+                        drainBottomNavigation()
+                    }
+                    true
+                }
+            }
         }
     }
 
@@ -2172,7 +2212,9 @@ class MainActivity : AppCompatActivity() {
                 return@post
             }
 
-            if (enabledNavigationDestinations.none { it.id == itemId }) {
+            if (enabledNavigationDestinations.none { it.id == itemId } &&
+                topNavigationDestinations.none { it.id == itemId }
+            ) {
                 pendingBottomNavigationItemId = null
                 return@post
             }

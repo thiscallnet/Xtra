@@ -30,6 +30,15 @@
         tools:text="text" />
 
     <ImageButton
+        android:id="@+id/topBarToggle"
+        android:layout_width="48dp"
+        android:layout_height="match_parent"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:src="@drawable/ic_push_pin"
+        android:visibility="gone"
+        app:tint="?attr/colorControlNormal" />
+
+    <ImageButton
         android:id="@+id/setAsDefault"
         android:layout_width="50dp"
         android:layout_height="match_parent"

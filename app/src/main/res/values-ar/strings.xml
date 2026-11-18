@@ -506,6 +506,10 @@
     <string name="overlay_emotes">تراكب المشاعر</string>
     <string name="network_library">مكتبة الشبكة</string>
     <string name="navigation_tabs">علامات تبويب التنقل</string>
+    <string name="settings_show_in_top_bar">إظهار %1$s في الشريط العلوي</string>
+    <string name="settings_remove_from_top_bar">إزالة %1$s من الشريط العلوي</string>
+    <string name="settings_top_bar_full">الشريط العلوي ممتلئ. أزل علامة تبويب أخرى قبل إضافة %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">انقر على الدبوس لنقل علامة تبويب إلى الشريط العلوي.</string>
     <string name="translate_chat_messages">ترجمة رسائل الدردشة</string>
     <string name="downloaded_languages">اللغات التي تم تنزيلها</string>
     <string name="translate_target_language">اللغة المستهدفة</string>

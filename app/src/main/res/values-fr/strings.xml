@@ -506,6 +506,10 @@
     <string name="overlay_emotes">Overlay des emotes</string>
     <string name="network_library">Bibliothèque réseau</string>
     <string name="navigation_tabs">Onglets de navigation</string>
+    <string name="settings_show_in_top_bar">Afficher %1$s dans la barre supérieure</string>
+    <string name="settings_remove_from_top_bar">Retirer %1$s de la barre supérieure</string>
+    <string name="settings_top_bar_full">La barre supérieure est pleine. Retirez un autre onglet avant d’ajouter %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">Touchez l’épingle pour déplacer un onglet vers la barre supérieure.</string>
     <string name="translate_chat_messages">Traduire les messages du chat</string>
     <string name="downloaded_languages">Langues téléchargées</string>
     <string name="translate_target_language">Langue cible</string>

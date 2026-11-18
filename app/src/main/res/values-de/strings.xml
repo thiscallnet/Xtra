@@ -506,6 +506,10 @@
     <string name="overlay_emotes">Emotes überlagern</string>
     <string name="network_library">Netzwerkbibliothek</string>
     <string name="navigation_tabs">Navigationsregisterkarten</string>
+    <string name="settings_show_in_top_bar">%1$s in der oberen Leiste anzeigen</string>
+    <string name="settings_remove_from_top_bar">%1$s aus der oberen Leiste entfernen</string>
+    <string name="settings_top_bar_full">Die obere Leiste ist voll. Entferne einen anderen Tab, bevor du %1$s hinzufügst.</string>
+    <string name="settings_navigation_top_bar_hint">Tippe auf die Stecknadel, um einen Tab in die obere Leiste zu verschieben.</string>
     <string name="translate_chat_messages">Chatnachrichten übersetzen</string>
     <string name="downloaded_languages">Heruntergeladene Sprachen</string>
     <string name="translate_target_language">Zielsprache</string>

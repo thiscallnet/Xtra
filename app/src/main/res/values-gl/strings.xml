@@ -506,6 +506,10 @@
     <string name="overlay_emotes">Superpoñer emoticonas</string>
     <string name="network_library">Biblioteca de rede</string>
     <string name="navigation_tabs">Lapelas de navegación inferior</string>
+    <string name="settings_show_in_top_bar">Mostrar %1$s na barra superior</string>
+    <string name="settings_remove_from_top_bar">Retirar %1$s da barra superior</string>
+    <string name="settings_top_bar_full">A barra superior está chea. Retira outra lapela antes de engadir %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">Toca na chincheta para mover unha lapela á barra superior.</string>
     <string name="translate_chat_messages">Traducir mensaxes do chat</string>
     <string name="downloaded_languages">Idiomas descargados</string>
     <string name="translate_target_language">Idioma de destino</string>

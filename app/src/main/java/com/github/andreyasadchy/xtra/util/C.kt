@@ -135,6 +135,7 @@ object C {
     const val UI_DEFAULT_PAGE = "ui_default_page"
     const val UI_NAVIGATION_TABS = "ui_navigation_tabs"
     const val UI_NAVIGATION_TAB_LIST = "ui_navigation_tab_list"
+    const val UI_NAVIGATION_TOP_TABS = "ui_navigation_top_tabs"
     const val UI_FOLLOWING_TABS = "ui_following_tabs"
     const val UI_FOLLOWING_OVERVIEW_SECTIONS = "ui_following_overview_sections"
     const val UI_RECENTLY_OFFLINE_WINDOW_HOURS = "ui_recently_offline_window_hours"

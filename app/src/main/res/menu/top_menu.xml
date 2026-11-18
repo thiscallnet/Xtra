@@ -4,6 +4,7 @@
     xmlns:tools="http://schemas.android.com/tools">
     <item
         android:id="@+id/followButton"
+        android:orderInCategory="0"
         android:icon="@drawable/baseline_favorite_border_black_24"
         android:title="@string/follow"
         android:visible="false"
@@ -12,17 +13,20 @@
         tools:visible="true" />
     <item
         android:id="@+id/search"
+        android:orderInCategory="10"
         android:icon="@drawable/baseline_search_black_24"
         android:title="@string/search"
         app:iconTint="?attr/colorControlNormal"
         app:showAsAction="always" />
     <item
         android:id="@+id/searchOverflow"
+        android:orderInCategory="20"
         android:title="@string/search"
         android:visible="false"
         app:showAsAction="never" />
     <item
         android:id="@+id/twitchNotifications"
+        android:orderInCategory="100"
         android:icon="@drawable/ic_twitch_notifications"
         android:title="@string/notifications"
         android:visible="false"
@@ -30,6 +34,7 @@
         app:showAsAction="always" />
     <item
         android:id="@+id/whispers"
+        android:orderInCategory="110"
         android:icon="@drawable/ic_twitch_whispers"
         android:title="@string/whispers"
         android:visible="false"
@@ -37,12 +42,14 @@
         app:showAsAction="always" />
     <item
         android:id="@+id/settings"
+        android:orderInCategory="120"
         android:icon="@drawable/baseline_settings_black_24"
         android:title="@string/settings"
         app:iconTint="?attr/colorControlNormal"
         app:showAsAction="always" />
     <item
         android:id="@+id/profile"
+        android:orderInCategory="130"
         android:title="@string/view_profile"
         android:visible="false"
         app:showAsAction="always" />

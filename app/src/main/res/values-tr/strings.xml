@@ -507,6 +507,10 @@
     <string name="overlay_emotes">Üstte gösterilen ifadeler</string>
     <string name="network_library">Ağ kütüphanesi</string>
     <string name="navigation_tabs">Navigation tabs</string>
+    <string name="settings_show_in_top_bar">%1$s üst çubukta göster</string>
+    <string name="settings_remove_from_top_bar">%1$s üst çubuktan kaldır</string>
+    <string name="settings_top_bar_full">Üst çubuk dolu. %1$s eklemeden önce başka bir sekmeyi kaldırın.</string>
+    <string name="settings_navigation_top_bar_hint">Bir sekmeyi üst çubuğa taşımak için raptiyeye dokunun.</string>
     <string name="translate_chat_messages">Sohbet mesajlarını çevir</string>
     <string name="downloaded_languages">İndirilen diller</string>
     <string name="translate_target_language">Hedef dil</string>

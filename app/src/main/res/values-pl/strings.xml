@@ -1161,6 +1161,10 @@
     <string name="overlay_emotes">Emotki nakładki</string>
     <string name="network_library">Biblioteka sieciowa</string>
     <string name="navigation_tabs">Dolne karty nawigacyjne</string>
+    <string name="settings_show_in_top_bar">Pokaż %1$s na górnym pasku</string>
+    <string name="settings_remove_from_top_bar">Usuń %1$s z górnego paska</string>
+    <string name="settings_top_bar_full">Górny pasek jest pełny. Usuń inną kartę przed dodaniem %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">Dotknij pinezki, aby przenieść kartę na górny pasek.</string>
     <string name="translate_chat_messages">Przetłumacz wiadomości czatu</string>
     <string name="downloaded_languages">Pobrane języki</string>
     <string name="translate_target_language">Język docelowy</string>

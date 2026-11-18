@@ -507,6 +507,10 @@
     <string name="overlay_emotes">Emote overlay</string>
     <string name="network_library">Pustaka jaringan</string>
     <string name="navigation_tabs">Navigation tabs</string>
+    <string name="settings_show_in_top_bar">Tampilkan %1$s di bilah atas</string>
+    <string name="settings_remove_from_top_bar">Hapus %1$s dari bilah atas</string>
+    <string name="settings_top_bar_full">Bilah atas penuh. Hapus tab lain sebelum menambahkan %1$s.</string>
+    <string name="settings_navigation_top_bar_hint">Ketuk pin untuk memindahkan tab ke bilah atas.</string>
     <string name="translate_chat_messages">Terjemahkan pesan obrolan</string>
     <string name="downloaded_languages">Bahasa yang diunduh</string>
     <string name="translate_target_language">Bahasa target</string>

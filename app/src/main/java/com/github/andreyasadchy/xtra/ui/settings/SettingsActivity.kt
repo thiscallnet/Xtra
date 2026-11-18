@@ -256,6 +256,9 @@ class SettingsActivity : AppCompatActivity() {
     ) {
         val listAdapter = SettingsDragListAdapter()
         listAdapter.minimumVisibleItems = minimumVisibleItemsForPreference(prefKey)
+        listAdapter.showTopBarToggle = prefKey == C.UI_NAVIGATION_TAB_LIST &&
+            !isTelevision() && resources.configuration.smallestScreenWidthDp < 600
+        listAdapter.maxTopBarItems = maxTopNavigationTabs(resources.configuration.screenWidthDp)
         ensureMinimumVisibleItems(list, listAdapter.minimumVisibleItems)
         if (showDefaultSelector) promoteDefaultToVisible(list)
         val preview = when (prefKey) {
@@ -315,6 +318,10 @@ class SettingsActivity : AppCompatActivity() {
             listAdapter.notifyDataSetChanged()
             preview?.refresh()
         }
+        listAdapter.onTopBarChanged = {
+            listAdapter.notifyDataSetChanged()
+            preview?.refresh()
+        }
         itemTouchHelper.attachToRecyclerView(recyclerView)
         listAdapter.submitList(list)
         val dialogView = preview?.let { layoutPreview ->
@@ -352,6 +359,12 @@ class SettingsActivity : AppCompatActivity() {
                     putString(prefKey, listAdapter.currentList.joinToString(",") {
                         "${it.key}:${if (it.default) "1" else "0"}:${if (it.enabled) "1" else "0"}"
                     })
+                    if (prefKey == C.UI_NAVIGATION_TAB_LIST) {
+                        putStringSet(
+                            C.UI_NAVIGATION_TOP_TABS,
+                            listAdapter.currentList.filter { it.topBar }.mapTo(mutableSetOf()) { it.key },
+                        )
+                    }
                     setResult()
                 }
             }
@@ -394,15 +407,32 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             prefs().getString(prefKey, null)
         }
+        val topBarKeys = if (prefKey == C.UI_NAVIGATION_TAB_LIST) {
+            prefs().getStringSet(C.UI_NAVIGATION_TOP_TABS, emptySet()).orEmpty()
+        } else {
+            emptySet()
+        }
         val values = (stored ?: defaults).split(',').mapNotNull { value ->
             val parts = value.split(':')
             if (parts.size == 3 && labels.containsKey(parts[0])) {
-                SettingsDragListItem(parts[0], labels.getValue(parts[0]), parts[1] != "0", parts[2] != "0")
+                SettingsDragListItem(
+                    parts[0],
+                    labels.getValue(parts[0]),
+                    parts[1] != "0",
+                    parts[2] != "0",
+                    topBar = parts[0] in topBarKeys,
+                )
             } else null
         }.toMutableList()
         labels.keys.filter { key -> values.none { it.key == key } }.forEach { key ->
             val default = defaults.split(',').firstOrNull { it.startsWith("$key:") }?.split(':')
-            values += SettingsDragListItem(key, labels.getValue(key), default?.getOrNull(1) == "1", default?.getOrNull(2) != "0")
+            values += SettingsDragListItem(
+                key,
+                labels.getValue(key),
+                default?.getOrNull(1) == "1",
+                default?.getOrNull(2) != "0",
+                topBar = key in topBarKeys,
+            )
         }
         showDragListDialog(values, prefKey, title)
     }

@@ -506,6 +506,10 @@
     <string name="overlay_emotes">叠加表情</string>
     <string name="network_library">网络库</string>
     <string name="navigation_tabs">Navigation tabs</string>
+    <string name="settings_show_in_top_bar">在顶部栏显示 %1$s</string>
+    <string name="settings_remove_from_top_bar">从顶部栏移除 %1$s</string>
+    <string name="settings_top_bar_full">顶部栏已满。请先移除其他标签页，再添加 %1$s。</string>
+    <string name="settings_navigation_top_bar_hint">点按图钉可将标签页移至顶部栏。</string>
     <string name="translate_chat_messages">翻译聊天消息</string>
     <string name="downloaded_languages">下载的语言</string>
     <string name="translate_target_language">目标语言</string>

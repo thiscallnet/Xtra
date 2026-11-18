@@ -6,4 +6,5 @@ class SettingsDragListItem(
     var default: Boolean,
     var enabled: Boolean,
     var group: String = "hidden",
+    var topBar: Boolean = false,
 )
