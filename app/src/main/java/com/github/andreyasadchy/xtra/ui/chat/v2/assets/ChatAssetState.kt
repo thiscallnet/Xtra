@@ -27,8 +27,11 @@ fun interface ChatImageHandle {
     /** Stable decoded dimensions, independent from the current animation frame. */
     fun intrinsicDimensions(): ChatAssetDimensions? = null
 
-    /** True when this handle retains a decoded image that should be released with its last observer. */
+    /** True when this handle strongly retains a decoded image. */
     fun holdsDecodedImage(): Boolean = false
+
+    /** Whether to drop a decoded handle as soon as its last view observer is recycled. */
+    fun evictWhenUnobserved(): Boolean = holdsDecodedImage()
 }
 
 class ChatAssetLoadException(val statusCode: Int? = null, cause: Throwable? = null) : Exception(cause)

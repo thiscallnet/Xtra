@@ -123,7 +123,7 @@ class ChatAssetRepository(
                     loadJob = loadJobs.remove(key)
                     if (states[key] is ChatAssetState.Loading) states.remove(key)
                 }
-                if ((states[key] as? ChatAssetState.Ready)?.image?.holdsDecodedImage() == true) {
+                if ((states[key] as? ChatAssetState.Ready)?.image?.evictWhenUnobserved() == true) {
                     states.remove(key)
                 }
             }
@@ -211,7 +211,7 @@ class ChatAssetRepository(
                             val observers = listeners[key]?.toList().orEmpty()
                             if (
                                 observers.isEmpty() &&
-                                (state as? ChatAssetState.Ready)?.image?.holdsDecodedImage() == true
+                                (state as? ChatAssetState.Ready)?.image?.evictWhenUnobserved() == true
                             ) {
                                 // Do not retain a non-shareable decoded handle after a transient
                                 // observer disappears while its request is completing.

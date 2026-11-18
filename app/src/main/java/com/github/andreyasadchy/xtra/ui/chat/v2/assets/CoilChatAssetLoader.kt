@@ -65,6 +65,7 @@ class CoilChatAssetLoader(
 
                         override fun intrinsicDimensions() = dimensions
                         override fun holdsDecodedImage() = true
+                        override fun evictWhenUnobserved() = false
                     }
                 } else {
                     // Coil deliberately does not put non-shareable animated DrawableImages in

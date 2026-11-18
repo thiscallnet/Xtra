@@ -169,22 +169,26 @@ internal object EmotePickerImageLoader {
         quality: String,
         limit: Int,
     ): List<Pair<String, ImageRequest>> {
-        return items.asSequence()
-            .distinctBy { item -> urlFor(appContext, item, quality) }
-            .mapNotNull { item ->
-                val key = prefetchKey(appContext, item, quality) ?: return@mapNotNull null
-                if (!markForPrefetch(key)) return@mapNotNull null
-                val request = request(appContext, item, quality)
-                    ?.listener(object : Listener {
-                        override fun onCancel(request: ImageRequest) = finishPrefetch(appContext, key, retry = true)
-                        override fun onError(request: ImageRequest, result: ErrorResult) = finishPrefetch(appContext, key, retry = true)
-                        override fun onSuccess(request: ImageRequest, result: SuccessResult) = finishPrefetch(appContext, key, retry = false)
-                    })
-                    ?.build() ?: return@mapNotNull null
-                key to request
-            }
-            .take(limit)
-            .toList()
+        if (limit <= 0) return emptyList()
+        val result = ArrayList<Pair<String, ImageRequest>>(limit)
+        val seenUrls = HashSet<String>()
+        for (item in items) {
+            val url = urlFor(appContext, item, quality) ?: continue
+            if (!seenUrls.add(url)) continue
+            val key = prefetchKey(appContext, item, quality) ?: continue
+            val imageRequest = request(appContext, item, quality) ?: continue
+            if (!markForPrefetch(key)) continue
+            val built = imageRequest
+                .listener(object : Listener {
+                    override fun onCancel(request: ImageRequest) = finishPrefetch(appContext, key, retry = true)
+                    override fun onError(request: ImageRequest, result: ErrorResult) = finishPrefetch(appContext, key, retry = true)
+                    override fun onSuccess(request: ImageRequest, result: SuccessResult) = finishPrefetch(appContext, key, retry = false)
+                })
+                .build()
+            result += key to built
+            if (result.size >= limit) break
+        }
+        return result
     }
 
     private fun pump(context: Context) {
