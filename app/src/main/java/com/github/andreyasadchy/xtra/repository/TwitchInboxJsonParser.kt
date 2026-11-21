@@ -146,6 +146,20 @@ internal fun parseNotificationSummary(root: JsonObject): NotificationUnreadSumma
     return NotificationUnreadSummary(count, (count ?: 0) > 0 || (aggregate ?: 0) > 0)
 }
 
+internal fun parseMarkAllNotificationsRead(root: JsonObject) {
+    val operation = TwitchPrivateGqlOperations.notificationsMarkAllRead.operationName
+    val payload = requiredObject(
+        dataObject(root, operation),
+        "markAllViewerNotificationsAsRead",
+        operation,
+    )
+    when (payload.bool("hasSucceeded")) {
+        true -> Unit
+        false -> throw TwitchInboxException(TwitchInboxError.GraphQl(operation, "mutation_not_succeeded"))
+        null -> throw TwitchInboxException(TwitchInboxError.PrivateApiChanged(operation))
+    }
+}
+
 private fun mapNotificationAction(url: String?): TwitchNotificationAction {
     val safeUrl = url?.takeIf { isSafeTwitchUrl(it) } ?: return TwitchNotificationAction.None
     return TwitchNotificationAction.TwitchWebUrl(safeUrl)
