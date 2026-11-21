@@ -10,13 +10,10 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.presentation.ChatRowUiModel
 internal class ChatInteractionAdapterFactory(
     private val configuration: ChatInteractionAdapterConfiguration,
     private val defaultMessages: List<ChatMessage> = emptyList(),
-    private val onOpenReplyThread: (ChatMessage) -> Unit = {},
 ) {
-    private var selectedMessage: ChatMessage? = null
-
     fun createMessageClickedChatAdapter(
         sourceMessages: List<ChatMessage>,
-        selectedMessageOverride: ChatMessage? = selectedMessage,
+        selectedMessageOverride: ChatMessage? = null,
         v2Rows: List<ChatRowUiModel>,
         v2Assets: ChatAssetRepository,
         v2EmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,
@@ -25,10 +22,6 @@ internal class ChatInteractionAdapterFactory(
         sourceMessages = sourceMessages,
         messageTextSize = configuration.messageTextSize,
         animateGifs = configuration.animateGifs,
-        replyClick = { chatMessage ->
-            selectedMessage = chatMessage
-            onOpenReplyThread(chatMessage)
-        },
         selectedMessage = selectedMessageOverride,
         v2Rows = v2Rows,
         v2Assets = v2Assets,
@@ -38,7 +31,7 @@ internal class ChatInteractionAdapterFactory(
 
     fun createReplyClickedChatAdapter(
         sourceMessages: List<ChatMessage> = defaultMessages,
-        selectedMessageOverride: ChatMessage? = selectedMessage,
+        selectedMessageOverride: ChatMessage? = null,
         v2Rows: List<ChatRowUiModel>,
         v2Assets: ChatAssetRepository,
         v2EmoteClick: ((ChatEmoteInteraction) -> Unit)? = null,

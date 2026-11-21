@@ -774,16 +774,13 @@ private class CombinedChatAdapter(
         }
 
         fun createInteractionAdapter(initialMessages: List<LegacyChatMessage>): ChatInteractionAdapterFactory {
-            lateinit var factory: ChatInteractionAdapterFactory
-            factory = ChatInteractionAdapterFactory(
+            return ChatInteractionAdapterFactory(
                 ChatInteractionAdapterConfiguration(
                     messageTextSize = style.textSizeSp,
                     animateGifs = preferences.getBoolean(C.ANIMATED_EMOTES, true),
                 ),
                 initialMessages,
-                onOpenReplyThread = { fragment.openReplyInteraction(factory) },
             )
-            return factory
         }
     }
 
