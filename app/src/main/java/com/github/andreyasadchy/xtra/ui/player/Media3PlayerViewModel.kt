@@ -12,6 +12,8 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.hls.playlist.HlsMediaPlaylist
+import androidx.media3.exoplayer.hls.playlist.HlsMultivariantPlaylist
 import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.NotificationUser
 import com.github.andreyasadchy.xtra.model.ShownNotification
@@ -33,6 +35,7 @@ import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadCoordinator
 import com.github.andreyasadchy.xtra.repository.streamfeed.StreamFeedRefreshCoordinator
 import com.github.andreyasadchy.xtra.ui.main.LiveNotificationScheduler
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
@@ -147,6 +150,7 @@ class Media3PlayerViewModel(
     private val streamStatusRequestGeneration = AtomicLong()
     private var streamJob: Job? = null
     var useCustomProxy = false
+    var customStreamProxyIndex = 0
     var vaftRequired = false
     var usingProxy = false
     var stopProxy = false
@@ -204,9 +208,41 @@ class Media3PlayerViewModel(
     private val _authenticationRequired = Channel<Unit>(Channel.BUFFERED)
     val authenticationRequired = _authenticationRequired.receiveAsFlow()
 
-    suspend fun checkPlaylist(networkLibrary: String?, url: String): Boolean = withContext(Dispatchers.IO) {
+    suspend fun checkPlaylist(networkLibrary: String?, url: String): Boolean =
+        inspectPlaylist(networkLibrary, url)?.requiresVaft == true
+
+    suspend fun isCleanPlayablePlaylist(networkLibrary: String?, url: String): Boolean =
+        inspectPlaylist(networkLibrary, url)?.let { it.hasSegments && !it.requiresVaft } == true
+
+    private data class PlaylistInspection(val hasSegments: Boolean, val requiresVaft: Boolean)
+
+    private suspend fun inspectPlaylist(networkLibrary: String?, url: String): PlaylistInspection? = withContext(Dispatchers.IO) {
         try {
-            val playlist = when {
+            val body = fetchPlaylistBytes(networkLibrary, url) ?: return@withContext null
+            val parser = TwitchHlsPlaylistParserFactory(lowLatencyEnabled = false).createPlaylistParser()
+            val parsed = parser.parse(Uri.parse(url), body.inputStream())
+            val mediaPlaylist = when (parsed) {
+                is HlsMediaPlaylist -> parsed
+                is HlsMultivariantPlaylist -> {
+                    val variant = parsed.variants.maxByOrNull { it.format.bitrate } ?: return@withContext null
+                    val variantUrl = variant.url.toString()
+                    val variantBody = fetchPlaylistBytes(networkLibrary, variantUrl) ?: return@withContext null
+                    parser.parse(Uri.parse(variantUrl), variantBody.inputStream()) as? HlsMediaPlaylist
+                        ?: return@withContext null
+                }
+                else -> return@withContext null
+            }
+            PlaylistInspection(
+                hasSegments = mediaPlaylist.segments.isNotEmpty(),
+                requiresVaft = TwitchVaftDetector.requiresVaft(mediaPlaylist),
+            )
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            null
+        }
+    }
+
+    private suspend fun fetchPlaylistBytes(networkLibrary: String?, url: String): ByteArray? = when {
                 networkLibrary == C.HTTP_ENGINE && httpEngine.value != null -> @SuppressLint("NewApi") {
                     val response = suspendCancellableCoroutine { continuation ->
                         val timeout = NetworkUtils.HttpEngineTimeout()
@@ -222,24 +258,14 @@ class Media3PlayerViewModel(
                             timeout.stop()
                         }
                     }
-                    response.body.inputStream().use {
-                        PlaylistUtils.parseMediaPlaylist(it)
-                    }
+                    response.body.inputStream().use { it.readBytes() }
                 }
                 else -> {
                     okHttpClient.value.newCall(Request.Builder().url(url).build()).executeAsync().use { response ->
-                        response.body.byteStream().use {
-                            PlaylistUtils.parseMediaPlaylist(it)
-                        }
+                        response.body.byteStream().use { it.readBytes() }
                     }
                 }
             }
-            TwitchVaftDetector.requiresVaft(playlist)
-        } catch (e: Exception) {
-            if (e is CancellationException) throw e
-            false
-        }
-    }
 
     suspend fun isPlayableMediaPlaylist(networkLibrary: String?, url: String): Boolean = withContext(Dispatchers.IO) {
         try {

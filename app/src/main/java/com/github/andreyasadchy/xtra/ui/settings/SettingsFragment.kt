@@ -620,6 +620,9 @@ class SettingsFragment : MaterialPreferenceFragment() {
             },
             rootKey,
         )
+        if (settingsScreen == SCREEN_PROXY) {
+            configureStreamProxyPreference()
+        }
         findPreference<ListPreference>(C.UI_LANGUAGE)?.apply {
             val lang = AppCompatDelegate.getApplicationLocales()
             if (lang.isEmpty) {
@@ -861,6 +864,36 @@ class SettingsFragment : MaterialPreferenceFragment() {
             override fun putStringSet(key: String, value: Set<String>?) {
                 preferencesFor(key).edit { putStringSet(key, value?.toMutableSet()) }
             }
+        }
+    }
+
+    private fun configureStreamProxyPreference() {
+        childFragmentManager.setFragmentResultListener(
+            StreamProxyListDialogFragment.RESULT_KEY,
+            this,
+        ) { _, _ -> updateStreamProxyPreferenceSummary() }
+        findPreference<Preference>(C.PLAYER_PROXY_URL)?.apply {
+            updateStreamProxyPreferenceSummary()
+            setOnPreferenceClickListener {
+                if (childFragmentManager.findFragmentByTag(STREAM_PROXY_LIST_DIALOG_TAG) == null) {
+                    StreamProxyListDialogFragment().show(childFragmentManager, STREAM_PROXY_LIST_DIALOG_TAG)
+                }
+                true
+            }
+        }
+    }
+
+    private fun updateStreamProxyPreferenceSummary() {
+        val preference = findPreference<Preference>(C.PLAYER_PROXY_URL) ?: return
+        val count = requireContext().rawPrefs()
+            .getString(C.PLAYER_PROXY_URL, null)
+            .orEmpty()
+            .lineSequence()
+            .count { it.isNotBlank() }
+        preference.summary = if (count == 0) {
+            getString(R.string.settings_stream_proxy_urls_summary)
+        } else {
+            resources.getQuantityString(R.plurals.settings_stream_proxy_urls_count, count, count)
         }
     }
 
@@ -1525,6 +1558,7 @@ class SettingsFragment : MaterialPreferenceFragment() {
         }
         if (settingsScreen == SCREEN_PROXY) {
             requireActivity().window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+            updateStreamProxyPreferenceSummary()
         }
         val preference = findPreference<SwitchPreferenceCompat>("live_notifications_enabled")
         if (preference?.isChecked == true && !LiveNotificationScheduler.canPostNotifications(requireContext())) {
@@ -1580,6 +1614,7 @@ class SettingsFragment : MaterialPreferenceFragment() {
 
     private companion object {
         const val ARG_SETTINGS_SCREEN = "settings_screen"
+        const val STREAM_PROXY_LIST_DIALOG_TAG = "stream_proxy_list"
         const val SCREEN_APP = "app"
         const val SCREEN_LIVE_NOTIFICATIONS = "live_notifications"
         const val SCREEN_CACHE = "cache"

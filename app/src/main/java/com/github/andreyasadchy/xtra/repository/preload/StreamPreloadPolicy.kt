@@ -49,10 +49,21 @@ object StreamPreloadPolicy {
     fun allowsTwitchUrlPreload(customStreamProxyEnabled: Boolean, customStreamProxyUrl: String?): Boolean =
         !customStreamProxyEnabled || customStreamProxyUrl.isNullOrBlank()
 
+    fun customStreamProxyTemplates(value: String?): List<String> =
+        value.orEmpty()
+            .lineSequence()
+            .map(String::trim)
+            .filter(String::isNotEmpty)
+            .distinct()
+            .toList()
+
+    fun customStreamProxyUrls(value: String?, channelLogin: String): List<String> =
+        customStreamProxyTemplates(value)
+            .map { it.replace("\$channel", channelLogin.trim().lowercase()) }
+            .filter(String::isNotBlank)
+
     fun customStreamProxyUrl(template: String?, channelLogin: String): String? =
-        template?.takeIf { it.isNotBlank() }
-            ?.replace("\$channel", channelLogin.trim().lowercase())
-            ?.takeIf { it.isNotBlank() }
+        customStreamProxyUrls(template, channelLogin).firstOrNull()
 
     fun rank(candidates: Collection<StreamPreloadCandidate>): List<StreamPreloadCandidate> {
         return candidates
