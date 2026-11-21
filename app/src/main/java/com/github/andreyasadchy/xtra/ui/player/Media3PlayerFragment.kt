@@ -83,6 +83,7 @@ import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.databinding.FragmentPlayerBinding
 import com.github.andreyasadchy.xtra.model.VideoQuality
+import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadPolicy
 import com.github.andreyasadchy.xtra.model.ui.Clip
 import com.github.andreyasadchy.xtra.model.ui.OfflineVideo
 import com.github.andreyasadchy.xtra.model.ui.Stream
@@ -4816,6 +4817,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         when (videoType) {
             STREAM -> {
                 viewModel.useCustomProxy = requireContext().prefs().getBoolean(C.PLAYER_STREAM_PROXY, false)
+                viewModel.customStreamProxyIndex = 0
                 loadStream()
                 viewModel.loadStreamInfo(
                     channelId = requireArguments().getString(KEY_CHANNEL_ID),
@@ -4934,9 +4936,11 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
 
     private fun loadStream() {
         requireArguments().getString(KEY_CHANNEL_LOGIN)?.let { channelLogin ->
-            val proxyUrl = requireContext().prefs().getString(C.PLAYER_PROXY_URL, "")
-            if (viewModel.useCustomProxy && !proxyUrl.isNullOrBlank()) {
-                startStream(proxyUrl.replace("\$channel", channelLogin))
+            val proxyUrls = StreamPreloadPolicy.customStreamProxyUrls(
+                requireContext().prefs().getString(C.PLAYER_PROXY_URL, ""), channelLogin,
+            )
+            if (viewModel.useCustomProxy && proxyUrls.isNotEmpty()) {
+                startStream(proxyUrls.first())
             } else {
                 if (viewModel.useCustomProxy) {
                     viewModel.useCustomProxy = false

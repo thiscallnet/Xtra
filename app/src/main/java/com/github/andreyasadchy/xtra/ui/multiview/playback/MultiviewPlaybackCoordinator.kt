@@ -67,6 +67,7 @@ import java.net.ProxySelector
 import java.net.SocketAddress
 import java.net.URI
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
+import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadPolicy
 
 @OptIn(UnstableApi::class)
 class MultiviewPlaybackCoordinator(
@@ -542,11 +543,12 @@ class MultiviewPlaybackCoordinator(
     private suspend fun loadPlaylistUrl(slot: MultiviewPlayerSlot, login: String): PlaylistSelection {
         val preferences = applicationContext.prefs()
         val proxyUrl = preferences.getString(C.PLAYER_PROXY_URL, null)
+        val proxyUrls = StreamPreloadPolicy.customStreamProxyUrls(proxyUrl, login)
         val useCustomProxy = !slot.customProxyDisabled &&
-            preferences.getBoolean(C.PLAYER_STREAM_PROXY, false) && !proxyUrl.isNullOrBlank()
+            preferences.getBoolean(C.PLAYER_STREAM_PROXY, false) && proxyUrls.isNotEmpty()
         if (useCustomProxy) {
             return PlaylistSelection(
-                url = proxyUrl.replace("\$channel", login),
+                url = proxyUrls.first(),
                 playerType = null,
                 customProxy = true,
             )

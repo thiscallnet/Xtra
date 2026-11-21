@@ -45,6 +45,25 @@ ARRAY_REFERENCE = re.compile(r"^@string/([A-Za-z0-9_]+)$")
 # Android falls back to values/ for these keys; keeping the allowlist explicit
 # prevents this policy from hiding missing translations elsewhere in the app.
 INTENTIONAL_FALLBACK_RESOURCES = {
+    # Stream-proxy list labels ship with default English wording until the new
+    # settings flow is reviewed and localized.
+    "settings_stream_proxy_urls_summary",
+    "settings_stream_proxy_urls_count",
+    "settings_stream_proxy_list_help",
+    "settings_stream_proxy_list_empty",
+    "settings_stream_proxy_add_url",
+    "settings_stream_proxy_edit_url",
+    "settings_stream_proxy_tap_to_edit",
+    "settings_stream_proxy_url_hint",
+    "settings_stream_proxy_url_required",
+    "settings_stream_proxy_duplicate_url",
+    "settings_stream_proxy_add",
+    "settings_stream_proxy_save",
+    "settings_stream_proxy_done",
+    "settings_stream_proxy_move_up",
+    "settings_stream_proxy_move_down",
+    "settings_stream_proxy_remove",
+    "settings_stream_proxy_actions",
     # Anonymous chat mode currently ships with English copy until its new
     # settings and chat labels are reviewed and localized.
     "chat_anonymous_mode_hint",

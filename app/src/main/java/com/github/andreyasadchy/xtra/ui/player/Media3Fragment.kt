@@ -75,6 +75,7 @@ import com.github.andreyasadchy.xtra.ui.player.clip.ClipPreparationRepository
 import com.github.andreyasadchy.xtra.ui.player.clip.ClipSizeEstimator
 import com.github.andreyasadchy.xtra.ui.player.clip.LiveClipBufferManager
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
+import com.github.andreyasadchy.xtra.repository.preload.StreamPreloadPolicy
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.getAlertDialogBuilder
@@ -94,6 +95,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 import java.io.File
@@ -126,6 +128,8 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
     private var clipStatusRequestInFlight = false
     private var clipStatusQueued = false
     private var clipControlSupported: Boolean? = null
+    private var customStreamProxyFallbackJob: Job? = null
+    private var customStreamProxyInspectionJob: Job? = null
     private var vodClipMediaItemId: String? = null
     private var vodClipSegmentDurationsUs = IntArray(0)
     private var vodClipSegmentByteRanges = LongArray(0)
@@ -1527,6 +1531,9 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                                             val oldValue = viewModel.vaftRequired
                                             viewModel.vaftRequired = vaftRequired
                                             setQualityText()
+                                            if (vaftRequired && !oldValue && viewModel.useCustomProxy) {
+                                                tryNextCustomStreamProxy()
+                                            }
                                             if (vaftEnabled) {
                                                 val extras = result.get().extras
                                                 val wasAlternate = viewModel.usingAlternateStream
@@ -2233,6 +2240,70 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
     }
 
+    private fun tryNextCustomStreamProxy() {
+        if (customStreamProxyFallbackJob?.isActive == true) return
+        val login = requireArguments().getString(KEY_CHANNEL_LOGIN)?.trim().orEmpty()
+        if (login.isBlank()) return
+        val templates = StreamPreloadPolicy.customStreamProxyTemplates(
+            requireContext().prefs().getString(C.PLAYER_PROXY_URL, null),
+        )
+        val startIndex = viewModel.customStreamProxyIndex + 1
+        if (startIndex >= templates.size) return
+        val sourceMediaId = player?.currentMediaItem?.mediaId ?: return
+        val sourceUri = player?.currentMediaItem?.localConfiguration?.uri?.toString()
+        val networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+        customStreamProxyFallbackJob = viewLifecycleOwner.lifecycleScope.launch {
+            for ((nextIndex, template) in templates.withIndex().drop(startIndex)) {
+                if (player?.currentMediaItem?.mediaId != sourceMediaId ||
+                    player?.currentMediaItem?.localConfiguration?.uri?.toString() != sourceUri
+                ) return@launch
+                val url = template.replace("\$channel", login.lowercase())
+                val clean = withTimeoutOrNull(5_000L) {
+                    viewModel.isCleanPlayablePlaylist(networkLibrary, url)
+                } ?: false
+                if (player?.currentMediaItem?.mediaId != sourceMediaId ||
+                    player?.currentMediaItem?.localConfiguration?.uri?.toString() != sourceUri
+                ) return@launch
+                if (!clean) continue
+                viewModel.customStreamProxyIndex = nextIndex
+                if (BuildConfig.DEBUG) Log.d("XtraStreamProxy", "event=backup_selected index=${nextIndex + 1}")
+                startStream(url)
+                return@launch
+            }
+            if (BuildConfig.DEBUG) Log.d("XtraStreamProxy", "event=backups_exhausted")
+        }
+    }
+
+    private fun inspectCustomStreamProxy(url: String?) {
+        customStreamProxyInspectionJob?.cancel()
+        if (!viewModel.useCustomProxy || url.isNullOrBlank()) return
+        val selectedIndex = viewModel.customStreamProxyIndex
+        val templates = StreamPreloadPolicy.customStreamProxyTemplates(
+            requireContext().prefs().getString(C.PLAYER_PROXY_URL, null),
+        )
+        if (selectedIndex + 1 >= templates.size) return
+        customStreamProxyInspectionJob = viewLifecycleOwner.lifecycleScope.launch {
+            val sourceMediaId = withTimeoutOrNull(5_000L) {
+                while (player?.currentMediaItem?.localConfiguration?.uri?.toString() != url) {
+                    delay(100)
+                }
+                player?.currentMediaItem?.mediaId
+            } ?: return@launch
+            val networkLibrary = requireContext().prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+            val requiresVaft = withTimeoutOrNull(5_000L) {
+                viewModel.checkPlaylist(networkLibrary, url)
+            } ?: false
+            if (!requiresVaft || viewModel.customStreamProxyIndex != selectedIndex ||
+                player?.currentMediaItem?.mediaId != sourceMediaId ||
+                player?.currentMediaItem?.localConfiguration?.uri?.toString() != url
+            ) return@launch
+            if (BuildConfig.DEBUG) {
+                Log.d("XtraStreamProxy", "event=source_requires_vaft index=${selectedIndex + 1}")
+            }
+            tryNextCustomStreamProxy()
+        }
+    }
+
     override fun startStream(url: String?) {
         startStreamInternal(
             url, null,
@@ -2425,6 +2496,7 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             startupQuality ?: VideoQuality(startupQualityName()),
             sourceStartReason,
         )
+        inspectCustomStreamProxy(url)
         return result
     }
 
@@ -2450,9 +2522,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         val oldQualityCatalogIdentity = viewModel.streamQualityCatalogIdentity
         val oldQuality = viewModel.quality
         val oldUpdateQualities = viewModel.updateQualities
-        val proxyUrl = requireContext().prefs().getString(C.PLAYER_PROXY_URL, "")
-        val url = if (viewModel.useCustomProxy && !proxyUrl.isNullOrBlank()) {
-            proxyUrl.replace("\$channel", login)
+        val proxyUrls = StreamPreloadPolicy.customStreamProxyUrls(
+            requireContext().prefs().getString(C.PLAYER_PROXY_URL, ""), login,
+        )
+        val url = if (viewModel.useCustomProxy && proxyUrls.isNotEmpty()) {
+            proxyUrls.getOrNull(viewModel.customStreamProxyIndex) ?: proxyUrls.first()
         } else {
             try {
                 viewModel.loadFreshStreamPlaylistUrl(login)
@@ -3223,9 +3297,11 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
             logLiveReturnResult("missing_channel_login", controller)
             return false
         }
-        val proxyUrl = requireContext().prefs().getString(C.PLAYER_PROXY_URL, "")
-        val url = if (viewModel.useCustomProxy && !proxyUrl.isNullOrBlank()) {
-            proxyUrl.replace("\$channel", login)
+        val proxyUrls = StreamPreloadPolicy.customStreamProxyUrls(
+            requireContext().prefs().getString(C.PLAYER_PROXY_URL, ""), login,
+        )
+        val url = if (viewModel.useCustomProxy && proxyUrls.isNotEmpty()) {
+            proxyUrls.getOrNull(viewModel.customStreamProxyIndex) ?: proxyUrls.first()
         } else {
             try {
                 viewModel.loadFreshStreamPlaylistUrl(login)
