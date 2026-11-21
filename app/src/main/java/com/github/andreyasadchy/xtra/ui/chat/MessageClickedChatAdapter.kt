@@ -20,7 +20,6 @@ class MessageClickedChatAdapter(
     sourceMessages: List<ChatMessage>,
     private val messageTextSize: Float,
     private val animateGifs: Boolean,
-    private val replyClick: (ChatMessage) -> Unit,
     private var v2Rows: List<ChatRowUiModel>,
     private val v2Assets: ChatAssetRepository,
     private val v2EmoteClick: ((ChatEmoteInteraction) -> Unit)?,
@@ -66,14 +65,13 @@ class MessageClickedChatAdapter(
             onGifClick = v2GifClick,
         )
         holder.textView.setMessageClickCallback {
+            // History taps only change selection; tapping a selected reply must not open a nested thread.
             if (!isSelected(chatMessage)) {
                 val previous = selectedMessage
                 selectedMessage = chatMessage
                 selectedMessageId = chatMessage.id?.takeIf { it.isNotBlank() }
                 messageClickListener?.invoke(chatMessage, previous)
                 setChatInteractionSelection(holder.textView, true)
-            } else if (chatMessage.type == ChatMessage.REPLY_MESSAGE || chatMessage.reply != null) {
-                replyClick(chatMessage)
             }
         }
         setChatInteractionSelection(holder.textView, isSelected(chatMessage))

@@ -841,8 +841,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         animateGifs = chatStyle.animateGifs,
                     )
                     interactionAdapterFactory = ChatInteractionAdapterFactory(
-                        configuration = interactionConfiguration,
-                        onOpenReplyThread = { openReplyInteraction() },
+                        configuration = interactionConfiguration
                     )
                     run {
                         val app = requireContext().applicationContext as XtraApp
