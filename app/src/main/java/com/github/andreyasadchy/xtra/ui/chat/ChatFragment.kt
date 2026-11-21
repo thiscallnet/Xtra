@@ -182,8 +182,9 @@ internal fun matchesV2MessageUser(
             !selectedLogin.isNullOrBlank() && login.equals(selectedLogin, ignoreCase = true)
         }
     }
-    return matches(message.user?.id, message.user?.login) ||
-            message.reply?.let { reply -> matches(reply.parentUserId, reply.parentUserLogin) } == true
+    // This dialog shows messages authored by the selected user. A reply to them is still
+    // authored by the replying user and must not be pulled into their history.
+    return matches(message.user?.id, message.user?.login)
 }
 
 class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickListener, ReplyClickedDialog.OnButtonClickListener, ChannelPointsDialog.Listener {

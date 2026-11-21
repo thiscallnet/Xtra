@@ -92,7 +92,7 @@ class ChatViewModelTest {
     }
 
     @Test
-    fun v2UserHistoryUsesIdAndIncludesReplyParents() {
+    fun v2UserHistoryUsesIdAndIncludesOnlyMessagesBySelectedUser() {
         val selected = v2Message("selected", ChatUser("user-1", "alice", "Alice", null))
         val sameUser = v2Message("same", ChatUser("user-1", "different-login", "Alice", null))
         val otherUser = v2Message("other", ChatUser("user-2", "alice", "Alice", null))
@@ -114,7 +114,7 @@ class ChatViewModelTest {
 
         val history = listOf(selected, sameUser, otherUser, replyToUser)
         assertEquals(
-            listOf("selected", "same", "reply"),
+            listOf("selected", "same"),
             history.filter { matchesV2MessageUser(it, selected) }.map { it.id.value },
         )
     }
