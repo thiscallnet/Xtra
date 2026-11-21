@@ -1545,4 +1545,6 @@
     <string name="forget_tab_choices">清除为此标签页保存的选项</string>
     <string name="all_languages">所有语言</string>
     <string name="player_qualities_load_failed">无法加载视频画质选项。</string>
+    <string name="channel_emotes">频道</string>
+    <string name="channel_emotes_empty">此频道没有可用的表情。</string>
 </resources>

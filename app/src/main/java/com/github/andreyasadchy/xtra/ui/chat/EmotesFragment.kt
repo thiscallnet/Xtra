@@ -38,12 +38,18 @@ internal fun <T> pendingFavoriteItemsToApply(
     orderChanged: Boolean,
 ): List<T>? = if (orderChanged) null else pendingItems
 
+internal fun migrateDefaultEmotePickerSections(sections: Set<String>): Set<String> {
+    val previousDefault = setOf("FAVORITES", "RECENTS", "EMOJI", "TWITCH", "THIRD_PARTY")
+    return if (sections == previousDefault) sections + EmotePickerSection.CHANNEL.name else sections
+}
+
 enum class EmotePickerSection {
     FAVORITES,
     RECENTS,
     EMOJI,
     TWITCH,
     THIRD_PARTY,
+    CHANNEL,
     ;
 
     val position: Int
@@ -96,8 +102,12 @@ class EmotesFragment : Fragment() {
         val expectedChannelLogin = chatFragment?.arguments?.getString(ChatFragment.KEY_CHANNEL_LOGIN)
         val usesV2 = chatFragment?.isUsingChatV2 == true
         binding.emptyState.setOnClickListener {
-            if (section == EmotePickerSection.TWITCH && pickerCatalog?.twitchFailed == true) {
+            if ((section == EmotePickerSection.TWITCH || section == EmotePickerSection.CHANNEL) &&
+                pickerCatalog?.twitchFailed == true
+            ) {
                 viewModel.retryTwitchPicker(expectedChannelId, expectedChannelLogin)
+            } else if (section == EmotePickerSection.CHANNEL) {
+                chatFragment?.reloadEmotes()
             } else {
                 (thirdPartyPickerState as? ChatViewModel.ThirdPartyPickerState.Error)?.retry?.invoke()
             }
@@ -531,6 +541,7 @@ class EmotesFragment : Fragment() {
                 recentEmotes.mapNotNull { recent -> current.find { it.name == recent.name } }
             }
             EmotePickerSection.TWITCH -> pickerCatalog?.twitch ?: viewModel.twitchPickerEmotes()
+            EmotePickerSection.CHANNEL -> pickerCatalog?.channel ?: viewModel.channelEmotePickerItems()
             EmotePickerSection.THIRD_PARTY -> when (val state = thirdPartyPickerState) {
                 is ChatViewModel.ThirdPartyPickerState.Ready -> state.emotes
                 null -> viewModel.thirdPartyPickerEmotes()
@@ -593,6 +604,17 @@ class EmotesFragment : Fragment() {
                     pickerCatalog?.twitchFailed == true -> R.string.twitch_emotes_error
                     pickerCatalog?.twitchLoading != false -> R.string.twitch_emotes_loading
                     else -> R.string.twitch_emotes_empty
+                },
+            )
+            binding.emptyState.isVisible = true
+        } else if (section == EmotePickerSection.CHANNEL && list.isEmpty()) {
+            binding.emptyState.setText(
+                when {
+                    pickerCatalog?.twitchFailed == true -> R.string.twitch_emotes_error
+                    pickerCatalog?.twitchLoading == true -> R.string.twitch_emotes_loading
+                    !requireContext().tokenPrefs().getString(C.USER_ID, null).isNullOrBlank() ->
+                        R.string.channel_emotes_empty
+                    else -> R.string.twitch_emotes_login_required
                 },
             )
             binding.emptyState.isVisible = true

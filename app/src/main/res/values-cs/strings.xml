@@ -1568,4 +1568,6 @@
     <string name="forget_tab_choices">Zapomenout uložené volby pro tuto kartu</string>
     <string name="all_languages">Všechny jazyky</string>
     <string name="player_qualities_load_failed">Nepodařilo se načíst možnosti kvality videa.</string>
+    <string name="channel_emotes">Kanál</string>
+    <string name="channel_emotes_empty">Tento kanál nemá žádné emoty.</string>
 </resources>

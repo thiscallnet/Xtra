@@ -1543,4 +1543,6 @@
     <string name="forget_tab_choices">Zapomnij zapisane opcje dla tej karty</string>
     <string name="all_languages">Wszystkie języki</string>
     <string name="player_qualities_load_failed">Nie udało się wczytać opcji jakości wideo.</string>
+    <string name="channel_emotes">Kanał</string>
+    <string name="channel_emotes_empty">Ten kanał nie ma dostępnych emotek.</string>
 </resources>

@@ -1316,9 +1316,18 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         updateComposerDensity()
                         val pickerPreferences = requireContext().prefs()
                         val allPickerSectionNames = EmotePickerSection.entries.map { it.name }.toSet()
+                        val configuredPickerSections = pickerPreferences.getStringSet(
+                            C.CHAT_EMOTE_PICKER_TABS,
+                            allPickerSectionNames,
+                        ).orEmpty()
+                        val migratedPickerSections = migrateDefaultEmotePickerSections(configuredPickerSections)
+                        if (migratedPickerSections != configuredPickerSections) {
+                            pickerPreferences.edit()
+                                .putStringSet(C.CHAT_EMOTE_PICKER_TABS, migratedPickerSections)
+                                .apply()
+                        }
                         var pickerSections = EmotePickerSection.entries.filter {
-                            it.name in pickerPreferences.getStringSet(C.CHAT_EMOTE_PICKER_TABS, allPickerSectionNames)
-                                .orEmpty()
+                            it.name in migratedPickerSections
                         }
                         if (pickerSections.isEmpty()) pickerSections = listOf(EmotePickerSection.TWITCH)
                         val pickerAdapter = object : FragmentStateAdapter(this@ChatFragment) {
@@ -1341,6 +1350,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             EmotePickerSection.EMOJI -> getString(R.string.emoji)
                             EmotePickerSection.TWITCH -> "Twitch"
                             EmotePickerSection.THIRD_PARTY -> "7TV/BTTV/FFZ"
+                            EmotePickerSection.CHANNEL -> getString(R.string.channel_emotes)
                         }
                         fun compactTabIcon(section: EmotePickerSection): Int = when (section) {
                             EmotePickerSection.FAVORITES -> R.drawable.ic_picker_star_24
@@ -1348,6 +1358,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             EmotePickerSection.EMOJI -> R.drawable.ic_picker_emoji_24
                             EmotePickerSection.TWITCH -> R.drawable.ic_picker_grid_24
                             EmotePickerSection.THIRD_PARTY -> R.drawable.ic_picker_extension_24
+                            EmotePickerSection.CHANNEL -> R.drawable.ic_pref_person
                         }
                         fun configurePickerTab(tab: TabLayout.Tab, position: Int, compact: Boolean) {
                             val section = pickerSections[position]

@@ -1545,4 +1545,6 @@
     <string name="forget_tab_choices">清除為此分頁儲存的選項</string>
     <string name="all_languages">所有語言</string>
     <string name="player_qualities_load_failed">無法載入影片畫質選項。</string>
+    <string name="channel_emotes">頻道</string>
+    <string name="channel_emotes_empty">此頻道沒有可用的表情。</string>
 </resources>

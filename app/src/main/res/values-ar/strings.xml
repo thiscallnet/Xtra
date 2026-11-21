@@ -1545,4 +1545,6 @@
     <string name="forget_tab_choices">نسيان الخيارات المحفوظة لعلامة التبويب هذه</string>
     <string name="all_languages">كل اللغات</string>
     <string name="player_qualities_load_failed">تعذّر تحميل خيارات جودة الفيديو.</string>
+    <string name="channel_emotes">القناة</string>
+    <string name="channel_emotes_empty">لا تتوفر أيّ إيموتات لهذه القناة.</string>
 </resources>
