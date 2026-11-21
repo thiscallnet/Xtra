@@ -57,8 +57,17 @@ class FollowedVideosViewModel(
 
     val filter = MutableStateFlow<Filter?>(null)
     val sortText = MutableStateFlow<CharSequence?>(null)
-    val positions = playerRepository.loadVideoPositions()
+    val positions = graphQLRepository.observeVideoPositions(playerRepository.loadVideoPositions())
     val bookmarks = bookmarksRepository.getAllFlow()
+
+    init {
+        viewModelScope.launch {
+            graphQLRepository.refreshViewedVideoPositions(
+                applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = true),
+            )
+        }
+    }
 
     val sort: String
         get() = filter.value?.sort ?: VideosSortDialog.SORT_TIME

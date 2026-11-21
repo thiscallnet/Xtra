@@ -52,8 +52,17 @@ class VideoSearchViewModel(
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query
-    val positions = playerRepository.loadVideoPositions()
+    val positions = graphQLRepository.observeVideoPositions(playerRepository.loadVideoPositions())
     val bookmarks = bookmarksRepository.getAllFlow()
+
+    init {
+        viewModelScope.launch {
+            graphQLRepository.refreshViewedVideoPositions(
+                applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = true),
+            )
+        }
+    }
 
     @OptIn(ExperimentalCoroutinesApi::class)
     val flow = _query.flatMapLatest { query ->

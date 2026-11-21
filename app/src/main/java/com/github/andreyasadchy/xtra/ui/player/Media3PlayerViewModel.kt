@@ -623,10 +623,13 @@ class Media3PlayerViewModel(
 
     fun getVideoPosition(id: Long, fallbackPosition: Long? = null) {
         viewModelScope.launch {
-            savedPosition.value = playerRepository.getVideoPosition(id)?.position
-                ?.takeIf { it > 0L }
-                ?: fallbackPosition
-                ?: 0L
+            val localPosition = playerRepository.getVideoPosition(id)?.position?.takeIf { it > 0L }
+            val twitchPosition = graphQLRepository.loadVideoViewingHistoryPosition(
+                applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = true),
+                id.toString(),
+            )
+            savedPosition.value = twitchPosition ?: localPosition ?: fallbackPosition ?: 0L
         }
     }
 
