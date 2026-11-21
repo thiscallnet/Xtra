@@ -1545,4 +1545,6 @@
     <string name="forget_tab_choices">Esquecer as opcións gardadas para esta lapela</string>
     <string name="all_languages">Todos os idiomas</string>
     <string name="player_qualities_load_failed">Non se puideron cargar as opcións de calidade do vídeo.</string>
+    <string name="channel_emotes">Canle</string>
+    <string name="channel_emotes_empty">Esta canle non ten emotes dispoñibles.</string>
 </resources>

@@ -1546,4 +1546,6 @@
     <string name="forget_tab_choices">Bu sekme için kaydedilen seçimleri unut</string>
     <string name="all_languages">Tüm diller</string>
     <string name="player_qualities_load_failed">Video kalite seçenekleri yüklenemedi.</string>
+    <string name="channel_emotes">Kanal</string>
+    <string name="channel_emotes_empty">Bu kanalda kullanılabilir emote yok.</string>
 </resources>

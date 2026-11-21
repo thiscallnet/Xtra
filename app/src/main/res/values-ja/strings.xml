@@ -1545,4 +1545,6 @@
     <string name="forget_tab_choices">このタブの保存済みの設定を削除</string>
     <string name="all_languages">すべての言語</string>
     <string name="player_qualities_load_failed">画質の選択肢を読み込めませんでした。</string>
+    <string name="channel_emotes">チャンネル</string>
+    <string name="channel_emotes_empty">このチャンネルで利用できるエモートはありません。</string>
 </resources>

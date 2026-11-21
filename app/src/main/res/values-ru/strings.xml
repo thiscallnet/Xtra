@@ -1545,4 +1545,6 @@
     <string name="forget_tab_choices">Забыть сохранённые настройки этой вкладки</string>
     <string name="all_languages">Все языки</string>
     <string name="player_qualities_load_failed">Не удалось загрузить варианты качества видео.</string>
+    <string name="channel_emotes">Канал</string>
+    <string name="channel_emotes_empty">Для этого канала нет доступных эмотов.</string>
 </resources>

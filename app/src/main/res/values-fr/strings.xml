@@ -1545,4 +1545,6 @@
     <string name="forget_tab_choices">Effacer les choix enregistrés pour cet onglet</string>
     <string name="all_languages">Toutes les langues</string>
     <string name="player_qualities_load_failed">Impossible de charger les options de qualité vidéo.</string>
+    <string name="channel_emotes">Chaîne</string>
+    <string name="channel_emotes_empty">Aucune emote n’est disponible pour cette chaîne.</string>
 </resources>
