@@ -30,6 +30,7 @@ import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.ui.common.diagnosticToken
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistContinuityStore
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.hls.ProbedPlaylistDataSource
@@ -157,6 +158,7 @@ class StreamHlsMediaSourceFactory(
     private var drmSessionManagerProvider: DrmSessionManagerProvider? = null
     private var loadErrorHandlingPolicy: LoadErrorHandlingPolicy = DefaultLoadErrorHandlingPolicy(6)
     private val sourceDataSourceFactories = ConcurrentHashMap<String, DataSource.Factory>()
+    private val timelineContinuityStoresByMediaId = ConcurrentHashMap<String, TwitchHlsPlaylistContinuityStore>()
     private val renditionFormats = ConcurrentHashMap<String, androidx.media3.common.Format>()
     private val defaultMediaSourceFactory = DefaultMediaSourceFactory(
         DefaultDataSource.Factory(context, dataSourceFactory(StreamProxyState(), streamSource = false))
@@ -172,6 +174,9 @@ class StreamHlsMediaSourceFactory(
         }
         val state = proxyStates.getOrPut(mediaItem.mediaId) {
             StreamProxyState { observation -> onProxyPlaylistObservation(mediaItem.mediaId, observation) }
+        }
+        val timelineContinuityStore = timelineContinuityStoresByMediaId.getOrPut(mediaItem.mediaId) {
+            TwitchHlsPlaylistContinuityStore()
         }
         val streamSource = mediaItem.liveConfiguration.targetOffsetMs != androidx.media3.common.C.TIME_UNSET
         val networkFactory = dataSourceFactory(state, streamSource)
@@ -195,6 +200,7 @@ class StreamHlsMediaSourceFactory(
             setPlaylistParserFactory(
                 TwitchHlsPlaylistParserFactory(
                     lowLatencyEnabled = lowLatencyEnabled,
+                    continuityStore = timelineContinuityStore,
                     transform = { uri, parsed ->
                         hiddenAudio?.observe(uri, parsed)
                         val published = controlled?.transform(uri, parsed) ?: parsed
@@ -227,7 +233,7 @@ class StreamHlsMediaSourceFactory(
                                         }
                                         add(DiagnosticsField(
                                             DiagnosticsFieldKey.SOURCE_REASON,
-                                            "overlap_continuity",
+                                            diagnostics.programDateTimeShiftSource ?: "overlap_continuity",
                                         ))
                                     },
                                 )
@@ -352,6 +358,7 @@ class StreamHlsMediaSourceFactory(
 
     fun releaseMediaItem(mediaId: String) {
         sourceDataSourceFactories.remove(mediaId)
+        timelineContinuityStoresByMediaId.remove(mediaId)
         proxyStates.remove(mediaId)?.let {
             it.controlledPlaylist?.close()
             it.hiddenAudioPlaylist?.close()
@@ -360,6 +367,16 @@ class StreamHlsMediaSourceFactory(
 
     fun hlsDiagnosticsFor(mediaId: String): TwitchHlsPlaylistDiagnostics? =
         proxyStates[mediaId]?.twitchHlsDiagnostics
+
+    @Synchronized
+    fun bindLiveTimelineContinuity(
+        mediaId: String,
+        continuityStore: TwitchHlsPlaylistContinuityStore,
+    ) {
+        val sourceStore = timelineContinuityStoresByMediaId[mediaId]
+        if (sourceStore !== continuityStore) sourceStore?.forwardTo(continuityStore)
+        timelineContinuityStoresByMediaId[mediaId] = continuityStore
+    }
 
     @SuppressLint("NewApi")
     private fun dataSourceFactory(state: StreamProxyState, streamSource: Boolean): DataSource.Factory {

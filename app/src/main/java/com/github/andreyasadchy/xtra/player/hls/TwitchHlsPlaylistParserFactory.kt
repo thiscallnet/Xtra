@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.player.hls
 
 import android.net.Uri
+import android.os.SystemClock
 import android.util.Log
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -16,6 +17,7 @@ import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import java.io.ByteArrayInputStream
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 @androidx.media3.common.util.UnstableApi
@@ -84,13 +86,70 @@ private fun HlsMediaPlaylist.copyWithStartTimeUs(startTimeUs: Long): HlsMediaPla
 private data class ProgramDateTimeContinuityAdjustment(
     val playlist: HlsMediaPlaylist,
     val shiftMs: Long,
+    val source: String,
 )
+
+@androidx.media3.common.util.UnstableApi
+internal data class CachedMediaPlaylist(
+    val playlist: HlsMediaPlaylist,
+    val parsedAtElapsedRealtimeMs: Long,
+)
+
+@androidx.media3.common.util.UnstableApi
+class TwitchHlsPlaylistContinuityStore {
+    private val recentMediaPlaylists = ConcurrentHashMap<String, CachedMediaPlaylist>()
+
+    @Volatile
+    private var delegate: TwitchHlsPlaylistContinuityStore? = null
+
+    internal fun previous(cacheKey: String): CachedMediaPlaylist? {
+        delegate?.let { return it.previous(cacheKey) }
+        return recentMediaPlaylists[cacheKey]
+            ?: recentMediaPlaylists.values.maxByOrNull { it.parsedAtElapsedRealtimeMs }
+    }
+
+    @Synchronized
+    internal fun record(cacheKey: String, cached: CachedMediaPlaylist) {
+        delegate?.let {
+            it.record(cacheKey, cached)
+            return
+        }
+        recentMediaPlaylists[cacheKey] = cached
+        if (recentMediaPlaylists.size > MAX_CACHED_MEDIA_PLAYLISTS) {
+            recentMediaPlaylists.entries
+                .minByOrNull { it.value.parsedAtElapsedRealtimeMs }
+                ?.let { recentMediaPlaylists.remove(it.key, it.value) }
+        }
+    }
+
+    /** Preserve a parser's cache while joining it to the active live-playback session. */
+    internal fun forwardTo(shared: TwitchHlsPlaylistContinuityStore) {
+        if (shared === this) return
+        delegate?.let {
+            it.forwardTo(shared)
+            return
+        }
+        synchronized(this) {
+            delegate?.let {
+                it.forwardTo(shared)
+                return
+            }
+            recentMediaPlaylists.forEach { (key, cached) -> shared.record(key, cached) }
+            delegate = shared
+        }
+    }
+
+    private companion object {
+        const val MAX_CACHED_MEDIA_PLAYLISTS = 8
+    }
+}
 
 @androidx.media3.common.util.UnstableApi
 class TwitchHlsPlaylistParserFactory(
     private val lowLatencyEnabled: Boolean,
     private val diagnostics: TwitchHlsDiagnosticsSink? = null,
     private val transform: (Uri, HlsPlaylist) -> HlsPlaylist = { _, playlist -> playlist },
+    private val continuityStore: TwitchHlsPlaylistContinuityStore = TwitchHlsPlaylistContinuityStore(),
 ) : HlsPlaylistParserFactory {
 
     private val delegate = DefaultHlsPlaylistParserFactory()
@@ -152,6 +211,16 @@ class TwitchHlsPlaylistParserFactory(
                     ByteArrayInputStream(finalAdaptation.playlistText.toByteArray(StandardCharsets.UTF_8)),
                 )
             }
+            val cacheKey = playlistCacheKey(uri)
+            val cachedPrevious = continuityStore.previous(cacheKey)
+            val continuityPrevious = previousMediaPlaylist ?: cachedPrevious?.playlist
+            val continuityPreviousParsedAtMs = cachedPrevious
+                ?.takeIf { cached ->
+                    continuityPrevious?.mediaSequence == cached.playlist.mediaSequence &&
+                        continuityPrevious.startTimeUs == cached.playlist.startTimeUs
+                }
+                ?.parsedAtElapsedRealtimeMs
+            val parsedAtElapsedRealtimeMs = SystemClock.elapsedRealtime()
             val playlistBeforeInterstitialRestore = parsed as? HlsMediaPlaylist
             if (playlistBeforeInterstitialRestore != null) {
                 parsed = restoreTwitchVaftInterstitials(
@@ -162,8 +231,10 @@ class TwitchHlsPlaylistParserFactory(
                 )
             }
             val continuityAdjustment = preserveProgramDateTimeContinuity(
-                previousPlaylist = previousMediaPlaylist,
+                previousPlaylist = continuityPrevious,
                 updatedPlaylist = parsed as? HlsMediaPlaylist,
+                previousParsedAtElapsedRealtimeMs = continuityPreviousParsedAtMs,
+                parsedAtElapsedRealtimeMs = parsedAtElapsedRealtimeMs,
             )
             if (continuityAdjustment != null) parsed = continuityAdjustment.playlist
             val programDateTimeShiftMs = continuityAdjustment?.shiftMs
@@ -210,7 +281,20 @@ class TwitchHlsPlaylistParserFactory(
                     ?.takeIf { collectExpandedDiagnostics },
                 segmentCount = compatibleMediaPlaylist?.segments?.size?.takeIf { collectExpandedDiagnostics },
                 programDateTimeShiftMs = programDateTimeShiftMs,
+                previousMediaSequence = continuityPrevious
+                    ?.mediaSequence
+                    ?.takeIf { collectExpandedDiagnostics },
+                programDateTimeSequenceOffset = continuityPrevious
+                    ?.let { previous -> (playlistBeforeInterstitialRestore?.mediaSequence ?: 0L) - previous.mediaSequence }
+                    ?.takeIf { collectExpandedDiagnostics },
+                programDateTimeShiftSource = continuityAdjustment?.source,
             )
+            if (compatibleMediaPlaylist?.hasProgramDateTime == true) {
+                continuityStore.record(cacheKey, CachedMediaPlaylist(
+                    compatibleMediaPlaylist,
+                    parsedAtElapsedRealtimeMs,
+                ))
+            }
             diagnostics?.onPlaylistParsed(finalDiagnostics, compatible)
             logDiagnostics(finalDiagnostics, compatible)
             compatible
@@ -294,6 +378,9 @@ class TwitchHlsPlaylistParserFactory(
                 "mediaSequence=${diagnostics.mediaSequence ?: -1L} " +
                 "playlistDurationMs=${diagnostics.playlistDurationMs ?: -1L} " +
                 "pdtShiftMs=${diagnostics.programDateTimeShiftMs ?: -1L} " +
+                "previousMediaSequence=${diagnostics.previousMediaSequence ?: -1L} " +
+                "sequenceOffset=${diagnostics.programDateTimeSequenceOffset ?: -1L} " +
+                "pdtShiftSource=${diagnostics.programDateTimeShiftSource ?: "none"} " +
                 "segments=${diagnostics.segmentCount ?: mediaPlaylist?.segments?.size ?: 0} " +
                 "trailingParts=${mediaPlaylist?.trailingParts?.size ?: 0}",
         )
@@ -303,19 +390,65 @@ class TwitchHlsPlaylistParserFactory(
     private fun preserveProgramDateTimeContinuity(
         previousPlaylist: HlsMediaPlaylist?,
         updatedPlaylist: HlsMediaPlaylist?,
+        previousParsedAtElapsedRealtimeMs: Long?,
+        parsedAtElapsedRealtimeMs: Long,
     ): ProgramDateTimeContinuityAdjustment? {
         if (previousPlaylist == null || updatedPlaylist?.hasProgramDateTime != true) return null
         val sequenceOffset = updatedPlaylist.mediaSequence - previousPlaylist.mediaSequence
-        if (sequenceOffset < 0L || sequenceOffset >= previousPlaylist.segments.size) return null
+        if (sequenceOffset < 0L) return null
 
-        val overlap = previousPlaylist.segments[sequenceOffset.toInt()]
-        val continuousStartTimeUs = previousPlaylist.startTimeUs + overlap.relativeStartTimeUs
+        val continuousStartTimeUs: Long
+        val source: String
+        if (sequenceOffset < previousPlaylist.segments.size) {
+            val overlap = previousPlaylist.segments[sequenceOffset.toInt()]
+            continuousStartTimeUs = previousPlaylist.startTimeUs + overlap.relativeStartTimeUs
+            source = "overlap_continuity"
+        } else {
+            val missingSequenceCount = sequenceOffset - previousPlaylist.segments.size
+            if (missingSequenceCount > MAX_MISSING_SEQUENCE_COUNT) return null
+            val averageSegmentDurationUs = previousPlaylist.segments
+                .takeLast(5)
+                .map { it.durationUs }
+                .filter { it > 0L }
+                .takeIf { it.isNotEmpty() }
+                ?.average()
+                ?.toLong()
+                ?.takeIf { it > 0L }
+                ?: return null
+            val previousParsedAtMs = previousParsedAtElapsedRealtimeMs ?: return null
+            val expectedAdvanceUs = sequenceOffset * averageSegmentDurationUs
+            val actualAdvanceUs = (parsedAtElapsedRealtimeMs - previousParsedAtMs)
+                .coerceAtLeast(0L) * 1_000L
+            val previousWindowDurationUs = previousPlaylist.durationUs
+                .takeIf { it != C.TIME_UNSET }
+                ?: previousPlaylist.segments.sumOf { it.durationUs }
+            val updatedWindowDurationUs = updatedPlaylist.durationUs
+                .takeIf { it != C.TIME_UNSET }
+                ?: updatedPlaylist.segments.sumOf { it.durationUs }
+            val expectedElapsedUs = (expectedAdvanceUs - previousWindowDurationUs + updatedWindowDurationUs)
+                .coerceAtLeast(0L)
+            val toleranceUs = maxOf(15_000_000L, expectedElapsedUs / 4L)
+            if (kotlin.math.abs(actualAdvanceUs - expectedElapsedUs) > toleranceUs) return null
+            val estimatedMissingDurationUs = missingSequenceCount * averageSegmentDurationUs
+            val estimatedShiftUs = updatedPlaylist.startTimeUs -
+                (previousPlaylist.endTimeUs + estimatedMissingDurationUs)
+            if (kotlin.math.abs(estimatedShiftUs) < maxOf(2_000_000L, averageSegmentDurationUs)) return null
+            continuousStartTimeUs = previousPlaylist.endTimeUs + estimatedMissingDurationUs
+            source = "sequence_gap_continuity"
+        }
         val shiftUs = updatedPlaylist.startTimeUs - continuousStartTimeUs
         if (shiftUs == 0L) return null
         return ProgramDateTimeContinuityAdjustment(
             playlist = updatedPlaylist.copyWithStartTimeUs(continuousStartTimeUs),
             shiftMs = shiftUs / 1_000L,
+            source = source,
         )
+    }
+
+    private fun playlistCacheKey(uri: Uri): String = uri.buildUpon().clearQuery().build().toString()
+
+    private companion object {
+        const val MAX_MISSING_SEQUENCE_COUNT = 300L
     }
 }
 
