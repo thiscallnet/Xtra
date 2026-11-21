@@ -22,6 +22,7 @@ The client routes through Xtra's configured HTTP Engine, Cronet, or OkHttp backe
 | --- | --- | --- | --- |
 | Notification list | `OnsiteNotifications_ListNotifications` | Full document | Authenticated read-only UI |
 | Notification view/read | `OnsiteNotifications_View`, `OnsiteNotifications_ReadNotifications` | Full document | Authenticated read-only UI |
+| Mark all viewer notifications read | `OnsiteNotifications_MarkAllViewerNotificationsAsRead` | Full document | Authenticated viewer inbox runtime verification |
 | Notification delete | `OnsiteNotifications_DeleteNotification` | Full document | Schema/bundle probe; not invoked against the user account |
 | Whisper threads | `Whispers_Whispers_UserWhisperThreads` | APQ with full-document fallback | Authenticated read-only UI |
 | Whisper history | `Whispers_Thread_WhisperThread` | Full document | Authenticated read-only UI |
@@ -86,6 +87,22 @@ Variables:
 ```json
 {"input":{"ids":["notification-id"]}}
 ```
+
+Single-notification actions use this ID-based mutation. The toolbar's mark-all action uses Twitch's dedicated `markAllViewerNotificationsAsRead` mutation instead of placing every unread ID into the `ids` array:
+
+```graphql
+mutation OnsiteNotifications_MarkAllViewerNotificationsAsRead($input: MarkAllViewerNotificationsAsReadInput) {
+  markAllViewerNotificationsAsRead(input: $input) { hasSucceeded }
+}
+```
+
+The input requires the acting user's ID:
+
+```json
+{"input":{"userID":"viewer-id"}}
+```
+
+The current schema describes this as reading all viewer notifications and returns `hasSucceeded`. Xtra only updates its local notification cache after that field is true.
 
 ### OnsiteNotifications_DeleteNotification
 

@@ -14,6 +14,7 @@ object TwitchPrivateGqlOperations {
     val notificationsList = TwitchWebOperation("OnsiteNotifications_ListNotifications")
     val notificationsView = TwitchWebOperation("OnsiteNotifications_View")
     val notificationsRead = TwitchWebOperation("OnsiteNotifications_ReadNotifications")
+    val notificationsMarkAllRead = TwitchWebOperation("OnsiteNotifications_MarkAllViewerNotificationsAsRead")
     val notificationsDelete = TwitchWebOperation("OnsiteNotifications_DeleteNotification")
     val notificationsSummary = TwitchWebOperation("OnsiteNotifications_Summary")
 
@@ -75,6 +76,12 @@ internal object TwitchPrivateGqlDocuments {
     const val notificationsRead = """
         mutation OnsiteNotifications_ReadNotifications(${'$'}input: ReadNotificationsInput!) {
           readNotifications(input: ${'$'}input) { notifications { id isRead } count }
+        }
+    """
+
+    const val notificationsMarkAllRead = """
+        mutation OnsiteNotifications_MarkAllViewerNotificationsAsRead(${'$'}input: MarkAllViewerNotificationsAsReadInput) {
+          markAllViewerNotificationsAsRead(input: ${'$'}input) { hasSucceeded }
         }
     """
 

@@ -71,7 +71,21 @@ class TwitchNotificationsRepository(
                 cursor = next
             }
         }
-        markNotificationsRead(ids)
+        val key = requireAccount()
+        val result = privateGqlClient.executeDocument(
+            networkLibrary(),
+            webHeaders(),
+            TwitchPrivateGqlOperations.notificationsMarkAllRead.operationName,
+            TwitchPrivateGqlDocuments.notificationsMarkAllRead,
+            buildJsonObject {
+                putJsonObject("input") { put("userID", key) }
+            },
+        )
+        parseMarkAllNotificationsRead(result)
+        checkAccount(key)
+        cacheCommitGate.commitMutation {
+            runCatching { metadataCache?.markNotificationsRead(key, ids) }
+        }
         return ids.toSet()
     }
 
