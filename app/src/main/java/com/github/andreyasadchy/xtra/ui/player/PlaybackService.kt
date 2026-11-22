@@ -84,6 +84,7 @@ import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.stats.ViewingPlaybackMetadata
 import com.github.andreyasadchy.xtra.model.stats.mergeViewingCategoryPatch
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsDiagnosticsSink
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistContinuityStore
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistParserFactory
 import com.github.andreyasadchy.xtra.player.lowlatency.HttpEngineDataSource
 import com.github.andreyasadchy.xtra.player.lowlatency.OkHttpDataSource
@@ -218,6 +219,8 @@ class PlaybackService : MediaSessionService() {
     private var lastMediaButtonSeekable: Boolean? = null
     private var liveStreamUri: String? = null
     private var livePlaybackSessionGeneration = 0L
+    private var liveTimelineContinuityStore = TwitchHlsPlaylistContinuityStore()
+    private var liveTimelineContinuityIdentity: String? = null
     private var primaryQualityCatalogMasterUri: String? = null
     private var primaryQualityCatalog: List<VideoQuality>? = null
     private var primaryQualityCatalogRenditionUris: Set<String> = emptySet()
@@ -5955,6 +5958,13 @@ class PlaybackService : MediaSessionService() {
         val title = extras.getString(TITLE)
         val channelName = extras.getString(CHANNEL_NAME)
         val channelLogo = extras.getString(CHANNEL_LOGO)
+        // Recovery may start a fresh media item for the same broadcast; keep its playlist timeline until the stream identity changes.
+        val continuityIdentity = "${channelLogin ?: uri}:" +
+            (extras.getString(STREAM_ID)?.trim()?.takeIf { it.isNotEmpty() } ?: "unknown")
+        if (continuityIdentity != liveTimelineContinuityIdentity) {
+            liveTimelineContinuityStore = TwitchHlsPlaylistContinuityStore()
+            liveTimelineContinuityIdentity = continuityIdentity
+        }
         if (beginNewPlayback) {
             livePlaybackSessionGeneration++
             backgroundRecoveryAttempt = 0
@@ -6068,6 +6078,10 @@ class PlaybackService : MediaSessionService() {
         diagnostics.resetRenderedVideoSize()
         val playbackMediaItem = preloaded?.mediaItem ?: mediaItem
         streamStartupMediaId = playbackMediaItem.mediaId
+        runtime.bindLiveTimelineContinuity(
+            mediaId = playbackMediaItem.mediaId,
+            continuityStore = liveTimelineContinuityStore,
+        )
         val playbackSource = preloaded?.mediaSource ?: runtime.createLiveMediaSource(mediaItem)
         updateLiveClipSource(playbackMediaItem)
         val activePlayer = setPlaybackSource(player, playbackSource)

@@ -22,6 +22,7 @@ import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.XtraModule
+import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistContinuityStore
 import com.github.andreyasadchy.xtra.player.hls.TwitchHlsPlaylistDiagnostics
 import com.github.andreyasadchy.xtra.ui.player.StreamHlsMediaSourceFactory
 import com.github.andreyasadchy.xtra.ui.player.SmoothHlsQualityPolicy
@@ -599,6 +600,21 @@ class StreamMedia3Runtime(
     fun createLiveMediaSource(mediaItem: MediaItem): MediaSource {
         check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 live source creation must run on the main looper" }
         return createHlsMediaSource(mediaItem)
+    }
+
+    @Synchronized
+    fun bindLiveTimelineContinuity(
+        mediaId: String,
+        continuityStore: TwitchHlsPlaylistContinuityStore,
+    ) {
+        check(Looper.myLooper() == Looper.getMainLooper()) { "Media3 live timeline continuity must be bound on the main looper" }
+        ensureGeneration()
+        // A playback handoff can adopt a preload source owned by an older
+        // generation. Bind every retained factory so that parser can forward
+        // its last playlist snapshot into the session store as well.
+        states.forEach { generation ->
+            generation.hlsFactory.bindLiveTimelineContinuity(mediaId, continuityStore)
+        }
     }
 
     @Synchronized
