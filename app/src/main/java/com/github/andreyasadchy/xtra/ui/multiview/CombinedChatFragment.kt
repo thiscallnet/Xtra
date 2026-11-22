@@ -610,6 +610,7 @@ private class CombinedChatAdapter(
                     background = surface,
             ),
             emoteHeightPx = style.emoteHeightPx,
+            twitchSmilieHeightPx = style.twitchSmilieHeightPx,
             badgeHeightPx = style.badgeHeightPx,
             showBadges = style.showBadges,
             enableOverlayEmotes = style.enableOverlayEmotes,
