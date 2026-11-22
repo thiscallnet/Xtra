@@ -325,6 +325,7 @@ object C {
     const val PROXY_MEDIA_PLAYLIST = "proxy_media_playlist"
     const val PROXY_HOST = "proxy_host"
     const val PROXY_PORT = "proxy_port"
+    const val PROXY_BACKUP_SERVERS = "proxy_backup_servers"
     const val PROXY_USER = "proxy_user"
     const val PROXY_PASSWORD = "proxy_password"
     const val PROXY_ALLOW_DIRECT_FALLBACK = "proxy_allow_direct_fallback"

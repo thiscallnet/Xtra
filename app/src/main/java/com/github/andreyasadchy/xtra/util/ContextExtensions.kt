@@ -133,7 +133,7 @@ private class ProxyAwarePreferences(
     }
 
     private companion object {
-        val PROXY_KEYS = setOf(C.PROXY_HOST, C.PROXY_PORT, C.PROXY_USER, C.PROXY_PASSWORD)
+        val PROXY_KEYS = setOf(C.PROXY_HOST, C.PROXY_PORT, C.PROXY_BACKUP_SERVERS, C.PROXY_USER, C.PROXY_PASSWORD)
     }
 }
 

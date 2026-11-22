@@ -44,6 +44,7 @@ import com.github.andreyasadchy.xtra.player.lowlatency.TwitchHlsRequestRules.MED
 import com.github.andreyasadchy.xtra.player.lowlatency.TwitchHlsRequestRules.MULTIVARIANT_PLAYLIST_REGEX
 import com.github.andreyasadchy.xtra.repository.preload.StreamPlaybackConfiguration
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.HttpProxyAddress
 import com.github.andreyasadchy.xtra.util.LivePlaybackPolicies
 import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import com.github.andreyasadchy.xtra.util.m3u8.VaftSegmentEvidenceRecorder
@@ -52,7 +53,6 @@ import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isVaftEnabled
 import okhttp3.Credentials
 import java.io.IOException
-import java.net.InetSocketAddress
 import java.net.Proxy
 import java.net.ProxySelector
 import java.net.SocketAddress
@@ -389,18 +389,35 @@ class StreamHlsMediaSourceFactory(
                 Log.i("PlaybackNetwork", "source_backend=$backend stream=$streamSource request_type=${observation.requestType} route=${observation.route}")
             }
         }
-        val proxyHost = configuration.proxyHost.takeIf { streamSource }
-        val proxyPort = configuration.proxyPort.takeIf { streamSource }
-        val proxyUser = configuration.proxyUser.takeIf { streamSource }
-        val proxyPassword = configuration.proxyPassword.takeIf { streamSource }
+        val proxyServers = configuration.httpProxyServers.takeIf { streamSource }.orEmpty()
+        val proxyUser = configuration.proxyUser.takeIf { streamSource && proxyServers.isNotEmpty() }
+        val proxyPassword = configuration.proxyPassword.takeIf { streamSource && proxyServers.isNotEmpty() }
         val proxyMultivariantPlaylist = streamSource && configuration.proxyMultivariantPlaylist &&
-            !proxyHost.isNullOrBlank() && proxyPort != null
-        val proxyMediaPlaylist = streamSource && !proxyHost.isNullOrBlank() && proxyPort != null
+            proxyServers.isNotEmpty()
+        val proxyMediaPlaylist = streamSource && proxyServers.isNotEmpty()
 
         val upstreamFactory: DataSource.Factory = when {
             useHttpEngine ->
-                createHttpEngineFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist, observeRequest)
-            else -> createOkHttpFactory(state, proxyHost, proxyPort, proxyUser, proxyPassword, proxyMultivariantPlaylist, proxyMediaPlaylist, observeRequest)
+                createHttpEngineFactory(
+                    state,
+                    proxyServers,
+                    proxyUser,
+                    proxyPassword,
+                    configuration.allowDirectProxyFallback,
+                    proxyMultivariantPlaylist,
+                    proxyMediaPlaylist,
+                    observeRequest,
+                )
+            else -> createOkHttpFactory(
+                state,
+                proxyServers,
+                proxyUser,
+                proxyPassword,
+                configuration.allowDirectProxyFallback,
+                proxyMultivariantPlaylist,
+                proxyMediaPlaylist,
+                observeRequest,
+            )
         }
         return upstreamFactory.apply {
             if (streamSource && configuration.streamHeaders.isNotEmpty()) {
@@ -415,17 +432,15 @@ class StreamHlsMediaSourceFactory(
     @SuppressLint("NewApi")
     private fun createHttpEngineFactory(
         state: StreamProxyState,
-        proxyHost: String?,
-        proxyPort: Int?,
+        proxyServers: List<HttpProxyAddress>,
         proxyUser: String?,
         proxyPassword: String?,
+        allowDirectFallback: Boolean,
         proxyMultivariantPlaylist: Boolean,
         proxyMediaPlaylist: Boolean,
         observeRequest: java.util.function.Consumer<StreamRequestObservation>,
     ): DataSource.Factory {
-        val host = proxyHost.orEmpty()
-        val port = proxyPort ?: 0
-        val proxyClient = if (proxyMultivariantPlaylist || proxyMediaPlaylist) {
+        val proxyClient = if ((proxyMultivariantPlaylist || proxyMediaPlaylist) && proxyServers.isNotEmpty()) {
             val proxyHeaders = if (!proxyUser.isNullOrBlank() && !proxyPassword.isNullOrBlank()) {
                 listOf(android.util.Pair("Proxy-Authorization", Credentials.basic(proxyUser, proxyPassword)))
             } else emptyList()
@@ -433,11 +448,11 @@ class StreamHlsMediaSourceFactory(
                 val builder = HttpEngine.Builder(context)
                 builder.setProxyOptions(
                     ProxyOptions.fromProxyList(
-                        listOf(
+                        proxyServers.map { server ->
                             android.net.http.Proxy.createHttpProxy(
                                 android.net.http.Proxy.SCHEME_HTTP,
-                                host,
-                                port,
+                                server.host,
+                                server.port,
                                 xtraModule.httpExecutor.value,
                                 object : android.net.http.Proxy.HttpConnectCallback {
                                     override fun onBeforeRequest(request: android.net.http.Proxy.HttpConnectCallback.Request) {
@@ -448,8 +463,12 @@ class StreamHlsMediaSourceFactory(
                                         android.net.http.Proxy.HttpConnectCallback.RESPONSE_ACTION_PROCEED
                                 },
                             )
-                        ),
-                        ProxyOptions.ALL_PROXIES_FAILED_BEHAVIOR_DISALLOW_DIRECT,
+                        },
+                        if (allowDirectFallback) {
+                            ProxyOptions.ALL_PROXIES_FAILED_BEHAVIOR_ALLOW_DIRECT
+                        } else {
+                            ProxyOptions.ALL_PROXIES_FAILED_BEHAVIOR_DISALLOW_DIRECT
+                        },
                     )
                 ).build()
             } catch (_: RuntimeException) {
@@ -459,10 +478,10 @@ class StreamHlsMediaSourceFactory(
             }
         } else null
         val multivariantProxy = if (proxyMultivariantPlaylist && proxyClient == null) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker)
+            proxyOkHttpClient(proxyServers, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker, allowDirectFallback)
         } else null
         val mediaProxy = if (proxyMediaPlaylist && proxyClient == null) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX, state.requestRouteTracker)
+            proxyOkHttpClient(proxyServers, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX, state.requestRouteTracker, allowDirectFallback)
         } else null
         return HttpEngineDataSource.Factory(
             xtraModule.httpEngine.value,
@@ -479,21 +498,19 @@ class StreamHlsMediaSourceFactory(
 
     private fun createOkHttpFactory(
         state: StreamProxyState,
-        proxyHost: String?,
-        proxyPort: Int?,
+        proxyServers: List<HttpProxyAddress>,
         proxyUser: String?,
         proxyPassword: String?,
+        allowDirectFallback: Boolean,
         proxyMultivariantPlaylist: Boolean,
         proxyMediaPlaylist: Boolean,
         observeRequest: java.util.function.Consumer<StreamRequestObservation>,
     ): DataSource.Factory {
-        val host = proxyHost.orEmpty()
-        val port = proxyPort ?: 0
         val multivariantProxy = if (proxyMultivariantPlaylist) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker)
+            proxyOkHttpClient(proxyServers, proxyUser, proxyPassword, MULTIVARIANT_PLAYLIST_REGEX, state.requestRouteTracker, allowDirectFallback)
         } else null
         val mediaProxy = if (proxyMediaPlaylist) {
-            proxyOkHttpClient(host, port, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX, state.requestRouteTracker)
+            proxyOkHttpClient(proxyServers, proxyUser, proxyPassword, MEDIA_PLAYLIST_REGEX, state.requestRouteTracker, allowDirectFallback)
         } else null
         return OkHttpDataSource.Factory(
             state.requestRouteTracker.instrument(multivariantProxy ?: xtraModule.okHttpClient.value),
@@ -504,20 +521,19 @@ class StreamHlsMediaSourceFactory(
     }
 
     private fun proxyOkHttpClient(
-        proxyHost: String?,
-        proxyPort: Int?,
+        proxyServers: List<HttpProxyAddress>,
         proxyUser: String?,
         proxyPassword: String?,
         hostPattern: String,
         routeTracker: StreamRequestRouteTracker? = null,
+        allowDirectFallback: Boolean,
     ): okhttp3.OkHttpClient? {
-        if (proxyHost.isNullOrBlank() || proxyPort == null) return null
+        if (proxyServers.isEmpty()) return null
         return xtraModule.okHttpClient.value.newBuilder().apply {
-            val allowDirectFallback = context.prefs().getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true)
             proxySelector(
                 object : ProxySelector() {
                     override fun select(uri: URI): List<Proxy> = if (Regex(hostPattern).matches(uri.host.orEmpty())) {
-                        proxyCandidates(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxyHost, proxyPort)), allowDirectFallback)
+                        proxyCandidates(proxyServers.map(HttpProxyAddress::toProxy), allowDirectFallback)
                     } else listOf(Proxy.NO_PROXY)
 
                     override fun connectFailed(uri: java.net.URI, sa: SocketAddress, e: IOException) = Unit
