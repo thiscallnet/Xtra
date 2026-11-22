@@ -923,7 +923,8 @@ class ControlledVaftPlaylist(
         }.orEmpty()
         if (BuildConfig.DEBUG && parts.isNotEmpty()) Log.d("XtraVaftFeed", "event=prefetch_publish channel=$channel parts=${parts.size}")
         return HlsMediaPlaylist(
-            raw.playlistType, raw.baseUri, emptyList(), C.TIME_UNSET, false, first.epochUs,
+            // Keep the source tags available to playback diagnostics; the published segments are filtered separately.
+            raw.playlistType, raw.baseUri, raw.tags, C.TIME_UNSET, false, first.epochUs,
             true, first.discontinuity, first.sequence, raw.version,
             ((published.maxOf { it.segment.durationUs } + 999_999L) / 1_000_000L) * 1_000_000L,
             tail?.partTargetDurationUs?.takeIf { parts.isNotEmpty() } ?: C.TIME_UNSET,

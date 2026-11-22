@@ -20,7 +20,6 @@ import android.view.SurfaceView
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.OptIn
@@ -3860,25 +3859,31 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
                     return@addListener
                 }
                 if (result.get().resultCode == SessionResult.RESULT_SUCCESS) {
-                    val tags = result.get().extras.getStringArray(PlaybackService.RESULT)?.joinToString("\n")
-                    if (!tags.isNullOrBlank()) {
-                        requireContext().getAlertDialogBuilder().apply {
-                            setView(NestedScrollView(context).apply {
-                                addView(HorizontalScrollView(context).apply {
-                                    addView(TextView(context).apply {
-                                        text = tags
-                                        textSize = 12F
-                                        setTextIsSelectable(true)
-                                    })
-                                })
+                    val tags = result.get().extras.getStringArray(PlaybackService.RESULT)?.joinToString("\n").orEmpty()
+                    val hasTags = tags.isNotBlank()
+                    requireContext().getAlertDialogBuilder().apply {
+                        setTitle(
+                            if (mediaPlaylist) R.string.show_media_playlist_tags
+                            else R.string.show_multivariant_playlist_tags,
+                        )
+                        setView(NestedScrollView(context).apply {
+                            addView(TextView(context).apply {
+                                text = if (hasTags) tags else getString(R.string.playlist_tags_unavailable)
+                                textSize = 12F
+                                setTextIsSelectable(true)
+                                setHorizontallyScrolling(false)
+                                val padding = (16 * resources.displayMetrics.density).toInt()
+                                setPadding(padding, padding, padding, padding)
                             })
+                        })
+                        if (hasTags) {
                             setNegativeButton(R.string.copy_clip) { _, _ ->
                                 val clipboard = ContextCompat.getSystemService(requireContext(), ClipboardManager::class.java)
                                 clipboard?.setPrimaryClip(ClipData.newPlainText("label", tags))
                             }
-                            setPositiveButton(android.R.string.ok, null)
-                        }.show()
-                    }
+                        }
+                        setPositiveButton(android.R.string.ok, null)
+                    }.show()
                 }
             }, ContextCompat.getMainExecutor(requireContext()))
         }

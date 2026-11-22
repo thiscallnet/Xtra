@@ -96,6 +96,9 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_vaft_ad_preview_summary",
     "vaft_ad_preview_label",
     "vaft_ad_preview_unavailable",
+    # The developer-only playlist tag empty state uses default English wording
+    # until this diagnostic message is localized.
+    "playlist_tags_unavailable",
     "vaft_quality_status_title",
     "vaft_quality_status_body",
     "vaft_source_site",
