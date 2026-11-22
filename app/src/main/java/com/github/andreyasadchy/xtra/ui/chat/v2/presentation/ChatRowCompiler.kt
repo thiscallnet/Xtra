@@ -14,6 +14,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogCheermote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
@@ -93,6 +94,7 @@ class ChatRowCompiler(
     private val gifDisplayMode: ChatGifDisplayMode = ChatGifDisplayMode.LARGE,
     private val highlightSettings: ChatHighlightSettings = ChatHighlightSettings(),
     private val eventPalette: ((ChatEventKind, Int) -> ChatEventPalette)? = null,
+    private val twitchSmilieHeightPx: Int = emoteHeightPx,
 ) {
     fun compile(message: ChatMessage, catalog: ChatCatalogSnapshot = ChatCatalogSnapshot(0)): ChatRowUiModel {
         val isWatchStreak = message.noticeType.equals("watch_streak", ignoreCase = true) ||
@@ -197,7 +199,7 @@ class ChatRowCompiler(
                     add(ChatPiece.Text(it, color = mutedColor))
                 }
             }
-            addAll(renderSegments(resolvedSegments, catalog, targetHeight))
+            addAll(renderSegments(resolvedSegments, catalog, targetHeight, twitchSmilieTargetHeight(message)))
             moderationStart?.let { moderationPieceRange = it until size }
             moderationSuffix?.let { suffix ->
                 add(ChatPiece.Text(" $suffix", color = colors.brightTextColor(rowReadabilityBackground)))
@@ -253,6 +255,9 @@ class ChatRowCompiler(
 
     private fun emoteTargetHeight(message: ChatMessage): Int =
         emoteHeightPx * if (message.twitchType == TwitchChatMessageType.GigantifiedEmote) 2 else 1
+
+    private fun twitchSmilieTargetHeight(message: ChatMessage): Int =
+        twitchSmilieHeightPx * if (message.twitchType == TwitchChatMessageType.GigantifiedEmote) 2 else 1
 
     private fun eventKindFor(
         message: ChatMessage,
@@ -675,21 +680,23 @@ class ChatRowCompiler(
                 )
             }
         }
-        addAll(renderSegments(segments, catalog, targetHeight))
+        addAll(renderSegments(segments, catalog, targetHeight, twitchSmilieTargetHeight(message)))
     }
 
     private fun renderSegments(
         segments: List<ChatSegment>,
         catalog: ChatCatalogSnapshot,
         targetHeight: Int,
+        twitchSmilieTargetHeight: Int,
     ): List<ChatPiece> = buildList {
         segments.forEach { segment ->
             when (segment) {
                 is ChatSegment.Text -> add(ChatPiece.Text(segment.text))
                 is ChatSegment.Mention -> add(ChatPiece.Mention(segment.text, segment.userId, segment.login))
-                is ChatSegment.Emote -> add(
-                    ChatPiece.Emote(segment.asset.scaledTo(targetHeight), segment.fallbackText, segment.animated, segment.interaction),
-                )
+                is ChatSegment.Emote -> {
+                    val height = if (segment.isTwitchSmilie()) twitchSmilieTargetHeight else targetHeight
+                    add(ChatPiece.Emote(segment.asset.scaledTo(height), segment.fallbackText, segment.animated, segment.interaction))
+                }
                 is ChatSegment.Gif -> when (gifDisplayMode) {
                     ChatGifDisplayMode.LINK -> add(ChatPiece.Text(segment.url))
                     ChatGifDisplayMode.EMOTE -> add(
@@ -929,6 +936,16 @@ class ChatRowCompiler(
 
     private fun colorToHex(color: Int): String = "#" + Integer.toHexString(color or 0xFF000000.toInt()).substring(2)
 
+    private fun ChatSegment.Emote.isTwitchSmilie(): Boolean {
+        val provider = interaction?.provider
+        val isTwitchAsset = if (provider == null) {
+            asset.key.value.startsWith(TWITCH_EMOTE_CDN_PREFIX)
+        } else {
+            provider == ChatAssetProvider.TWITCH
+        }
+        return isTwitchAsset && TWITCH_SMILIE_TOKEN.matches(fallbackText.trim())
+    }
+
     private fun extractClipPreviews(message: ChatMessage): List<ChatClipPreviewLink> {
         val body = message.rawText ?: message.segments.joinToString("") { segment ->
             when (segment) {
@@ -944,6 +961,8 @@ class ChatRowCompiler(
 
     private companion object {
         val TEXT_TOKENS = Regex("\\s+|\\S+")
+        val TWITCH_SMILIE_TOKEN = Regex("""(?i)(?:[:;=8b][\-^']?[)(/\\|DPoO3SZ>]|>[=:;]?[)(/\\|DPoO3SZ>]|D:|<3|T_T|O_o|o_O|O_O|o_o)""")
+        const val TWITCH_EMOTE_CDN_PREFIX = "https://static-cdn.jtvnw.net/emoticons/"
         val LEGACY_SYSTEM_ACTOR_EXCLUSIONS = setOf("an", "a", "the", "someone")
     }
 

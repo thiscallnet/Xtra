@@ -32,6 +32,7 @@ enum class ChatGifDisplayMode {
 internal data class ChatRenderStyle(
     val textSizeSp: Float,
     val emoteHeightPx: Int,
+    val twitchSmilieHeightPx: Int,
     val badgeHeightPx: Int,
     val animateGifs: Boolean,
     val showBadges: Boolean,
@@ -67,6 +68,16 @@ internal fun resolveChatSizing(context: Context): ChatSizing {
     return ChatSizing(textSp, dpToPx(emoteDp), dpToPx(badgeDp))
 }
 
+internal fun chatTextRelativeTwitchSmilieHeightPx(context: Context, textSizeSp: Float): Int =
+    TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_SP,
+        textSizeSp * TWITCH_SMILIE_TEXT_SIZE_MULTIPLIER,
+        context.resources.displayMetrics,
+    ).roundToInt().coerceAtLeast(1)
+
+// Twitch says chat emotes scale with chat font size; use a smaller inline scale for legacy text-face art.
+private const val TWITCH_SMILIE_TEXT_SIZE_MULTIPLIER = 1.5f
+
 internal fun resolveChatRenderStyle(
     context: Context,
     pip: Boolean = false,
@@ -93,6 +104,7 @@ internal fun resolveChatRenderStyle(
     return ChatRenderStyle(
         textSizeSp = textSizeSp,
         emoteHeightPx = imageHeight(sizing.emoteHeightPx, 22f),
+        twitchSmilieHeightPx = chatTextRelativeTwitchSmilieHeightPx(context, textSizeSp),
         badgeHeightPx = imageHeight(sizing.badgeHeightPx, 12f),
         animateGifs = prefs.getBoolean(C.ANIMATED_EMOTES, true),
         showBadges = prefs.getBoolean(C.CHAT_SHOW_BADGES, true),
