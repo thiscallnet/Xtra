@@ -41,7 +41,12 @@ object NetworkUtils {
     class HttpStatusException(val statusCode: Int) : IOException("Request failed with HTTP $statusCode")
     /** Preserve the legacy direct retry by default, with an explicit strict-proxy option. */
     fun proxyCandidates(proxy: Proxy, allowDirectFallback: Boolean): List<Proxy> =
-        if (allowDirectFallback) listOf(proxy, Proxy.NO_PROXY) else listOf(proxy)
+        proxyCandidates(listOf(proxy), allowDirectFallback)
+
+    /** Try HTTP proxy routes in their configured order, with direct access only when enabled. */
+    fun proxyCandidates(proxies: List<Proxy>, allowDirectFallback: Boolean): List<Proxy> =
+        (proxies.filter { it != Proxy.NO_PROXY }.distinct() +
+            if (allowDirectFallback) listOf(Proxy.NO_PROXY) else emptyList())
 
     private const val CONTENT_LENGTH_HEADER_NAME = "Content-Length"
     private const val MAX_ARRAY_SIZE = Int.MAX_VALUE - 8

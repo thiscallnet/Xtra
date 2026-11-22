@@ -320,10 +320,12 @@ internal object SettingsRestoreCoordinator {
         proxyPreferences.edit().apply {
             remove(C.PROXY_HOST)
             remove(C.PROXY_PORT)
+            remove(C.PROXY_BACKUP_SERVERS)
             remove(C.PROXY_USER)
             if (oldEndpoint != newEndpoint) remove(C.PROXY_PASSWORD)
             if (json.has("host")) putString(C.PROXY_HOST, json.getString("host"))
             if (json.has("port")) putString(C.PROXY_PORT, json.getString("port"))
+            if (json.has("backupServers")) putString(C.PROXY_BACKUP_SERVERS, json.getString("backupServers"))
             if (json.has("user")) putString(C.PROXY_USER, json.getString("user"))
         }.commit().also { check(it) { "Unable to save restored proxy settings" } }
     }

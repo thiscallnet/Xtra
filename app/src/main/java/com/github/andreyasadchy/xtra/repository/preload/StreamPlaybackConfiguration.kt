@@ -3,9 +3,11 @@ package com.github.andreyasadchy.xtra.repository.preload
 import android.content.Context
 import android.content.SharedPreferences
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.HttpProxyAddress
 import com.github.andreyasadchy.xtra.util.LivePlaybackSettings
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
 import com.github.andreyasadchy.xtra.util.httpProxyHost
+import com.github.andreyasadchy.xtra.util.httpProxyEnabled
 import com.github.andreyasadchy.xtra.util.httpProxyPort
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.tokenPrefs
@@ -22,8 +24,10 @@ data class StreamPlaybackConfiguration(
     val proxyPlaybackAccessToken: Boolean,
     val proxyHost: String?,
     val proxyPort: Int?,
+    val proxyBackupServers: List<HttpProxyAddress>,
     val proxyUser: String?,
     val proxyPassword: String?,
+    val allowDirectProxyFallback: Boolean,
     val lowLatency: Boolean,
     val proxyMultivariantPlaylist: Boolean,
     val streamHeaders: Map<String, String>,
@@ -31,6 +35,11 @@ data class StreamPlaybackConfiguration(
     val customStreamProxyUrl: String?,
     val livePlaybackSettings: LivePlaybackSettings = LivePlaybackSettings.defaults(),
 ) {
+    val httpProxyServers: List<HttpProxyAddress> by lazy {
+        (listOfNotNull(HttpProxyAddress.fromHostAndPort(proxyHost, proxyPort)) + proxyBackupServers)
+            .distinct()
+    }
+
     val fingerprint: String by lazy {
         val digest = MessageDigest.getInstance("SHA-256")
         val input = buildString {
@@ -43,6 +52,8 @@ data class StreamPlaybackConfiguration(
             append(proxyPlaybackAccessToken).append('\u0000')
             append(proxyHost).append('\u0000').append(proxyPort).append('\u0000')
             append(proxyUser).append('\u0000').append(proxyPassword).append('\u0000')
+            proxyBackupServers.forEach { append(it).append('\u0000') }
+            append(allowDirectProxyFallback).append('\u0000')
             append(lowLatency).append('\u0000')
             append(livePlaybackSettings.mode.preferenceValue).append('\u0000')
             append(livePlaybackSettings.targetOffsetMs).append('\u0000')
@@ -73,8 +84,12 @@ data class StreamPlaybackConfiguration(
                 proxyPlaybackAccessToken = prefs.getBoolean(C.PROXY_PLAYBACK_ACCESS_TOKEN, false),
                 proxyHost = prefs.httpProxyHost(),
                 proxyPort = prefs.httpProxyPort(),
+                proxyBackupServers = HttpProxyAddress.parseList(
+                    prefs.getString(C.PROXY_BACKUP_SERVERS, null).takeIf { prefs.httpProxyEnabled() },
+                ),
                 proxyUser = prefs.getString(C.PROXY_USER, null),
                 proxyPassword = prefs.getString(C.PROXY_PASSWORD, null),
+                allowDirectProxyFallback = prefs.getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true),
                 lowLatency = livePlaybackSettings.lowLatencyEnabled,
                 proxyMultivariantPlaylist = prefs.getBoolean(C.PROXY_MULTIVARIANT_PLAYLIST, false),
                 streamHeaders = prefs.getString(C.PLAYER_STREAM_HEADERS, null).parseHeaders(),
@@ -156,8 +171,11 @@ class StreamPlaybackConfigurationStore private constructor(
             C.PROXY_MULTIVARIANT_PLAYLIST,
             C.PROXY_HOST,
             C.PROXY_PORT,
+            C.PROXY_BACKUP_SERVERS,
             C.PROXY_USER,
             C.PROXY_PASSWORD,
+            C.SETTINGS_HTTP_PROXY_ENABLED,
+            C.PROXY_ALLOW_DIRECT_FALLBACK,
             C.PLAYER_LOW_LATENCY,
             C.PLAYER_LIVE_MODE,
             C.PLAYER_BUFFER_MIN,

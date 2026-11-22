@@ -25,7 +25,8 @@ import androidx.fragment.app.DialogFragment
 import androidx.core.widget.NestedScrollView
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.util.C
-import com.github.andreyasadchy.xtra.util.rawPrefs
+import com.github.andreyasadchy.xtra.util.HttpProxyAddress
+import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
@@ -37,11 +38,23 @@ class StreamProxyListDialogFragment : DialogFragment() {
 
     companion object {
         const val RESULT_KEY = "stream_proxy_list_updated"
+        private const val ARG_HTTP_PROXY_BACKUPS = "http_proxy_backups"
         private const val STATE_URLS = "urls"
         private const val ACTION_MOVE_UP = 1
         private const val ACTION_MOVE_DOWN = 2
         private const val ACTION_REMOVE = 3
+
+        fun newHttpProxyBackups(): StreamProxyListDialogFragment =
+            StreamProxyListDialogFragment().apply {
+                arguments = Bundle().apply { putBoolean(ARG_HTTP_PROXY_BACKUPS, true) }
+            }
     }
+
+    private val isHttpProxyBackupList: Boolean
+        get() = arguments?.getBoolean(ARG_HTTP_PROXY_BACKUPS) == true
+
+    private val listPreferenceKey: String
+        get() = if (isHttpProxyBackupList) C.PROXY_BACKUP_SERVERS else C.PLAYER_PROXY_URL
 
     private val proxyUrls = mutableListOf<String>()
     private lateinit var urlList: LinearLayout
@@ -53,13 +66,12 @@ class StreamProxyListDialogFragment : DialogFragment() {
         if (savedUrls != null) {
             proxyUrls.addAll(savedUrls)
         } else {
-            proxyUrls.addAll(
-                requireContext().rawPrefs().getString(C.PLAYER_PROXY_URL, null)
-                    .orEmpty()
-                    .lineSequence()
-                    .map(String::trim)
-                    .filter(String::isNotEmpty),
-            )
+            val savedList = requireContext().prefs().getString(listPreferenceKey, null).orEmpty()
+            proxyUrls.addAll(if (isHttpProxyBackupList) {
+                HttpProxyAddress.parseList(savedList).map(HttpProxyAddress::toString)
+            } else {
+                savedList.lineSequence().map(String::trim).filter(String::isNotEmpty).toList()
+            })
         }
     }
 
@@ -72,7 +84,7 @@ class StreamProxyListDialogFragment : DialogFragment() {
         val content = createContentView()
         renderUrls()
         return MaterialAlertDialogBuilder(requireContext())
-            .setTitle(R.string.settings_stream_proxy_url)
+            .setTitle(if (isHttpProxyBackupList) R.string.settings_http_proxy_backups else R.string.settings_stream_proxy_url)
             .setView(content)
             .setPositiveButton(R.string.settings_stream_proxy_done) { _, _ -> saveUrls() }
             .setNegativeButton(android.R.string.cancel, null)
@@ -86,7 +98,11 @@ class StreamProxyListDialogFragment : DialogFragment() {
             setPadding(dp(24), dp(8), dp(24), dp(8))
         }
         content.addView(TextView(context).apply {
-            text = getString(R.string.settings_stream_proxy_list_help)
+            text = getString(if (isHttpProxyBackupList) {
+                R.string.settings_http_proxy_backups_help
+            } else {
+                R.string.settings_stream_proxy_list_help
+            })
             textSize = 14f
             setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant))
             setPadding(0, 0, 0, dp(12))
@@ -99,7 +115,11 @@ class StreamProxyListDialogFragment : DialogFragment() {
         ))
 
         emptyMessage = TextView(context).apply {
-            text = getString(R.string.settings_stream_proxy_list_empty)
+            text = getString(if (isHttpProxyBackupList) {
+                R.string.settings_http_proxy_backups_empty
+            } else {
+                R.string.settings_stream_proxy_list_empty
+            })
             textSize = 14f
             gravity = Gravity.CENTER
             setTextColor(MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant))
@@ -111,7 +131,7 @@ class StreamProxyListDialogFragment : DialogFragment() {
         ))
 
         content.addView(MaterialButton(context).apply {
-            setText(R.string.settings_stream_proxy_add_url)
+            setText(if (isHttpProxyBackupList) R.string.settings_http_proxy_add_backup else R.string.settings_stream_proxy_add_url)
             setIconResource(R.drawable.ic_add)
             iconSize = dp(18)
             iconPadding = dp(8)
@@ -190,7 +210,10 @@ class StreamProxyListDialogFragment : DialogFragment() {
                 imageTintList = ColorStateList.valueOf(
                     MaterialColors.getColor(this, com.google.android.material.R.attr.colorOnSurfaceVariant),
                 )
-                contentDescription = getString(R.string.settings_stream_proxy_actions, index + 1)
+                contentDescription = getString(
+                    if (isHttpProxyBackupList) R.string.settings_http_proxy_backup_actions else R.string.settings_stream_proxy_actions,
+                    index + 1,
+                )
                 minimumWidth = dp(48)
                 minimumHeight = dp(48)
                 val backgroundValue = TypedValue()
@@ -245,7 +268,11 @@ class StreamProxyListDialogFragment : DialogFragment() {
             setSelection(text?.length ?: 0)
         }
         val inputLayout = TextInputLayout(context).apply {
-            hint = getString(R.string.settings_stream_proxy_url_hint)
+            hint = getString(if (isHttpProxyBackupList) {
+                R.string.settings_http_proxy_backup_hint
+            } else {
+                R.string.settings_stream_proxy_url_hint
+            })
             setPadding(dp(24), dp(8), dp(24), 0)
             addView(input, LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -263,12 +290,29 @@ class StreamProxyListDialogFragment : DialogFragment() {
         dialog.setOnShowListener {
             dialog.getButton(DialogInterface.BUTTON_POSITIVE).setOnClickListener {
                 val url = input.text?.toString()?.trim().orEmpty()
+                val normalizedUrl = if (isHttpProxyBackupList) {
+                    HttpProxyAddress.parse(url)?.toString()
+                } else url
                 when {
-                    url.isEmpty() -> inputLayout.error = getString(R.string.settings_stream_proxy_url_required)
-                    proxyUrls.withIndex().any { (urlIndex, current) -> urlIndex != index && current == url } ->
-                        inputLayout.error = getString(R.string.settings_stream_proxy_duplicate_url)
+                    url.isEmpty() -> inputLayout.error = getString(if (isHttpProxyBackupList) {
+                        R.string.settings_http_proxy_backup_required
+                    } else {
+                        R.string.settings_stream_proxy_url_required
+                    })
+                    normalizedUrl == null -> inputLayout.error = getString(R.string.settings_http_proxy_backup_invalid)
+                    isHttpProxyBackupList && index < 0 && proxyUrls.size >= HttpProxyAddress.MAX_ENTRIES ->
+                        inputLayout.error = getString(R.string.settings_http_proxy_backup_limit, HttpProxyAddress.MAX_ENTRIES)
+                    proxyUrls.withIndex().any { (urlIndex, current) ->
+                        urlIndex != index && (if (isHttpProxyBackupList) {
+                            HttpProxyAddress.parse(current)?.toString() == normalizedUrl
+                        } else current == normalizedUrl)
+                    } -> inputLayout.error = getString(if (isHttpProxyBackupList) {
+                        R.string.settings_http_proxy_backup_duplicate
+                    } else {
+                        R.string.settings_stream_proxy_duplicate_url
+                    })
                     else -> {
-                        if (index >= 0) proxyUrls[index] = url else proxyUrls.add(url)
+                        if (index >= 0) proxyUrls[index] = normalizedUrl else proxyUrls.add(normalizedUrl)
                         renderUrls()
                         hideKeyboard(input)
                         dialog.dismiss()
@@ -296,9 +340,9 @@ class StreamProxyListDialogFragment : DialogFragment() {
     }
 
     private fun saveUrls() {
-        requireContext().rawPrefs().edit {
-            if (proxyUrls.isEmpty()) remove(C.PLAYER_PROXY_URL)
-            else putString(C.PLAYER_PROXY_URL, proxyUrls.joinToString("\n"))
+        requireContext().prefs().edit {
+            if (proxyUrls.isEmpty()) remove(listPreferenceKey)
+            else putString(listPreferenceKey, proxyUrls.joinToString("\n"))
         }
         parentFragmentManager.setFragmentResult(RESULT_KEY, Bundle())
     }

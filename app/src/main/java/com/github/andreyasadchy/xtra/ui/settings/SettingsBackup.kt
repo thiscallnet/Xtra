@@ -3,6 +3,7 @@ package com.github.andreyasadchy.xtra.ui.settings
 import org.json.JSONArray
 import org.json.JSONObject
 import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.HttpProxyAddress
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -39,6 +40,7 @@ internal object SettingsBackup {
         "settings_version",
         "proxy_host",
         "proxy_port",
+        "proxy_backup_servers",
         "proxy_user",
         "proxy_password",
     )
@@ -410,7 +412,7 @@ internal object SettingsBackup {
     fun validateProxyConfiguration(file: File) {
         val json = JSONObject(file.readText())
         json.keys().forEach { key ->
-            require(key in setOf("enabled", "allowDirectFallback", "host", "port", "user")) {
+            require(key in setOf("enabled", "allowDirectFallback", "host", "port", "backupServers", "user")) {
                 "Unexpected proxy configuration key $key"
             }
         }
@@ -421,6 +423,10 @@ internal object SettingsBackup {
             require(it.toIntOrNull() in 1..65535) { "Proxy port is invalid" }
         }
         json.optString("user", "").let { require(it.length <= 2048) { "Proxy username is too long" } }
+        if (json.has("backupServers")) {
+            require(json.get("backupServers") is String) { "Proxy backup list is invalid" }
+            HttpProxyAddress.parseListStrict(json.getString("backupServers"))
+        }
         if (json.has("enabled")) require(json.get("enabled") is Boolean) { "Proxy enabled flag is invalid" }
         if (json.has("allowDirectFallback")) require(json.get("allowDirectFallback") is Boolean) {
             "Proxy fallback flag is invalid"

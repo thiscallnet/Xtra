@@ -279,6 +279,7 @@ class SettingsViewModel(
                 if (
                     !proxyPreferences.getString(C.PROXY_HOST, null).isNullOrBlank() ||
                     !proxyPreferences.getString(C.PROXY_PORT, null).isNullOrBlank() ||
+                    !proxyPreferences.getString(C.PROXY_BACKUP_SERVERS, null).isNullOrBlank() ||
                     !proxyPreferences.getString(C.PROXY_USER, null).isNullOrBlank() ||
                     rawPreferences.contains(C.SETTINGS_HTTP_PROXY_ENABLED) ||
                     rawPreferences.contains(C.PROXY_ALLOW_DIRECT_FALLBACK)
@@ -288,6 +289,7 @@ class SettingsViewModel(
                         put("allowDirectFallback", rawPreferences.getBoolean(C.PROXY_ALLOW_DIRECT_FALLBACK, true))
                         proxyPreferences.getString(C.PROXY_HOST, null)?.let { put("host", it) }
                         proxyPreferences.getString(C.PROXY_PORT, null)?.let { put("port", it) }
+                        proxyPreferences.getString(C.PROXY_BACKUP_SERVERS, null)?.let { put("backupServers", it) }
                         proxyPreferences.getString(C.PROXY_USER, null)?.let { put("user", it) }
                     }.toString())
                     SettingsBackup.validateProxyConfiguration(stagedProxy)
