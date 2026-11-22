@@ -2214,6 +2214,14 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val args = requireArguments()
         val channelId = args.getString(KEY_CHANNEL_ID)
         val channelLogin = args.getString(KEY_CHANNEL_LOGIN)
+        // A fresh player view waits for validated network before initialize() runs. Start the
+        // process-owned v2 session offline as well so its catalog can hydrate the local cache.
+        if (!isInitialized && requireContext().prefs().isChatEnabled() &&
+            args.getBoolean(KEY_IS_LIVE) && useChatV2 &&
+            !channelId.isNullOrBlank() && !channelLogin.isNullOrBlank()
+        ) {
+            startChatV2Session(channelId, channelLogin)
+        }
         when (val mode = viewModel.activeChatMode) {
             ChatViewModel.ActiveChatMode.Live -> if (args.getBoolean(KEY_IS_LIVE)) {
                 if (!sharedSessionOnly) viewModel.resumeLive(channelId, channelLogin)
