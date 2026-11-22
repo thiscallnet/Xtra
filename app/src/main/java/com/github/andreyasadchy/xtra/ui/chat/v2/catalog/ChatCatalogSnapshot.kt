@@ -115,6 +115,8 @@ data class ChatCatalogCheermote(
     val asset: ChatAssetSpec,
     val color: Int?,
     val animated: Boolean = false,
+    val prefix: String? = null,
+    val minBits: Int? = null,
 )
 
 data class ChatNamePaint(

@@ -47,13 +47,15 @@ internal data class TwitchModeratorActionNotice(
 /**
  * Protocol-to-domain normalization for the production transport bridge.
  *
- * EventSub fragments are consumed as structured values. IRC emote offsets are
- * converted once at ingress and ordinary text is intentionally left intact for
- * current-catalog presentation resolution.
+ * EventSub fragments are consumed as structured values. IRC emote offsets and
+ * bit-tagged cheermote text are converted once at ingress for catalog resolution.
  */
 object TwitchChatEventParser {
     private val HEX_COLOR = Regex("#[0-9a-fA-F]{6}")
     private val CHEER_AMOUNT = Regex("\\d+")
+    private val IRC_CHEERMOTE = Regex(
+        "(?<![A-Za-z0-9_])([A-Za-z][A-Za-z0-9_]*?)([1-9][0-9]*)(?![A-Za-z0-9_])",
+    )
 
     fun fromIrc(message: ChatUtils.IRCMessage, channelId: String): ChatEvent? = when (message.command) {
         "PRIVMSG" -> {
@@ -400,7 +402,11 @@ object TwitchChatEventParser {
                     val prefix = cheer?.optString("prefix").orEmpty()
                     val bits = cheer?.optInt("bits") ?: parseCheerAmount(text)
                     val tier = cheer?.optInt("tier") ?: 1
-                    add(ChatSegment.Cheermote(nativeSpec("twitch-cheer:$prefix:$tier", 28, 28), text, bits, null))
+                    if (prefix.isBlank() || bits <= 0) {
+                        add(ChatSegment.Text(text))
+                    } else {
+                        add(ChatSegment.Cheermote(nativeSpec("twitch-cheer:$prefix:$tier", 28, 28), text, bits, null, prefix))
+                    }
                 }
                 "mention" -> {
                     val mention = fragment.optJSONObject("mention")
@@ -473,7 +479,7 @@ object TwitchChatEventParser {
         subscription: ChatSubscription? = null,
     ): ChatMessage {
         val raw = message.message.orEmpty()
-        val segments = ircSegments(raw, message.emotes.orEmpty(), gifTag)
+        val segments = ircSegments(raw, message.emotes.orEmpty(), gifTag, message.bits)
         val legacyReply = message.reply
         // Twitch uses source-msg-id for some notification variants (including the
         // watch-streak viewermilestone). Keep the effective notice ID so the v2
@@ -585,6 +591,13 @@ object TwitchChatEventParser {
             override val start: Int get() = value.start
             override val endInclusive: Int get() = value.endInclusive
         }
+
+        data class Cheermote(
+            override val start: Int,
+            override val endInclusive: Int,
+            val prefix: String,
+            val bits: Int,
+        ) : IrcInlineAsset
     }
 
     private data class IrcGif(
@@ -598,6 +611,7 @@ object TwitchChatEventParser {
         text: String,
         emotes: List<TwitchEmote>,
         gifTag: String?,
+        cheeredBits: Int? = null,
     ): List<ChatSegment> {
         if (text.isEmpty()) return listOf(ChatSegment.Text(text))
 
@@ -610,6 +624,15 @@ object TwitchChatEventParser {
             parseIrcGifs(gifTag).forEach { gif ->
                 if (isValidRange(gif.start, gif.endInclusive, text.length)) {
                     add(IrcInlineAsset.Gif(gif))
+                }
+            }
+            if (cheeredBits != null && cheeredBits > 0) {
+                IRC_CHEERMOTE.findAll(text).forEach cheerMatch@{ match ->
+                    val prefix = match.groupValues[1]
+                    val bits = match.groupValues[2].toIntOrNull() ?: return@cheerMatch
+                    if (bits <= cheeredBits) {
+                        add(IrcInlineAsset.Cheermote(match.range.first, match.range.last, prefix, bits))
+                    }
                 }
             }
         }.sortedWith(compareBy<IrcInlineAsset> { it.start }.thenBy { it.endInclusive })
@@ -646,6 +669,13 @@ object TwitchChatEventParser {
                     val gif = asset.value
                     result += ChatSegment.Gif(gif.id, gif.url, token)
                 }
+                is IrcInlineAsset.Cheermote -> result += ChatSegment.Cheermote(
+                    asset = nativeSpec("twitch-cheer:${asset.prefix}", 28, 28),
+                    text = token,
+                    bits = asset.bits,
+                    color = null,
+                    prefix = asset.prefix,
+                )
             }
             cursor = endExclusive
         }
