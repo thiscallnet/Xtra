@@ -14,6 +14,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessageKind
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSegment
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.TwitchChatMessageType
+import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogCheermote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogEmote
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatCatalogSnapshot
 import com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ScopedEmoteCatalog
@@ -645,7 +646,7 @@ class ChatRowCompiler(
                                 provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.SEVEN_TV,
                                 scope = null,
                             ),
-                        ),
+                        )
                     )
                 }
             }
@@ -715,26 +716,42 @@ class ChatRowCompiler(
                     }
                 }
                 is ChatSegment.Cheermote -> {
-                    val catalogCheermote = catalog.cheermotes[segment.asset.key.value]
-                    add(
-                        ChatPiece.Cheermote(
-                            asset = (catalogCheermote?.asset ?: segment.asset).scaledTo(targetHeight),
-                            value = segment.text,
-                            bits = segment.bits,
-                            color = segment.color ?: catalogCheermote?.color,
-                            interaction = ChatEmoteInteraction(
-                                id = segment.asset.key.value,
-                                name = segment.text,
-                                url = catalogCheermote?.asset?.key?.value ?: segment.asset.key.value,
-                                animated = catalogCheermote?.animated == true,
-                                provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.TWITCH,
-                                scope = null,
+                    val catalogCheermote = resolveCheermote(segment, catalog)
+                    if (catalogCheermote == null && segment.prefix != null) {
+                        add(ChatPiece.Text(segment.text))
+                    } else {
+                        val asset = catalogCheermote?.asset ?: segment.asset
+                        add(
+                            ChatPiece.Cheermote(
+                                asset = asset.scaledTo(targetHeight),
+                                value = segment.text,
+                                bits = segment.bits,
+                                color = segment.color ?: catalogCheermote?.color,
+                                interaction = ChatEmoteInteraction(
+                                    id = segment.asset.key.value,
+                                    name = segment.text,
+                                    url = catalogCheermote?.asset?.key?.value ?: segment.asset.key.value,
+                                    animated = catalogCheermote?.animated == true,
+                                    provider = com.github.andreyasadchy.xtra.ui.chat.v2.catalog.ChatAssetProvider.TWITCH,
+                                    scope = null,
+                                ),
                             ),
-                        ),
-                    )
+                        )
+                    }
                 }
             }
         }
+    }
+
+    private fun resolveCheermote(
+        segment: ChatSegment.Cheermote,
+        catalog: ChatCatalogSnapshot,
+    ): ChatCatalogCheermote? {
+        catalog.cheermotes[segment.asset.key.value]?.let { return it }
+        val prefix = segment.prefix ?: return null
+        return catalog.cheermotes.values.asSequence()
+            .filter { it.prefix.equals(prefix, ignoreCase = true) && (it.minBits ?: Int.MAX_VALUE) <= segment.bits }
+            .maxByOrNull { it.minBits ?: Int.MIN_VALUE }
     }
 
     private fun localizedStatusPieces(

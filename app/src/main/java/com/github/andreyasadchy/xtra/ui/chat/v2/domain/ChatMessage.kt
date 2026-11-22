@@ -159,7 +159,13 @@ sealed interface ChatSegment {
         val fallbackText: String,
         val interaction: ChatGifInteraction = ChatGifInteraction(gifId, fallbackText, url),
     ) : ChatSegment
-    data class Cheermote(val asset: ChatAssetSpec, val text: String, val bits: Int, val color: Int?) : ChatSegment
+    data class Cheermote(
+        val asset: ChatAssetSpec,
+        val text: String,
+        val bits: Int,
+        val color: Int?,
+        val prefix: String? = null,
+    ) : ChatSegment
 }
 
 sealed interface TwitchChatMessageType {
