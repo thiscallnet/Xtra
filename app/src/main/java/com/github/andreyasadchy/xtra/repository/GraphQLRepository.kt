@@ -110,6 +110,7 @@ import com.github.andreyasadchy.xtra.model.gql.stream.ViewerCountResponse
 import com.github.andreyasadchy.xtra.model.gql.tag.TagResponse
 import com.github.andreyasadchy.xtra.model.gql.video.VideoGamesResponse
 import com.github.andreyasadchy.xtra.model.gql.video.VideoMessagesResponse
+import com.github.andreyasadchy.xtra.model.VideoPosition
 import com.github.andreyasadchy.xtra.model.ui.ChannelPointRewardRedemption
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
@@ -124,10 +125,21 @@ import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -141,6 +153,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okio.buffer
 import okio.source
+import java.security.MessageDigest
 import java.util.concurrent.ExecutorService
 import kotlin.uuid.Uuid
 
@@ -151,6 +164,9 @@ internal fun optionalQueryString(value: String?): Optional<String?> =
         ?.let { Optional.Present(it) }
         ?: Optional.Absent
 
+private const val VIEWED_VIDEO_POSITIONS_PAGE_SIZE = 100
+private const val VIEWED_VIDEO_POSITIONS_REFRESH_INTERVAL_MS = 5_000L
+
 class GraphQLRepository(
     private val httpEngine: Lazy<HttpEngine?>,
     private val httpExecutor: Lazy<ExecutorService>,
@@ -159,6 +175,144 @@ class GraphQLRepository(
     private val twitchWebSessionManager: TwitchWebSessionManager? = null,
     private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
+
+    private val _viewedVideoPositions = MutableStateFlow<Map<Long, Long>>(emptyMap())
+    val viewedVideoPositions: StateFlow<Map<Long, Long>> = _viewedVideoPositions.asStateFlow()
+    private val viewedVideoPositionsMutex = Mutex()
+    private var viewedVideoPositionsLastRequestAtMs = 0L
+    private var viewedVideoPositionsAuthorizationFingerprint: ByteArray? = null
+
+    private val viewedVideosQuery = """
+        query ViewedVideos(${'$'}first: Int!) {
+          currentUser {
+            viewedVideos(first: ${'$'}first) {
+              edges {
+                history { position }
+                node { id }
+              }
+            }
+          }
+        }
+    """.trimIndent()
+
+    private val videoViewingHistoryQuery = """
+        query VideoViewingHistory(${'$'}id: ID!) {
+          video(id: ${'$'}id) {
+            self { viewingHistory { position } }
+          }
+        }
+    """.trimIndent()
+
+    fun observeVideoPositions(localPositions: Flow<List<VideoPosition>>): Flow<List<VideoPosition>> =
+        combine(localPositions, viewedVideoPositions) { local, viewed ->
+            val localIds = local.mapTo(HashSet<Long>()) { it.id }
+            local.map { localPosition ->
+                val position = viewed[localPosition.id] ?: localPosition.position
+                VideoPosition(localPosition.id, position)
+            } + viewed.mapNotNull { (id, position) ->
+                if (id in localIds) null else VideoPosition(id, position)
+            }
+        }
+
+    /** Loads Twitch's private current-user viewing history. Failures keep the last valid result. */
+    suspend fun refreshViewedVideoPositions(networkLibrary: String?, headers: Map<String, String>) {
+        val authorizationFingerprint = headers[C.HEADER_TOKEN]
+            ?.takeIf { it.isNotBlank() }
+            ?.toByteArray(Charsets.UTF_8)
+            ?.let { MessageDigest.getInstance("SHA-256").digest(it) }
+        if (authorizationFingerprint == null) {
+            viewedVideoPositionsMutex.withLock {
+                _viewedVideoPositions.value = emptyMap()
+                viewedVideoPositionsLastRequestAtMs = 0L
+                viewedVideoPositionsAuthorizationFingerprint = null
+            }
+            return
+        }
+
+        viewedVideoPositionsMutex.withLock {
+            if (viewedVideoPositionsAuthorizationFingerprint?.contentEquals(authorizationFingerprint) != true) {
+                _viewedVideoPositions.value = emptyMap()
+                viewedVideoPositionsLastRequestAtMs = 0L
+                viewedVideoPositionsAuthorizationFingerprint = authorizationFingerprint
+            }
+            val nowMs = System.nanoTime() / 1_000_000L
+            if (viewedVideoPositionsLastRequestAtMs > 0L &&
+                nowMs - viewedVideoPositionsLastRequestAtMs < VIEWED_VIDEO_POSITIONS_REFRESH_INTERVAL_MS
+            ) return
+            viewedVideoPositionsLastRequestAtMs = nowMs
+            try {
+                val body = buildJsonObject {
+                    put("operationName", "ViewedVideos")
+                    put("query", viewedVideosQuery)
+                    putJsonObject("variables") {
+                        put("first", VIEWED_VIDEO_POSITIONS_PAGE_SIZE)
+                    }
+                }.toString()
+                val root = json.parseToJsonElement(sendPersistedQuery(networkLibrary, headers, body)).jsonObject
+                val errors = root["errors"] as? JsonArray
+                if (!errors.isNullOrEmpty()) return
+                val currentUser = root["data"]?.jsonObject?.get("currentUser")
+                    ?.takeUnless { it is JsonNull }
+                    ?.jsonObject
+                    ?: return
+                val edges = currentUser["viewedVideos"]?.jsonObject?.get("edges") as? JsonArray ?: return
+                _viewedVideoPositions.value = edges.mapNotNull { edge ->
+                    val edgeObject = edge as? JsonObject ?: return@mapNotNull null
+                    val node = edgeObject["node"] as? JsonObject ?: return@mapNotNull null
+                    val id = (node["id"] as? JsonPrimitive)?.content?.toLongOrNull()
+                        ?: return@mapNotNull null
+                    val history = edgeObject["history"] as? JsonObject ?: return@mapNotNull null
+                    val positionMs = (history["position"] as? JsonPrimitive)
+                        ?.intOrNull?.takeIf { it > 0 }?.toLong()?.times(1_000L)
+                        ?: return@mapNotNull null
+                    id to positionMs
+                }.toMap()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                // The private endpoint is optional; keep the last successful history on failure.
+            }
+        }
+    }
+
+    /** Reads one video's private current-user history, including videos outside the list page. */
+    suspend fun loadVideoViewingHistoryPosition(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        videoId: String,
+    ): Long? {
+        if (headers[C.HEADER_TOKEN].isNullOrBlank()) return null
+        return try {
+            val body = buildJsonObject {
+                put("operationName", "VideoViewingHistory")
+                put("query", videoViewingHistoryQuery)
+                putJsonObject("variables") {
+                    put("id", videoId)
+                }
+            }.toString()
+            val root = json.parseToJsonElement(sendPersistedQuery(networkLibrary, headers, body)).jsonObject
+            val errors = root["errors"] as? JsonArray
+            if (!errors.isNullOrEmpty()) return null
+            root["data"]?.jsonObject?.get("video")
+                ?.takeUnless { it is JsonNull }
+                ?.jsonObject
+                ?.get("self")
+                ?.takeUnless { it is JsonNull }
+                ?.jsonObject
+                ?.get("viewingHistory")
+                ?.takeUnless { it is JsonNull }
+                ?.jsonObject
+                ?.get("position")
+                ?.jsonPrimitive?.intOrNull
+                ?.takeIf { it > 0 }
+                ?.toLong()
+                ?.times(1_000L)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     private val watchStreakQuery = """
         query RewardList(${'$'}channelID: ID!, ${'$'}shouldIncludeAllSuspendedStreaks: Boolean = false) {

@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.saved.bookmarks
 
 import android.annotation.SuppressLint
+import android.content.Context
 import android.net.http.HttpEngine
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider.AndroidViewModelFactory.Companion.APPLICATION_KEY
@@ -22,6 +23,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.NetworkUtils
 import com.github.andreyasadchy.xtra.util.NetworkUtils.executeAsync
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
+import com.github.andreyasadchy.xtra.util.prefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -38,6 +40,7 @@ import java.io.FileOutputStream
 import java.util.concurrent.ExecutorService
 
 class BookmarksViewModel(
+    private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
     private val bookmarksRepository: BookmarksRepository,
@@ -48,10 +51,19 @@ class BookmarksViewModel(
     private val okHttpClient: Lazy<OkHttpClient>,
 ) : ViewModel() {
 
-    val positions = playerRepository.loadVideoPositions()
+    val positions = graphQLRepository.observeVideoPositions(playerRepository.loadVideoPositions())
     val ignoredUsers = bookmarksRepository.getIgnoredUsersFlow()
     private var updatedUsers = false
     private var updatedVideos = false
+
+    init {
+        viewModelScope.launch {
+            graphQLRepository.refreshViewedVideoPositions(
+                applicationContext.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
+                TwitchApiHelper.getGQLHeaders(applicationContext, includeToken = true),
+            )
+        }
+    }
 
     val filter = MutableStateFlow<Filter?>(null)
     val sortText = MutableStateFlow<CharSequence?>(null)
@@ -430,7 +442,7 @@ class BookmarksViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                BookmarksViewModel(xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.bookmarksRepository, xtraModule.channelSortRepository, xtraModule.playerRepository, xtraModule.httpEngine, xtraModule.httpExecutor, xtraModule.okHttpClient)
+                BookmarksViewModel(application.applicationContext, xtraModule.graphQLRepository, xtraModule.helixRepository, xtraModule.bookmarksRepository, xtraModule.channelSortRepository, xtraModule.playerRepository, xtraModule.httpEngine, xtraModule.httpExecutor, xtraModule.okHttpClient)
             }
         }
     }
