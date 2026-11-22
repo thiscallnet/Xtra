@@ -3,17 +3,20 @@ package com.github.andreyasadchy.xtra.ui.notifications
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.github.andreyasadchy.xtra.ui.inbox.runCatchingInboxRequest
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxError
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxException
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchNotification
-import com.github.andreyasadchy.xtra.repository.TwitchNotificationsRepository
+import com.github.andreyasadchy.xtra.repository.TwitchNotificationsDataSource
+import com.github.andreyasadchy.xtra.ui.inbox.runCatchingInboxRequest
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class NotificationsUiState(
     val items: List<TwitchNotification> = emptyList(),
@@ -25,13 +28,19 @@ data class NotificationsUiState(
     val error: TwitchInboxError? = null,
 )
 
-class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRepository) : ViewModel() {
+class TwitchNotificationsViewModel(
+    private val repository: TwitchNotificationsDataSource,
+    private val mutationScope: CoroutineScope,
+) : ViewModel() {
     private val _uiState = MutableStateFlow(NotificationsUiState())
     val uiState: StateFlow<NotificationsUiState> = _uiState.asStateFlow()
     private var loadJob: Job? = null
     private var nextCursor: String? = null
     private var accountId = repository.currentUserId()
     private val locallyDismissedIds = mutableSetOf<String>()
+    private var markViewedJob: Job? = null
+    private var markViewedAccountId: String? = null
+    private var isCleared = false
 
     init { loadInitial() }
 
@@ -49,7 +58,9 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
                 if (!ensureAccountCurrent()) return@onSuccess
                 nextCursor = page.nextCursor
                 _uiState.value = NotificationsUiState(applyLocalChanges(page.notifications), canLoadMore = page.hasNextPage)
-                runCatchingInboxRequest { repository.markNotificationsViewed() }
+                accountId?.let { expectedAccountId ->
+                    markNotificationsViewed(expectedAccountId)
+                }
             }.onFailure { error ->
                 if (!ensureAccountCurrent()) return@onFailure
                 _uiState.value = _uiState.value.copy(initialLoading = false, error = error.toInboxError())
@@ -66,7 +77,9 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
                 if (!ensureAccountCurrent()) return@onSuccess
                 nextCursor = page.nextCursor
                 _uiState.value = NotificationsUiState(applyLocalChanges(page.notifications), canLoadMore = page.hasNextPage)
-                runCatchingInboxRequest { repository.markNotificationsViewed() }
+                accountId?.let { expectedAccountId ->
+                    markNotificationsViewed(expectedAccountId)
+                }
             }.onFailure { error ->
                 if (!ensureAccountCurrent()) return@onFailure
                 _uiState.value = _uiState.value.copy(refreshing = false, error = error.toInboxError())
@@ -95,64 +108,96 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
     fun markRead(item: TwitchNotification, onSuccess: () -> Unit = {}) {
         if (!ensureAccountCurrent()) return
         if (!item.isUnread) return
-        viewModelScope.launch {
-            runCatchingInboxRequest { repository.markNotificationsRead(listOf(item.id)) }
-                .onSuccess {
-                    if (!ensureAccountCurrent()) return@onSuccess
+        val expectedAccountId = accountId ?: return
+        launchPersistentMutation(
+            expectedAccountId = expectedAccountId,
+            request = { repository.markNotificationsRead(listOf(item.id), expectedAccountId) },
+            onSuccess = { _, viewModelCleared ->
+                onSuccess()
+                if (!viewModelCleared) {
                     _uiState.value = _uiState.value.copy(
                         items = applyLocalChanges(_uiState.value.items).map { current ->
                             if (current.id == item.id) current.copy(isUnread = false) else current
                         },
                     )
-                    onSuccess()
                 }
-                .onFailure { error ->
-                    if (!ensureAccountCurrent()) return@onFailure
-                    _uiState.value = _uiState.value.copy(error = error.toInboxError())
-                }
-        }
+            },
+            onFailure = { error -> _uiState.value = _uiState.value.copy(error = error.toInboxError()) },
+        )
     }
 
     fun markAllAsRead(onSuccess: () -> Unit = {}) {
         if (!ensureAccountCurrent()) return
         val previous = _uiState.value
         if (previous.markingAllAsRead || previous.initialLoading || previous.refreshing || previous.loadingNextPage || previous.items.isEmpty()) return
+        val expectedAccountId = accountId ?: return
         _uiState.value = previous.copy(
             markingAllAsRead = true,
             error = null,
         )
-        viewModelScope.launch {
-            runCatchingInboxRequest { repository.markAllNotificationsRead() }
-                .onSuccess { readIds ->
-                    if (!ensureAccountCurrent()) return@onSuccess
+        launchPersistentMutation(
+            expectedAccountId = expectedAccountId,
+            request = { repository.markAllNotificationsRead(expectedAccountId) },
+            onSuccess = { readIds, viewModelCleared ->
+                onSuccess()
+                if (!viewModelCleared) {
                     _uiState.value = _uiState.value.copy(
                         items = applyLocalChanges(_uiState.value.items).map { item ->
                             if (item.id in readIds) item.copy(isUnread = false) else item
                         },
                         markingAllAsRead = false,
                     )
-                    onSuccess()
                 }
-                .onFailure { error ->
-                    if (!ensureAccountCurrent()) return@onFailure
-                    _uiState.value = _uiState.value.copy(markingAllAsRead = false, error = error.toInboxError())
-                }
+            },
+            onFailure = { error ->
+                _uiState.value = _uiState.value.copy(markingAllAsRead = false, error = error.toInboxError())
+            },
+        )
+    }
+
+    private fun <T> launchPersistentMutation(
+        expectedAccountId: String,
+        request: suspend () -> T,
+        onSuccess: (T, viewModelCleared: Boolean) -> Unit = { _, _ -> },
+        onFailure: (Throwable) -> Unit = {},
+    ): Job = mutationScope.launch {
+        val result = runCatchingInboxRequest { request() }
+        withContext(Dispatchers.Main.immediate) {
+            if (repository.currentUserId() != expectedAccountId) {
+                if (!isCleared) ensureAccountCurrent()
+                return@withContext
+            }
+            result.onSuccess { onSuccess(it, isCleared) }
+                .onFailure { if (!isCleared) onFailure(it) }
         }
     }
 
-    fun dismiss(item: TwitchNotification) {
+    private fun markNotificationsViewed(expectedAccountId: String) {
+        if (markViewedAccountId == expectedAccountId && markViewedJob?.isActive == true) return
+        markViewedAccountId = expectedAccountId
+        markViewedJob = launchPersistentMutation(
+            expectedAccountId = expectedAccountId,
+            request = { repository.markNotificationsViewed(expectedAccountId) },
+        )
+    }
+
+    fun dismiss(item: TwitchNotification, onSuccess: () -> Unit = {}) {
         if (!ensureAccountCurrent()) return
+        val expectedAccountId = accountId ?: return
         val previous = _uiState.value.items
         locallyDismissedIds.add(item.id)
         _uiState.value = _uiState.value.copy(items = applyLocalChanges(previous))
-        viewModelScope.launch {
-            runCatchingInboxRequest { repository.dismissNotification(item.id) }
-                .onSuccess {
-                    if (!ensureAccountCurrent()) return@onSuccess
+        launchPersistentMutation(
+            expectedAccountId = expectedAccountId,
+            request = { repository.dismissNotification(item.id, expectedAccountId) },
+            onSuccess = { _, viewModelCleared ->
+                onSuccess()
+                if (!viewModelCleared) {
                     _uiState.value = _uiState.value.copy(items = applyLocalChanges(_uiState.value.items))
                 }
-                .onFailure { error ->
-                    if (!ensureAccountCurrent()) return@onFailure
+            },
+            onFailure = { error ->
+                if (!isCleared) {
                     locallyDismissedIds.remove(item.id)
                     val current = _uiState.value.items
                     _uiState.value = _uiState.value.copy(
@@ -160,7 +205,8 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
                         error = error.toInboxError(),
                     )
                 }
-        }
+            },
+        )
     }
 
     private fun ensureAccountCurrent(): Boolean {
@@ -177,10 +223,15 @@ class TwitchNotificationsViewModel(private val repository: TwitchNotificationsRe
     private fun applyLocalChanges(items: List<TwitchNotification>): List<TwitchNotification> =
         applyLocalNotificationChanges(items, locallyDismissedIds)
 
+    override fun onCleared() {
+        isCleared = true
+        super.onCleared()
+    }
+
     companion object {
-        fun factory(repository: TwitchNotificationsRepository) = object : ViewModelProvider.Factory {
+        fun factory(repository: TwitchNotificationsDataSource, mutationScope: CoroutineScope) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T = TwitchNotificationsViewModel(repository) as T
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = TwitchNotificationsViewModel(repository, mutationScope) as T
         }
     }
 }

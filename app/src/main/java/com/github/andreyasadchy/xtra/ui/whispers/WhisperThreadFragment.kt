@@ -52,11 +52,17 @@ class WhisperThreadFragment : Fragment() {
     private var _binding: FragmentWhisperThreadBinding? = null
     private val binding get() = _binding!!
     private val viewModel: WhisperThreadViewModel by viewModels {
+        val app = requireActivity().application as XtraApp
+        val whispersFragment = parentFragment as? WhispersFragment
         WhisperThreadViewModel.factory(
-            (requireActivity().application as XtraApp).xtraModule.whispersRepository,
+            app.xtraModule.whispersRepository,
             TwitchUserSummary(args.peerId, args.peerLogin, args.peerDisplayName, args.peerImageUrl),
-            args.threadId ?: (parentFragment as? WhispersFragment)?.detailThreadIdFor(args.peerId),
-        )
+            args.threadId ?: whispersFragment?.detailThreadIdFor(args.peerId),
+            app.applicationScope,
+        ) { receipt, viewModelCleared ->
+            TwitchInboxMenuBinder.invalidateSummary()
+            if (viewModelCleared) whispersFragment?.onThreadRead(receipt)
+        }
     }
     private lateinit var adapter: WhisperMessagesAdapter
     private var followLatest = true

@@ -10,15 +10,19 @@ import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchInboxException
 import com.github.andreyasadchy.xtra.model.twitchinbox.TwitchUserSummary
 import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperMessage
 import com.github.andreyasadchy.xtra.model.twitchinbox.WhisperThreadDetails
-import com.github.andreyasadchy.xtra.repository.WhispersRepository
+import com.github.andreyasadchy.xtra.repository.WhisperThreadDataSource
 import com.github.andreyasadchy.xtra.util.sanitizeLiveNotificationTechnicalMessage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 
 /** Exposed for maintainer-run two-account qualification; this agent never sends messages. */
@@ -41,9 +45,11 @@ data class WhisperThreadUiState(
 data class WhisperThreadReadReceipt(val threadId: String, val messageId: String)
 
 class WhisperThreadViewModel(
-    private val repository: WhispersRepository,
+    private val repository: WhisperThreadDataSource,
     peer: TwitchUserSummary,
     initialThreadId: String?,
+    private val mutationScope: CoroutineScope,
+    private val onReadConfirmed: (WhisperThreadReadReceipt, viewModelCleared: Boolean) -> Unit = { _, _ -> },
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(WhisperThreadUiState(peer, threadId = initialThreadId))
     val uiState: StateFlow<WhisperThreadUiState> = _uiState.asStateFlow()
@@ -57,6 +63,7 @@ class WhisperThreadViewModel(
     private var latestRemoteMessageId: String? = null
     private var lastMarkedReadReceipt: WhisperThreadReadReceipt? = null
     private val readReceiptsInFlight = mutableSetOf<WhisperThreadReadReceipt>()
+    private var isCleared = false
 
     init { loadInitial() }
 
@@ -101,30 +108,7 @@ class WhisperThreadViewModel(
     }
 
     fun refreshLatest() {
-        val currentAccountId = repository.currentUserId()
-        if (currentAccountId != accountId) {
-            viewModelScope.coroutineContext.cancelChildren()
-            accountId = currentAccountId
-            threadId = null
-            olderCursor = null
-            hasLoadedOlderHistory = false
-            latestRemoteMessageId = null
-            lastMarkedReadReceipt = null
-            pending.clear()
-            readReceiptsInFlight.clear()
-            _uiState.value = _uiState.value.copy(
-                threadId = null,
-                messages = emptyList(),
-                composer = "",
-                initialLoading = false,
-                loadingOlder = false,
-                successfulSendCount = 0,
-                hasOlder = false,
-                error = TwitchInboxError.SignedOut,
-                lastReadReceipt = null,
-            )
-            return
-        }
+        if (!ensureAccountCurrent()) return
         val id = threadId ?: return
         if (loadJob?.isActive == true) return
         loadJob = viewModelScope.launch {
@@ -215,27 +199,76 @@ class WhisperThreadViewModel(
     private fun markLatestMessageRead(id: String) {
         if (!readEligible || threadId != id) return
         val messageId = latestRemoteMessageId ?: return
+        val expectedAccountId = accountId ?: return
         val receipt = WhisperThreadReadReceipt(id, messageId)
         if (receipt == lastMarkedReadReceipt || !readReceiptsInFlight.add(receipt)) return
-        viewModelScope.launch {
+        mutationScope.launch {
             val succeeded = try {
-                runCatchingInboxRequest { repository.markThreadRead(id, messageId) }.isSuccess
+                runCatchingInboxRequest { repository.markThreadRead(id, messageId, expectedAccountId) }.isSuccess
             } finally {
-                readReceiptsInFlight.remove(receipt)
+                withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    readReceiptsInFlight.remove(receipt)
+                }
             }
-            if (succeeded) {
-                lastMarkedReadReceipt = receipt
-                if (threadId == id) {
-                    _uiState.value = _uiState.value.copy(lastReadReceipt = receipt)
+            withContext(Dispatchers.Main.immediate) {
+                if (repository.currentUserId() != expectedAccountId) {
+                    if (!isCleared) ensureAccountCurrent()
+                    return@withContext
+                }
+                if (!succeeded) return@withContext
+                onReadConfirmed(receipt, isCleared)
+                if (!isCleared) {
+                    lastMarkedReadReceipt = receipt
+                    if (threadId == id) {
+                        _uiState.value = _uiState.value.copy(lastReadReceipt = receipt)
+                    }
                 }
             }
         }
     }
 
+    private fun ensureAccountCurrent(): Boolean {
+        val currentAccountId = repository.currentUserId()
+        if (currentAccountId == accountId) return true
+        viewModelScope.coroutineContext.cancelChildren()
+        accountId = currentAccountId
+        threadId = null
+        olderCursor = null
+        hasLoadedOlderHistory = false
+        latestRemoteMessageId = null
+        lastMarkedReadReceipt = null
+        pending.clear()
+        readReceiptsInFlight.clear()
+        _uiState.value = _uiState.value.copy(
+            threadId = null,
+            messages = emptyList(),
+            composer = "",
+            initialLoading = false,
+            loadingOlder = false,
+            successfulSendCount = 0,
+            hasOlder = false,
+            error = TwitchInboxError.SignedOut,
+            lastReadReceipt = null,
+        )
+        return false
+    }
+
+    override fun onCleared() {
+        isCleared = true
+        super.onCleared()
+    }
+
     companion object {
-        fun factory(repository: WhispersRepository, peer: TwitchUserSummary, threadId: String?) = object : ViewModelProvider.Factory {
+        fun factory(
+            repository: WhisperThreadDataSource,
+            peer: TwitchUserSummary,
+            threadId: String?,
+            mutationScope: CoroutineScope,
+            onReadConfirmed: (WhisperThreadReadReceipt, viewModelCleared: Boolean) -> Unit = { _, _ -> },
+        ) = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T = WhisperThreadViewModel(repository, peer, threadId) as T
+            override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                WhisperThreadViewModel(repository, peer, threadId, mutationScope, onReadConfirmed) as T
         }
     }
 }

@@ -48,7 +48,12 @@ class WhisperAccountWorkTest {
         var viewModel: WhisperThreadViewModel? = null
         try {
             withContext(Dispatchers.Main) {
-                val model = WhisperThreadViewModel(repository, TwitchUserSummary("fixture", "fixture", "Fixture", null), null)
+                val model = WhisperThreadViewModel(
+                    repository,
+                    TwitchUserSummary("fixture", "fixture", "Fixture", null),
+                    null,
+                    (base.applicationContext as XtraApp).applicationScope,
+                )
                 viewModel = model
                 model.setComposer("Draft belonging to the old account")
                 model.viewModelScope.launch {
