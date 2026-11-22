@@ -18,6 +18,7 @@ import com.github.andreyasadchy.xtra.model.twitchinbox.NotificationUnreadSummary
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import java.util.WeakHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -30,13 +31,17 @@ object TwitchInboxMenuBinder {
     private var cachedNotificationSummary: NotificationUnreadSummary? = null
     private var cachedWhisperSummary: com.github.andreyasadchy.xtra.repository.WhisperUnreadSummary? = null
     private var hasCachedSummary = false
+    private var summaryGeneration = 0L
     private val boundToolbars = WeakHashMap<Toolbar, Unit>()
 
     fun invalidateSummary() {
+        // A request started before a read/dismiss action must not restore its stale unread badge.
+        summaryGeneration++
         lastSummaryRefreshAt = 0L
         cachedNotificationSummary = null
         cachedWhisperSummary = null
         hasCachedSummary = false
+        cancelSummaryRefreshes()
         applyCachedBadges()
     }
 
@@ -51,22 +56,15 @@ object TwitchInboxMenuBinder {
         whispersItem?.isVisible = loggedIn
         if (!loggedIn) {
             lastSummaryAccount = null
-            lastSummaryRefreshAt = 0L
-            cachedNotificationSummary = null
-            cachedWhisperSummary = null
-            hasCachedSummary = false
+            invalidateSummary()
             boundToolbars.keys.forEach { boundToolbar ->
                 boundToolbar.menu.findItem(R.id.twitchNotifications)?.isVisible = false
                 boundToolbar.menu.findItem(R.id.whispers)?.isVisible = false
             }
-            applyCachedBadges()
             return
         }
         if (lastSummaryAccount != null && lastSummaryAccount != accountId) {
-            cachedNotificationSummary = null
-            cachedWhisperSummary = null
-            hasCachedSummary = false
-            lastSummaryRefreshAt = 0L
+            invalidateSummary()
         }
 
         notificationItem?.let { bindItem(toolbar.context, it, R.drawable.ic_twitch_notifications, activity.getString(R.string.notifications)) {
@@ -81,6 +79,13 @@ object TwitchInboxMenuBinder {
 
     private fun applyCachedBadges() {
         boundToolbars.keys.forEach(::applyCachedBadges)
+    }
+
+    private fun cancelSummaryRefreshes() {
+        boundToolbars.keys.forEach { toolbar ->
+            (toolbar.getTag(R.id.twitch_inbox_refresh_job) as? Job)?.cancel()
+            toolbar.setTag(R.id.twitch_inbox_refresh_job, null)
+        }
     }
 
     private fun applyCachedBadges(toolbar: Toolbar) {
@@ -114,15 +119,24 @@ object TwitchInboxMenuBinder {
         if (lastSummaryAccount == accountId && System.currentTimeMillis() - lastSummaryRefreshAt < SUMMARY_STALE_AFTER_MILLIS) return
         val currentJob = toolbar.getTag(R.id.twitch_inbox_refresh_job) as? Job
         if (currentJob?.isActive == true) return
+        val generation = summaryGeneration
         val job = activity.lifecycleScope.launch {
             val module = (activity.application as XtraApp).xtraModule
             lastSummaryAccount = accountId
             lastSummaryRefreshAt = System.currentTimeMillis()
             val (notificationSummary, whisperSummary) = withContext(Dispatchers.IO) {
-                runCatching { module.twitchNotificationsRepository.getUnreadSummary() }.getOrNull() to
-                    runCatching { module.whispersRepository.getUnreadSummary() }.getOrNull()
+                suspend fun <T> request(block: suspend () -> T): T? = try {
+                    block()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null
+                }
+                request { module.twitchNotificationsRepository.getUnreadSummary() } to
+                    request { module.whispersRepository.getUnreadSummary() }
             }
-            if (activity.tokenPrefs().getString(C.USER_ID, null) != accountId) return@launch
+            // The generation check also covers requests whose underlying transport ignores cancellation.
+            if (activity.tokenPrefs().getString(C.USER_ID, null) != accountId || generation != summaryGeneration) return@launch
             notificationSummary?.let { cachedNotificationSummary = it }
             whisperSummary?.let { cachedWhisperSummary = it }
             hasCachedSummary = cachedNotificationSummary != null || cachedWhisperSummary != null
