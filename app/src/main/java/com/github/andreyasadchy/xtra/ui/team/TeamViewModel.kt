@@ -15,6 +15,8 @@ import com.github.andreyasadchy.xtra.XtraApp
 import com.github.andreyasadchy.xtra.model.ui.Team
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
 import com.github.andreyasadchy.xtra.repository.HelixRepository
+import com.github.andreyasadchy.xtra.repository.MetadataCache
+import com.github.andreyasadchy.xtra.repository.TeamMetadataCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.datasource.TeamMembersDataSource
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -30,6 +32,7 @@ class TeamViewModel(
     private val applicationContext: Context,
     private val graphQLRepository: GraphQLRepository,
     private val helixRepository: HelixRepository,
+    private val metadataCache: MetadataCache,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -37,6 +40,7 @@ class TeamViewModel(
     val team = MutableStateFlow<Team?>(null)
 
     private var isLoading = false
+    private var infoLoaded = false
     private val _infoState = MutableStateFlow(SectionLoadState.LOADING)
     val infoState = _infoState.asStateFlow()
 
@@ -55,7 +59,7 @@ class TeamViewModel(
     }.flow.cachedIn(viewModelScope)
 
     fun loadTeamInfo(teamName: String?, networkLibrary: String?, gqlHeaders: Map<String, String>) {
-        if (team.value != null || isLoading) return
+        if (infoLoaded || isLoading) return
         if (teamName.isNullOrBlank()) {
             _infoState.value = SectionLoadState.FAILED
             return
@@ -63,10 +67,27 @@ class TeamViewModel(
         isLoading = true
         _infoState.value = SectionLoadState.LOADING
         viewModelScope.launch {
+            var cachedSnapshot: TeamMetadataCacheSnapshot? = null
             try {
+                val cached = try {
+                    metadataCache.readTeam(teamName)
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    null
+                }
+                cached?.let { entry ->
+                    cachedSnapshot = entry.snapshot
+                    team.value = entry.snapshot.toTeam()
+                    if (entry.fresh) {
+                        _infoState.value = SectionLoadState.READY
+                        infoLoaded = true
+                        return@launch
+                    }
+                }
                 val response = graphQLRepository.loadQueryTeam(networkLibrary, gqlHeaders, teamName)
+                check(response.errors.isNullOrEmpty())
                 val details = checkNotNull(response.data?.team)
-                team.value = Team(
+                val snapshot = TeamMetadataCacheSnapshot(
                     displayName = details.displayName,
                     description = details.description,
                     logoUrl = details.logoURL,
@@ -75,11 +96,18 @@ class TeamViewModel(
                     ownerLogin = details.owner?.login,
                     ownerName = details.owner?.displayName,
                 )
+                if (snapshot != cachedSnapshot) team.value = snapshot.toTeam()
+                try {
+                    metadataCache.writeTeam(teamName, snapshot)
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                }
+                infoLoaded = true
                 _infoState.value = SectionLoadState.READY
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                _infoState.value = SectionLoadState.FAILED
+                _infoState.value = if (cachedSnapshot != null) SectionLoadState.STALE else SectionLoadState.FAILED
             } finally {
                 isLoading = false
             }
@@ -96,9 +124,20 @@ class TeamViewModel(
                     application.applicationContext,
                     xtraModule.graphQLRepository,
                     xtraModule.helixRepository,
+                    xtraModule.metadataCache,
                     savedStateHandle,
                 )
             }
         }
     }
 }
+
+private fun TeamMetadataCacheSnapshot.toTeam() = Team(
+    displayName = displayName,
+    description = description,
+    logoUrl = logoUrl,
+    bannerUrl = bannerUrl,
+    memberCount = memberCount,
+    ownerLogin = ownerLogin,
+    ownerName = ownerName,
+)

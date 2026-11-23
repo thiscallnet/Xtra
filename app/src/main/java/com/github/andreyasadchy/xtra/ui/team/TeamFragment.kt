@@ -59,6 +59,8 @@ import kotlinx.coroutines.launch
 
 class TeamFragment : PagedListFragment(), Scrollable {
 
+    override val initializeWithoutNetwork = true
+
     private var _binding: FragmentTeamBinding? = null
     private val binding get() = _binding!!
     private val args: TeamFragmentArgs by navArgs()
@@ -149,11 +151,14 @@ class TeamFragment : PagedListFragment(), Scrollable {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
                 viewModel.infoState.collectLatest { state ->
                     binding.teamInfoStatus.bindStatus(
-                        if (state == SectionLoadState.READY) null else SectionStatus(loading = state == SectionLoadState.LOADING),
+                        if (state == SectionLoadState.READY) null else SectionStatus(
+                            loading = state == SectionLoadState.LOADING,
+                            hasCachedData = viewModel.team.value != null,
+                        ),
                         args.teamName.orEmpty(),
                         ::loadTeamInfo,
                     )
-                    if (state == SectionLoadState.FAILED) {
+                    if (state == SectionLoadState.FAILED && viewModel.team.value == null) {
                         binding.teamInfoStatus.sectionMessage.setText(R.string.team_details_failed)
                     }
                 }

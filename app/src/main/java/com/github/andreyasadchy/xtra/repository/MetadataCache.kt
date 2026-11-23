@@ -34,6 +34,7 @@ import java.util.Locale
 private const val ACCOUNT_KIND = "account"
 private const val CHANNEL_KIND = "channel"
 private const val GAME_KIND = "game"
+private const val TEAM_KIND = "team"
 private const val FOLLOWING_OVERVIEW_KIND = "following_overview"
 private const val WHISPER_THREADS_KIND = "whisper_threads"
 private const val TWITCH_NOTIFICATIONS_KIND = "twitch_notifications"
@@ -57,6 +58,9 @@ internal object MetadataCachePolicy {
     const val FOLLOWER_COUNT_BOOTSTRAP_MAX_AGE_MS = 6L * 60 * 60 * 1_000L
     const val ACCOUNT_SENSITIVE_BOOTSTRAP_MAX_AGE_MS = 10L * 60 * 1_000L
     const val ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS = 6L * 60 * 60 * 1_000L
+    const val CHANNEL_ABOUT_BOOTSTRAP_MAX_AGE_MS = 6L * 60 * 60 * 1_000L
+    const val CHANNEL_SCHEDULE_BOOTSTRAP_MAX_AGE_MS = 30L * 60 * 1_000L
+    const val TEAM_BOOTSTRAP_MAX_AGE_MS = 6L * 60 * 60 * 1_000L
 }
 
 data class AccountCacheSnapshot(
@@ -73,6 +77,51 @@ data class ChannelPageCacheSnapshot(
     val user: User,
     val stream: Stream? = null,
 )
+
+data class ChannelAboutCacheSnapshot(
+    val description: String? = null,
+    val socialMedias: List<ChannelSocialMediaCacheEntry> = emptyList(),
+    val teamName: String? = null,
+    val teamDisplayName: String? = null,
+    val originalName: String? = null,
+    val panels: List<ChannelPanelCacheEntry> = emptyList(),
+)
+
+data class ChannelSocialMediaCacheEntry(val title: String?, val url: String?)
+
+data class ChannelPanelCacheEntry(
+    val title: String?,
+    val imageUrl: String?,
+    val linkUrl: String?,
+    val description: String?,
+)
+
+data class ChannelAboutCacheHit(val snapshot: ChannelAboutCacheSnapshot, val fresh: Boolean)
+
+data class ChannelScheduleCacheSnapshot(
+    val broadcasts: List<ChannelScheduledBroadcastCacheEntry> = emptyList(),
+)
+
+data class ChannelScheduledBroadcastCacheEntry(
+    val title: String?,
+    val start: String?,
+    val end: String?,
+    val category: String?,
+)
+
+data class ChannelScheduleCacheHit(val snapshot: ChannelScheduleCacheSnapshot, val fresh: Boolean)
+
+data class TeamMetadataCacheSnapshot(
+    val displayName: String?,
+    val description: String?,
+    val logoUrl: String?,
+    val bannerUrl: String?,
+    val memberCount: Int?,
+    val ownerLogin: String?,
+    val ownerName: String?,
+)
+
+data class TeamMetadataCacheHit(val snapshot: TeamMetadataCacheSnapshot, val fresh: Boolean)
 
 data class GamePageCacheSnapshot(
     val game: Game,
@@ -234,7 +283,7 @@ class MetadataCache(
             kind = CHANNEL_KIND,
             keys = identityKeys("id", "login", channelId, login),
             expectedStableId = channelId,
-            identity = { it.user?.id ?: it.stream?.channelId },
+            identity = { it.user?.id ?: it.stream?.channelId ?: it.channelId ?: it.channelLogin },
         )
             ?: return@withContext null
         val user = hit.payload.user?.toUiUser(
@@ -266,6 +315,8 @@ class MetadataCache(
     ) = withContext(Dispatchers.IO) {
         val payload = ChannelPageCachePayload(
             freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
+            channelId = channelId ?: snapshot.user.id,
+            channelLogin = login ?: snapshot.user.login,
             user = snapshot.user.toCacheUser(),
             stream = snapshot.stream?.toCacheStream(),
         )
@@ -274,10 +325,14 @@ class MetadataCache(
             keys = identityKeys("id", "login", channelId ?: snapshot.user.id, login ?: snapshot.user.login),
             payload = payload,
             stableId = channelId ?: snapshot.user.id,
-            identity = { it.user?.id ?: it.stream?.channelId },
+            identity = { it.user?.id ?: it.stream?.channelId ?: it.channelId ?: it.channelLogin },
             nowMs = nowMs,
             mergePayload = { previous, previousUpdatedAt ->
                 payload.copy(
+                    about = previous?.about,
+                    aboutValidatedAt = previous?.aboutValidatedAt,
+                    schedule = previous?.schedule,
+                    scheduleValidatedAt = previous?.scheduleValidatedAt,
                     streamValidatedAt = fieldValidationTimestamp(
                         validated = streamValidated,
                         nowMs = nowMs,
@@ -292,6 +347,108 @@ class MetadataCache(
                         previousTimestamp = previous?.followerCountValidatedAt,
                         previousUpdatedAt = previousUpdatedAt,
                     ),
+                )
+            },
+        )
+    }
+
+    suspend fun readChannelAbout(channelId: String?, login: String?): ChannelAboutCacheHit? = withContext(Dispatchers.IO) {
+        val hit = readPayload<ChannelPageCachePayload>(
+            kind = CHANNEL_KIND,
+            keys = identityKeys("id", "login", channelId, login),
+            expectedStableId = channelId,
+            identity = { it.user?.id ?: it.stream?.channelId ?: it.channelId ?: it.channelLogin },
+        ) ?: return@withContext null
+        val snapshot = hit.payload.about?.toSnapshot() ?: return@withContext null
+        ChannelAboutCacheHit(
+            snapshot = snapshot,
+            fresh = hit.isFresh(
+                freshnessVersion = hit.payload.freshnessVersion,
+                validatedAt = hit.payload.aboutValidatedAt,
+                maxAgeMs = MetadataCachePolicy.CHANNEL_ABOUT_BOOTSTRAP_MAX_AGE_MS,
+            ),
+        )
+    }
+
+    suspend fun writeChannelAbout(
+        channelId: String?,
+        login: String?,
+        snapshot: ChannelAboutCacheSnapshot,
+        nowMs: Long = clockMs(),
+    ) = withContext(Dispatchers.IO) {
+        val payload = ChannelPageCachePayload(
+            freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
+            channelId = channelId,
+            channelLogin = login,
+            about = snapshot.toCached(),
+            aboutValidatedAt = nowMs,
+        )
+        writePayload(
+            kind = CHANNEL_KIND,
+            keys = identityKeys("id", "login", channelId, login),
+            payload = payload,
+            stableId = channelId ?: login,
+            identity = { it.user?.id ?: it.stream?.channelId ?: it.channelId ?: it.channelLogin },
+            nowMs = nowMs,
+            mergePayload = { previous, _ ->
+                payload.copy(
+                    user = previous?.user,
+                    stream = previous?.stream,
+                    streamValidatedAt = previous?.streamValidatedAt,
+                    followerCountValidatedAt = previous?.followerCountValidatedAt,
+                    schedule = previous?.schedule,
+                    scheduleValidatedAt = previous?.scheduleValidatedAt,
+                )
+            },
+        )
+    }
+
+    suspend fun readChannelSchedule(channelId: String?, login: String?): ChannelScheduleCacheHit? = withContext(Dispatchers.IO) {
+        val hit = readPayload<ChannelPageCachePayload>(
+            kind = CHANNEL_KIND,
+            keys = identityKeys("id", "login", channelId, login),
+            expectedStableId = channelId,
+            identity = { it.user?.id ?: it.stream?.channelId ?: it.channelId ?: it.channelLogin },
+        ) ?: return@withContext null
+        val snapshot = hit.payload.schedule?.toSnapshot() ?: return@withContext null
+        ChannelScheduleCacheHit(
+            snapshot = snapshot,
+            fresh = hit.isFresh(
+                freshnessVersion = hit.payload.freshnessVersion,
+                validatedAt = hit.payload.scheduleValidatedAt,
+                maxAgeMs = MetadataCachePolicy.CHANNEL_SCHEDULE_BOOTSTRAP_MAX_AGE_MS,
+            ),
+        )
+    }
+
+    suspend fun writeChannelSchedule(
+        channelId: String?,
+        login: String?,
+        snapshot: ChannelScheduleCacheSnapshot,
+        nowMs: Long = clockMs(),
+    ) = withContext(Dispatchers.IO) {
+        val payload = ChannelPageCachePayload(
+            freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
+            channelId = channelId,
+            channelLogin = login,
+            schedule = snapshot.toCached(),
+            scheduleValidatedAt = nowMs,
+        )
+        writePayload(
+            kind = CHANNEL_KIND,
+            keys = identityKeys("id", "login", channelId, login),
+            payload = payload,
+            stableId = channelId ?: login,
+            identity = { it.user?.id ?: it.stream?.channelId ?: it.channelId ?: it.channelLogin },
+            nowMs = nowMs,
+            mergePayload = { previous, _ ->
+                payload.copy(
+                    user = previous?.user,
+                    stream = previous?.stream,
+                    streamValidatedAt = previous?.streamValidatedAt,
+                    followerCountValidatedAt = previous?.followerCountValidatedAt,
+                    about = previous?.about,
+                    aboutValidatedAt = previous?.aboutValidatedAt,
                 )
             },
         )
@@ -321,6 +478,42 @@ class MetadataCache(
                 ),
             )
         }
+    }
+
+    suspend fun readTeam(name: String?): TeamMetadataCacheHit? = withContext(Dispatchers.IO) {
+        val hit = readPayload<TeamMetadataCachePayload>(
+            kind = TEAM_KIND,
+            keys = teamIdentityKeys(name),
+            expectedStableId = name,
+            identity = { it.name },
+        ) ?: return@withContext null
+        val snapshot = hit.payload.team?.toSnapshot() ?: return@withContext null
+        TeamMetadataCacheHit(
+            snapshot = snapshot,
+            fresh = hit.isFresh(
+                freshnessVersion = hit.payload.freshnessVersion,
+                validatedAt = hit.payload.validatedAt,
+                maxAgeMs = MetadataCachePolicy.TEAM_BOOTSTRAP_MAX_AGE_MS,
+            ),
+        )
+    }
+
+    suspend fun writeTeam(name: String?, snapshot: TeamMetadataCacheSnapshot, nowMs: Long = clockMs()) = withContext(Dispatchers.IO) {
+        val payload = TeamMetadataCachePayload(
+            freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
+            name = name,
+            team = snapshot.toCached(),
+            validatedAt = nowMs,
+        )
+        writePayload(
+            kind = TEAM_KIND,
+            keys = teamIdentityKeys(name),
+            payload = payload,
+            stableId = name,
+            identity = { it.name },
+            nowMs = nowMs,
+            mergePayload = { _, _ -> payload },
+        )
     }
 
     suspend fun writeGame(
@@ -722,6 +915,12 @@ class MetadataCache(
             name?.trim()?.takeIf { it.isNotEmpty() }?.let { add("name:${normalize(it)}") }
         }.distinct()
 
+        internal fun teamIdentityKeys(name: String?): List<String> = name
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { listOf("name:${normalize(it)}") }
+            .orEmpty()
+
         private fun normalize(value: String): String = value.lowercase(Locale.ROOT)
     }
 }
@@ -909,10 +1108,69 @@ private data class AccountCachePayload(
 @Serializable
 private data class ChannelPageCachePayload(
     val freshnessVersion: Int = 0,
+    val channelId: String? = null,
+    val channelLogin: String? = null,
     val user: CachedChannelUser? = null,
     val stream: CachedChannelStream? = null,
     val streamValidatedAt: Long? = null,
     val followerCountValidatedAt: Long? = null,
+    val about: CachedChannelAbout? = null,
+    val aboutValidatedAt: Long? = null,
+    val schedule: CachedChannelSchedule? = null,
+    val scheduleValidatedAt: Long? = null,
+)
+
+@Serializable
+private data class CachedChannelAbout(
+    val description: String? = null,
+    val socialMedias: List<CachedChannelSocialMedia> = emptyList(),
+    val teamName: String? = null,
+    val teamDisplayName: String? = null,
+    val originalName: String? = null,
+    val panels: List<CachedChannelPanel> = emptyList(),
+)
+
+@Serializable
+private data class CachedChannelSocialMedia(val title: String? = null, val url: String? = null)
+
+@Serializable
+private data class CachedChannelPanel(
+    val title: String? = null,
+    val imageUrl: String? = null,
+    val linkUrl: String? = null,
+    val description: String? = null,
+)
+
+@Serializable
+private data class CachedChannelSchedule(
+    val broadcasts: List<CachedChannelScheduledBroadcast> = emptyList(),
+)
+
+@Serializable
+private data class CachedChannelScheduledBroadcast(
+    val title: String? = null,
+    val start: String? = null,
+    val end: String? = null,
+    val category: String? = null,
+)
+
+@Serializable
+private data class TeamMetadataCachePayload(
+    val freshnessVersion: Int = 0,
+    val name: String? = null,
+    val team: CachedTeamMetadata? = null,
+    val validatedAt: Long? = null,
+)
+
+@Serializable
+private data class CachedTeamMetadata(
+    val displayName: String? = null,
+    val description: String? = null,
+    val logoUrl: String? = null,
+    val bannerUrl: String? = null,
+    val memberCount: Int? = null,
+    val ownerLogin: String? = null,
+    val ownerName: String? = null,
 )
 
 @Serializable
@@ -944,6 +1202,52 @@ private data class CachedChannelStream(
     val createdAt: String? = null,
     val viewerCount: Int? = null,
     val tags: List<String>? = null,
+)
+
+private fun ChannelAboutCacheSnapshot.toCached() = CachedChannelAbout(
+    description = description,
+    socialMedias = socialMedias.map { CachedChannelSocialMedia(it.title, it.url) },
+    teamName = teamName,
+    teamDisplayName = teamDisplayName,
+    originalName = originalName,
+    panels = panels.map { CachedChannelPanel(it.title, it.imageUrl, it.linkUrl, it.description) },
+)
+
+private fun CachedChannelAbout.toSnapshot() = ChannelAboutCacheSnapshot(
+    description = description,
+    socialMedias = socialMedias.map { ChannelSocialMediaCacheEntry(it.title, it.url) },
+    teamName = teamName,
+    teamDisplayName = teamDisplayName,
+    originalName = originalName,
+    panels = panels.map { ChannelPanelCacheEntry(it.title, it.imageUrl, it.linkUrl, it.description) },
+)
+
+private fun ChannelScheduleCacheSnapshot.toCached() = CachedChannelSchedule(
+    broadcasts = broadcasts.map { CachedChannelScheduledBroadcast(it.title, it.start, it.end, it.category) },
+)
+
+private fun CachedChannelSchedule.toSnapshot() = ChannelScheduleCacheSnapshot(
+    broadcasts = broadcasts.map { ChannelScheduledBroadcastCacheEntry(it.title, it.start, it.end, it.category) },
+)
+
+private fun TeamMetadataCacheSnapshot.toCached() = CachedTeamMetadata(
+    displayName = displayName,
+    description = description,
+    logoUrl = logoUrl,
+    bannerUrl = bannerUrl,
+    memberCount = memberCount,
+    ownerLogin = ownerLogin,
+    ownerName = ownerName,
+)
+
+private fun CachedTeamMetadata.toSnapshot() = TeamMetadataCacheSnapshot(
+    displayName = displayName,
+    description = description,
+    logoUrl = logoUrl,
+    bannerUrl = bannerUrl,
+    memberCount = memberCount,
+    ownerLogin = ownerLogin,
+    ownerName = ownerName,
 )
 
 @Serializable

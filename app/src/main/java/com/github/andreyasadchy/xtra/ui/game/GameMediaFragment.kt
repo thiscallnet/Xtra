@@ -35,6 +35,7 @@ import coil3.request.target
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentGameBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
+import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
@@ -71,6 +72,8 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     private val viewModel: GamePagerViewModel by viewModels { GamePagerViewModelFactory }
 
     private var previousItem = -1
+    private var renderedGameTags: List<Pair<String?, String?>>? = null
+    private var renderedGameTagsVisible: Boolean? = null
 
     override val currentFragment: Fragment?
         get() = childFragmentManager.findFragmentById(R.id.fragmentContainer)
@@ -391,50 +394,58 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             } else {
                 followers.visibility = View.GONE
             }
-            if (!game?.tags.isNullOrEmpty() && requireContext().prefs().getBoolean(C.UI_TAGS, true)) {
-                tagsLayout.removeAllViews()
-                tagsLayout.visibility = View.VISIBLE
-                val tagsFlowLayout = Flow(requireContext()).apply {
-                    layoutParams = ConstraintLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        topToTop = tagsLayout.id
-                        bottomToBottom = tagsLayout.id
-                        startToStart = tagsLayout.id
-                        endToEnd = tagsLayout.id
-                    }
-                    setWrapMode(Flow.WRAP_CHAIN)
-                }
-                tagsLayout.addView(tagsFlowLayout)
-                val ids = mutableListOf<Int>()
-                for (tag in game.tags) {
-                    val text = TextView(requireContext())
-                    val id = View.generateViewId()
-                    text.id = id
-                    ids.add(id)
-                    text.text = tag.name
-                    requireContext().obtainStyledAttributes(intArrayOf(com.google.android.material.R.attr.textAppearanceBodyMedium)).use {
-                        TextViewCompat.setTextAppearance(text, it.getResourceId(0, 0))
-                    }
-                    if (tag.id != null) {
-                        text.setOnClickListener {
-                            findNavController().navigate(
-                                GamesFragmentDirections.actionGlobalGamesFragment(
-                                    tags = arrayOf(tag)
-                                )
-                            )
-                        }
-                    }
-                    val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 5f, resources.displayMetrics).toInt()
-                    text.setPadding(padding, 0, padding, 0)
-                    tagsLayout.addView(text)
-                }
-                tagsFlowLayout.referencedIds = ids.toIntArray()
-            } else {
-                tagsLayout.visibility = View.GONE
-            }
+            renderGameTags(game?.tags, requireContext().prefs().getBoolean(C.UI_TAGS, true))
         }
+    }
+
+    private fun renderGameTags(tags: List<Tag>?, enabled: Boolean) {
+        val visible = enabled && !tags.isNullOrEmpty()
+        val tagKey = tags.orEmpty().map { it.id to it.name }
+        if (renderedGameTagsVisible == visible && (!visible || renderedGameTags == tagKey)) return
+        renderedGameTagsVisible = visible
+        renderedGameTags = tagKey
+        binding.tagsLayout.removeAllViews()
+        if (!visible) {
+            binding.tagsLayout.visibility = View.GONE
+            return
+        }
+
+        binding.tagsLayout.visibility = View.VISIBLE
+        val tagsFlowLayout = Flow(requireContext()).apply {
+            layoutParams = ConstraintLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topToTop = binding.tagsLayout.id
+                bottomToBottom = binding.tagsLayout.id
+                startToStart = binding.tagsLayout.id
+                endToEnd = binding.tagsLayout.id
+            }
+            setWrapMode(Flow.WRAP_CHAIN)
+        }
+        binding.tagsLayout.addView(tagsFlowLayout)
+        val ids = mutableListOf<Int>()
+        tags.orEmpty().forEach { tag ->
+            val text = TextView(requireContext())
+            val id = View.generateViewId()
+            text.id = id
+            ids += id
+            text.text = tag.name
+            requireContext().obtainStyledAttributes(intArrayOf(com.google.android.material.R.attr.textAppearanceBodyMedium)).use {
+                TextViewCompat.setTextAppearance(text, it.getResourceId(0, 0))
+            }
+            if (tag.id != null) {
+                text.setOnClickListener {
+                    findNavController().navigate(
+                        GamesFragmentDirections.actionGlobalGamesFragment(tags = arrayOf(tag)),
+                    )
+                }
+            }
+            val padding = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 5f, resources.displayMetrics).toInt()
+            text.setPadding(padding, 0, padding, 0)
+            binding.tagsLayout.addView(text)
+        }
+        tagsFlowLayout.referencedIds = ids.toIntArray()
     }
 
     private fun onSpinnerItemSelected(tabs: List<String>, position: Int): Fragment {
@@ -466,6 +477,8 @@ class GameMediaFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     }
 
     override fun onDestroyView() {
+        renderedGameTags = null
+        renderedGameTagsVisible = null
         super.onDestroyView()
         _binding = null
     }

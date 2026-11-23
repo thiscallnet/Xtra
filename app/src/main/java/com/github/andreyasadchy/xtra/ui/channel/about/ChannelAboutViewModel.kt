@@ -6,14 +6,21 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import com.github.andreyasadchy.xtra.XtraApp
+import com.github.andreyasadchy.xtra.repository.ChannelAboutCacheSnapshot
+import com.github.andreyasadchy.xtra.repository.ChannelPanelCacheEntry
+import com.github.andreyasadchy.xtra.repository.ChannelScheduleCacheSnapshot
+import com.github.andreyasadchy.xtra.repository.ChannelScheduledBroadcastCacheEntry
+import com.github.andreyasadchy.xtra.repository.ChannelSocialMediaCacheEntry
 import com.github.andreyasadchy.xtra.model.ui.ChannelPanel
 import com.github.andreyasadchy.xtra.repository.GraphQLRepository
+import com.github.andreyasadchy.xtra.repository.MetadataCache
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 class ChannelAboutViewModel(
     private val graphQLRepository: GraphQLRepository,
+    private val metadataCache: MetadataCache,
 ) : ViewModel() {
 
     val description = MutableStateFlow<String?>(null)
@@ -22,7 +29,7 @@ class ChannelAboutViewModel(
     val originalName = MutableStateFlow<String?>(null)
     val panels = MutableStateFlow<List<ChannelPanel>?>(null)
 
-    enum class LoadState { Loading, Ready, Failed }
+    enum class LoadState { Loading, Ready, Stale, Failed }
     val state = MutableStateFlow(LoadState.Loading)
     val scheduleState = MutableStateFlow(LoadState.Loading)
     data class ScheduledBroadcast(val title: String?, val start: String?, val end: String?, val category: String?)
@@ -31,6 +38,8 @@ class ChannelAboutViewModel(
     val connection = MutableStateFlow<ViewerConnection?>(null)
     private var aboutLoaded = false
     private var scheduleLoaded = false
+    private var hasAboutCache = false
+    private var hasScheduleCache = false
     private var scheduleLoading = false
     private var connectionLoading = false
     private var connectionLoaded = false
@@ -42,33 +51,55 @@ class ChannelAboutViewModel(
             state.value = LoadState.Loading
             viewModelScope.launch {
                 try {
+                    val cached = try {
+                        metadataCache.readChannelAbout(channelId, channelLogin)
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        null
+                    }
+                    cached?.let { entry ->
+                        hasAboutCache = true
+                        applyAboutSnapshot(entry.snapshot)
+                        if (entry.fresh) {
+                            state.value = LoadState.Ready
+                            aboutLoaded = true
+                            return@launch
+                        }
+                    }
                     val response = graphQLRepository.loadQueryUserAbout(networkLibrary, gqlHeaders, channelId, channelLogin.takeIf { channelId.isNullOrBlank() })
                     check(response.errors.isNullOrEmpty())
                     val user = checkNotNull(response.data?.user)
-                    user.let {
-                        description.value = user.description
-                        socialMedias.value = user.channel?.socialMedias?.map {
-                            it.title to it.url
-                        }
-                        team.value = user.primaryTeam?.name to user.primaryTeam?.displayName
-                        originalName.value = user.subscriptionProducts?.find { it?.tier == "1000" }?.name?.takeIf { it != channelLogin }
-                        panels.value = user.panels?.mapNotNull { item ->
+                    val snapshot = ChannelAboutCacheSnapshot(
+                        description = user.description,
+                        socialMedias = user.channel?.socialMedias.orEmpty().map {
+                            ChannelSocialMediaCacheEntry(it.title, it.url)
+                        },
+                        teamName = user.primaryTeam?.name,
+                        teamDisplayName = user.primaryTeam?.displayName,
+                        originalName = user.subscriptionProducts?.find { it?.tier == "1000" }?.name
+                            ?.takeIf { it != channelLogin },
+                        panels = user.panels.orEmpty().mapNotNull { item ->
                             item?.onDefaultPanel?.let {
-                                ChannelPanel(
-                                    title = it.title,
-                                    imageUrl = it.imageURL,
-                                    linkUrl = it.linkURL,
-                                    description = it.description,
-                                )
+                                ChannelPanelCacheEntry(it.title, it.imageURL, it.linkURL, it.description)
                             }
-                        }
+                        },
+                    )
+                    applyAboutSnapshot(snapshot)
+                    try {
+                        metadataCache.writeChannelAbout(
+                            channelId = user.id,
+                            login = user.login ?: channelLogin,
+                            snapshot = snapshot,
+                        )
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
                     }
                     aboutLoaded = true
                     state.value = LoadState.Ready
                 } catch (e: CancellationException) {
                     throw e
                 } catch (_: Exception) {
-                    state.value = LoadState.Failed
+                    state.value = if (hasAboutCache) LoadState.Stale else LoadState.Failed
                 } finally {
                     isLoading = false
                 }
@@ -82,21 +113,62 @@ class ChannelAboutViewModel(
         scheduleState.value = LoadState.Loading
         viewModelScope.launch {
             try {
+                val cached = try {
+                    metadataCache.readChannelSchedule(channelId, channelLogin)
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
+                    null
+                }
+                cached?.let { entry ->
+                    hasScheduleCache = true
+                    schedule.value = entry.snapshot.broadcasts.map {
+                        ScheduledBroadcast(it.title, it.start, it.end, it.category)
+                    }
+                    if (entry.fresh) {
+                        scheduleState.value = LoadState.Ready
+                        scheduleLoaded = true
+                        return@launch
+                    }
+                }
                 val response = graphQLRepository.loadQueryUserSchedule(networkLibrary, headers, channelId, channelLogin.takeIf { channelId.isNullOrBlank() })
                 check(response.errors.isNullOrEmpty())
                 val user = checkNotNull(response.data?.user)
-                schedule.value = user.channel?.schedule?.segments.orEmpty().map {
+                val broadcasts = user.channel?.schedule?.segments.orEmpty().map {
                     ScheduledBroadcast(it.title, it.startAt?.toString(), it.endAt?.toString(), it.categories?.firstOrNull()?.name)
+                }
+                schedule.value = broadcasts
+                try {
+                    metadataCache.writeChannelSchedule(
+                        channelId = user.id,
+                        login = user.login ?: channelLogin,
+                        snapshot = ChannelScheduleCacheSnapshot(
+                            broadcasts = broadcasts.map {
+                                ChannelScheduledBroadcastCacheEntry(it.title, it.start, it.end, it.category)
+                            },
+                        ),
+                    )
+                } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                 }
                 scheduleLoaded = true
                 scheduleState.value = LoadState.Ready
             } catch (e: CancellationException) {
                 throw e
             } catch (_: Exception) {
-                scheduleState.value = LoadState.Failed
+                scheduleState.value = if (hasScheduleCache) LoadState.Stale else LoadState.Failed
             } finally {
                 scheduleLoading = false
             }
+        }
+    }
+
+    private fun applyAboutSnapshot(snapshot: ChannelAboutCacheSnapshot) {
+        description.value = snapshot.description
+        socialMedias.value = snapshot.socialMedias.map { it.title to it.url }
+        team.value = snapshot.teamName to snapshot.teamDisplayName
+        originalName.value = snapshot.originalName
+        panels.value = snapshot.panels.map {
+            ChannelPanel(it.title, it.imageUrl, it.linkUrl, it.description)
         }
     }
 
@@ -129,7 +201,7 @@ class ChannelAboutViewModel(
             initializer {
                 val application = (this[APPLICATION_KEY] as XtraApp)
                 val xtraModule = application.xtraModule
-                ChannelAboutViewModel(xtraModule.graphQLRepository)
+                ChannelAboutViewModel(xtraModule.graphQLRepository, xtraModule.metadataCache)
             }
         }
     }
