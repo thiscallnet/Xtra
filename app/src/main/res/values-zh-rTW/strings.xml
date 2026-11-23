@@ -191,6 +191,7 @@
     <string name="user_affiliate">實況盟友</string>
     <string name="user_staff">工作人員</string>
     <string name="uptime">%s 上線時間</string>
+    <string name="player_uptime">直播時間 %1$s</string>
     <string name="show_tags">顯示標籤</string>
     <string name="recentMsg_enable">載入最近的訊息</string>
     <string name="recentMsg_limit">最近的訊息限制</string>
@@ -1051,6 +1052,8 @@
     <string name="channel_points_reward_redeem">贖回</string>
     <string name="channel_points_reward_redeemed">已兌換 %s</string>
     <string name="channel_points_reward_failed">無法兌換 %1$s： %2$s</string>
+    <string name="channel_points_reward_unavailable">此獎勵目前無法使用</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s，無法使用</string>
     <string name="channel_points_poll">投票： %s</string>
     <string name="channel_points_last_poll">最後投票： %s</string>
     <string name="channel_points_prediction">預測： %s</string>

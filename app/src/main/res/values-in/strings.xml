@@ -191,6 +191,7 @@
     <string name="user_affiliate">Afiliasi</string>
     <string name="user_staff">Staf</string>
     <string name="uptime">Waktu aktif %s</string>
+    <string name="player_uptime">Durasi siaran %1$s</string>
     <string name="show_tags">Tampilkan tag</string>
     <string name="recentMsg_enable">Muat pesan terakhir</string>
     <string name="recentMsg_limit">Batasi pesan terakhir</string>
@@ -1052,6 +1053,8 @@
     <string name="channel_points_reward_redeem">Tukarkan</string>
     <string name="channel_points_reward_redeemed">Tukarkan %s</string>
     <string name="channel_points_reward_failed">Tidak dapat menukarkan %1$s: %2$s</string>
+    <string name="channel_points_reward_unavailable">Hadiah ini tidak tersedia saat ini</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s, tidak tersedia</string>
     <string name="channel_points_poll">Jajak pendapat: %s</string>
     <string name="channel_points_last_poll">Jajak pendapat terakhir: %s</string>
     <string name="channel_points_prediction">Prediksi: %s</string>

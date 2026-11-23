@@ -192,6 +192,7 @@
     <string name="user_affiliate">İştirak</string>
     <string name="user_staff">Çalışan</string>
     <string name="uptime">%s yayın süresi</string>
+    <string name="player_uptime">Yayın süresi %1$s</string>
     <string name="show_tags">Etiketleri göster</string>
     <string name="recentMsg_enable">Son mesajları yükle</string>
     <string name="recentMsg_limit">Son mesaj limiti</string>
@@ -1052,6 +1053,8 @@
     <string name="channel_points_reward_redeem">Kullan</string>
     <string name="channel_points_reward_redeemed">%s kullanıldı</string>
     <string name="channel_points_reward_failed">%1$s kullanılamadı: %2$s</string>
+    <string name="channel_points_reward_unavailable">Bu ödül şu anda kullanılamıyor</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s, kullanılamıyor</string>
     <string name="channel_points_poll">Anket: %s</string>
     <string name="channel_points_last_poll">Son anket: %s</string>
     <string name="channel_points_prediction">Tahmin: %s</string>

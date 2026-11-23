@@ -601,6 +601,7 @@
     <string name="user_affiliate">Partner</string>
     <string name="user_staff">Personel</string>
     <string name="uptime">%s czas pracy</string>
+    <string name="player_uptime">Czas trwania transmisji %1$s</string>
     <string name="show_tags">Pokaż tagi</string>
     <string name="recentMsg_enable">Wczytaj ostatnie wiadomości</string>
     <string name="recentMsg_limit">Limit ostatnich wiadomości</string>
@@ -732,6 +733,8 @@
     <string name="channel_points_reward_redeem">Wykorzystanie</string>
     <string name="channel_points_reward_redeemed">Wykorzystano %s</string>
     <string name="channel_points_reward_failed">Nie można zrealizować %1$s: %2$s</string>
+    <string name="channel_points_reward_unavailable">Ta nagroda jest teraz niedostępna</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s, nagroda niedostępna</string>
     <string name="channel_points_poll">Sonda: %s</string>
     <string name="channel_points_last_poll">Ostatnia ankieta: %s</string>
     <string name="channel_points_prediction">Prognoza: %s</string>

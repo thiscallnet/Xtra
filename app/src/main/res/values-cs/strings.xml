@@ -624,6 +624,7 @@
     <string name="user_affiliate">Přidružený</string>
     <string name="user_staff">Personál</string>
     <string name="uptime">%s provozuschopnosti</string>
+    <string name="player_uptime">Doba vysílání %1$s</string>
     <string name="show_tags">Zobrazit značky</string>
     <string name="recentMsg_enable">Načíst poslední zprávy</string>
     <string name="recentMsg_limit">Limit posledních zpráv</string>
@@ -755,6 +756,8 @@
     <string name="channel_points_reward_redeem">Vykoupit</string>
     <string name="channel_points_reward_redeemed">Uplatněno %s</string>
     <string name="channel_points_reward_failed">Nelze uplatnit %1$s: %2$s</string>
+    <string name="channel_points_reward_unavailable">Tato odměna momentálně není k dispozici</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s, není k dispozici</string>
     <string name="channel_points_poll">Anketa: %s</string>
     <string name="channel_points_last_poll">Poslední hlasování: %s</string>
     <string name="channel_points_prediction">Předpověď: %s</string>

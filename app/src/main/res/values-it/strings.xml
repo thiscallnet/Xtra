@@ -191,6 +191,7 @@
     <string name="user_affiliate">Affiliato</string>
     <string name="user_staff">Staff</string>
     <string name="uptime">%s tempo di attività</string>
+    <string name="player_uptime">Durata della diretta %1$s</string>
     <string name="show_tags">Mostra le tag</string>
     <string name="recentMsg_enable">Carica messaggi recenti</string>
     <string name="recentMsg_limit">Limite dei messaggi recenti</string>
@@ -1051,6 +1052,8 @@
     <string name="channel_points_reward_redeem">Riscatta</string>
     <string name="channel_points_reward_redeemed">Riscattato %s</string>
     <string name="channel_points_reward_failed">Impossibile riscattare %1$s: %2$s</string>
+    <string name="channel_points_reward_unavailable">Questa ricompensa non è al momento disponibile</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s, non disponibile</string>
     <string name="channel_points_poll">Sondaggio: %s</string>
     <string name="channel_points_last_poll">Ultimo sondaggio: %s</string>
     <string name="channel_points_prediction">Pronostico: %s</string>

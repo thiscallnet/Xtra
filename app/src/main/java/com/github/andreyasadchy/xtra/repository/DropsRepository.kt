@@ -52,7 +52,6 @@ class DropsRepository(
     private val inventoryRefreshMutex = Mutex()
     private val dashboardRefreshMutex = Mutex()
     private val claimMutex = Mutex()
-    private val campaignDetailsMutex = Mutex()
     private val progressMutex = Mutex()
     private val cacheMutex = Mutex()
     private val cacheWriteMutex = Mutex()
@@ -61,12 +60,18 @@ class DropsRepository(
         SupervisorJob() + Dispatchers.IO,
     )
     private val channelDropSemaphore = Semaphore(MAX_CHANNEL_DROP_REQUESTS)
+    private val campaignDetailsSemaphore = Semaphore(1)
     private val channelDropCatalog = ExpiringSingleFlightCache<String, List<TwitchChannelDropCampaign>>(
         ttlMillis = CHANNEL_CATALOG_CACHE_MILLIS,
         scope = channelDropScope,
         loadSemaphore = channelDropSemaphore,
     )
-    private val campaignDetails = mutableMapOf<String, TwitchDropCampaign>()
+    private val campaignDetails = ExpiringSingleFlightCache<CampaignDetailsCacheKey, TwitchDropCampaign>(
+        ttlMillis = CAMPAIGN_DETAILS_CACHE_MILLIS,
+        scope = channelDropScope,
+        loadSemaphore = campaignDetailsSemaphore,
+        maxEntries = MAX_CAMPAIGN_DETAILS_CACHE_ENTRIES,
+    )
     private val channelCatalogReconcileAttempts = ConcurrentHashMap<String, String>()
     private val _inventory = MutableStateFlow(DropsInventoryState())
     private val _dashboard = MutableStateFlow<List<TwitchDropCampaign>>(emptyList())
@@ -223,31 +228,34 @@ class DropsRepository(
             }
         }
 
-    suspend fun loadCampaignDetails(campaignId: String): TwitchDropCampaign? =
-        campaignDetailsMutex.withLock {
-            if (campaignId.isBlank()) return@withLock null
-            campaignDetails[campaignId]?.let { return@withLock it }
+    suspend fun loadCampaignDetails(campaignId: String): TwitchDropCampaign? {
+        if (campaignId.isBlank()) return null
 
-            val headers = TwitchApiHelper.getGQLHeaders(context, true)
-            if (headers[C.HEADER_TOKEN].isNullOrBlank()) return@withLock null
-            val login = context.tokenPrefs().getString(C.USERNAME, null).orEmpty()
-            if (login.isBlank()) return@withLock null
+        val account = currentCampaignDetailsAccount() ?: return null
+        val headers = TwitchApiHelper.getGQLHeaders(context, true)
+        if (headers[C.HEADER_TOKEN].isNullOrBlank() || currentCampaignDetailsAccount() != account) return null
 
-            val result = try {
+        val details = campaignDetails.get(CampaignDetailsCacheKey(account.userId, campaignId)) {
+            try {
                 val body = graphQLRepository.loadDropCampaignDetails(
                     context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP),
                     headers,
-                    login,
+                    account.login,
                     campaignId,
                 )
-                GqlDropsParser.parseCampaignDetails(body, campaignId)
+                if (currentCampaignDetailsAccount() == account) {
+                    GqlDropsParser.parseCampaignDetails(body, campaignId)
+                } else {
+                    null
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
                 null
             }
-            result?.also { campaignDetails[campaignId] = it }
         }
+        return details?.takeIf { currentCampaignDetailsAccount() == account }
+    }
 
     suspend fun refreshChannelDropCatalog(
         channelId: String?,
@@ -721,8 +729,8 @@ class DropsRepository(
             _dashboardError.value = null
             dashboardLoaded = false
             channelDropCatalog.clear()
-            channelCatalogReconcileAttempts.clear()
             campaignDetails.clear()
+            channelCatalogReconcileAttempts.clear()
             lastInventoryRefreshElapsed = 0L
             lastDashboardRefreshElapsed = 0L
         }
@@ -742,6 +750,13 @@ class DropsRepository(
     private fun currentUserId(): String? =
         context.tokenPrefs().getString(C.USER_ID, null)?.takeIf { it.isNotBlank() }
 
+    private fun currentCampaignDetailsAccount(): CampaignDetailsAccount? {
+        val tokenPrefs = context.tokenPrefs()
+        val login = tokenPrefs.getString(C.USERNAME, null)?.takeIf { it.isNotBlank() } ?: return null
+        val userId = tokenPrefs.getString(C.USER_ID, null)?.takeIf { it.isNotBlank() } ?: login.lowercase()
+        return CampaignDetailsAccount(userId, login)
+    }
+
     private fun logCurrentDropSessionEvent(eventName: String, channelId: String) {
         logDiagnostics {
             event(
@@ -760,11 +775,23 @@ class DropsRepository(
     companion object {
         private const val INVENTORY_CACHE_MILLIS = 45_000L
         private const val CHANNEL_CATALOG_CACHE_MILLIS = 5 * 60_000L
+        private const val CAMPAIGN_DETAILS_CACHE_MILLIS = 5 * 60_000L
+        private const val MAX_CAMPAIGN_DETAILS_CACHE_ENTRIES = 64
         private const val MAX_CHANNEL_DROP_REQUESTS = 3
         private const val MAX_AUTO_CLAIMS = 10
         private const val TAG = "DropsRepository"
     }
 }
+
+private data class CampaignDetailsCacheKey(
+    val userId: String,
+    val campaignId: String,
+)
+
+private data class CampaignDetailsAccount(
+    val userId: String,
+    val login: String,
+)
 
 internal fun projectDropsForChannel(
     drops: List<TwitchDrop>,

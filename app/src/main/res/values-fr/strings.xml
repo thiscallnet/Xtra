@@ -191,6 +191,7 @@
     <string name="user_affiliate">Affilié</string>
     <string name="user_staff">Personnel</string>
     <string name="uptime">%s durée du stream</string>
+    <string name="player_uptime">Durée du stream %1$s</string>
     <string name="show_tags">Voir les tags</string>
     <string name="recentMsg_enable">Charger les messages récents</string>
     <string name="recentMsg_limit">Limite de messages récents</string>
@@ -1051,6 +1052,8 @@
     <string name="channel_points_reward_redeem">Utiliser</string>
     <string name="channel_points_reward_redeemed">%s utilisé</string>
     <string name="channel_points_reward_failed">Impossible d\'utiliser %1$s : %2$s</string>
+    <string name="channel_points_reward_unavailable">Cette récompense est indisponible pour le moment</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s, indisponible</string>
     <string name="channel_points_poll">Sondage : %s</string>
     <string name="channel_points_last_poll">Dernier sondage : %s</string>
     <string name="channel_points_prediction">Prédiction : %s</string>
