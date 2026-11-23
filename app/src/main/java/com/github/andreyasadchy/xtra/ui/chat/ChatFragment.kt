@@ -841,7 +841,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         animateGifs = chatStyle.animateGifs,
                     )
                     interactionAdapterFactory = ChatInteractionAdapterFactory(
-                        configuration = interactionConfiguration
+                        configuration = interactionConfiguration,
+                        onOpenReplyThread = ::openReplyInteraction,
                     )
                     run {
                         val app = requireContext().applicationContext as XtraApp
@@ -949,6 +950,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                                 viewModel.updateUserMessages.map { Unit },
                             ).onStart { emit(Unit) }.map { viewModel.v2DecorationSnapshot() },
                             onMessageLongClick = ::onV2MessageLongClick,
+                            onReplyClick = ::onV2ReplyClick,
                             onEmoteClick = ::onV2EmoteClick,
                             onGifClick = ::onV2GifClick,
                             onPublicationChanged = ::onV2PublicationChanged,
@@ -3800,7 +3802,23 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         binding.editText.clearFocus()
     }
 
-    private fun openReplyInteraction() {
+    private fun openReplyInteraction(message: ChatMessage) {
+        val messageId = message.id ?: return
+        val v2Message = chatV2Renderer?.currentMessages()
+            ?.firstOrNull { it.id.value == messageId }
+            ?: return
+        openReplyInteraction(v2Message)
+    }
+
+    private fun onV2ReplyClick(message: V2ChatMessage) {
+        openReplyInteraction(message)
+    }
+
+    private fun openReplyInteraction(message: V2ChatMessage) {
+        if (message.reply == null) return
+        selectedPinnedMessage = null
+        selectedV2Message = message
+        interactionAdapterFactory?.selectReplyThread(v2MessageToLegacy(message))
         hideChatInputForDialog()
         if (childFragmentManager.findFragmentByTag("replyDialog") == null) {
             ReplyClickedDialog.newInstance(messagingEnabled).show(childFragmentManager, "replyDialog")
@@ -4143,6 +4161,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         val app = requireContext().applicationContext as XtraApp
         return interactionAdapterFactory?.createReplyClickedChatAdapter(
             sourceMessages = chatV2Renderer?.currentMessages().orEmpty().map(::v2MessageToLegacy),
+            selectedMessageOverride = selectedV2Message?.let(::v2MessageToLegacy),
             v2Rows = chatV2Renderer?.currentRows().orEmpty(),
             v2Assets = app.xtraModule.chatAssetRepository,
             v2EmoteClick = ::onV2EmoteClick,

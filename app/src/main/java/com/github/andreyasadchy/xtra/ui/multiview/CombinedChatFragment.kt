@@ -267,6 +267,22 @@ class CombinedChatFragment : Fragment(R.layout.fragment_combined_chat),
         }
     }
 
+    internal fun openReplyInteraction(identity: String, message: V2ChatMessage) {
+        if (message.reply == null) return
+        val renderer = adapter.renderer(identity) ?: return
+        val messages = viewModel.snapshot(identity).map { it.message }
+        interactionIdentity = identity
+        selectedV2Message = message
+        interactionAdapter = adapter.createInteractionAdapter(identity, messages)
+        interactionAdapter?.selectReplyThread(renderer.toLegacy(message))
+        interactionAdapter?.let(::openReplyInteraction)
+    }
+
+    internal fun openReplyInteraction(identity: String, messageId: String) {
+        val message = viewModel.snapshot(identity).firstOrNull { it.message.id.value == messageId }?.message ?: return
+        openReplyInteraction(identity, message)
+    }
+
     fun openImageInteraction(
         url: String?,
         name: String?,
@@ -577,12 +593,14 @@ private class CombinedChatAdapter(
                         .show(renderer.fragment.childFragmentManager, "combinedImageDialog")
                 },
             )
+            binding.messageText.setReplyClickCallback { renderer.fragment.openReplyInteraction(item.identity, item.message) }
             binding.messageText.setMessageClickCallback(openProfile)
             binding.messageText.bind(renderer.compile(item.message))
         }
 
         fun clear() {
             binding.messageText.recycle()
+            binding.messageText.setReplyClickCallback(null)
             binding.messageText.setMessageClickCallback(null)
         }
 
@@ -781,6 +799,9 @@ private class CombinedChatAdapter(
                     animateGifs = preferences.getBoolean(C.ANIMATED_EMOTES, true),
                 ),
                 initialMessages,
+                onOpenReplyThread = { message ->
+                    message.id?.let { messageId -> fragment.openReplyInteraction(identity, messageId) }
+                },
             )
         }
     }

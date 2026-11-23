@@ -11,6 +11,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import androidx.core.content.ContextCompat.getSystemService
+import androidx.core.view.isVisible
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.github.andreyasadchy.xtra.databinding.DialogChatMessageClickBinding
@@ -69,6 +70,8 @@ class ReplyClickedDialog : BottomSheetDialogFragment() {
         behavior.state = BottomSheetBehavior.STATE_EXPANDED
         with(binding) {
             adapter = listener.onCreateReplyClickedChatAdapter()
+            historyLoading.isVisible = false
+            recyclerView.isVisible = adapter != null
             recyclerView.let {
                 it.adapter = adapter
                 it.itemAnimator = null

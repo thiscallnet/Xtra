@@ -20,6 +20,7 @@ class MessageClickedChatAdapter(
     sourceMessages: List<ChatMessage>,
     private val messageTextSize: Float,
     private val animateGifs: Boolean,
+    private val onReplyClick: (ChatMessage) -> Unit,
     private var v2Rows: List<ChatRowUiModel>,
     private val v2Assets: ChatAssetRepository,
     private val v2EmoteClick: ((ChatEmoteInteraction) -> Unit)?,
@@ -64,8 +65,9 @@ class MessageClickedChatAdapter(
             onEmoteClick = v2EmoteClick,
             onGifClick = v2GifClick,
         )
+        holder.textView.setReplyClickCallback { onReplyClick(chatMessage) }
         holder.textView.setMessageClickCallback {
-            // History taps only change selection; tapping a selected reply must not open a nested thread.
+            // Ordinary history-row taps only change selection; preview taps open the reply thread.
             if (!isSelected(chatMessage)) {
                 val previous = selectedMessage
                 selectedMessage = chatMessage
