@@ -43,6 +43,8 @@ import com.github.andreyasadchy.xtra.databinding.ActivityAccountBinding
 import com.github.andreyasadchy.xtra.databinding.ItemAccountBlockedUserBinding
 import com.github.andreyasadchy.xtra.databinding.ItemAccountSettingBinding
 import com.github.andreyasadchy.xtra.model.helix.game.Game
+import com.github.andreyasadchy.xtra.model.helix.channel.ChannelInformation
+import com.github.andreyasadchy.xtra.model.helix.chat.ChatSettings
 import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
 import com.github.andreyasadchy.xtra.repository.auth.AuthHealth
@@ -93,6 +95,12 @@ class AccountActivity : AppCompatActivity() {
     private var authHealth = AuthHealth.UNKNOWN
     private var selectedSection = R.id.profileTab
     private var avatarUrl: String? = null
+    private var avatarInitialized = false
+    private var lastProfileRowsKey: ProfileRowsKey? = null
+    private var lastDetailsRowsKey: DetailsRowsKey? = null
+    private var lastChannelRowsKey: ChannelRowsKey? = null
+    private var lastPrivacyRowsKey: Boolean? = null
+    private var lastAccountRowsKey: AccountRowsKey? = null
 
     private val loginLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (logoutPending) {
@@ -161,6 +169,7 @@ class AccountActivity : AppCompatActivity() {
         })
         configurePage()
         showSelectedSection()
+        render(viewModel.uiState.value)
 
         lifecycleScope.launch {
             repeatOnLifecycle(Lifecycle.State.STARTED) {
@@ -202,6 +211,26 @@ class AccountActivity : AppCompatActivity() {
         binding.channelSection.isVisible = selectedSection == R.id.channelTab
         binding.privacySection.isVisible = selectedSection == R.id.privacyTab
         binding.accountSection.isVisible = selectedSection == R.id.accountTab
+        scrollSelectedSectionIntoView()
+    }
+
+    private fun scrollSelectedSectionIntoView() {
+        if (page != PAGE_MAIN) return
+        val navigation = binding.sectionNavigation
+        val tab = binding.sectionChips.findViewById<View>(selectedSection) ?: return
+        navigation.post {
+            val tabLeft = binding.sectionChips.left + tab.left
+            val tabRight = tabLeft + tab.width
+            val viewportLeft = navigation.scrollX + navigation.paddingLeft
+            val viewportRight = navigation.scrollX + navigation.width - navigation.paddingRight
+            when {
+                tabLeft < viewportLeft -> navigation.smoothScrollTo(tabLeft - navigation.paddingLeft, 0)
+                tabRight > viewportRight -> navigation.smoothScrollTo(
+                    tabRight - navigation.width + navigation.paddingRight,
+                    0,
+                )
+            }
+        }
     }
 
     private fun setupWindowInsets() {
@@ -236,8 +265,8 @@ class AccountActivity : AppCompatActivity() {
             }
             else -> {
                 binding.toolbar.setTitle(R.string.account_hub_title)
-                binding.headerCard.isVisible = true
-                binding.accountMain.isVisible = true
+                binding.headerCard.isGone = true
+                binding.accountMain.isGone = true
                 binding.chatSettingsPage.isGone = true
                 binding.blockedUsersPage.isGone = true
             }
@@ -245,19 +274,24 @@ class AccountActivity : AppCompatActivity() {
     }
 
     private fun render(state: AccountUiState) {
+        val awaitingProfileCache = page == PAGE_MAIN && !state.cacheLoaded
+        if (page == PAGE_MAIN) {
+            binding.headerCard.isVisible = state.cacheLoaded
+            binding.accountMain.isVisible = state.cacheLoaded
+        }
         renderHeader(state.user, state.profileDetails?.takeIf { it.userId == state.user?.id })
         renderAuthHealth(state)
-        binding.progressBar.isVisible = state.loading && state.user == null
+        binding.progressBar.isVisible = awaitingProfileCache || (state.loading && state.user == null)
         binding.errorText.isVisible = page == PAGE_MAIN && !state.error.isNullOrBlank()
         binding.errorText.text = state.error
         binding.retryAccount.isVisible = binding.errorText.isVisible && !state.loading
-        binding.accountProgress.isVisible = state.loading || state.saving
+        binding.accountProgress.isVisible = state.saving || (!awaitingProfileCache && state.loading && state.user == null)
         binding.accountProgress.contentDescription = getString(if (state.saving) R.string.account_saved_status else R.string.account_details_loading)
 
         when (page) {
             PAGE_CHAT_SETTINGS -> renderChatSettings(state)
             PAGE_BLOCKED_USERS -> renderBlockedUsers(state)
-            else -> renderMain(state)
+            else -> if (!awaitingProfileCache) renderMain(state)
         }
 
         if (state.actionMessage == null) lastActionMessage = null
@@ -327,10 +361,12 @@ class AccountActivity : AppCompatActivity() {
         binding.viewChannel.isEnabled = user?.id != null || !login.isNullOrBlank()
         val imageUrl = TwitchApiHelper.getProfileImage(user?.profileImageURL)
             ?: tokenPrefs().getString(C.PROFILE_IMAGE_URL, null)
-        if (imageUrl == avatarUrl && binding.avatar.drawable != null) return
+        if (avatarInitialized && imageUrl == avatarUrl) return
+        avatarInitialized = true
         avatarUrl = imageUrl
+        binding.avatar.setImageDrawable(ContextCompat.getDrawable(this, R.drawable.baseline_person_black_24))
         if (imageUrl.isNullOrBlank()) {
-            binding.avatar.setImageDrawable(ContextCompat.getDrawable(this, R.drawable.baseline_person_black_24))
+            return
         } else {
             imageLoader.enqueue(
                 ImageRequest.Builder(this)
@@ -343,155 +379,203 @@ class AccountActivity : AppCompatActivity() {
     }
 
     private fun renderMain(state: AccountUiState) {
-        binding.profileRows.removeAllViews()
-        binding.channelRows.removeAllViews()
-        binding.privacyRows.removeAllViews()
-        binding.accountRows.removeAllViews()
-        renderProfileDetails(state)
-
-        val canEditBio = state.capabilities.editBio
-        addSettingRow(
-            binding.profileRows,
-            getString(R.string.account_bio),
-            state.user?.description?.takeIf { it.isNotBlank() } ?: getString(R.string.account_not_set),
-            onClick = if (canEditBio) ({ showBioEditor(state.user?.description.orEmpty()) }) else ({ reconnectFor(R.string.account_bio) }),
+        val profileKey = ProfileRowsKey(
+            userId = state.user?.id,
+            description = state.user?.description,
+            canEditBio = state.capabilities.editBio,
+            canEditChatColor = state.capabilities.editChatColor,
+            chatColor = state.chatColor,
+            chatColorLoadError = state.chatColorLoadError,
         )
-        addSettingRow(
-            binding.profileRows,
-            getString(R.string.account_chat_color),
-            when {
-                !state.capabilities.editChatColor -> getString(R.string.account_reconnect_to_enable)
-                state.chatColorLoadError != null -> getString(R.string.account_load_failed)
-                else -> state.chatColor ?: getString(R.string.account_not_set)
-            },
-            color = state.chatColor,
-            onClick = when {
-                !state.capabilities.editChatColor -> ({ reconnectFor(R.string.account_chat_color) })
-                state.chatColorLoadError != null -> ({ viewModel.refresh() })
-                else -> ({ showChatColorDialog(state.chatColor) })
-            },
-        )
+        if (profileKey != lastProfileRowsKey) {
+            lastProfileRowsKey = profileKey
+            binding.profileRows.removeAllViews()
+            val canEditBio = state.capabilities.editBio
+            addSettingRow(
+                binding.profileRows,
+                getString(R.string.account_bio),
+                state.user?.description?.takeIf { it.isNotBlank() } ?: getString(R.string.account_not_set),
+                onClick = if (canEditBio) ({ showBioEditor(state.user?.description.orEmpty()) }) else ({ reconnectFor(R.string.account_bio) }),
+            )
+            addSettingRow(
+                binding.profileRows,
+                getString(R.string.account_chat_color),
+                when {
+                    !state.capabilities.editChatColor -> getString(R.string.account_reconnect_to_enable)
+                    state.chatColorLoadError != null -> getString(R.string.account_load_failed)
+                    else -> state.chatColor ?: getString(R.string.account_not_set)
+                },
+                color = state.chatColor,
+                onClick = when {
+                    !state.capabilities.editChatColor -> ({ reconnectFor(R.string.account_chat_color) })
+                    state.chatColorLoadError != null -> ({ viewModel.refresh() })
+                    else -> ({ showChatColorDialog(state.chatColor) })
+                },
+            )
+        }
 
-        val channelAvailable = state.capabilities.editChannel && state.channel != null && state.channelLoadError == null
-        val editableChannel = state.channel?.takeIf { channelAvailable }
-        val channelValue = { value: String? ->
-            when {
-                editableChannel != null -> value?.takeIf { it.isNotBlank() } ?: getString(R.string.account_not_set)
-                state.capabilities.editChannel -> getString(R.string.account_load_failed)
-                else -> getString(R.string.account_reconnect_to_enable)
+        val detailsKey = DetailsRowsKey(
+            userId = state.user?.id,
+            userCreatedAt = state.user?.createdAt,
+            profileDetails = state.profileDetails?.takeIf { it.userId == state.user?.id },
+            profileDetailsLoading = state.profileDetails == null && state.profileDetailsLoading,
+            profileDetailsError = state.profileDetails == null && state.profileDetailsError,
+            benefits = state.benefits?.takeIf { it.userId == state.user?.id },
+        )
+        if (detailsKey != lastDetailsRowsKey) {
+            lastDetailsRowsKey = detailsKey
+            renderProfileDetails(state)
+        }
+
+        val channelKey = ChannelRowsKey(
+            canEditChannel = state.capabilities.editChannel,
+            canEditTags = state.capabilities.editChannelTags,
+            canEditChatSettings = state.capabilities.editChatSettings,
+            channel = state.channel,
+            channelLoadError = state.channelLoadError,
+            chatSettings = state.chatSettings,
+            chatSettingsLoadError = state.chatSettingsLoadError,
+        )
+        if (channelKey != lastChannelRowsKey) {
+            lastChannelRowsKey = channelKey
+            binding.channelRows.removeAllViews()
+            val channelAvailable = state.capabilities.editChannel && state.channel != null && state.channelLoadError == null
+            val editableChannel = state.channel?.takeIf { channelAvailable }
+            val channelValue = { value: String? ->
+                when {
+                    editableChannel != null -> value?.takeIf { it.isNotBlank() } ?: getString(R.string.account_not_set)
+                    state.capabilities.editChannel -> getString(R.string.account_load_failed)
+                    else -> getString(R.string.account_reconnect_to_enable)
+                }
             }
-        }
-        val channelUnavailableClick = if (state.capabilities.editChannel) {
-            { viewModel.refresh() }
-        } else {
-            { reconnectFor(R.string.account_channel_section) }
-        }
-        val tagsEditable = state.capabilities.editChannelTags
-        addSettingRow(
-            binding.channelRows,
-            getString(R.string.account_stream_title),
-            channelValue(state.channel?.title),
-            onClick = if (editableChannel != null) ({ showTextEditor(R.string.account_stream_title, editableChannel.title.orEmpty(), 140) { viewModel.updateChannel(title = it) } }) else channelUnavailableClick,
-        )
-        addSettingRow(
-            binding.channelRows,
-            getString(R.string.account_category),
-            channelValue(state.channel?.gameName),
-            onClick = if (editableChannel != null) ({ showCategoryDialog(editableChannel.gameName) }) else channelUnavailableClick,
-        )
-        addSettingRow(
-            binding.channelRows,
-            getString(R.string.account_language),
-            if (editableChannel != null) languageLabel(editableChannel.language) else channelValue(null),
-            onClick = if (editableChannel != null) ({ showLanguageDialog(editableChannel.language) }) else channelUnavailableClick,
-        )
-        addSettingRow(
-            binding.channelRows,
-            getString(R.string.account_tags),
-            if (editableChannel != null) {
-                editableChannel.tags.joinToString(", ").takeUnless { it.isNullOrBlank() } ?: getString(R.string.account_not_set)
+            val channelUnavailableClick = if (state.capabilities.editChannel) {
+                { viewModel.refresh() }
             } else {
-                channelValue(null)
-            },
-            enabled = true,
-            onClick = when {
-                editableChannel != null && tagsEditable -> ({ showTextEditor(R.string.account_tags, editableChannel.tags.joinToString(", "), 260) { updateTags(it) } })
-                editableChannel != null -> ({ openManageOnTwitch() })
-                else -> channelUnavailableClick
-            },
-        )
-        val chatEnabled = state.capabilities.editChatSettings && state.chatSettings != null && state.chatSettingsLoadError == null
-        val chatSettingsClick = when {
-            chatEnabled -> ({ openPage(PAGE_CHAT_SETTINGS) })
-            state.capabilities.editChatSettings -> ({ viewModel.refresh() })
-            else -> ({ reconnectFor(R.string.account_chat_settings) })
-        }
-        addSettingRow(
-            binding.channelRows,
-            getString(R.string.account_chat_settings),
-            if (chatEnabled) chatSettingsSummary(state) else if (state.capabilities.editChatSettings) getString(R.string.account_load_failed) else getString(R.string.account_reconnect_to_enable),
-            onClick = chatSettingsClick,
-        )
-
-        val blockedEnabled = state.capabilities.readBlockedUsers
-        addSettingRow(
-            binding.privacyRows,
-            getString(R.string.account_blocked_users),
-            if (blockedEnabled) getString(R.string.account_manage_blocked_users) else getString(R.string.account_reconnect_to_enable),
-            onClick = if (blockedEnabled) ({ openPage(PAGE_BLOCKED_USERS) }) else ({ reconnectFor(R.string.account_blocked_users) }),
-        )
-        addSettingRow(binding.privacyRows, getString(R.string.account_security), getString(R.string.account_security_hint),
-            onClick = { openTwitchPage("https://www.twitch.tv/settings/security") })
-        addSettingRow(binding.privacyRows, getString(R.string.account_connections), getString(R.string.account_connections_hint),
-            onClick = { openTwitchPage("https://www.twitch.tv/settings/connections") })
-
-        addSettingRow(binding.accountRows, getString(R.string.account_subscriptions), getString(R.string.account_subscriptions_hint),
-            onClick = { openTwitchPage("https://www.twitch.tv/subscriptions") })
-        if (state.benefitsError) {
-            addSettingRow(binding.accountRows, getString(R.string.account_benefits_retry), "",
-                onClick = { viewModel.refreshBenefits() })
-        } else if (state.benefitsLoading && state.benefits == null) {
-            addSettingRow(binding.accountRows, getString(R.string.account_benefits_loading), "")
-        }
-        state.benefits?.takeIf { it.userId == state.user?.id }?.let { benefits ->
-            benefits.prime?.let {
-                addSettingRow(binding.accountRows, getString(R.string.account_prime),
-                    getString(if (it) R.string.account_benefit_active else R.string.account_benefit_inactive),
-                    onClick = { openTwitchPage("https://gaming.amazon.com/") })
+                { reconnectFor(R.string.account_channel_section) }
             }
-            benefits.turbo?.let {
-                addSettingRow(binding.accountRows, getString(R.string.account_turbo),
-                    getString(if (it) R.string.account_benefit_active else R.string.account_benefit_inactive),
-                    onClick = { openTwitchPage("https://www.twitch.tv/turbo") })
+            val tagsEditable = state.capabilities.editChannelTags
+            addSettingRow(
+                binding.channelRows,
+                getString(R.string.account_stream_title),
+                channelValue(state.channel?.title),
+                onClick = if (editableChannel != null) ({ showTextEditor(R.string.account_stream_title, editableChannel.title.orEmpty(), 140) { viewModel.updateChannel(title = it) } }) else channelUnavailableClick,
+            )
+            addSettingRow(
+                binding.channelRows,
+                getString(R.string.account_category),
+                channelValue(state.channel?.gameName),
+                onClick = if (editableChannel != null) ({ showCategoryDialog(editableChannel.gameName) }) else channelUnavailableClick,
+            )
+            addSettingRow(
+                binding.channelRows,
+                getString(R.string.account_language),
+                if (editableChannel != null) languageLabel(editableChannel.language) else channelValue(null),
+                onClick = if (editableChannel != null) ({ showLanguageDialog(editableChannel.language) }) else channelUnavailableClick,
+            )
+            addSettingRow(
+                binding.channelRows,
+                getString(R.string.account_tags),
+                if (editableChannel != null) {
+                    editableChannel.tags.joinToString(", ").takeUnless { it.isNullOrBlank() } ?: getString(R.string.account_not_set)
+                } else {
+                    channelValue(null)
+                },
+                enabled = true,
+                onClick = when {
+                    editableChannel != null && tagsEditable -> ({ showTextEditor(R.string.account_tags, editableChannel.tags.joinToString(", "), 260) { updateTags(it) } })
+                    editableChannel != null -> ({ openManageOnTwitch() })
+                    else -> channelUnavailableClick
+                },
+            )
+            val chatEnabled = state.capabilities.editChatSettings && state.chatSettings != null && state.chatSettingsLoadError == null
+            val chatSettingsClick = when {
+                chatEnabled -> ({ openPage(PAGE_CHAT_SETTINGS) })
+                state.capabilities.editChatSettings -> ({ viewModel.refresh() })
+                else -> ({ reconnectFor(R.string.account_chat_settings) })
             }
+            addSettingRow(
+                binding.channelRows,
+                getString(R.string.account_chat_settings),
+                if (chatEnabled) chatSettingsSummary(state) else if (state.capabilities.editChatSettings) getString(R.string.account_load_failed) else getString(R.string.account_reconnect_to_enable),
+                onClick = chatSettingsClick,
+            )
         }
 
-        addSettingRow(
-            binding.accountRows,
-            getString(R.string.drops),
-            getString(R.string.drops_progress_title),
-            onClick = { openDrops() },
+        val privacyKey = state.capabilities.readBlockedUsers
+        if (privacyKey != lastPrivacyRowsKey) {
+            lastPrivacyRowsKey = privacyKey
+            binding.privacyRows.removeAllViews()
+            val blockedEnabled = state.capabilities.readBlockedUsers
+            addSettingRow(
+                binding.privacyRows,
+                getString(R.string.account_blocked_users),
+                if (blockedEnabled) getString(R.string.account_manage_blocked_users) else getString(R.string.account_reconnect_to_enable),
+                onClick = if (blockedEnabled) ({ openPage(PAGE_BLOCKED_USERS) }) else ({ reconnectFor(R.string.account_blocked_users) }),
+            )
+            addSettingRow(binding.privacyRows, getString(R.string.account_security), getString(R.string.account_security_hint),
+                onClick = { openTwitchPage("https://www.twitch.tv/settings/security") })
+            addSettingRow(binding.privacyRows, getString(R.string.account_connections), getString(R.string.account_connections_hint),
+                onClick = { openTwitchPage("https://www.twitch.tv/settings/connections") })
+        }
+
+        val benefits = state.benefits?.takeIf { it.userId == state.user?.id }
+        val accountKey = AccountRowsKey(
+            userId = state.user?.id,
+            benefits = benefits,
+            benefitsLoading = state.benefits == null && state.benefitsLoading,
+            benefitsError = state.benefits == null && state.benefitsError,
         )
-        addSettingRow(binding.accountRows, getString(R.string.account_inventory), getString(R.string.account_inventory_hint),
-            onClick = { openTwitchPage("https://www.twitch.tv/drops/inventory") })
-        addSettingRow(
-            binding.accountRows,
-            getString(R.string.account_manage_on_twitch),
-            getString(R.string.account_open_twitch),
-            onClick = { openManageOnTwitch() },
-        )
-        addSettingRow(
-            binding.accountRows,
-            getString(R.string.log_out),
-            "",
-            onClick = { confirmLogout() },
-        )
+        if (accountKey != lastAccountRowsKey) {
+            lastAccountRowsKey = accountKey
+            binding.accountRows.removeAllViews()
+            addSettingRow(binding.accountRows, getString(R.string.account_subscriptions), getString(R.string.account_subscriptions_hint),
+                onClick = { openTwitchPage("https://www.twitch.tv/subscriptions") })
+            if (state.benefitsError && state.benefits == null) {
+                addSettingRow(binding.accountRows, getString(R.string.account_benefits_retry), "",
+                    onClick = { viewModel.refreshBenefits() })
+            } else if (state.benefitsLoading && state.benefits == null) {
+                addSettingRow(binding.accountRows, getString(R.string.account_benefits_loading), "")
+            }
+            benefits?.let { benefits ->
+                benefits.prime?.let {
+                    addSettingRow(binding.accountRows, getString(R.string.account_prime),
+                        getString(if (it) R.string.account_benefit_active else R.string.account_benefit_inactive),
+                        onClick = { openTwitchPage("https://gaming.amazon.com/") })
+                }
+                benefits.turbo?.let {
+                    addSettingRow(binding.accountRows, getString(R.string.account_turbo),
+                        getString(if (it) R.string.account_benefit_active else R.string.account_benefit_inactive),
+                        onClick = { openTwitchPage("https://www.twitch.tv/turbo") })
+                }
+            }
+
+            addSettingRow(
+                binding.accountRows,
+                getString(R.string.drops),
+                getString(R.string.drops_progress_title),
+                onClick = { openDrops() },
+            )
+            addSettingRow(binding.accountRows, getString(R.string.account_inventory), getString(R.string.account_inventory_hint),
+                onClick = { openTwitchPage("https://www.twitch.tv/drops/inventory") })
+            addSettingRow(
+                binding.accountRows,
+                getString(R.string.account_manage_on_twitch),
+                getString(R.string.account_open_twitch),
+                onClick = { openManageOnTwitch() },
+            )
+            addSettingRow(
+                binding.accountRows,
+                getString(R.string.log_out),
+                "",
+                onClick = { confirmLogout() },
+            )
+        }
     }
 
     private fun renderProfileDetails(state: AccountUiState) {
         binding.detailsRows.removeAllViews()
         val details = state.profileDetails?.takeIf { it.userId == state.user?.id }
-        if (state.profileDetailsError) {
+        if (state.profileDetailsError && details == null) {
             addSettingRow(binding.detailsRows, getString(R.string.account_details_error), "",
                 onClick = { viewModel.refreshProfileDetails() })
         } else if (state.profileDetailsLoading && details == null) {
@@ -1004,6 +1088,41 @@ class AccountActivity : AppCompatActivity() {
         val message: Int,
         val action: Int,
         val reauthorize: Boolean,
+    )
+
+    private data class ProfileRowsKey(
+        val userId: String?,
+        val description: String?,
+        val canEditBio: Boolean,
+        val canEditChatColor: Boolean,
+        val chatColor: String?,
+        val chatColorLoadError: String?,
+    )
+
+    private data class DetailsRowsKey(
+        val userId: String?,
+        val userCreatedAt: String?,
+        val profileDetails: AccountProfileDetails?,
+        val profileDetailsLoading: Boolean,
+        val profileDetailsError: Boolean,
+        val benefits: AccountBenefits?,
+    )
+
+    private data class ChannelRowsKey(
+        val canEditChannel: Boolean,
+        val canEditTags: Boolean,
+        val canEditChatSettings: Boolean,
+        val channel: ChannelInformation?,
+        val channelLoadError: String?,
+        val chatSettings: ChatSettings?,
+        val chatSettingsLoadError: String?,
+    )
+
+    private data class AccountRowsKey(
+        val userId: String?,
+        val benefits: AccountBenefits?,
+        val benefitsLoading: Boolean,
+        val benefitsError: Boolean,
     )
 
     companion object {

@@ -12,6 +12,8 @@ import com.github.andreyasadchy.xtra.model.helix.user.BlockedUser
 import com.github.andreyasadchy.xtra.model.helix.user.User
 import com.github.andreyasadchy.xtra.model.gql.ErrorResponse
 import com.github.andreyasadchy.xtra.repository.AccountCacheSnapshot
+import com.github.andreyasadchy.xtra.repository.AccountBenefitsCacheSnapshot
+import com.github.andreyasadchy.xtra.repository.AccountProfileDetailsCacheSnapshot
 import com.github.andreyasadchy.xtra.repository.TwitchApiException
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -200,6 +202,7 @@ private data class WebAccountSnapshot(
 
 data class AccountUiState(
     val loading: Boolean = true,
+    val cacheLoaded: Boolean = false,
     val user: User? = null,
     val profileDetails: AccountProfileDetails? = null,
     val profileDetailsLoading: Boolean = false,
@@ -239,27 +242,30 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
     private var categorySearchJob: Job? = null
     private var refreshJob: Job? = null
     private var profileDetailsJob: Job? = null
+    private var profileDetailsRequestUserId: String? = null
     private var benefitsJob: Job? = null
+    private var benefitsRequestUserId: String? = null
 
     init {
-        refresh()
+        refresh(force = false)
     }
 
-    fun refresh() {
+    fun refresh(force: Boolean = true) {
         if (refreshJob?.isActive == true) return
         refreshJob = viewModelScope.launch {
-            loadAccount()
-            if (_uiState.value.error == null) {
-                refreshProfileDetails()
-                refreshBenefits()
-            }
+            loadAccount(force)
         }
     }
 
     fun refreshBenefits() {
         val state = _uiState.value
         val userId = state.user?.id ?: return
-        if (!state.webSession || benefitsJob?.isActive == true) return
+        if (!state.webSession) return
+        if (benefitsJob?.isActive == true) {
+            if (benefitsRequestUserId == userId) return
+            benefitsJob?.cancel()
+        }
+        benefitsRequestUserId = userId
         benefitsJob = viewModelScope.launch {
             _uiState.update { it.copy(benefitsLoading = true, benefitsError = false,
                 benefits = it.benefits?.takeIf { benefits -> benefits.userId == userId }) }
@@ -275,17 +281,28 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     user.arrayValue("availableBadges").mapNotNull { it.string("title") }.distinct(),
                 )
                 _uiState.update { if (it.user?.id == userId) it.copy(benefits = benefits, benefitsLoading = false) else it }
+                if (_uiState.value.user?.id == userId) {
+                    persistAccountCache(userId = userId, benefitsValidated = true)
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                _uiState.update { it.copy(benefitsLoading = false, benefitsError = true) }
+                _uiState.update {
+                    if (it.user?.id == userId) it.copy(benefitsLoading = false, benefitsError = true) else it
+                }
+            } finally {
+                if (benefitsRequestUserId == userId) benefitsRequestUserId = null
             }
         }
     }
 
     fun refreshProfileDetails() {
         val userId = _uiState.value.user?.id ?: return
-        if (profileDetailsJob?.isActive == true) return
+        if (profileDetailsJob?.isActive == true) {
+            if (profileDetailsRequestUserId == userId) return
+            profileDetailsJob?.cancel()
+        }
+        profileDetailsRequestUserId = userId
         profileDetailsJob = viewModelScope.launch {
             _uiState.update {
                 it.copy(
@@ -329,15 +346,22 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 _uiState.update {
                     if (it.user?.id == userId) it.copy(profileDetails = details, profileDetailsLoading = false) else it
                 }
+                if (_uiState.value.user?.id == userId) {
+                    persistAccountCache(userId = userId, profileDetailsValidated = true)
+                }
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Exception) {
-                _uiState.update { it.copy(profileDetailsLoading = false, profileDetailsError = true) }
+                _uiState.update {
+                    if (it.user?.id == userId) it.copy(profileDetailsLoading = false, profileDetailsError = true) else it
+                }
+            } finally {
+                if (profileDetailsRequestUserId == userId) profileDetailsRequestUserId = null
             }
         }
     }
 
-    private suspend fun loadAccount() {
+    private suspend fun loadAccount(forceRefresh: Boolean) {
         val headers = TwitchApiHelper.getHelixHeaders(context)
         val token = headers[C.HEADER_TOKEN]
         val tokenUserId = context.tokenPrefs().getString(C.USER_ID, null)
@@ -349,8 +373,67 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             if (e is CancellationException) throw e
             null
         }
+        val initialUser = cached?.user ?: cachedUser()
+        val webSession = !webToken.isNullOrBlank()
+        val cachedUserId = tokenUserId ?: initialUser?.id
+        val cachedDetails = cached?.profileDetails
+            ?.takeIf { it.userId == cachedUserId }
+            ?.toAccountProfileDetails()
+        val cachedBenefits = cached?.benefits
+            ?.takeIf { it.userId == cachedUserId }
+            ?.toAccountBenefits()
+        val cachedCapabilities = if (webSession) WEB_ACCOUNT_CAPABILITIES
+            else AccountCapabilities.from(cached?.scopes.orEmpty())
+        val shouldRefreshProfileDetails = cachedUserId != null && (forceRefresh || cached?.profileDetailsFresh != true)
+        val shouldRefreshBenefits = webSession && cachedUserId != null && (forceRefresh || cached?.benefitsFresh != true)
+        _uiState.update {
+            it.copy(
+                loading = true,
+                cacheLoaded = true,
+                user = initialUser,
+                profileDetails = cachedDetails,
+                profileDetailsLoading = shouldRefreshProfileDetails,
+                profileDetailsError = false,
+                benefits = cachedBenefits,
+                benefitsLoading = shouldRefreshBenefits,
+                benefitsError = false,
+                webSession = webSession,
+                scopes = cached?.scopes.orEmpty(),
+                capabilities = cachedCapabilities,
+                chatColor = cached?.chatColor,
+                chatColorLoadError = null,
+                channel = cached?.channel,
+                channelLoadError = null,
+                chatSettings = cached?.chatSettings,
+                chatSettingsLoadError = null,
+                blockedUsers = cached?.blockedUsers.orEmpty(),
+                blockedUsersCursor = cached?.blockedUsersCursor,
+                blockedUsersLoading = false,
+                blockedUsersLoadError = null,
+                error = null,
+                actionError = null,
+                actionMessage = null,
+            )
+        }
+
+        if (shouldRefreshProfileDetails) refreshProfileDetails()
+        if (shouldRefreshBenefits) refreshBenefits()
+
+        val accountMatches = !tokenUserId.isNullOrBlank() && cached?.user?.id == tokenUserId
+        val cachedAccountFieldsFresh = cached != null && if (webSession) {
+            cached.chatColorFresh && cached.channelFresh && cached.chatSettingsFresh
+        } else {
+            cached.scopesFresh &&
+                (!cachedCapabilities.editChatColor || cached.chatColorFresh) &&
+                (!cachedCapabilities.editChannel || cached.channelFresh) &&
+                (!cachedCapabilities.editChatSettings || cached.chatSettingsFresh)
+        }
+        if (!forceRefresh && accountMatches && cached.accountFresh && cachedAccountFieldsFresh) {
+            _uiState.update { it.copy(loading = false, error = null) }
+            return
+        }
+
         if (!webToken.isNullOrBlank()) {
-            _uiState.update { it.copy(loading = true, error = null, actionError = null, actionMessage = null) }
             try {
                 val account = loadWebAccount()
                 _uiState.update {
@@ -376,10 +459,17 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 persistAccountCache(
                     userId = account.user.id,
                     login = account.user.login,
-                    chatColorValidated = account.chatColor != null,
+                    chatColorValidated = true,
                     channelValidated = true,
                     chatSettingsValidated = true,
+                    accountValidated = true,
                 )
+                if (account.user.id != cachedUserId && (forceRefresh || cached?.profileDetailsFresh != true)) {
+                    refreshProfileDetails()
+                }
+                if (account.user.id != cachedUserId && (forceRefresh || cached?.benefitsFresh != true)) {
+                    refreshBenefits()
+                }
                 return
             } catch (error: Exception) {
                 if (error is CancellationException) throw error
@@ -471,13 +561,17 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
             _uiState.update {
                 it.copy(scopes = scopes, capabilities = capabilities)
             }
-            val user = module.helixRepository.getUsers(
+            val loadedUser = module.helixRepository.getUsers(
                 networkLibrary = networkLibrary,
                 headers = headers,
                 ids = userId?.let { listOf(it) },
                 logins = if (userId.isNullOrBlank()) login?.let { listOf(it) } else null,
-            ).data.firstOrNull() ?: cached?.user ?: cachedUser()
+            ).data.firstOrNull()
+            val user = loadedUser ?: cached?.user ?: cachedUser()
             val resolvedUserId = userId ?: user?.id
+            if (resolvedUserId != null && resolvedUserId != cachedUserId && (forceRefresh || cached?.profileDetailsFresh != true)) {
+                refreshProfileDetails()
+            }
 
             supervisorScope {
                 val color = if (capabilities.editChatColor && resolvedUserId != null) {
@@ -505,7 +599,11 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                 val colorResult = color?.await()
                 val channelResult = channel?.await()
                 val chatSettingsResult = chatSettings?.await()
-                val loadedColor = colorResult?.getOrNull()?.takeIf(::isCanonicalChatColor) ?: cached?.chatColor
+                val loadedColor = if (colorResult?.isSuccess == true) {
+                    colorResult.getOrNull()?.takeIf(::isCanonicalChatColor)
+                } else {
+                    cached?.chatColor
+                }
                 val loadedChannel = channelResult?.getOrNull() ?: cached?.channel
                 val loadedChatSettings = chatSettingsResult?.getOrNull() ?: cached?.chatSettings
                 _uiState.update {
@@ -534,9 +632,10 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     userId = resolvedUserId,
                     login = login,
                     scopesValidated = true,
-                    chatColorValidated = colorResult?.getOrNull()?.let(::isCanonicalChatColor) == true,
+                    chatColorValidated = colorResult?.isSuccess == true,
                     channelValidated = channelResult?.getOrNull() != null,
                     chatSettingsValidated = chatSettingsResult?.getOrNull() != null,
+                    accountValidated = loadedUser != null,
                 )
             }
         } catch (error: Exception) {
@@ -1050,8 +1149,14 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
         channelValidated: Boolean = false,
         chatSettingsValidated: Boolean = false,
         blockedUsersValidated: Boolean = false,
+        accountValidated: Boolean = false,
+        profileDetailsValidated: Boolean = false,
+        benefitsValidated: Boolean = false,
     ) {
         val state = _uiState.value
+        if (profileDetailsValidated || benefitsValidated) {
+            if (userId.isNullOrBlank() || state.user?.id != userId) return
+        }
         val resolvedUserId = userId
             ?: state.user?.id
             ?: context.tokenPrefs().getString(C.USER_ID, null)
@@ -1071,12 +1176,17 @@ class AccountViewModel(application: Application) : AndroidViewModel(application)
                     chatSettings = state.chatSettings,
                     blockedUsers = state.blockedUsers,
                     blockedUsersCursor = state.blockedUsersCursor,
+                    profileDetails = state.profileDetails?.toCacheSnapshot(),
+                    benefits = state.benefits?.toCacheSnapshot(),
                 ),
                 scopesValidated = scopesValidated,
                 chatColorValidated = chatColorValidated,
                 channelValidated = channelValidated,
                 chatSettingsValidated = chatSettingsValidated,
                 blockedUsersValidated = blockedUsersValidated,
+                accountValidated = accountValidated,
+                profileDetailsValidated = profileDetailsValidated,
+                benefitsValidated = benefitsValidated,
             )
         } catch (e: Exception) {
             if (e is CancellationException) throw e
@@ -1144,6 +1254,52 @@ private fun JsonObject.intValue(name: String): Int? = string(name)?.toIntOrNull(
 
 private fun JsonObject.booleanValue(name: String): Boolean? = this[name]
     ?.let { runCatching { it.jsonPrimitive.content.toBooleanStrictOrNull() }.getOrNull() }
+
+private fun AccountProfileDetails.toCacheSnapshot() = AccountProfileDetailsCacheSnapshot(
+    userId = userId,
+    createdAt = createdAt,
+    followers = followers,
+    following = following,
+    lastBroadcast = lastBroadcast,
+    broadcasterType = broadcasterType,
+    staff = staff,
+    teamName = teamName,
+    teamLogin = teamLogin,
+    socialLinks = socialLinks,
+    live = live,
+    liveViewers = liveViewers,
+)
+
+private fun AccountProfileDetailsCacheSnapshot.toAccountProfileDetails() = AccountProfileDetails(
+    userId = userId,
+    createdAt = createdAt,
+    followers = followers,
+    following = following,
+    lastBroadcast = lastBroadcast,
+    broadcasterType = broadcasterType,
+    staff = staff,
+    teamName = teamName,
+    teamLogin = teamLogin,
+    socialLinks = socialLinks,
+    live = live,
+    liveViewers = liveViewers,
+)
+
+private fun AccountBenefits.toCacheSnapshot() = AccountBenefitsCacheSnapshot(
+    userId = userId,
+    prime = prime,
+    turbo = turbo,
+    selectedBadge = selectedBadge,
+    availableBadges = availableBadges,
+)
+
+private fun AccountBenefitsCacheSnapshot.toAccountBenefits() = AccountBenefits(
+    userId = userId,
+    prime = prime,
+    turbo = turbo,
+    selectedBadge = selectedBadge,
+    availableBadges = availableBadges,
+)
 
 private fun JsonObject.blockedUserFromJson(): BlockedUser? {
     val id = string("id") ?: return null

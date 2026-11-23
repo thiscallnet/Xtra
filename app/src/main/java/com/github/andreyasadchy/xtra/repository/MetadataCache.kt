@@ -61,7 +61,33 @@ internal object MetadataCachePolicy {
     const val CHANNEL_ABOUT_BOOTSTRAP_MAX_AGE_MS = 6L * 60 * 60 * 1_000L
     const val CHANNEL_SCHEDULE_BOOTSTRAP_MAX_AGE_MS = 30L * 60 * 1_000L
     const val TEAM_BOOTSTRAP_MAX_AGE_MS = 6L * 60 * 60 * 1_000L
+    const val ACCOUNT_BOOTSTRAP_MAX_AGE_MS = 5L * 60 * 1_000L
+    const val ACCOUNT_PROFILE_DETAILS_MAX_AGE_MS = 10L * 60 * 1_000L
+    const val ACCOUNT_BENEFITS_MAX_AGE_MS = 12L * 60 * 60 * 1_000L
 }
+
+data class AccountProfileDetailsCacheSnapshot(
+    val userId: String,
+    val createdAt: String?,
+    val followers: Int?,
+    val following: Int?,
+    val lastBroadcast: String?,
+    val broadcasterType: String?,
+    val staff: Boolean,
+    val teamName: String?,
+    val teamLogin: String?,
+    val socialLinks: List<Pair<String, String>>,
+    val live: Boolean,
+    val liveViewers: Int?,
+)
+
+data class AccountBenefitsCacheSnapshot(
+    val userId: String,
+    val prime: Boolean?,
+    val turbo: Boolean?,
+    val selectedBadge: String?,
+    val availableBadges: List<String>,
+)
 
 data class AccountCacheSnapshot(
     val user: HelixUser? = null,
@@ -71,6 +97,15 @@ data class AccountCacheSnapshot(
     val chatSettings: ChatSettings? = null,
     val blockedUsers: List<BlockedUser> = emptyList(),
     val blockedUsersCursor: String? = null,
+    val accountFresh: Boolean = false,
+    val scopesFresh: Boolean = false,
+    val chatColorFresh: Boolean = false,
+    val channelFresh: Boolean = false,
+    val chatSettingsFresh: Boolean = false,
+    val profileDetails: AccountProfileDetailsCacheSnapshot? = null,
+    val profileDetailsFresh: Boolean = false,
+    val benefits: AccountBenefitsCacheSnapshot? = null,
+    val benefitsFresh: Boolean = false,
 )
 
 data class ChannelPageCacheSnapshot(
@@ -167,6 +202,16 @@ class MetadataCache(
             validatedAt = hit.payload.chatSettingsValidatedAt,
             maxAgeMs = MetadataCachePolicy.ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS,
         )
+        val chatColorFresh = hit.isFresh(
+            freshnessVersion = hit.payload.freshnessVersion,
+            validatedAt = hit.payload.chatColorValidatedAt,
+            maxAgeMs = MetadataCachePolicy.ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS,
+        )
+        val channelFresh = hit.isFresh(
+            freshnessVersion = hit.payload.freshnessVersion,
+            validatedAt = hit.payload.channelValidatedAt,
+            maxAgeMs = MetadataCachePolicy.ACCOUNT_SETTINGS_BOOTSTRAP_MAX_AGE_MS,
+        )
         AccountCacheSnapshot(
             user = hit.payload.user,
             scopes = hit.payload.scopes.takeIf { sensitiveFresh }?.toSet().orEmpty(),
@@ -199,6 +244,27 @@ class MetadataCache(
                     maxAgeMs = MetadataCachePolicy.ACCOUNT_SENSITIVE_BOOTSTRAP_MAX_AGE_MS,
                 )
             },
+            accountFresh = hit.isFresh(
+                freshnessVersion = hit.payload.freshnessVersion,
+                validatedAt = hit.payload.accountValidatedAt,
+                maxAgeMs = MetadataCachePolicy.ACCOUNT_BOOTSTRAP_MAX_AGE_MS,
+            ),
+            scopesFresh = sensitiveFresh,
+            chatColorFresh = chatColorFresh,
+            channelFresh = channelFresh,
+            chatSettingsFresh = settingsFresh,
+            profileDetails = hit.payload.profileDetails?.toSnapshot(),
+            profileDetailsFresh = hit.isFresh(
+                freshnessVersion = hit.payload.freshnessVersion,
+                validatedAt = hit.payload.profileDetailsValidatedAt,
+                maxAgeMs = MetadataCachePolicy.ACCOUNT_PROFILE_DETAILS_MAX_AGE_MS,
+            ),
+            benefits = hit.payload.benefits?.toSnapshot(),
+            benefitsFresh = hit.isFresh(
+                freshnessVersion = hit.payload.freshnessVersion,
+                validatedAt = hit.payload.benefitsValidatedAt,
+                maxAgeMs = MetadataCachePolicy.ACCOUNT_BENEFITS_MAX_AGE_MS,
+            ),
         )
     }
 
@@ -212,6 +278,9 @@ class MetadataCache(
         channelValidated: Boolean = false,
         chatSettingsValidated: Boolean = false,
         blockedUsersValidated: Boolean = false,
+        accountValidated: Boolean = false,
+        profileDetailsValidated: Boolean = false,
+        benefitsValidated: Boolean = false,
     ) = withContext(Dispatchers.IO) {
         val payload = AccountCachePayload(
             freshnessVersion = METADATA_CACHE_FRESHNESS_VERSION,
@@ -222,6 +291,8 @@ class MetadataCache(
             chatSettings = snapshot.chatSettings,
             blockedUsers = snapshot.blockedUsers,
             blockedUsersCursor = snapshot.blockedUsersCursor,
+            profileDetails = snapshot.profileDetails?.toCached(),
+            benefits = snapshot.benefits?.toCached(),
         )
         writePayload(
             kind = ACCOUNT_KIND,
@@ -232,6 +303,15 @@ class MetadataCache(
             nowMs = nowMs,
             mergePayload = { previous, previousUpdatedAt ->
                 payload.copy(
+                    profileDetails = payload.profileDetails ?: previous?.profileDetails,
+                    benefits = payload.benefits ?: previous?.benefits,
+                    accountValidatedAt = fieldValidationTimestamp(
+                        validated = accountValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.accountValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
                     scopesValidatedAt = fieldValidationTimestamp(
                         validated = scopesValidated,
                         nowMs = nowMs,
@@ -265,6 +345,20 @@ class MetadataCache(
                         nowMs = nowMs,
                         previousVersion = previous?.freshnessVersion,
                         previousTimestamp = previous?.blockedUsersValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                    profileDetailsValidatedAt = fieldValidationTimestamp(
+                        validated = profileDetailsValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.profileDetailsValidatedAt,
+                        previousUpdatedAt = previousUpdatedAt,
+                    ),
+                    benefitsValidatedAt = fieldValidationTimestamp(
+                        validated = benefitsValidated,
+                        nowMs = nowMs,
+                        previousVersion = previous?.freshnessVersion,
+                        previousTimestamp = previous?.benefitsValidatedAt,
                         previousUpdatedAt = previousUpdatedAt,
                     ),
                 )
@@ -1098,11 +1192,93 @@ private data class AccountCachePayload(
     val chatSettings: ChatSettings? = null,
     val blockedUsers: List<BlockedUser> = emptyList(),
     val blockedUsersCursor: String? = null,
+    val profileDetails: CachedAccountProfileDetails? = null,
+    val benefits: CachedAccountBenefits? = null,
+    val accountValidatedAt: Long? = null,
     val scopesValidatedAt: Long? = null,
     val chatColorValidatedAt: Long? = null,
     val channelValidatedAt: Long? = null,
     val chatSettingsValidatedAt: Long? = null,
     val blockedUsersValidatedAt: Long? = null,
+    val profileDetailsValidatedAt: Long? = null,
+    val benefitsValidatedAt: Long? = null,
+)
+
+@Serializable
+private data class CachedAccountProfileDetails(
+    val userId: String,
+    val createdAt: String? = null,
+    val followers: Int? = null,
+    val following: Int? = null,
+    val lastBroadcast: String? = null,
+    val broadcasterType: String? = null,
+    val staff: Boolean = false,
+    val teamName: String? = null,
+    val teamLogin: String? = null,
+    val socialLinks: List<CachedAccountSocialLink> = emptyList(),
+    val live: Boolean = false,
+    val liveViewers: Int? = null,
+)
+
+@Serializable
+private data class CachedAccountSocialLink(
+    val title: String,
+    val url: String,
+)
+
+@Serializable
+private data class CachedAccountBenefits(
+    val userId: String,
+    val prime: Boolean? = null,
+    val turbo: Boolean? = null,
+    val selectedBadge: String? = null,
+    val availableBadges: List<String> = emptyList(),
+)
+
+private fun AccountProfileDetailsCacheSnapshot.toCached() = CachedAccountProfileDetails(
+    userId = userId,
+    createdAt = createdAt,
+    followers = followers,
+    following = following,
+    lastBroadcast = lastBroadcast,
+    broadcasterType = broadcasterType,
+    staff = staff,
+    teamName = teamName,
+    teamLogin = teamLogin,
+    socialLinks = socialLinks.map { (title, url) -> CachedAccountSocialLink(title, url) },
+    live = live,
+    liveViewers = liveViewers,
+)
+
+private fun CachedAccountProfileDetails.toSnapshot() = AccountProfileDetailsCacheSnapshot(
+    userId = userId,
+    createdAt = createdAt,
+    followers = followers,
+    following = following,
+    lastBroadcast = lastBroadcast,
+    broadcasterType = broadcasterType,
+    staff = staff,
+    teamName = teamName,
+    teamLogin = teamLogin,
+    socialLinks = socialLinks.map { it.title to it.url },
+    live = live,
+    liveViewers = liveViewers,
+)
+
+private fun AccountBenefitsCacheSnapshot.toCached() = CachedAccountBenefits(
+    userId = userId,
+    prime = prime,
+    turbo = turbo,
+    selectedBadge = selectedBadge,
+    availableBadges = availableBadges,
+)
+
+private fun CachedAccountBenefits.toSnapshot() = AccountBenefitsCacheSnapshot(
+    userId = userId,
+    prime = prime,
+    turbo = turbo,
+    selectedBadge = selectedBadge,
+    availableBadges = availableBadges,
 )
 
 @Serializable
