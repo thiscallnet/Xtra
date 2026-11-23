@@ -109,6 +109,7 @@ import com.github.andreyasadchy.xtra.util.m3u8.TwitchVaftDetector
 import com.github.andreyasadchy.xtra.util.m3u8.VaftBoundaryObservation
 import com.github.andreyasadchy.xtra.util.prefs
 import com.github.andreyasadchy.xtra.util.isVaftEnabled
+import com.github.andreyasadchy.xtra.util.tokenPrefs
 import com.github.andreyasadchy.xtra.repository.PlayerRepository
 import com.github.andreyasadchy.xtra.repository.preload.VaftPreloadedMediaSource
 import com.google.common.util.concurrent.Futures
@@ -128,10 +129,13 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.concurrent.schedule
 import kotlin.concurrent.scheduleAtFixedRate
+import kotlin.random.Random
 
 @OptIn(UnstableApi::class)
 class PlaybackService : MediaSessionService() {
@@ -195,6 +199,11 @@ class PlaybackService : MediaSessionService() {
     private var sleepTimerEndTime = 0L
     private var lastSavedPosition: Long? = null
     private var savePositionTimer: Timer? = null
+    private var viewedProgressSyncJob: Job? = null
+    private var viewedProgressSyncSessionKey: String? = null
+    private var currentMediaHasPlayed = false
+    private val viewedProgressSyncMutex = Mutex()
+    private var lastSuccessfulViewedProgress: ViewedProgressKey? = null
     private val viewingStatsSourceId = "playback-service:primary"
     private var primaryPlaybackWatchOwnerId: Long? = null
     private var primaryPlaybackWatchGeneration: Long? = null
@@ -211,6 +220,12 @@ class PlaybackService : MediaSessionService() {
     private var viewingStreamPreviewGeneration = 0L
     private var viewingContentType: String? = null
     private var viewingContentId: String? = null
+    private data class ViewedProgressKey(
+        val userId: String,
+        val videoType: String,
+        val videoId: String,
+        val positionSeconds: Int,
+    )
     private var streamStartupTrace: StreamStartupTrace? = null
     private var streamStartupMediaId: String? = null
     private var liveRewindActive = false
@@ -392,6 +407,9 @@ class PlaybackService : MediaSessionService() {
     private var pendingPlaybackQualityState: PlaybackState? = null
     private val mediaPreferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == C.SETTINGS_BACKGROUND_PLAYBACK) Handler(Looper.getMainLooper()).post { updateHiddenStreamAudio() }
+        if (key == C.PLAYER_USE_VIDEO_POSITIONS) {
+            mainHandler.post { mediaSession?.player?.let(::updateViewedProgressSync) }
+        }
         if (key == C.SYSTEM_MEDIA_CONTROLS_ENABLED ||
             key == C.SYSTEM_MEDIA_ARTWORK_SOURCE ||
             key == C.SYSTEM_MEDIA_SHOW_TITLE ||
@@ -466,6 +484,7 @@ class PlaybackService : MediaSessionService() {
                     updateVaft(player)
                     updateViewingStats(player)
                     if (isPlaying) {
+                        currentMediaHasPlayed = true
                         backgroundRecoveryTimer?.cancel()
                         backgroundRecoveryTimer = null
                         backgroundPlaybackStartedAtMs = SystemClock.elapsedRealtime()
@@ -488,6 +507,7 @@ class PlaybackService : MediaSessionService() {
                         savePositionTimer = null
                         updateSavedPosition()
                     }
+                    updateViewedProgressSync(player)
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
@@ -563,6 +583,7 @@ class PlaybackService : MediaSessionService() {
                     updateAdaptiveLiveSampleTicker(player)
                     updateVaft(player)
                     updateViewingStats(player)
+                    updateViewedProgressSync(player)
                     recordLiveBufferingTransition(playbackState, player)
                     if (viewingContentType == ViewingPlaybackMetadata.CONTENT_TYPE_LIVE &&
                         xtraModule.diagnosticsLogger.isEnabled
@@ -661,6 +682,7 @@ class PlaybackService : MediaSessionService() {
                         backgroundPlaybackStartedAtMs = null
                     }
                     updateVaft(player)
+                    updateViewedProgressSync(player)
                 }
 
                 override fun onPositionDiscontinuity(
@@ -698,6 +720,8 @@ class PlaybackService : MediaSessionService() {
                         cancelStreamStartupStallCheck()
                     }
                     updateHiddenStreamAudio()
+                    if (player.isPlaying && !player.isPlayingAd) currentMediaHasPlayed = true
+                    updateViewedProgressSync(player)
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "PlaybackLifecycle",
@@ -2532,6 +2556,11 @@ class PlaybackService : MediaSessionService() {
         player: Player,
     ) {
         finishViewingStats()
+
+        currentMediaHasPlayed = false
+        viewedProgressSyncJob?.cancel()
+        viewedProgressSyncJob = null
+        viewedProgressSyncSessionKey = null
 
         videoId = null
         offlineVideoId = null
@@ -6719,6 +6748,136 @@ class PlaybackService : MediaSessionService() {
         )
     }
 
+    private fun updateViewedProgressSync(player: Player) {
+        val syncKey = when (viewingContentType) {
+            ViewingPlaybackMetadata.CONTENT_TYPE_LIVE -> viewingContentId?.let { "LIVE:$it" }
+            ViewingPlaybackMetadata.CONTENT_TYPE_VOD -> viewingContentId?.let { "VOD:$it" }
+            else -> null
+        }
+        if (syncKey != viewedProgressSyncSessionKey) {
+            viewedProgressSyncJob?.cancel()
+            viewedProgressSyncJob = null
+            viewedProgressSyncSessionKey = syncKey
+        }
+        if (syncKey == null || !prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true)) {
+            viewedProgressSyncJob?.cancel()
+            viewedProgressSyncJob = null
+            return
+        }
+        if (player.isPlayingAd) return
+
+        if (player.playbackState == Player.STATE_ENDED) {
+            viewedProgressSyncJob?.cancel()
+            viewedProgressSyncJob = null
+            if (currentMediaHasPlayed) {
+                lifecycleScope.launch { sendCurrentViewedProgress(player, positionOverrideSeconds = 0) }
+            }
+            return
+        }
+        if (player.playbackState == Player.STATE_BUFFERING && player.playWhenReady) return
+        if (!player.isPlaying) {
+            viewedProgressSyncJob?.cancel()
+            viewedProgressSyncJob = null
+            if (!player.playWhenReady && currentMediaHasPlayed) {
+                lifecycleScope.launch { sendCurrentViewedProgress(player) }
+            }
+            return
+        }
+
+        currentMediaHasPlayed = true
+        if (viewedProgressSyncJob?.isActive == true) return
+
+        val isLive = syncKey.startsWith("LIVE:")
+        val firstDelayMs = if (isLive) Random.nextLong(1L, 300_001L) else VIDEO_VIEWING_PROGRESS_INTERVAL_MS
+        val repeatDelayMs = if (isLive) LIVE_VIEWING_PROGRESS_INTERVAL_MS else VIDEO_VIEWING_PROGRESS_INTERVAL_MS
+        viewedProgressSyncJob = lifecycleScope.launch {
+            delay(firstDelayMs)
+            while (viewedProgressSyncSessionKey == syncKey) {
+                val activePlayer = mediaSession?.player ?: break
+                if (currentMediaHasPlayed && activePlayer.isPlaying && !activePlayer.isPlayingAd) {
+                    sendCurrentViewedProgress(activePlayer)
+                }
+                delay(repeatDelayMs)
+            }
+        }
+    }
+
+    private suspend fun sendCurrentViewedProgress(player: Player, positionOverrideSeconds: Int? = null) {
+        viewedProgressSyncMutex.withLock {
+            if (!prefs().getBoolean(C.PLAYER_USE_VIDEO_POSITIONS, true) ||
+                player.currentTracks.isEmpty || player.isPlayingAd ||
+                (!currentMediaHasPlayed && positionOverrideSeconds == null)
+            ) return@withLock
+
+            val videoType = when (viewingContentType) {
+                ViewingPlaybackMetadata.CONTENT_TYPE_LIVE -> "LIVE"
+                ViewingPlaybackMetadata.CONTENT_TYPE_VOD -> "VOD"
+                else -> return@withLock
+            }
+            val contentId = viewingContentId?.takeIf(String::isNotBlank) ?: return@withLock
+            val positionSeconds = positionOverrideSeconds ?: when (videoType) {
+                "VOD" -> {
+                    val positionMs = player.currentPosition.coerceAtLeast(0L)
+                    val durationMs = player.duration
+                    if (durationMs > 0L && durationMs - positionMs < VOD_COMPLETION_RESET_THRESHOLD_MS) {
+                        0
+                    } else {
+                        (positionMs / 1_000L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+                    }
+                }
+                else -> currentLiveViewingPositionSeconds(player) ?: return@withLock
+            }
+            val userId = tokenPrefs().getString(C.USER_ID, null)?.takeIf(String::isNotBlank) ?: return@withLock
+            val headers = TwitchApiHelper.getGQLHeaders(this, includeToken = true)
+            if (headers[C.HEADER_TOKEN].isNullOrBlank()) return@withLock
+            val networkLibrary = prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
+            val progress = ViewedProgressKey(userId, videoType, contentId, positionSeconds)
+            if (lastSuccessfulViewedProgress == progress) return@withLock
+
+            val updated = xtraModule.graphQLRepository.updateVideoViewingHistoryPosition(
+                networkLibrary = networkLibrary,
+                headers = headers,
+                userId = userId,
+                videoId = contentId,
+                positionSeconds = positionSeconds,
+                videoType = videoType,
+            )
+            if (updated) {
+                lastSuccessfulViewedProgress = progress
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "TwitchViewingProgress",
+                        "resume position accepted type=$videoType seconds=$positionSeconds",
+                    )
+                }
+            } else if (BuildConfig.DEBUG) {
+                Log.w("TwitchViewingProgress", "resume position update failed type=$videoType")
+            }
+        }
+    }
+
+    private fun currentLiveViewingPositionSeconds(player: Player): Int? {
+        val streamStartedAtMs = resumptionState?.createdAt?.let { createdAt ->
+            runCatching { java.time.Instant.parse(createdAt).toEpochMilli() }.getOrNull()
+        }?.takeIf { it > 0L } ?: return null
+
+        val timeline = player.currentTimeline
+        val windowStartMs = if (!timeline.isEmpty && player.currentMediaItemIndex in 0 until timeline.windowCount) {
+            timeline.getWindow(player.currentMediaItemIndex, Timeline.Window()).windowStartTimeMs
+                .takeIf { it != Media3C.TIME_UNSET && it > 0L }
+        } else null
+        val playbackTimeMs = windowStartMs?.plus(player.currentPosition.coerceAtLeast(0L))
+            ?: player.currentLiveOffset
+                .takeIf { it != Media3C.TIME_UNSET && it >= 0L }
+                ?.let { System.currentTimeMillis() - it }
+            ?: return null
+
+        return ((playbackTimeMs - streamStartedAtMs) / 1_000L)
+            .coerceAtLeast(0L)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+    }
+
     private fun savePosition() {
         mediaSession?.player?.let { player ->
             resumptionState?.let { state ->
@@ -7064,6 +7223,10 @@ class PlaybackService : MediaSessionService() {
         if (viewingContentChanged) {
             diagnostics.resetForNewMedia()
             viewingStreamPreviewGeneration = System.currentTimeMillis()
+            currentMediaHasPlayed = false
+            viewedProgressSyncJob?.cancel()
+            viewedProgressSyncJob = null
+            viewedProgressSyncSessionKey = null
         }
         finishViewingStats()
         viewingChannelId = extras.getString(CHANNEL_ID)
@@ -7421,6 +7584,8 @@ class PlaybackService : MediaSessionService() {
         backgroundRecoveryTimer = null
         sleepTimer?.cancel()
         savePositionTimer?.cancel()
+        viewedProgressSyncJob?.cancel()
+        viewedProgressSyncJob = null
         mediaSession?.run {
             player.release()
             release()
@@ -7464,6 +7629,9 @@ class PlaybackService : MediaSessionService() {
         private const val RESUMPTION_STREAM_URL_TIMEOUT_MS = 8_000L
         private const val BACKGROUND_STALL_RECOVERY_DELAY_MS = 30_000L
         private const val BACKGROUND_STABLE_PLAYBACK_RESET_MS = 120_000L
+        private const val VIDEO_VIEWING_PROGRESS_INTERVAL_MS = 20_000L
+        private const val LIVE_VIEWING_PROGRESS_INTERVAL_MS = 600_000L
+        private const val VOD_COMPLETION_RESET_THRESHOLD_MS = 120_000L
         const val START_STREAM = "startStream"
         const val START_LIVE_REWIND = "startLiveRewind"
         const val LIVE_REWIND_MEDIA_ID_PREFIX = "xtra-live-rewind:"
