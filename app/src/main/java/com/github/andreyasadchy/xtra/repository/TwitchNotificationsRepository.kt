@@ -15,15 +15,29 @@ import kotlinx.serialization.json.putJsonObject
 import kotlinx.serialization.json.putJsonArray
 import java.util.Locale
 
+interface TwitchNotificationsDataSource {
+    companion object {
+        const val DEFAULT_PAGE_SIZE = 20
+    }
+
+    fun currentUserId(): String?
+    suspend fun getCachedNotifications(): TwitchNotificationPage?
+    suspend fun getNotifications(cursor: String? = null, limit: Int = DEFAULT_PAGE_SIZE): TwitchNotificationPage
+    suspend fun markNotificationsViewed(expectedUserId: String)
+    suspend fun markAllNotificationsRead(expectedUserId: String): Set<String>
+    suspend fun markNotificationsRead(ids: List<String>, expectedUserId: String)
+    suspend fun dismissNotification(id: String, expectedUserId: String)
+}
+
 class TwitchNotificationsRepository(
     private val context: Context,
     private val privateGqlClient: TwitchPrivateGqlClient,
     private val metadataCache: MetadataCache? = null,
-) {
+) : TwitchNotificationsDataSource {
     private var accountKey: String? = null
     private val cacheCommitGate = MetadataCacheCommitGate()
 
-    suspend fun getNotifications(cursor: String? = null, limit: Int = NOTIFICATIONS_PAGE_SIZE): TwitchNotificationPage {
+    override suspend fun getNotifications(cursor: String?, limit: Int): TwitchNotificationPage {
         val key = requireAccount()
         val generationAtStart = cacheCommitGate.generationAtStart()
         val result = privateGqlClient.executeDocument(
@@ -45,11 +59,12 @@ class TwitchNotificationsRepository(
         }
     }
 
-    suspend fun getCachedNotifications(): TwitchNotificationPage? =
+    override suspend fun getCachedNotifications(): TwitchNotificationPage? =
         metadataCache?.readNotifications(currentUserId())
 
-    suspend fun markNotificationsViewed() {
+    override suspend fun markNotificationsViewed(expectedUserId: String) {
         val key = requireAccount()
+        checkExpectedAccount(key, expectedUserId)
         privateGqlClient.executeDocument(
             networkLibrary(),
             webHeaders(),
@@ -59,19 +74,23 @@ class TwitchNotificationsRepository(
         checkAccount(key)
     }
 
-    suspend fun markAllNotificationsRead(): Set<String> {
+    override suspend fun markAllNotificationsRead(expectedUserId: String): Set<String> {
+        val key = requireAccount()
+        checkExpectedAccount(key, expectedUserId)
         val seenCursors = mutableSetOf<String>()
         val ids = buildList {
             var cursor: String? = null
             while (true) {
-                val page = getNotifications(cursor, limit = NOTIFICATIONS_PAGE_SIZE)
+                checkAccount(key)
+                val page = getNotifications(cursor, NOTIFICATIONS_PAGE_SIZE)
+                checkAccount(key)
                 addAll(page.notifications.filter { it.isUnread }.map { it.id })
                 val next = nextNotificationCursorOrThrow(page, seenCursors)
                 if (next == null) break
                 cursor = next
             }
         }
-        val key = requireAccount()
+        checkAccount(key)
         val result = privateGqlClient.executeDocument(
             networkLibrary(),
             webHeaders(),
@@ -89,10 +108,12 @@ class TwitchNotificationsRepository(
         return ids.toSet()
     }
 
-    suspend fun markNotificationsRead(ids: List<String>) {
+    override suspend fun markNotificationsRead(ids: List<String>, expectedUserId: String) {
         val idsToRead = ids.asSequence().filter(String::isNotBlank).distinct().toList()
         if (idsToRead.isEmpty()) return
         val key = requireAccount()
+        checkExpectedAccount(key, expectedUserId)
+        checkAccount(key)
         privateGqlClient.executeDocument(networkLibrary(), webHeaders(), TwitchPrivateGqlOperations.notificationsRead.operationName, TwitchPrivateGqlDocuments.notificationsRead, buildJsonObject {
             putJsonObject("input") { putJsonArray("ids") { idsToRead.forEach { add(kotlinx.serialization.json.JsonPrimitive(it)) } } }
         })
@@ -102,8 +123,9 @@ class TwitchNotificationsRepository(
         }
     }
 
-    suspend fun dismissNotification(id: String) {
+    override suspend fun dismissNotification(id: String, expectedUserId: String) {
         val key = requireAccount()
+        checkExpectedAccount(key, expectedUserId)
         privateGqlClient.executeDocument(networkLibrary(), webHeaders(), TwitchPrivateGqlOperations.notificationsDelete.operationName, TwitchPrivateGqlDocuments.notificationsDelete, buildJsonObject {
             putJsonObject("input") { put("id", id) }
         })
@@ -124,7 +146,7 @@ class TwitchNotificationsRepository(
         accountKey = null
     }
 
-    fun currentUserId(): String? = context.tokenPrefs().getString(C.USER_ID, null)
+    override fun currentUserId(): String? = context.tokenPrefs().getString(C.USER_ID, null)
 
     private fun webHeaders() = TwitchApiHelper.getWebGQLHeaders(context, includeToken = true)
     private fun networkLibrary() = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -139,6 +161,10 @@ class TwitchNotificationsRepository(
 
     private fun checkAccount(expected: String) {
         val actual = context.tokenPrefs().getString(C.USER_ID, null)
+        if (actual != expected) throw TwitchInboxException(TwitchInboxError.SignedOut)
+    }
+
+    private fun checkExpectedAccount(actual: String, expected: String) {
         if (actual != expected) throw TwitchInboxException(TwitchInboxError.SignedOut)
     }
 
@@ -180,4 +206,4 @@ private val SUPPORTED_NOTIFICATION_LANGUAGES = setOf(
     "ar", "cs", "de", "en", "es", "fr", "id", "it", "ja", "ko", "pl", "pt", "ru", "sk", "tr", "zh",
 )
 
-private const val NOTIFICATIONS_PAGE_SIZE = 20
+private const val NOTIFICATIONS_PAGE_SIZE = TwitchNotificationsDataSource.DEFAULT_PAGE_SIZE

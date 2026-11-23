@@ -127,12 +127,12 @@ class TwitchInboxRequestTest {
         assertNull(unknown.count)
         assertFalse(unknown.hasUnread)
 
-        val aggregateOverridesSeenCount = Json.parseToJsonElement(
+        val explicitZeroWithCategoryUnread = Json.parseToJsonElement(
             """{"data":{"currentUser":{"notifications":{"summary":{"unseenCount":0,"viewerUnreadSummary":{"unreadCount":2}}}}}}""",
         ).jsonObject
-        val stillUnread = parseNotificationSummary(aggregateOverridesSeenCount)
-        assertEquals(0, stillUnread.count)
-        assertTrue(stillUnread.hasUnread)
+        val explicitZero = parseNotificationSummary(explicitZeroWithCategoryUnread)
+        assertEquals(0, explicitZero.count)
+        assertFalse(explicitZero.hasUnread)
     }
 
     @Test

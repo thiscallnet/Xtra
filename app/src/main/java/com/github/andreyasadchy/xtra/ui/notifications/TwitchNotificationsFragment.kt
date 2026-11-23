@@ -35,7 +35,8 @@ class TwitchNotificationsFragment : Fragment() {
     private var _binding: FragmentTwitchNotificationsBinding? = null
     private val binding get() = _binding!!
     private val viewModel: TwitchNotificationsViewModel by viewModels {
-        TwitchNotificationsViewModel.factory((requireActivity().application as XtraApp).xtraModule.twitchNotificationsRepository)
+        val app = requireActivity().application as XtraApp
+        TwitchNotificationsViewModel.factory(app.xtraModule.twitchNotificationsRepository, app.applicationScope)
     }
     private lateinit var adapter: TwitchNotificationsAdapter
     private var lastShownError: TwitchInboxError? = null
@@ -54,7 +55,7 @@ class TwitchNotificationsFragment : Fragment() {
             onClick = { item -> viewModel.markRead(item, TwitchInboxMenuBinder::invalidateSummary); openAction(item) },
             onAvatarClick = { item -> (item.action as? TwitchNotificationAction.Channel)?.let(::openChannel) },
             onMarkRead = { item -> viewModel.markRead(item, TwitchInboxMenuBinder::invalidateSummary) },
-            onDismiss = viewModel::dismiss,
+            onDismiss = { item -> viewModel.dismiss(item, TwitchInboxMenuBinder::invalidateSummary) },
         )
         binding.recyclerView.layoutManager = LinearLayoutManager(requireContext())
         binding.recyclerView.adapter = adapter

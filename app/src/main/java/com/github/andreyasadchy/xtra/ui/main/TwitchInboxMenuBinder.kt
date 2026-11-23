@@ -9,7 +9,6 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.core.view.setPadding
-import androidx.lifecycle.lifecycleScope
 import androidx.appcompat.widget.Toolbar
 import androidx.navigation.Navigation
 import com.github.andreyasadchy.xtra.R
@@ -19,6 +18,7 @@ import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.tokenPrefs
 import java.util.WeakHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -32,6 +32,9 @@ object TwitchInboxMenuBinder {
     private var cachedWhisperSummary: com.github.andreyasadchy.xtra.repository.WhisperUnreadSummary? = null
     private var hasCachedSummary = false
     private var summaryGeneration = 0L
+    private var summaryRefreshJob: Job? = null
+    private var summaryRefreshAccount: String? = null
+    private var summaryRefreshToken: Any? = null
     private val boundToolbars = WeakHashMap<Toolbar, Unit>()
 
     fun invalidateSummary() {
@@ -63,7 +66,9 @@ object TwitchInboxMenuBinder {
             }
             return
         }
-        if (lastSummaryAccount != null && lastSummaryAccount != accountId) {
+        if ((lastSummaryAccount != null && lastSummaryAccount != accountId) ||
+            (summaryRefreshAccount != null && summaryRefreshAccount != accountId)
+        ) {
             invalidateSummary()
         }
 
@@ -74,7 +79,7 @@ object TwitchInboxMenuBinder {
             Navigation.findNavController(activity, R.id.navHostFragment).navigate(R.id.action_global_whispersFragment)
         } }
         applyCachedBadges()
-        refreshBadges(toolbar, activity)
+        refreshBadges(activity)
     }
 
     private fun applyCachedBadges() {
@@ -82,10 +87,10 @@ object TwitchInboxMenuBinder {
     }
 
     private fun cancelSummaryRefreshes() {
-        boundToolbars.keys.forEach { toolbar ->
-            (toolbar.getTag(R.id.twitch_inbox_refresh_job) as? Job)?.cancel()
-            toolbar.setTag(R.id.twitch_inbox_refresh_job, null)
-        }
+        summaryRefreshToken = null
+        summaryRefreshAccount = null
+        summaryRefreshJob?.cancel()
+        summaryRefreshJob = null
     }
 
     private fun applyCachedBadges(toolbar: Toolbar) {
@@ -114,16 +119,17 @@ object TwitchInboxMenuBinder {
         item.contentDescription = description
     }
 
-    private fun refreshBadges(toolbar: Toolbar, activity: MainActivity) {
+    private fun refreshBadges(activity: MainActivity) {
         val accountId = activity.tokenPrefs().getString(C.USER_ID, null) ?: return
         if (lastSummaryAccount == accountId && System.currentTimeMillis() - lastSummaryRefreshAt < SUMMARY_STALE_AFTER_MILLIS) return
-        val currentJob = toolbar.getTag(R.id.twitch_inbox_refresh_job) as? Job
+        val currentJob = summaryRefreshJob
         if (currentJob?.isActive == true) return
         val generation = summaryGeneration
-        val job = activity.lifecycleScope.launch {
-            val module = (activity.application as XtraApp).xtraModule
-            lastSummaryAccount = accountId
-            lastSummaryRefreshAt = System.currentTimeMillis()
+        val app = activity.application as XtraApp
+        val appContext = app.applicationContext
+        val module = app.xtraModule
+        val refreshToken = Any()
+        val job = app.applicationScope.launch(start = CoroutineStart.LAZY) {
             val (notificationSummary, whisperSummary) = withContext(Dispatchers.IO) {
                 suspend fun <T> request(block: suspend () -> T): T? = try {
                     block()
@@ -135,14 +141,32 @@ object TwitchInboxMenuBinder {
                 request { module.twitchNotificationsRepository.getUnreadSummary() } to
                     request { module.whispersRepository.getUnreadSummary() }
             }
-            // The generation check also covers requests whose underlying transport ignores cancellation.
-            if (activity.tokenPrefs().getString(C.USER_ID, null) != accountId || generation != summaryGeneration) return@launch
-            notificationSummary?.let { cachedNotificationSummary = it }
-            whisperSummary?.let { cachedWhisperSummary = it }
-            hasCachedSummary = cachedNotificationSummary != null || cachedWhisperSummary != null
-            applyCachedBadges()
+            withContext(Dispatchers.Main.immediate) {
+                if (summaryRefreshToken !== refreshToken) return@withContext
+                // The generation check also covers requests whose underlying transport ignores cancellation.
+                if (appContext.tokenPrefs().getString(C.USER_ID, null) != accountId || generation != summaryGeneration) {
+                    summaryRefreshJob = null
+                    summaryRefreshAccount = null
+                    summaryRefreshToken = null
+                    return@withContext
+                }
+                notificationSummary?.let { cachedNotificationSummary = it }
+                whisperSummary?.let { cachedWhisperSummary = it }
+                hasCachedSummary = cachedNotificationSummary != null || cachedWhisperSummary != null
+                if (notificationSummary != null || whisperSummary != null) {
+                    lastSummaryAccount = accountId
+                    lastSummaryRefreshAt = System.currentTimeMillis()
+                }
+                applyCachedBadges()
+                summaryRefreshJob = null
+                summaryRefreshAccount = null
+                summaryRefreshToken = null
+            }
         }
-        toolbar.setTag(R.id.twitch_inbox_refresh_job, job)
+        summaryRefreshJob = job
+        summaryRefreshAccount = accountId
+        summaryRefreshToken = refreshToken
+        job.start()
     }
 
     private class BadgeActionView(context: Context, icon: Int, description: String) : FrameLayout(context) {

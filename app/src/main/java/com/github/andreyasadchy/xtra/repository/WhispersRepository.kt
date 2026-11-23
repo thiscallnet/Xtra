@@ -15,12 +15,21 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonObject
 import java.security.SecureRandom
 
+interface WhisperThreadDataSource {
+    fun currentUserId(): String?
+    suspend fun getThread(threadId: String, cursor: String? = null): WhisperThreadDetails
+    suspend fun markThreadRead(threadId: String, lastReadMessageId: String, expectedUserId: String)
+    fun createWhisperNonce(): String
+    suspend fun sendWhisper(recipientUserId: String, message: String, nonce: String = createWhisperNonce()): SendWhisperResult
+    suspend fun findRecentThreadByPeer(peerId: String): String?
+}
+
 class WhispersRepository(
     private val context: Context,
     private val privateGqlClient: TwitchPrivateGqlClient,
     private val graphQLRepository: GraphQLRepository,
     private val metadataCache: MetadataCache? = null,
-) {
+) : WhisperThreadDataSource {
     private val secureRandom = SecureRandom()
     private val cacheCommitGate = MetadataCacheCommitGate()
 
@@ -60,7 +69,7 @@ class WhispersRepository(
         return scanWhisperUnreadPages(MAX_SUMMARY_THREAD_PAGES) { cursor -> fetchThreads(cursor, cacheResult = false) }
     }
 
-    suspend fun getThread(threadId: String, cursor: String? = null): WhisperThreadDetails {
+    override suspend fun getThread(threadId: String, cursor: String?): WhisperThreadDetails {
         val key = requireAccount()
         val result = privateGqlClient.executeDocument(networkLibrary(), webHeaders(), TwitchPrivateGqlOperations.whisperThread.operationName, TwitchPrivateGqlDocuments.whisperThread, buildJsonObject {
             put("id", threadId)
@@ -70,8 +79,9 @@ class WhispersRepository(
         return parseWhisperThreadDetails(result, key)
     }
 
-    suspend fun markThreadRead(threadId: String, lastReadMessageId: String) {
+    override suspend fun markThreadRead(threadId: String, lastReadMessageId: String, expectedUserId: String) {
         val key = requireAccount()
+        checkExpectedAccount(key, expectedUserId)
         privateGqlClient.executeDocument(networkLibrary(), webHeaders(), TwitchPrivateGqlOperations.whisperMarkRead.operationName, TwitchPrivateGqlDocuments.whisperMarkRead, buildJsonObject {
             putJsonObject("input") {
                 put("threadID", threadId)
@@ -84,9 +94,9 @@ class WhispersRepository(
         }
     }
 
-    fun createWhisperNonce(): String = generateWhisperNonce(secureRandom)
+    override fun createWhisperNonce(): String = generateWhisperNonce(secureRandom)
 
-    suspend fun sendWhisper(recipientUserId: String, message: String, nonce: String = createWhisperNonce()): SendWhisperResult {
+    override suspend fun sendWhisper(recipientUserId: String, message: String, nonce: String): SendWhisperResult {
         val key = requireAccount()
         val variables = buildSendWhisperVariables(recipientUserId, message, nonce)
         try {
@@ -126,7 +136,7 @@ class WhispersRepository(
         return null
     }
 
-    suspend fun findRecentThreadByPeer(peerId: String): String? =
+    override suspend fun findRecentThreadByPeer(peerId: String): String? =
         fetchThreads(cursor = null, cacheResult = false).threads.firstOrNull { it.peer.id == peerId }?.id
 
     fun clearAccountState() = Unit
@@ -138,7 +148,7 @@ class WhispersRepository(
         }
     }
 
-    fun currentUserId(): String? = context.tokenPrefs().getString(C.USER_ID, null)
+    override fun currentUserId(): String? = context.tokenPrefs().getString(C.USER_ID, null)
 
     private fun webHeaders() = TwitchApiHelper.getWebGQLHeaders(context, includeToken = true)
     private fun networkLibrary() = context.prefs().getString(C.NETWORK_LIBRARY, C.OKHTTP)
@@ -151,6 +161,10 @@ class WhispersRepository(
 
     private fun checkAccount(expected: String) {
         if (context.tokenPrefs().getString(C.USER_ID, null) != expected) throw TwitchInboxException(TwitchInboxError.SignedOut)
+    }
+
+    private fun checkExpectedAccount(actual: String, expected: String) {
+        if (actual != expected) throw TwitchInboxException(TwitchInboxError.SignedOut)
     }
 }
 

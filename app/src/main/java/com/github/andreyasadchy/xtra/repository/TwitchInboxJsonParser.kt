@@ -143,7 +143,8 @@ internal fun parseNotificationSummary(root: JsonObject): NotificationUnreadSumma
         .mapNotNull { summary.obj(it)?.int("unreadCount") }
         .takeIf { it.isNotEmpty() }
         ?.sum()
-    return NotificationUnreadSummary(count, (count ?: 0) > 0 || (aggregate ?: 0) > 0)
+    val hasUnread = count?.let { it > 0 } ?: ((aggregate ?: 0) > 0)
+    return NotificationUnreadSummary(count, hasUnread)
 }
 
 internal fun parseMarkAllNotificationsRead(root: JsonObject) {
