@@ -113,6 +113,7 @@ import com.github.andreyasadchy.xtra.ui.player.Media3PlayerViewModel.Companion.M
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_SCREEN
 import com.github.andreyasadchy.xtra.ui.settings.EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE
 import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_LIVE_CAPTIONS
+import com.github.andreyasadchy.xtra.ui.settings.SETTINGS_SCREEN_PLAYER
 import com.github.andreyasadchy.xtra.ui.settings.SettingsActivity
 import com.github.andreyasadchy.xtra.util.C
 import com.github.andreyasadchy.xtra.util.TwitchApiHelper
@@ -655,6 +656,15 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             if (videoType == STREAM) {
                 putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, C.PLAYER_LIVE_CAPTION_MODEL)
             }
+        }
+        (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
+            ?: startActivity(intent)
+    }
+
+    protected fun openPlayerSettingsAtPreference(preferenceKey: String) {
+        val intent = Intent(requireContext(), SettingsActivity::class.java).apply {
+            putExtra(EXTRA_SETTINGS_SCREEN, SETTINGS_SCREEN_PLAYER)
+            putExtra(EXTRA_SETTINGS_HIGHLIGHT_PREFERENCE, preferenceKey)
         }
         (activity as? MainActivity)?.settingsResultLauncher?.launch(intent)
             ?: startActivity(intent)
