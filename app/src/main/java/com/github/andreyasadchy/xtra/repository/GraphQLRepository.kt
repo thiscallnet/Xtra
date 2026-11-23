@@ -2,6 +2,7 @@ package com.github.andreyasadchy.xtra.repository
 
 import android.annotation.SuppressLint
 import android.net.http.HttpEngine
+import android.util.Log
 import com.apollographql.apollo.api.ApolloResponse
 import com.apollographql.apollo.api.CustomScalarAdapters
 import com.apollographql.apollo.api.Optional
@@ -203,6 +204,14 @@ class GraphQLRepository(
         }
     """.trimIndent()
 
+    private val updateUserViewedVideoMutation = """
+        mutation updateUserViewedVideo(${'$'}input: UpdateUserViewedVideoInput!) {
+          updateUserViewedVideo(input: ${'$'}input) {
+            video { id }
+          }
+        }
+    """.trimIndent()
+
     fun observeVideoPositions(localPositions: Flow<List<VideoPosition>>): Flow<List<VideoPosition>> =
         combine(localPositions, viewedVideoPositions) { local, viewed ->
             val localIds = local.mapTo(HashSet<Long>()) { it.id }
@@ -263,7 +272,7 @@ class GraphQLRepository(
                         ?: return@mapNotNull null
                     val history = edgeObject["history"] as? JsonObject ?: return@mapNotNull null
                     val positionMs = (history["position"] as? JsonPrimitive)
-                        ?.intOrNull?.takeIf { it > 0 }?.toLong()?.times(1_000L)
+                        ?.intOrNull?.takeIf { it >= 0 }?.toLong()?.times(1_000L)
                         ?: return@mapNotNull null
                     id to positionMs
                 }.toMap()
@@ -304,13 +313,99 @@ class GraphQLRepository(
                 ?.jsonObject
                 ?.get("position")
                 ?.jsonPrimitive?.intOrNull
-                ?.takeIf { it > 0 }
+                ?.takeIf { it >= 0 }
                 ?.toLong()
                 ?.times(1_000L)
         } catch (error: CancellationException) {
             throw error
         } catch (_: Exception) {
             null
+        }
+    }
+
+    /** Writes the current viewer's resume position using Twitch's player mutation. */
+    suspend fun updateVideoViewingHistoryPosition(
+        networkLibrary: String?,
+        headers: Map<String, String>,
+        userId: String?,
+        videoId: String,
+        positionSeconds: Int,
+        videoType: String,
+    ): Boolean {
+        val token = headers[C.HEADER_TOKEN]?.takeIf(String::isNotBlank) ?: return false
+        if (userId.isNullOrBlank() || videoId.isBlank() || positionSeconds < 0 ||
+            videoType !in setOf("LIVE", "VOD")
+        ) return false
+
+        return try {
+            val body = buildJsonObject {
+                put("operationName", "updateUserViewedVideo")
+                put("query", updateUserViewedVideoMutation)
+                putJsonObject("variables") {
+                    putJsonObject("input") {
+                        put("userID", userId)
+                        put("position", positionSeconds)
+                        put("videoID", videoId)
+                        put("videoType", videoType)
+                    }
+                }
+            }.toString()
+            val root = json.parseToJsonElement(sendPersistedQuery(networkLibrary, headers, body)).jsonObject
+            val errors = root["errors"] as? JsonArray
+            val data = root["data"] as? JsonObject
+            val updateResultPresent = data?.containsKey("updateUserViewedVideo") == true
+            val updatedVideo = data
+                ?.get("updateUserViewedVideo")
+                ?.takeUnless { it is JsonNull }
+                ?.jsonObject
+                ?.get("video")
+                ?.takeUnless { it is JsonNull }
+            // Twitch returns a nullable video for live broadcasts. The site awaits this
+            // mutation and treats GraphQL errors as failure, so require the result field
+            // but do not require the nested video object to be non-null.
+            val updated = errors.isNullOrEmpty() && updateResultPresent
+            if (!updated && com.github.andreyasadchy.xtra.BuildConfig.DEBUG) {
+                val errorCodes = errors?.mapNotNull { error ->
+                    (error as? JsonObject)?.get("extensions")
+                        ?.let { it as? JsonObject }
+                        ?.get("code")
+                        ?.let { it as? JsonPrimitive }
+                        ?.content
+                }.orEmpty().distinct()
+                Log.w(
+                    "TwitchViewingProgress",
+                    if (errors.isNullOrEmpty()) {
+                        "update response did not include updateUserViewedVideo dataKeys=${data?.keys?.joinToString().orEmpty()}"
+                    } else {
+                        "update rejected graphqlErrors=${errors.size} codes=${errorCodes.ifEmpty { listOf("unspecified") }.joinToString()}"
+                    },
+                )
+            }
+            if (updated && videoType == "VOD") {
+                videoId.toLongOrNull()?.let { id ->
+                    val authorizationFingerprint = MessageDigest.getInstance("SHA-256")
+                        .digest(token.toByteArray(Charsets.UTF_8))
+                    viewedVideoPositionsMutex.withLock {
+                        if (viewedVideoPositionsAuthorizationFingerprint
+                                ?.contentEquals(authorizationFingerprint) != true
+                        ) {
+                            _viewedVideoPositions.value = emptyMap()
+                            viewedVideoPositionsLastRequestAtMs = 0L
+                            viewedVideoPositionsAuthorizationFingerprint = authorizationFingerprint
+                        }
+                        _viewedVideoPositions.value = _viewedVideoPositions.value +
+                                (id to positionSeconds.toLong() * 1_000L)
+                    }
+                }
+            }
+            updated
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            if (com.github.andreyasadchy.xtra.BuildConfig.DEBUG) {
+                Log.w("TwitchViewingProgress", "update request failed type=$videoType error=${error.javaClass.simpleName}")
+            }
+            false
         }
     }
 
