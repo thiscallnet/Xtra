@@ -29,6 +29,7 @@ import coil3.request.target
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.FragmentGamePagerBinding
 import com.github.andreyasadchy.xtra.model.ui.Game
+import com.github.andreyasadchy.xtra.model.ui.Tag
 import com.github.andreyasadchy.xtra.ui.common.BaseNetworkFragment
 import com.github.andreyasadchy.xtra.ui.common.FragmentHost
 import com.github.andreyasadchy.xtra.ui.common.Scrollable
@@ -66,6 +67,8 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
     private var firstLaunch = true
     private var gameTitle = ""
     private var compactLandscapeAutoCollapseApplied = false
+    private var renderedGameTags: List<Pair<String?, String?>>? = null
+    private var renderedGameTagsVisible: Boolean? = null
 
     override val currentFragment: Fragment?
         get() = _binding?.viewPager?.currentItem?.let { childFragmentManager.findFragmentByTag("f$it") }
@@ -427,50 +430,58 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
             } else {
                 followers.visibility = View.GONE
             }
-            if (!game?.tags.isNullOrEmpty() && requireContext().prefs().getBoolean(C.UI_TAGS, true)) {
-                tagsLayout.removeAllViews()
-                tagsLayout.visibility = View.VISIBLE
-                val tagsFlowLayout = Flow(requireContext()).apply {
-                    layoutParams = ConstraintLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    ).apply {
-                        topToTop = tagsLayout.id
-                        bottomToBottom = tagsLayout.id
-                        startToStart = tagsLayout.id
-                        endToEnd = tagsLayout.id
-                    }
-                    setWrapMode(Flow.WRAP_CHAIN)
-                    setHorizontalStyle(ConstraintSet.CHAIN_PACKED)
-                    setHorizontalBias(0f)
-                    setVerticalStyle(ConstraintSet.CHAIN_PACKED)
-                }
-                tagsLayout.addView(tagsFlowLayout)
-                val ids = mutableListOf<Int>()
-                for (tag in game.tags) {
-                    val chip = Chip(requireContext())
-                    val id = View.generateViewId()
-                    chip.id = id
-                    ids.add(id)
-                    chip.text = tag.name
-                    chip.isClickable = tag.id != null
-                    chip.isFocusable = tag.id != null
-                    if (tag.id != null) {
-                        chip.setOnClickListener {
-                            findNavController().navigate(
-                                GamesFragmentDirections.actionGlobalGamesFragment(
-                                    tags = arrayOf(tag)
-                                )
-                            )
-                        }
-                    }
-                    tagsLayout.addView(chip)
-                }
-                tagsFlowLayout.referencedIds = ids.toIntArray()
-            } else {
-                tagsLayout.visibility = View.GONE
-            }
+            renderGameTags(game?.tags, requireContext().prefs().getBoolean(C.UI_TAGS, true))
         }
+    }
+
+    private fun renderGameTags(tags: List<Tag>?, enabled: Boolean) {
+        val visible = enabled && !tags.isNullOrEmpty()
+        val tagKey = tags.orEmpty().map { it.id to it.name }
+        if (renderedGameTagsVisible == visible && (!visible || renderedGameTags == tagKey)) return
+        renderedGameTagsVisible = visible
+        renderedGameTags = tagKey
+        binding.tagsLayout.removeAllViews()
+        if (!visible) {
+            binding.tagsLayout.visibility = View.GONE
+            return
+        }
+
+        binding.tagsLayout.visibility = View.VISIBLE
+        val tagsFlowLayout = Flow(requireContext()).apply {
+            layoutParams = ConstraintLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ).apply {
+                topToTop = binding.tagsLayout.id
+                bottomToBottom = binding.tagsLayout.id
+                startToStart = binding.tagsLayout.id
+                endToEnd = binding.tagsLayout.id
+            }
+            setWrapMode(Flow.WRAP_CHAIN)
+            setHorizontalStyle(ConstraintSet.CHAIN_PACKED)
+            setHorizontalBias(0f)
+            setVerticalStyle(ConstraintSet.CHAIN_PACKED)
+        }
+        binding.tagsLayout.addView(tagsFlowLayout)
+        val ids = mutableListOf<Int>()
+        tags.orEmpty().forEach { tag ->
+            val chip = Chip(requireContext())
+            val id = View.generateViewId()
+            chip.id = id
+            ids += id
+            chip.text = tag.name
+            chip.isClickable = tag.id != null
+            chip.isFocusable = tag.id != null
+            if (tag.id != null) {
+                chip.setOnClickListener {
+                    findNavController().navigate(
+                        GamesFragmentDirections.actionGlobalGamesFragment(tags = arrayOf(tag)),
+                    )
+                }
+            }
+            binding.tagsLayout.addView(chip)
+        }
+        tagsFlowLayout.referencedIds = ids.toIntArray()
     }
 
     override fun scrollToTop() {
@@ -489,6 +500,8 @@ class GamePagerFragment : BaseNetworkFragment(), Scrollable, FragmentHost {
 
     override fun onDestroyView() {
         dispatchPagerScrollState(false)
+        renderedGameTags = null
+        renderedGameTagsVisible = null
         super.onDestroyView()
         _binding = null
     }

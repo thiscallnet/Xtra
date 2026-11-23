@@ -4,7 +4,7 @@ import androidx.core.view.isVisible
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.databinding.ItemSectionStatusBinding
 
-enum class SectionLoadState { LOADING, READY, FAILED }
+enum class SectionLoadState { LOADING, READY, STALE, FAILED }
 
 data class SectionStatus(val loading: Boolean, val hasCachedData: Boolean = false)
 

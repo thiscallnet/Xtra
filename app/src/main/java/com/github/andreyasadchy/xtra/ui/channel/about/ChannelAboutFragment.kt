@@ -174,22 +174,34 @@ class ChannelAboutFragment : BaseNetworkFragment(), com.github.andreyasadchy.xtr
                     viewModel.state.collectLatest { state ->
                         with(binding) {
                             loading.isVisible = state == ChannelAboutViewModel.LoadState.Loading
-                            retry.isVisible = state == ChannelAboutViewModel.LoadState.Failed
+                            retry.isVisible = state == ChannelAboutViewModel.LoadState.Failed || state == ChannelAboutViewModel.LoadState.Stale
                             val hasAbout = !viewModel.description.value.isNullOrBlank() || !viewModel.team.value?.second.isNullOrBlank() || !viewModel.originalName.value.isNullOrBlank()
                             aboutCard.isVisible = hasAbout
                             val empty = !hasAbout && viewModel.socialMedias.value.isNullOrEmpty() && viewModel.panels.value.isNullOrEmpty()
-                            status.isVisible = state == ChannelAboutViewModel.LoadState.Failed || (state == ChannelAboutViewModel.LoadState.Ready && empty)
-                            status.setText(if (state == ChannelAboutViewModel.LoadState.Failed) R.string.channel_about_failed else R.string.channel_about_empty)
+                            status.isVisible = state == ChannelAboutViewModel.LoadState.Failed || state == ChannelAboutViewModel.LoadState.Stale || (state == ChannelAboutViewModel.LoadState.Ready && empty)
+                            status.setText(
+                                when (state) {
+                                    ChannelAboutViewModel.LoadState.Failed -> R.string.channel_about_failed
+                                    ChannelAboutViewModel.LoadState.Stale -> R.string.section_stale
+                                    else -> R.string.channel_about_empty
+                                },
+                            )
                         }
                     }
                 }
                 launch {
                     viewModel.scheduleState.collectLatest { state ->
                         binding.scheduleLoading.isVisible = state == ChannelAboutViewModel.LoadState.Loading
-                        binding.scheduleRetry.isVisible = state == ChannelAboutViewModel.LoadState.Failed
+                        binding.scheduleRetry.isVisible = state == ChannelAboutViewModel.LoadState.Failed || state == ChannelAboutViewModel.LoadState.Stale
                         renderSchedule()
-                        binding.scheduleStatus.isVisible = state != ChannelAboutViewModel.LoadState.Loading && (state == ChannelAboutViewModel.LoadState.Failed || binding.scheduleList.childCount == 0)
-                        binding.scheduleStatus.setText(if (state == ChannelAboutViewModel.LoadState.Failed) R.string.channel_schedule_failed else R.string.channel_schedule_empty)
+                        binding.scheduleStatus.isVisible = state == ChannelAboutViewModel.LoadState.Failed || state == ChannelAboutViewModel.LoadState.Stale || (state == ChannelAboutViewModel.LoadState.Ready && binding.scheduleList.childCount == 0)
+                        binding.scheduleStatus.setText(
+                            when (state) {
+                                ChannelAboutViewModel.LoadState.Failed -> R.string.channel_schedule_failed
+                                ChannelAboutViewModel.LoadState.Stale -> R.string.section_stale
+                                else -> R.string.channel_schedule_empty
+                            },
+                        )
                     }
                 }
                 launch {
