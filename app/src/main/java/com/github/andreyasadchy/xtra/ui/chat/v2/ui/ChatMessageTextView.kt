@@ -168,6 +168,7 @@ open class ChatMessageTextView private constructor(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var onMessageLongClick: ((ChatMessageId) -> Unit)? = null
     private var onMessageClick: ((ChatMessageId) -> Unit)? = null
+    private var onReplyClick: ((ChatMessageId) -> Unit)? = null
     private var onEmoteClick: ((ChatEmoteInteraction) -> Unit)? = null
     private var onEmoteLongClick: ((ChatEmoteInteraction) -> Unit)? = null
     private var onEmoteMessageClick: ((ChatMessageId) -> Unit)? = null
@@ -232,6 +233,10 @@ open class ChatMessageTextView private constructor(
     fun setMessageClickCallback(callback: ((ChatMessageId) -> Unit)?) {
         onMessageClick = callback
         isClickable = onMessageClick != null
+    }
+
+    fun setReplyClickCallback(callback: ((ChatMessageId) -> Unit)?) {
+        onReplyClick = callback
     }
 
     fun setClipPreviewClickCallback(callback: ((String) -> Unit)?) {
@@ -1280,6 +1285,16 @@ open class ChatMessageTextView private constructor(
             output.length,
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
         )
+        val replyMessageId = boundMessageId
+        val replyClick = onReplyClick
+        if (!piece.parentMessage.isNullOrBlank() && replyMessageId != null && replyClick != null && output.length > start) {
+            output.setSpan(
+                ReplyClickableSpan { replyClick(replyMessageId) },
+                start,
+                output.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
         structured?.let {
             val userStart = start + it.prefix.length
             output.setSpan(
@@ -1325,6 +1340,11 @@ open class ChatMessageTextView private constructor(
         private val onClick: (ChatEmoteInteraction) -> Unit,
     ) : ClickableSpan() {
         override fun onClick(widget: View) = onClick(interaction)
+        override fun updateDrawState(ds: TextPaint) = Unit
+    }
+
+    private class ReplyClickableSpan(private val onClick: () -> Unit) : ClickableSpan() {
+        override fun onClick(widget: View) = onClick()
         override fun updateDrawState(ds: TextPaint) = Unit
     }
 

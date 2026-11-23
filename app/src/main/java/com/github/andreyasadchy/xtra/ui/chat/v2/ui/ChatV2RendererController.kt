@@ -109,6 +109,7 @@ class ChatV2RendererController(
     private val presentationLabels: ChatPresentationLabels = ChatPresentationLabels(),
     private val onStateChanged: (ChatViewportState) -> Unit = {},
     private val onMessageLongClick: (ChatMessage) -> Unit = {},
+    private val onReplyClick: (ChatMessage) -> Unit = {},
     private val rewardCatalog: Flow<ChatRewardCatalog> = flowOf(ChatRewardCatalog()),
     private val rewardCatalogSettled: Flow<Boolean> = flowOf(true),
     private val decorationCatalog: Flow<ChatDecorationSnapshot> = flowOf(ChatDecorationSnapshot()),
@@ -140,6 +141,9 @@ class ChatV2RendererController(
         },
         onMessageClick = { id ->
             latestMessages.firstOrNull { it.id == id }?.let(onMessageLongClick)
+        },
+        onReplyClick = { id ->
+            latestMessages.firstOrNull { it.id == id }?.let(onReplyClick)
         },
         onEmoteClick = onEmoteClick,
         onGifClick = onGifClick,
