@@ -1545,6 +1545,7 @@ Tap to search everywhere</string>
     <string name="show_playlist_tags">Show playlist tags</string>
     <string name="show_media_playlist_tags">Show media playlist tags</string>
     <string name="show_multivariant_playlist_tags">Show multivariant playlist tags</string>
+    <string name="playlist_tags_unavailable">No playlist tags are available for this item.</string>
     <string name="use_gamepager">Use tabs for \"Games\" page</string>
     <string name="disable_background_video">Disable video rendering in the background</string>
     <string name="use_background_audio_track">Switch to audio-only track in the background</string>
