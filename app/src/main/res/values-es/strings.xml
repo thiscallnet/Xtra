@@ -196,6 +196,7 @@
     <string name="user_affiliate">Afiliado</string>
     <string name="user_staff">Personal</string>
     <string name="uptime">%s en vivo</string>
+    <string name="player_uptime">Tiempo de emisión %1$s</string>
     <string name="show_tags">Mostrar etiquetas</string>
     <string name="recentMsg_enable">Cargar mensajes recientes</string>
     <string name="recentMsg_limit">Límite de mensajes recientes</string>
@@ -1056,6 +1057,8 @@
     <string name="channel_points_reward_redeem">Canjear</string>
     <string name="channel_points_reward_redeemed">%s canjeado</string>
     <string name="channel_points_reward_failed">No se pudo canjear %1$s: %2$s</string>
+    <string name="channel_points_reward_unavailable">Esta recompensa no está disponible ahora mismo</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s, no disponible</string>
     <string name="channel_points_poll">Encuesta: %s</string>
     <string name="channel_points_last_poll">Última encuesta: %s</string>
     <string name="channel_points_prediction">Predicción: %s</string>

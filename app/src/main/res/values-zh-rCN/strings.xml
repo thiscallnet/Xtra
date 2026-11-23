@@ -191,6 +191,7 @@
     <string name="user_affiliate">直播盟友</string>
     <string name="user_staff">工作人员</string>
     <string name="uptime">%s 直播时间</string>
+    <string name="player_uptime">直播时长 %1$s</string>
     <string name="show_tags">显示标签</string>
     <string name="recentMsg_enable">载入最近的信息</string>
     <string name="recentMsg_limit">最近的信息限制</string>
@@ -1051,6 +1052,8 @@
     <string name="channel_points_reward_redeem">兑换</string>
     <string name="channel_points_reward_redeemed">已兑换 %s</string>
     <string name="channel_points_reward_failed">无法兑换 %1$s： %2$s</string>
+    <string name="channel_points_reward_unavailable">此奖励目前不可用</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s，不可用</string>
     <string name="channel_points_poll">投票： %s</string>
     <string name="channel_points_last_poll">最后投票： %s</string>
     <string name="channel_points_prediction">预测： %s</string>

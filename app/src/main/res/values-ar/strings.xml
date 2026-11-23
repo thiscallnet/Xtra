@@ -191,6 +191,7 @@
     <string name="user_affiliate">الشركة التابعة</string>
     <string name="user_staff">طاقم العمل</string>
     <string name="uptime">وقت تشغيل%s</string>
+    <string name="player_uptime">مدة البث %1$s</string>
     <string name="show_tags">عرض العلامات</string>
     <string name="recentMsg_enable">قم بتحميل الرسائل الأخيرة</string>
     <string name="recentMsg_limit">حد الرسائل الأخيرة</string>
@@ -1051,6 +1052,8 @@
     <string name="channel_points_reward_redeem">استرداد</string>
     <string name="channel_points_reward_redeemed">تم الاسترداد%s</string>
     <string name="channel_points_reward_failed">تعذر استرداد%1$s:%2$s</string>
+    <string name="channel_points_reward_unavailable">هذه المكافأة غير متاحة الآن</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s، غير متاحة</string>
     <string name="channel_points_poll">الاستطلاع:%s</string>
     <string name="channel_points_last_poll">الاستطلاع الأخير:%s</string>
     <string name="channel_points_prediction">التنبؤ:%s</string>

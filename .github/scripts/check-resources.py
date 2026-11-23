@@ -87,11 +87,6 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "anonymous_mode_summary",
     "anonymous_mode_profile_description",
     # VAFT priority and quality status use default English copy until localized.
-    "settings_vaft_playback_priority",
-    "settings_vaft_priority_continuity",
-    "settings_vaft_priority_live",
-    "settings_vaft_priority_continuity_summary",
-    "settings_vaft_priority_live_summary",
     "settings_vaft_ad_preview",
     "settings_vaft_ad_preview_summary",
     "vaft_ad_preview_label",
@@ -145,10 +140,6 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "watch_streak_notification_title",
     "notification_watch_streak_channel_title",
     "notification_watch_streak_channel_description",
-    # Pinned-message settings use the default English wording until the new
-    # preference is translated across supported locales.
-    "settings_chat_remember_dismissed_pinned_messages",
-    "settings_chat_remember_dismissed_pinned_messages_summary",
     # Emoji picker labels currently use the default English wording until
     # the picker is translated consistently across locales.
     "emoji",
@@ -191,10 +182,6 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_ui_style",
     "settings_ui_style_classic",
     "settings_ui_style_expressive",
-    # Compact phone navigation overflow uses the default English labels until
-    # those new destinations are reviewed and localized.
-    "navigation_more",
-    "navigation_more_destinations",
     # Search landing copy ships in English until the new unified entry screen
     # is reviewed and localized.
     "search_landing_title",
@@ -467,15 +454,9 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "settings_live_skip_buttons",
     "settings_live_skip_buttons_summary",
     # Player-control editor labels are currently English-only until translated.
-    "settings_home_controls",
-    "settings_home_controls_summary",
-    "settings_layout_preview",
     "settings_customize_hud",
     "settings_customize_hud_summary",
     "settings_preview_empty",
-    "settings_player_control_metadata",
-    "settings_player_control_timeline",
-    "settings_customize_controls_position",
     # HUD setup sharing labels currently use the default English wording until
     # the editor's new share flow is translated.
     "settings_hud_editor_drag_hint",
@@ -905,7 +886,6 @@ INTENTIONAL_FALLBACK_RESOURCES = {
     "chat_api_commands_disabled",
     # Grid pinch feedback and accessibility labels use default English wording
     # until their translations are reviewed.
-    "grid_columns_changed",
     "increase_grid_columns",
     "decrease_grid_columns",
     # Signed-in profile labels use default English wording until their
@@ -1119,6 +1099,7 @@ def main() -> int:
     marker_regressions: list[str] = []
     plural_regressions: list[str] = []
     array_regressions: list[str] = []
+    used_intentional_fallbacks: set[str] = set()
     directories = [RES / "values"] + [
         directory
         for directory in sorted(RES.glob("values-*"))
@@ -1160,6 +1141,7 @@ def main() -> int:
         locale_plurals = plural_quantities(directory)
         locale_arrays = resource_arrays(directory)
         missing = default_keys - translated
+        used_intentional_fallbacks.update(missing & INTENTIONAL_FALLBACK_RESOURCES)
         print(
             f"{directory.name}: {len(translated)}/{len(default_keys)} present; "
             f"{len(missing)} fallback resources"
@@ -1213,6 +1195,13 @@ def main() -> int:
             translated_value = translated_values.get(key, "")
             if TRANSLATION_MARKER.search(translated_value) or CONTROL_PICTURE.search(translated_value):
                 marker_regressions.append(f"{directory.name}:{key}: translation marker leaked into resources")
+
+    stale_intentional_fallbacks = INTENTIONAL_FALLBACK_RESOURCES - used_intentional_fallbacks
+    if stale_intentional_fallbacks:
+        coverage_regressions.append(
+            "Intentional fallback allowlist contains keys no longer missing in any locale: "
+            + ", ".join(sorted(stale_intentional_fallbacks))
+        )
 
     if coverage_regressions:
         print("Translation coverage regressed:", file=sys.stderr)

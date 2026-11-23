@@ -191,6 +191,7 @@
     <string name="user_affiliate">アフェリエイト</string>
     <string name="user_staff">スタッフ</string>
     <string name="uptime">%s 経過</string>
+    <string name="player_uptime">配信時間 %1$s</string>
     <string name="show_tags">タグの表示</string>
     <string name="recentMsg_enable">最新のメッセージを読み込み</string>
     <string name="recentMsg_limit">最新のメッセージの数の上限</string>
@@ -1051,6 +1052,8 @@
     <string name="channel_points_reward_redeem">引き換えます</string>
     <string name="channel_points_reward_redeemed">%sを引き換えました</string>
     <string name="channel_points_reward_failed">引き換えできませんでした %1$s: %2$s</string>
+    <string name="channel_points_reward_unavailable">この報酬は現在利用できません</string>
+    <string name="channel_points_reward_unavailable_accessibility">%s、利用できません</string>
     <string name="channel_points_poll">投票: %s</string>
     <string name="channel_points_last_poll">前回の投票: %s</string>
     <string name="channel_points_prediction">予測: %s</string>
