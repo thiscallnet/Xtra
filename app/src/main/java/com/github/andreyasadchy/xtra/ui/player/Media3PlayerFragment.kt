@@ -103,8 +103,10 @@ import com.github.andreyasadchy.xtra.ui.player.captions.liveCaptionUsesSystemEng
 import com.google.mlkit.genai.common.FeatureStatus
 import com.github.andreyasadchy.xtra.ui.player.captions.MoonshineModelState
 import com.github.andreyasadchy.xtra.ui.tv.TvFocusHelper
-import com.github.andreyasadchy.xtra.ui.tv.applyTvChatPresentation
+import com.github.andreyasadchy.xtra.ui.tv.TvChatMode
+import com.github.andreyasadchy.xtra.ui.tv.applyTvChatPresentation as applyTvChatPresentationLayout
 import com.github.andreyasadchy.xtra.ui.tv.tvChatMode
+import com.github.andreyasadchy.xtra.ui.tv.tvChatOverlayConfig
 import com.github.andreyasadchy.xtra.ui.tv.TvPlayerCommand
 import com.github.andreyasadchy.xtra.ui.tv.TvRemoteKeyHandler
 import com.github.andreyasadchy.xtra.ui.tv.tvPlayerCommand
@@ -2040,6 +2042,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 }
                 chatFragment = fragment
             }
+            applyChatOverlayBackgroundOpacity(isChatOpen)
             refreshPlayerControls()
             binding.playerControls.root.refreshAvailability()
             hideTvSecondaryActions()
@@ -2285,7 +2288,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
                 }
             }
             if (requireContext().isTelevision() && !isPortrait) {
-                applyTvChatPresentation(chatLayout, playerLayout, slidingLayout, isChatOpen)
+                applyTvChatPresentationForCurrentState(isChatOpen)
             } else if (!isPortrait) {
                 applyPhoneChatPresentation(isChatOpen)
             }
@@ -2649,7 +2652,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             chatLayout.clearFocus()
             setChatLayoutVisibility(View.GONE)
             if (requireContext().isTelevision()) {
-                applyTvChatPresentation(chatLayout, playerLayout, slidingLayout, false)
+                applyTvChatPresentationForCurrentState(false)
             } else if (!isPortrait) {
                 applyPhoneChatPresentation(false)
             }
@@ -2695,7 +2698,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             }
             setChatLayoutVisibility(View.VISIBLE)
             if (requireContext().isTelevision()) {
-                applyTvChatPresentation(chatLayout, playerLayout, slidingLayout, true)
+                applyTvChatPresentationForCurrentState(true)
             } else if (!isPortrait) {
                 applyPhoneChatPresentation(true)
             }
@@ -2703,6 +2706,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
     }
 
     private fun applyPhoneChatPresentation(visible: Boolean) {
+        applyChatOverlayBackgroundOpacity(visible)
         val overlayMode = !isPortrait && isMaximized && phoneChatOverlayEnabled(requireContext())
         if (!overlayMode) {
             phoneChatOverlayGesture?.setActive(false)
@@ -2736,6 +2740,29 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
             },
         )
         phoneChatOverlayGesture?.setActive(applied && visible && overlayMode)
+    }
+
+    private fun applyTvChatPresentationForCurrentState(visible: Boolean) {
+        applyChatOverlayBackgroundOpacity(visible)
+        applyTvChatPresentationLayout(
+            binding.chatLayout,
+            binding.playerLayout,
+            binding.slidingLayout,
+            visible,
+        )
+    }
+
+    private fun applyChatOverlayBackgroundOpacity(visible: Boolean) {
+        val context = context ?: return
+        val overlayOpacity = when {
+            !visible -> null
+            context.isTelevision() && !isPortrait && tvChatMode(context) == TvChatMode.OVERLAY ->
+                tvChatOverlayConfig(context).safeOpacityPercent
+            !context.isTelevision() && !isPortrait && isMaximized && phoneChatOverlayEnabled(context) ->
+                phoneChatOverlayConfig(context).safeOpacityPercent
+            else -> null
+        }
+        chatFragment?.setOverlayBackgroundOpacityPercent(overlayOpacity)
     }
 
     private fun effectiveLandscapeChatWidth(): Int {
@@ -3819,7 +3846,7 @@ abstract class Media3PlayerFragment : BaseNetworkFragment(), RadioButtonDialogFr
         binding.playerControls.root.reloadProfile()
         if (videoType == PlaybackContract.STREAM) updateLiveRewindUi()
         if (requireContext().isTelevision() && !isPortrait) {
-            applyTvChatPresentation(binding.chatLayout, binding.playerLayout, binding.slidingLayout, isChatOpen)
+            applyTvChatPresentationForCurrentState(isChatOpen)
         } else if (!isPortrait) {
             applyPhoneChatPresentation(isChatOpen)
         }

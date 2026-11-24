@@ -1,5 +1,6 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.ui
 
+import android.graphics.Color
 import android.os.SystemClock
 import android.os.Trace
 import androidx.lifecycle.Lifecycle
@@ -117,6 +118,7 @@ class ChatV2RendererController(
     private val onGifClick: (ChatGifInteraction) -> Unit = {},
     private val onPublicationChanged: (List<ChatMessage>, List<ChatRowUiModel>, Int?, Int?) -> Unit = { _, _, _, _ -> },
 ) {
+    private var effectiveRowBackgroundColor = rowBackgroundColor
     private var translationAppearance = resolveChatTranslationAppearance(recyclerView.context)
     private var renderStyle = ChatRenderStyle(
         textSizeSp = messageTextSizeSp,
@@ -371,6 +373,14 @@ class ChatV2RendererController(
             }
         }
         if (latestPublication == null || lifecycleOwner == null) return
+        invalidatePresentation()
+    }
+
+    internal fun setOverlayBackgroundOpacityEnabled(enabled: Boolean) {
+        val nextRowBackgroundColor = if (enabled) Color.TRANSPARENT else rowBackgroundColor
+        if (effectiveRowBackgroundColor == nextRowBackgroundColor) return
+        effectiveRowBackgroundColor = nextRowBackgroundColor
+        presentation.replaceCompiler(createPresentationCompiler(renderStyle))
         invalidatePresentation()
     }
 
@@ -803,7 +813,7 @@ class ChatV2RendererController(
             } else {
                 { null }
             },
-            background = { rowBackgroundColor },
+            background = { effectiveRowBackgroundColor },
             readabilityBackground = { background },
             eventPalette = { kind, baseColor ->
                 resolveChatEventPalette(kind, baseColor) { attribute ->
