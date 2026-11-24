@@ -158,6 +158,7 @@ import kotlinx.coroutines.withContext
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 private const val TWITCH_LISTENING_ONLY_BADGE_URL =
     "https://static-cdn.jtvnw.net/badges/v1/199a0dba-58f3-494e-a7fc-1fa0a1001fb8/3"
@@ -204,6 +205,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
     private var chatV2Renderer: ChatV2RendererController? = null
     private var chatBackgroundRequest: Disposable? = null
     private var chatBackgroundRequestGeneration = 0
+    private var overlayBackgroundOpacityPercent: Int? = null
+    private var chatBackgroundSurfaceColor = Color.TRANSPARENT
+    private var chatBackgroundHasCustomImage = false
+    private var chatBackgroundImageOpacity = 1f
     private val chatV2SessionSlot = ChatV2SessionSlot()
     private var chatV2ViewportState = ChatViewportState()
     private var useChatV2 = false
@@ -467,9 +472,10 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
             ),
         )
         val hasCustomBackground = shouldRenderChatBackground(appearance)
-        currentBinding.chatContentColumn.setBackgroundColor(
-            if (hasCustomBackground) Color.TRANSPARENT else surface,
-        )
+        chatBackgroundSurfaceColor = surface
+        chatBackgroundHasCustomImage = hasCustomBackground
+        chatBackgroundImageOpacity = appearance.backgroundVisibility / 100f
+        applyChatBackgroundOpacity(currentBinding)
         val requestGeneration = ++chatBackgroundRequestGeneration
         chatBackgroundRequest?.dispose()
         chatBackgroundRequest = null
@@ -481,12 +487,8 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
         }
         currentBinding.chatBackgroundImage.apply {
             isVisible = true
-            alpha = appearance.backgroundVisibility / 100f
         }
-        currentBinding.chatBackgroundScrim.apply {
-            isVisible = true
-            setBackgroundColor(ColorUtils.setAlphaComponent(surface, 0xB8))
-        }
+        currentBinding.chatBackgroundScrim.isVisible = true
         chatBackgroundRequest = requireContext().imageLoader.enqueue(
             ImageRequest.Builder(requireContext())
                 .data(appearance.backgroundUri)
@@ -498,12 +500,40 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                         currentBinding.chatBackgroundImage.setImageDrawable(null)
                         currentBinding.chatBackgroundImage.isGone = true
                         currentBinding.chatBackgroundScrim.isGone = true
-                        currentBinding.chatContentColumn.setBackgroundColor(surface)
+                        chatBackgroundHasCustomImage = false
+                        applyChatBackgroundOpacity(currentBinding)
                         chatBackgroundRequest = null
                     }
                 })
                 .build(),
         )
+    }
+
+    fun setOverlayBackgroundOpacityPercent(percent: Int?) {
+        val safePercent = percent?.coerceIn(40, 100)
+        if (overlayBackgroundOpacityPercent == safePercent) return
+        overlayBackgroundOpacityPercent = safePercent
+        chatV2Renderer?.setOverlayBackgroundOpacityEnabled(safePercent != null)
+        _binding?.let(::applyChatBackgroundOpacity)
+    }
+
+    private fun applyChatBackgroundOpacity(binding: FragmentChatBinding) {
+        val overlayOpacity = overlayBackgroundOpacityPercent?.div(100f) ?: 1f
+        val isOverlay = overlayBackgroundOpacityPercent != null
+        binding.chatContentColumn.setBackgroundColor(
+            if (isOverlay || chatBackgroundHasCustomImage) {
+                Color.TRANSPARENT
+            } else {
+                chatBackgroundSurfaceColor
+            },
+        )
+        if (chatBackgroundHasCustomImage) {
+            binding.chatBackgroundImage.alpha = chatBackgroundImageOpacity * overlayOpacity
+            val scrimAlpha = (0xB8 * overlayOpacity).roundToInt().coerceIn(0, 255)
+            binding.chatBackgroundScrim.setBackgroundColor(
+                ColorUtils.setAlphaComponent(chatBackgroundSurfaceColor, scrimAlpha),
+            )
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -955,6 +985,7 @@ class ChatFragment : BaseNetworkFragment(), MessageClickedDialog.OnButtonClickLi
                             onGifClick = ::onV2GifClick,
                             onPublicationChanged = ::onV2PublicationChanged,
                         ).also {
+                            it.setOverlayBackgroundOpacityEnabled(overlayBackgroundOpacityPercent != null)
                             it.setVisible(chatV2RendererVisible)
                             it.attach(viewLifecycleOwner)
                         }
