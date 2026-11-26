@@ -26,6 +26,12 @@ import com.github.andreyasadchy.xtra.model.chat.Emote as LegacyEmote
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGiftParser
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.repository.EventSubSubscriptionSpec
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.CancellationException
@@ -36,6 +42,7 @@ import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
@@ -43,6 +50,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import javax.net.ssl.X509TrustManager
+import java.util.concurrent.atomic.AtomicLong
 
 internal fun eventSubSubscriptions(
     channelId: String,
@@ -124,16 +132,64 @@ class TwitchChatTransport(
     private val trustManager: Lazy<X509TrustManager>,
     private val createSubscription: suspend (Map<String, String>, EventSubSubscriptionSpec, String?) -> Unit = { _, _, _ -> },
 ) : com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport {
-    override fun events(session: ChatSessionKey): Flow<ChatEvent> = if (config.useEventSub) {
-        eventSubEvents(session).catch { error ->
+    private val parseDropCount = AtomicLong()
+
+    override fun events(session: ChatSessionKey): Flow<ChatEvent> = flow {
+        var source = if (config.useEventSub) "eventsub" else "irc"
+        val upstream = if (config.useEventSub) eventSubEvents(session).catch { error ->
             // EventSub chat subscriptions are capability-gated per channel. A token can have
             // the scopes but still be unable to subscribe to a channel it does not moderate.
             // Keep the v2 session live by falling back to the same normalized IRC stream.
             if (error is CancellationException) throw error
+            source = "irc"
+            config.diagnosticsLogger?.takeIf { it.isEnabled }?.event(
+                category = DiagnosticsCategory.CHAT,
+                severity = DiagnosticsSeverity.WARN,
+                transport = DiagnosticsTransport.LOCAL,
+                operation = "chat_transport",
+                event = "eventsub_fallback",
+                phase = DiagnosticsPhase.ERROR,
+                code = error.javaClass.simpleName,
+            )
             emitAll(ircEvents(session))
         }
-    } else {
-        ircEvents(session)
+        else ircEvents(session)
+        var eventCount = 0L
+        var messageCount = 0L
+        var noticeCount = 0L
+        var disconnectCount = 0L
+        var reportAtMs = 0L
+        try {
+            upstream.collect { event ->
+                if (config.diagnosticsLogger?.isEnabled == true) {
+                    eventCount++
+                    if (event is ChatEvent.TransportDisconnected) disconnectCount++
+                    if (event is ChatEvent.Message) {
+                        messageCount++
+                        if (event.message.kind == ChatMessageKind.NOTICE) noticeCount++
+                    }
+                    val nowMs = System.nanoTime() / 1_000_000L
+                    if (reportAtMs == 0L || nowMs - reportAtMs >= CHAT_DIAGNOSTIC_INTERVAL_MS) {
+                        reportTransportSummary(source, eventCount, messageCount, noticeCount, disconnectCount)
+                        eventCount = 0L
+                        messageCount = 0L
+                        noticeCount = 0L
+                        disconnectCount = 0L
+                        reportAtMs = nowMs
+                    }
+                } else {
+                    eventCount = 0L
+                    messageCount = 0L
+                    noticeCount = 0L
+                    disconnectCount = 0L
+                    parseDropCount.set(0L)
+                    reportAtMs = 0L
+                }
+                emit(event)
+            }
+        } finally {
+            reportTransportSummary(source, eventCount, messageCount, noticeCount, disconnectCount)
+        }
     }
 
     private fun ircEvents(session: ChatSessionKey): Flow<ChatEvent> = callbackFlow {
@@ -158,7 +214,10 @@ class TwitchChatTransport(
                         }
                     }
                     if (userNotice && !config.showUserNotices) return
-                    TwitchChatEventParser.fromIrc(message, config.channelId)?.let { event ->
+                    val event = TwitchChatEventParser.fromIrc(message, config.channelId)
+                    if (event == null) {
+                        if (config.diagnosticsLogger?.isEnabled == true) parseDropCount.incrementAndGet()
+                    } else {
                         send(event)
                         notifySevenTvPresence(flowScope, event)
                     }
@@ -417,6 +476,36 @@ class TwitchChatTransport(
         return socket to socket.connect(scope)
     }
 
+    private fun reportTransportSummary(
+        source: String,
+        eventCount: Long,
+        messageCount: Long,
+        noticeCount: Long,
+        disconnectCount: Long,
+    ) {
+        val logger = config.diagnosticsLogger?.takeIf { it.isEnabled } ?: return
+        val parseDrops = parseDropCount.getAndSet(0L)
+        if (eventCount == 0L && messageCount == 0L && noticeCount == 0L &&
+            disconnectCount == 0L && parseDrops == 0L
+        ) return
+        logger.event(
+            category = DiagnosticsCategory.CHAT,
+            severity = if (parseDrops > 0L) DiagnosticsSeverity.WARN else DiagnosticsSeverity.INFO,
+            transport = DiagnosticsTransport.LOCAL,
+            operation = "chat_transport",
+            event = "event_summary",
+            phase = DiagnosticsPhase.EVENT,
+            fields = listOf(
+                DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, source),
+                DiagnosticsField(DiagnosticsFieldKey.COUNT, eventCount.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.MESSAGE_COUNT, messageCount.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.NOTICE_COUNT, noticeCount.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.ERROR_COUNT, disconnectCount.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.PARSE_DROP_COUNT, parseDrops.toString()),
+            ),
+        )
+    }
+
     private fun HappeningNowGift.toChatCommunityGift() =
         ChatCommunityGift(
             stableId = stableId,
@@ -634,6 +723,7 @@ class TwitchChatTransport(
         }
 
     private companion object {
+        const val CHAT_DIAGNOSTIC_INTERVAL_MS = 60_000L
         val OPTIONAL_SUBSCRIPTIONS = setOf(
             "channel.channel_points_custom_reward_redemption.add",
             "channel.ban",

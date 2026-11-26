@@ -56,6 +56,11 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import com.github.andreyasadchy.xtra.BuildConfig
 import com.github.andreyasadchy.xtra.R
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.model.VideoQuality
 import com.github.andreyasadchy.xtra.model.PlaybackState
 import com.github.andreyasadchy.xtra.model.ui.Clip
@@ -4617,6 +4622,31 @@ class Media3Fragment : Media3PlayerFragment(), PlaybackVideoInfoHost, ClipEditor
         }
         viewModel.quality = selectedQuality
         viewModel.pendingVideoQuality = selectedQuality
+        if (videoType == STREAM && qualityChanged && xtraModule.diagnosticsLogger.isEnabled) {
+            val normalizedQuality = selectedQuality?.name
+                ?.lowercase()
+                ?.replace(Regex("[^a-z0-9_.:-]"), "_")
+                ?.take(64)
+            val qualityLabel = normalizedQuality?.let { if (it.firstOrNull()?.isLetter() == true) it else "q_$it" }
+            xtraModule.diagnosticsLogger.event(
+                category = DiagnosticsCategory.PLAYBACK,
+                severity = DiagnosticsSeverity.INFO,
+                transport = DiagnosticsTransport.PLAYER,
+                operation = "stream_quality",
+                event = "quality_selected",
+                phase = DiagnosticsPhase.EVENT,
+                fields = buildList {
+                    qualityLabel?.let { add(DiagnosticsField(DiagnosticsFieldKey.PLAYBACK_QUALITY, it)) }
+                    add(DiagnosticsField(
+                        DiagnosticsFieldKey.AUDIO_ONLY,
+                        (selectedQuality?.name == AUDIO_ONLY_QUALITY).toString(),
+                    ))
+                    selectedQuality?.bitrate?.takeIf { it > 0 }?.let {
+                        add(DiagnosticsField(DiagnosticsFieldKey.PLAYBACK_QUALITY_BITRATE_BPS, it.toString()))
+                    }
+                },
+            )
+        }
         if (selectedQuality?.name == AUDIO_ONLY_QUALITY || selectedQuality?.name == CHAT_ONLY_QUALITY) {
             viewModel.pendingVideoQuality = null
         }

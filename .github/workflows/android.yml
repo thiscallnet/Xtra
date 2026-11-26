@@ -32,6 +32,16 @@ jobs:
       uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6
       with:
         cache-provider: 'basic'
+    - name: Configure Gradle memory
+      shell: bash
+      run: |
+        # Keep Kotlin compilation in the Gradle daemon to avoid a second compiler heap
+        # competing with the emulator during the instrumentation build.
+        mkdir -p "$HOME/.gradle"
+        {
+          echo "org.gradle.jvmargs=-Xmx5g -Dfile.encoding=UTF-8"
+          echo "kotlin.compiler.execution.strategy=in-process"
+        } >> "$HOME/.gradle/gradle.properties"
     - name: Enable KVM group perms
       run: |
         echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \

@@ -899,6 +899,7 @@ class XtraModule(private val application: Application) {
         val appContext = application.applicationContext
         ChatSessionManager(
             parentScope = (application as XtraApp).applicationScope,
+            diagnosticsLogger = diagnosticsLogger,
             allowMessage = { message -> !isBlockedChatUser(message.user?.id, message.user?.login) },
             transportFactory = { spec: LiveChatSessionSpec ->
                 val scopes = appContext.tokenPrefs().getString(C.TOKEN_SCOPES, null)
