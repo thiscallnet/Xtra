@@ -141,6 +141,10 @@ import kotlin.random.Random
 class PlaybackService : MediaSessionService() {
     private val reportedPlaybackDiagnosticLoads = ConcurrentHashMap.newKeySet<String>()
     private val reportedPlaybackDiagnosticLoadErrors = ConcurrentHashMap<String, Long>()
+    private var lastAudioUnderrunDiagnosticAtMs = 0L
+    private var audioUnderrunsSinceDiagnostic = 0L
+    private var audioUnderrunDiagnosticItemId: String? = null
+    private var audioUnderrunDiagnosticAudioOnly: Boolean? = null
 
     lateinit var xtraModule: XtraModule
 
@@ -984,6 +988,70 @@ class PlaybackService : MediaSessionService() {
 
             override fun onAudioUnderrun(eventTime: AnalyticsListener.EventTime, bufferSize: Int, bufferSizeMs: Long, elapsedSinceLastFeedMs: Long) {
                 if (BuildConfig.DEBUG) Log.d("HiddenStreamAudio", "event=audio_underrun bufferMs=$bufferSizeMs elapsedSinceFeedMs=$elapsedSinceLastFeedMs")
+                if (viewingContentType != ViewingPlaybackMetadata.CONTENT_TYPE_LIVE) return
+                if (!xtraModule.diagnosticsLogger.isEnabled) {
+                    audioUnderrunsSinceDiagnostic = 0L
+                    lastAudioUnderrunDiagnosticAtMs = 0L
+                    return
+                }
+                val audioOnly = isLogicalAudioOnly()
+                val mediaId = player.currentMediaItem?.mediaId
+                if (mediaId != audioUnderrunDiagnosticItemId || audioOnly != audioUnderrunDiagnosticAudioOnly) {
+                    audioUnderrunDiagnosticItemId = mediaId
+                    audioUnderrunDiagnosticAudioOnly = audioOnly
+                    lastAudioUnderrunDiagnosticAtMs = 0L
+                    audioUnderrunsSinceDiagnostic = 0L
+                }
+                audioUnderrunsSinceDiagnostic++
+                val nowMs = SystemClock.elapsedRealtime()
+                if (lastAudioUnderrunDiagnosticAtMs != 0L &&
+                    nowMs - lastAudioUnderrunDiagnosticAtMs < AUDIO_UNDERRUN_DIAGNOSTIC_INTERVAL_MS
+                ) return
+                lastAudioUnderrunDiagnosticAtMs = nowMs
+                val info = diagnostics.snapshot(player)
+                val logicalQuality = decodePlaybackQuality(xtraModule.json, resumptionState?.quality)
+                xtraModule.diagnosticsLogger.event(
+                    category = DiagnosticsCategory.PLAYBACK,
+                    severity = DiagnosticsSeverity.WARN,
+                    transport = DiagnosticsTransport.PLAYER,
+                    operation = "stream_audio",
+                    event = "audio_underrun",
+                    phase = DiagnosticsPhase.EVENT,
+                    elapsedMs = elapsedSinceLastFeedMs,
+                    fields = buildList {
+                        add(DiagnosticsField(DiagnosticsFieldKey.AUDIO_ONLY, audioOnly.toString()))
+                        add(DiagnosticsField(DiagnosticsFieldKey.AUDIO_UNDERRUN_BUFFER_MS, bufferSizeMs.toString()))
+                        add(DiagnosticsField(DiagnosticsFieldKey.AUDIO_ELAPSED_SINCE_FEED_MS, elapsedSinceLastFeedMs.toString()))
+                        add(DiagnosticsField(DiagnosticsFieldKey.COUNT, audioUnderrunsSinceDiagnostic.toString()))
+                        logicalQuality?.bitrate?.takeIf { it > 0 }?.let {
+                            add(DiagnosticsField(DiagnosticsFieldKey.PLAYBACK_QUALITY_BITRATE_BPS, it.toString()))
+                        }
+                        add(DiagnosticsField(DiagnosticsFieldKey.STATE, when (player.playbackState) {
+                            Player.STATE_IDLE -> "idle"
+                            Player.STATE_BUFFERING -> "buffering"
+                            Player.STATE_READY -> "ready"
+                            Player.STATE_ENDED -> "ended"
+                            else -> "unknown_${player.playbackState}"
+                        }))
+                        add(DiagnosticsField(DiagnosticsFieldKey.PLAY_WHEN_READY, player.playWhenReady.toString()))
+                        add(DiagnosticsField(DiagnosticsFieldKey.ACTIVE, player.isPlaying.toString()))
+                        add(DiagnosticsField(
+                            DiagnosticsFieldKey.BUFFER_AHEAD_MS,
+                            (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L).toString(),
+                        ))
+                        player.currentLiveOffset.takeIf { it != Media3C.TIME_UNSET }?.let {
+                            add(DiagnosticsField(DiagnosticsFieldKey.LIVE_OFFSET_MS, it.toString()))
+                        }
+                        info.bandwidthEstimateBitsPerSecond?.let {
+                            add(DiagnosticsField(DiagnosticsFieldKey.BANDWIDTH_ESTIMATE_BPS, it.toString()))
+                        }
+                        info.videoBitrate?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_BITRATE_BPS, it.toString())) }
+                        info.selectedVideoHeight?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_HEIGHT, it.toString())) }
+                        info.audioCodec?.let { add(DiagnosticsField(DiagnosticsFieldKey.AUDIO_CODEC, it)) }
+                        info.audioMimeType?.let { add(DiagnosticsField(DiagnosticsFieldKey.AUDIO_MIME_TYPE, it)) }
+                    },
+                )
+                audioUnderrunsSinceDiagnostic = 0L
             }
             override fun onVideoDecoderInitialized(
                 eventTime: AnalyticsListener.EventTime,
@@ -6623,6 +6691,7 @@ class PlaybackService : MediaSessionService() {
 
     private fun playbackNetworkDiagnosticFields(player: Player): List<DiagnosticsField> {
         val info = diagnostics.snapshot(player)
+        val logicalQuality = decodePlaybackQuality(xtraModule.json, resumptionState?.quality)
         val request = player.currentMediaItem?.mediaId
             ?.let(xtraModule.streamMedia3Runtime::proxyPlaylistObservationFor)
         return buildList {
@@ -6633,9 +6702,15 @@ class PlaybackService : MediaSessionService() {
             request?.let { add(DiagnosticsField(DiagnosticsFieldKey.PROXY_ROUTE, it.route.name.lowercase())) }
             request?.let { add(DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, it.requestType)) }
             add(DiagnosticsField(DiagnosticsFieldKey.LOW_LATENCY, info.lowLatencyRequested.toString()))
+            add(DiagnosticsField(DiagnosticsFieldKey.AUDIO_ONLY, isLogicalAudioOnly().toString()))
+            logicalQuality?.bitrate?.takeIf { it > 0 }?.let {
+                add(DiagnosticsField(DiagnosticsFieldKey.PLAYBACK_QUALITY_BITRATE_BPS, it.toString()))
+            }
             info.bandwidthEstimateBitsPerSecond?.let {
                 add(DiagnosticsField(DiagnosticsFieldKey.BANDWIDTH_ESTIMATE_BPS, it.toString()))
             }
+            info.audioCodec?.let { add(DiagnosticsField(DiagnosticsFieldKey.AUDIO_CODEC, it)) }
+            info.audioMimeType?.let { add(DiagnosticsField(DiagnosticsFieldKey.AUDIO_MIME_TYPE, it)) }
             info.videoBitrate?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_BITRATE_BPS, it.toString())) }
             info.selectedVideoHeight?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_HEIGHT, it.toString())) }
             info.videoCodec?.let { add(DiagnosticsField(DiagnosticsFieldKey.VIDEO_CODEC, it)) }
@@ -7602,6 +7677,7 @@ class PlaybackService : MediaSessionService() {
 
     companion object {
         private const val PERF_TAG = "PlaybackPerf"
+        private const val AUDIO_UNDERRUN_DIAGNOSTIC_INTERVAL_MS = 5_000L
         private const val PLAYBACK_LOAD_ERROR_DIAGNOSTIC_INTERVAL_MS = 5_000L
         private const val STREAM_STARTUP_STALL_DIAGNOSTIC_INTERVAL_MS = 15_000L
         private const val LIVE_PRIORITY_CATCH_UP_COOLDOWN_MS = 15_000L

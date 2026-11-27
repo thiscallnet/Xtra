@@ -1,6 +1,7 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.session
 
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport
@@ -29,11 +30,12 @@ class ChatSession(
     private val onTransportDisconnected: suspend (ChatSessionKey, String?) -> Unit = { _, _ -> },
     private val onDecorationUpdated: suspend (ChatDecorationUpdate) -> Unit = {},
     private val allowMessage: suspend (com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage) -> Boolean = { true },
+    diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
     private val job = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + job)
     val timeline = ChatTimelineStore(scope, maxTimelineSize)
-    private val processor = ChatEventProcessor(scope, timeline, allowMessage)
+    private val processor = ChatEventProcessor(scope, timeline, allowMessage, diagnosticsLogger)
     private val transitionMutex = Mutex()
     private var transportJob: Job? = null
     private var desiredKey: ChatSessionKey? = null

@@ -17,6 +17,7 @@ import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.model.chat.Badge
@@ -181,6 +182,7 @@ private const val MODERATOR_ROLE_MAX_AGE_MS = 60_000L
 private const val MODERATOR_ROLE_PROBE_RETRY_DELAY_MS = 5_000L
 private const val MODERATOR_REASON_MAX_LENGTH = 500
 private val MODERATOR_TIMEOUT_DURATIONS = setOf("10s", "1m", "10m", "1h", "1d")
+private val DIAGNOSTIC_CHAT_REJECTION_CODE = Regex("[A-Za-z0-9_.:-]{1,64}")
 
 internal fun resolveCurrentLiveStreamId(currentStreamId: String?, initialStreamId: String?): String? =
     currentStreamId ?: initialStreamId
@@ -7542,6 +7544,28 @@ class ChatViewModel(
                                 )
                                 ChatSendResult.Success(response.messageId)
                             } else {
+                                if (diagnosticsLogger?.isEnabled == true) {
+                                    diagnosticsLogger.event(
+                                        category = DiagnosticsCategory.CHAT,
+                                        severity = DiagnosticsSeverity.WARN,
+                                        transport = DiagnosticsTransport.HELIX,
+                                        operation = "chat_send",
+                                        event = "message_rejected",
+                                        phase = DiagnosticsPhase.ERROR,
+                                        code = response.dropReasonCode
+                                            ?.takeIf { DIAGNOSTIC_CHAT_REJECTION_CODE.matches(it) },
+                                        fields = listOf(
+                                            DiagnosticsField(
+                                                DiagnosticsFieldKey.STATE,
+                                                if (response.dropReasonCode?.contains("automod", ignoreCase = true) == true) {
+                                                    "automod_held"
+                                                } else {
+                                                    "rejected"
+                                                },
+                                            ),
+                                        ),
+                                    )
+                                }
                                 val dropMessage = response.dropReasonMessage?.takeIf { it.isNotBlank() }
                                     ?: response.dropReasonCode?.takeIf { it.isNotBlank() }?.let {
                                         "Twitch rejected the message ($it)."

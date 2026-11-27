@@ -8,6 +8,7 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatRewardCatalog
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ChatTransport
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -95,6 +96,7 @@ class ChatSessionFactory(
     private val maxTimelineSize: Int = 600,
     private val automaticCatalogRefreshGate: ChatCatalogRefreshGate = ChatCatalogRefreshGate(),
     private val allowMessage: suspend (ChatMessage) -> Boolean = { true },
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
     private var generation = 0L
 
@@ -120,6 +122,7 @@ class ChatSessionFactory(
             onTransportDisconnected = { _, _ -> reconcileRecent() },
             onDecorationUpdated = catalog::applyDecorationUpdate,
             allowMessage = allowMessage,
+            diagnosticsLogger = diagnosticsLogger,
         )
         // Keep the public flow stable for renderers, but defer the actual provider construction
         // until the owner explicitly starts this handle.
@@ -230,6 +233,7 @@ class ChatSessionManager(
     private val maxTimelineSize: Int = 600,
     private val automaticCatalogRefreshGate: ChatCatalogRefreshGate = ChatCatalogRefreshGate(),
     private val allowMessage: suspend (ChatMessage) -> Boolean = { true },
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
     private val managerJob = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + managerJob)
@@ -250,6 +254,7 @@ class ChatSessionManager(
         maxTimelineSize = maxTimelineSize,
         automaticCatalogRefreshGate = automaticCatalogRefreshGate,
         allowMessage = allowMessage,
+        diagnosticsLogger = diagnosticsLogger,
     )
 
     /** Multiview entry point. It does not touch [_active]. */
@@ -289,6 +294,7 @@ class ChatSessionManager(
             },
             onDecorationUpdated = catalog::applyDecorationUpdate,
             allowMessage = allowMessage,
+            diagnosticsLogger = diagnosticsLogger,
         )
         session.start(key)
         val active = ActiveChatSession(spec, key, session, catalog, rewardCatalogFactory(spec, scope))

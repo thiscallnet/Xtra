@@ -1,5 +1,12 @@
 package com.github.andreyasadchy.xtra.ui.chat.v2.session
 
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsCategory
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsField
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsFieldKey
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
+import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import kotlinx.coroutines.CancellationException
@@ -16,6 +23,7 @@ class ChatEventProcessor(
     scope: CoroutineScope,
     private val store: ChatTimelineStore,
     private val allowMessage: suspend (com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage) -> Boolean = { true },
+    private val diagnosticsLogger: DiagnosticsLogger? = null,
 ) {
     private data class Envelope(val key: ChatSessionKey, val event: ChatEvent)
     private sealed interface Command {
@@ -28,6 +36,12 @@ class ChatEventProcessor(
     private val seen = LinkedHashSet<String>(4096)
     private val desiredKey = AtomicReference<ChatSessionKey?>(null)
     private val processorJob: Job
+    private var pipelineEventCount = 0L
+    private var pipelineMessageCount = 0L
+    private var pipelineDuplicateCount = 0L
+    private var pipelineFilteredCount = 0L
+    private var pipelineAcceptedCount = 0L
+    private var pipelineReportAtMs = 0L
 
     init {
         processorJob = scope.launch {
@@ -35,6 +49,8 @@ class ChatEventProcessor(
             for (command in events) {
                 val desired = desiredKey.get()
                 if (desired != null && desired != activeKey) {
+                    reportPipelineSummary(force = true)
+                    resetPipelineSummary()
                     activeKey = desired
                     seen.clear()
                     store.apply(TimelineOperation.Replace(emptyList()))
@@ -42,20 +58,38 @@ class ChatEventProcessor(
                 when (command) {
                     is Command.Activate -> command.acknowledged.complete(Unit)
                     is Command.Deactivate -> {
+                        reportPipelineSummary(force = true)
                         activeKey = null
                         seen.clear()
+                        resetPipelineSummary()
                         store.apply(TimelineOperation.Replace(emptyList()))
                         command.acknowledged.complete(Unit)
                     }
                     is Command.Event -> {
                         if (command.value.key != activeKey) continue
                         val event = command.value.event
+                        val trackDiagnostics = diagnosticsLogger?.isEnabled == true
+                        if (!trackDiagnostics) resetPipelineSummary(0L)
+                        if (trackDiagnostics) {
+                            pipelineEventCount++
+                            if (event is ChatEvent.Message) pipelineMessageCount++
+                        }
                         val dedupeKey = eventDedupeKey(event)
-                        if (dedupeKey != null && !seen.add(dedupeKey)) continue
+                        if (dedupeKey != null && !seen.add(dedupeKey)) {
+                            if (trackDiagnostics) {
+                                pipelineDuplicateCount++
+                                reportPipelineSummary()
+                            }
+                            continue
+                        }
                         if (seen.size > 4096) seen.remove(seen.first())
                         if (event !is ChatEvent.Message || allowMessage(event.message)) {
                             store.accept(event)
+                            if (trackDiagnostics && event is ChatEvent.Message) pipelineAcceptedCount++
+                        } else {
+                            if (trackDiagnostics) pipelineFilteredCount++
                         }
+                        if (trackDiagnostics) reportPipelineSummary()
                     }
                     is Command.Reconcile -> {
                         if (command.key == activeKey) {
@@ -73,6 +107,43 @@ class ChatEventProcessor(
         processorJob.invokeOnCompletion {
             events.close()
         }
+    }
+
+    private fun reportPipelineSummary(force: Boolean = false) {
+        val logger = diagnosticsLogger?.takeIf { it.isEnabled } ?: return
+        if (pipelineEventCount == 0L) return
+        val nowMs = System.nanoTime() / 1_000_000L
+        if (!force && pipelineReportAtMs != 0L && nowMs - pipelineReportAtMs < CHAT_DIAGNOSTIC_INTERVAL_MS) return
+        logger.event(
+            category = DiagnosticsCategory.CHAT,
+            severity = DiagnosticsSeverity.INFO,
+            transport = DiagnosticsTransport.LOCAL,
+            operation = "chat_pipeline",
+            event = "event_summary",
+            phase = DiagnosticsPhase.EVENT,
+            fields = listOf(
+                DiagnosticsField(DiagnosticsFieldKey.REQUEST_TYPE, "v2"),
+                DiagnosticsField(DiagnosticsFieldKey.COUNT, pipelineEventCount.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.MESSAGE_COUNT, pipelineMessageCount.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.DUPLICATE_COUNT, pipelineDuplicateCount.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.FILTERED_COUNT, pipelineFilteredCount.toString()),
+                DiagnosticsField(DiagnosticsFieldKey.ACCEPTED_COUNT, pipelineAcceptedCount.toString()),
+            ),
+        )
+        resetPipelineSummary(nowMs)
+    }
+
+    private fun resetPipelineSummary(nowMs: Long = System.nanoTime() / 1_000_000L) {
+        pipelineEventCount = 0L
+        pipelineMessageCount = 0L
+        pipelineDuplicateCount = 0L
+        pipelineFilteredCount = 0L
+        pipelineAcceptedCount = 0L
+        pipelineReportAtMs = nowMs
+    }
+
+    private companion object {
+        const val CHAT_DIAGNOSTIC_INTERVAL_MS = 60_000L
     }
 
     /**

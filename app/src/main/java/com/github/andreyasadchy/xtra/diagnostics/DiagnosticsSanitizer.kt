@@ -29,6 +29,7 @@ internal object DiagnosticsSanitizer {
         DiagnosticsFieldKey.PROXY_ROUTE,
         DiagnosticsFieldKey.PROCESS_EXIT_REASON,
         DiagnosticsFieldKey.PLAYBACK_SURFACE,
+        DiagnosticsFieldKey.PLAYBACK_QUALITY,
         DiagnosticsFieldKey.RESOLUTION_REASON,
         DiagnosticsFieldKey.SOURCE_REASON,
         DiagnosticsFieldKey.CANDIDATE_OUTCOME,
@@ -36,6 +37,8 @@ internal object DiagnosticsSanitizer {
     private val playbackFormatKeys = setOf(
         DiagnosticsFieldKey.VIDEO_CODEC,
         DiagnosticsFieldKey.VIDEO_DECODER,
+        DiagnosticsFieldKey.AUDIO_CODEC,
+        DiagnosticsFieldKey.AUDIO_MIME_TYPE,
     )
     private val loginPattern = Regex("[a-z0-9_]{1,30}")
     private val accountIdPattern = Regex("[0-9]{1,32}")
@@ -57,6 +60,7 @@ internal object DiagnosticsSanitizer {
         DiagnosticsFieldKey.LOW_LATENCY,
         DiagnosticsFieldKey.BACKGROUND_PLAYBACK,
         DiagnosticsFieldKey.CASTING,
+        DiagnosticsFieldKey.AUDIO_ONLY,
     )
     private val numberKeys = setOf(
         DiagnosticsFieldKey.COUNT,
@@ -83,6 +87,12 @@ internal object DiagnosticsSanitizer {
         DiagnosticsFieldKey.RESPONSE_BYTES,
         DiagnosticsFieldKey.QUEUE_WAIT_MS,
         DiagnosticsFieldKey.MESSAGE_BYTES,
+        DiagnosticsFieldKey.MESSAGE_COUNT,
+        DiagnosticsFieldKey.NOTICE_COUNT,
+        DiagnosticsFieldKey.DUPLICATE_COUNT,
+        DiagnosticsFieldKey.FILTERED_COUNT,
+        DiagnosticsFieldKey.ACCEPTED_COUNT,
+        DiagnosticsFieldKey.PARSE_DROP_COUNT,
         DiagnosticsFieldKey.SUBSCRIPTION_COUNT,
         DiagnosticsFieldKey.RECONNECT_COUNT,
         DiagnosticsFieldKey.KEEPALIVE_SEC,
@@ -94,6 +104,9 @@ internal object DiagnosticsSanitizer {
         DiagnosticsFieldKey.PLAYBACK_SPEED,
         DiagnosticsFieldKey.PROGRAM_DATE_TIME_SHIFT_MS,
         DiagnosticsFieldKey.BUFFERING_DURATION_MS,
+        DiagnosticsFieldKey.PLAYBACK_QUALITY_BITRATE_BPS,
+        DiagnosticsFieldKey.AUDIO_UNDERRUN_BUFFER_MS,
+        DiagnosticsFieldKey.AUDIO_ELAPSED_SINCE_FEED_MS,
         DiagnosticsFieldKey.TAP_TO_URL_MS,
         DiagnosticsFieldKey.TAP_TO_START_MS,
         DiagnosticsFieldKey.TAP_TO_PREPARE_MS,
