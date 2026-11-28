@@ -18,6 +18,7 @@ import com.github.andreyasadchy.xtra.databinding.ViewPinnedChatMessageBinding
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowGift
 import com.github.andreyasadchy.xtra.ui.chat.HappeningNowView
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatBadgeRef
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetKey
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatAssetSpec
@@ -47,6 +48,8 @@ import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatEventProcessor
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.ChatTimelineStore
 import com.github.andreyasadchy.xtra.ui.chat.v2.session.TimelineOperation
 import com.github.andreyasadchy.xtra.ui.chat.v2.transport.ModerationNoticeCoalescer
+import com.github.andreyasadchy.xtra.util.C
+import com.github.andreyasadchy.xtra.util.prefs
 import com.google.android.material.color.MaterialColors
 import androidx.core.view.WindowCompat
 import androidx.core.view.ViewCompat
@@ -73,6 +76,7 @@ class ChatEventFixtureActivity : AppCompatActivity() {
         val scale = intent.getFloatExtra(EXTRA_SCALE, 1f).coerceIn(0.75f, 1.75f)
         val moderationFixture = intent.getBooleanExtra(EXTRA_MODERATION_FIXTURE, false)
         val duplicateRewardFixture = intent.getBooleanExtra(EXTRA_DUPLICATE_REWARD_FIXTURE, false)
+        val giftCompressionFixture = intent.getBooleanExtra(EXTRA_GIFT_COMPRESSION_FIXTURE, false)
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -144,7 +148,7 @@ class ChatEventFixtureActivity : AppCompatActivity() {
             pinnedMessageProgress.progress = 620
             pinnedMessageProgress.isVisible = true
         }
-        if (!moderationFixture && !duplicateRewardFixture && !intent.getBooleanExtra("badges_fixture", false)) {
+        if (!moderationFixture && !duplicateRewardFixture && !giftCompressionFixture && !intent.getBooleanExtra("badges_fixture", false)) {
             root.addView(pinnedMessage.root)
             root.addView(happeningNow)
         }
@@ -153,6 +157,18 @@ class ChatEventFixtureActivity : AppCompatActivity() {
             lifecycleScope.launch { renderRows(moderationActionFixtureMessages(), ChatCatalogSnapshot(revision = 1)) }
         } else if (duplicateRewardFixture) {
             lifecycleScope.launch { renderRows(duplicateRewardFixtureMessages(), catalog) }
+        } else if (giftCompressionFixture) {
+            lifecycleScope.launch {
+                val compress = applicationContext.prefs()
+                    .getBoolean(C.CHAT_COMPRESS_COMMUNITY_GIFT_RECIPIENTS, false)
+                val header = android.widget.TextView(this@ChatEventFixtureActivity).apply {
+                    text = "20 gifted subs · compression ${if (compress) "on" else "off"}"
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+                    setPadding(dp(12), dp(12), dp(12), dp(8))
+                }
+                root.addView(header)
+                renderRows(giftCompressionFixtureMessages(compress), catalog)
+            }
         } else {
             renderRows(fixtureMessages(), catalog)
         }
@@ -317,6 +333,54 @@ class ChatEventFixtureActivity : AppCompatActivity() {
             "fixture-channel",
         ) as ChatEvent.Message
         return event.message
+    }
+
+    /** Replays one parsed 20-sub IRC bundle and all recipient notices through the production filter. */
+    private suspend fun giftCompressionFixtureMessages(compress: Boolean): List<ChatMessage> {
+        val occurredAt = 1_700_000_000_000L
+        val store = ChatTimelineStore(fixtureScope, maxSize = 64)
+        val processor = ChatEventProcessor(
+            scope = fixtureScope,
+            store = store,
+            compressCommunityGiftRecipients = { compress },
+        )
+        val key = ChatSessionKey("fixture-channel", 1)
+        val summary = TwitchChatEventParser.fromIrc(
+            ChatUtils.parseIRCMessage(
+                "@display-name=CommunityGifter;id=fixture-community-gift;login=communitygifter;user-id=fixture-gifter;msg-id=submysterygift;msg-param-mass-gift-count=20;msg-param-sub-plan=1000;tmi-sent-ts=$occurredAt :communitygifter!communitygifter@communitygifter.tmi.twitch.tv USERNOTICE #fixture :CommunityGifter gifted 20 Tier 1 subs!",
+            ),
+            key.channelId,
+        ) as ChatEvent.Message
+        processor.activate(key)
+        processor.submit(
+            key,
+            ChatEvent.CommunityGift(
+                ChatCommunityGift(
+                    stableId = "fixture-community-gift",
+                    occurredAt = occurredAt,
+                    gifterDisplayName = "CommunityGifter",
+                    gifterUserId = "fixture-gifter",
+                    gifterLogin = "communitygifter",
+                    isAnonymous = false,
+                    count = 20,
+                    source = ChatGiftSource.IRC,
+                ),
+            ),
+        )
+        processor.submit(key, summary)
+        repeat(20) { index ->
+            val recipientNumber = index + 1
+            val recipient = "GiftRecipient${recipientNumber.toString().padStart(2, '0')}"
+            val event = TwitchChatEventParser.fromIrc(
+                ChatUtils.parseIRCMessage(
+                    "@display-name=CommunityGifter;id=fixture-recipient-$recipientNumber;login=communitygifter;user-id=fixture-gifter;msg-id=subgift;msg-param-recipient-display-name=$recipient;msg-param-recipient-id=fixture-recipient-id-$recipientNumber;msg-param-sub-plan=1000;tmi-sent-ts=${occurredAt + recipientNumber} :communitygifter!communitygifter@communitygifter.tmi.twitch.tv USERNOTICE #fixture :CommunityGifter gifted a Tier 1 sub to $recipient!",
+                ),
+                key.channelId,
+            ) as ChatEvent.Message
+            processor.submit(key, event)
+        }
+        processor.reconcile(key, emptyList())
+        return store.snapshot()
     }
 
     /** Renders an ID-less redemption notice followed by its matching IRC chat row. */
@@ -605,5 +669,6 @@ class ChatEventFixtureActivity : AppCompatActivity() {
         const val EXTRA_SCALE = "event_scale"
         const val EXTRA_MODERATION_FIXTURE = "moderation_fixture"
         const val EXTRA_DUPLICATE_REWARD_FIXTURE = "duplicate_reward_fixture"
+        const val EXTRA_GIFT_COMPRESSION_FIXTURE = "gift_compression_fixture"
     }
 }
