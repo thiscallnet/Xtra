@@ -77,6 +77,42 @@ class CommunityGiftCompressionTest {
         }
     }
 
+    @Test
+    fun keepsBundleSummaryAndGiftUpgradeWhileCompressingRecipientNotices() = runBlocking {
+        val scope = CoroutineScope(Dispatchers.Default)
+        val store = ChatTimelineStore(scope, maxSize = 10)
+        val processor = ChatEventProcessor(
+            scope = scope,
+            store = store,
+            compressCommunityGiftRecipients = { true },
+        )
+        val key = ChatSessionKey("channel", 1)
+        try {
+            processor.activate(key)
+            processor.submit(key, communityGift(count = 5))
+            processor.submit(
+                key,
+                ChatEvent.Message(
+                    individualGift("bundle", communityGiftId = null).copy(
+                        noticeType = "submysterygift",
+                        subscription = ChatSubscription(tier = "1000", giftCount = 5, isCommunityGift = true),
+                    ),
+                ),
+            )
+            processor.submit(
+                key,
+                ChatEvent.Message(individualGift("upgrade", communityGiftId = null).copy(noticeType = "giftpaidupgrade")),
+            )
+            repeat(5) { index ->
+                processor.submit(key, ChatEvent.Message(individualGift("recipient-$index", communityGiftId = null)))
+            }
+            processor.reconcile(key, emptyList())
+            assertEquals(listOf("bundle", "upgrade"), store.snapshot().map { it.id.value })
+        } finally {
+            scope.cancel()
+        }
+    }
+
     private suspend fun retainedRecipientCount(
         enabled: Boolean,
         giftCount: Int,

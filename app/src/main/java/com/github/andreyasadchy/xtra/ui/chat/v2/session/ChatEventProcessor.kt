@@ -10,7 +10,6 @@ import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
-import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSubscriptionNoticeTypes
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
@@ -202,8 +201,8 @@ class ChatEventProcessor(
 
     private fun isCommunityGiftRecipient(message: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage): Boolean {
         val details = message.subscription ?: return false
-        return !details.isCommunityGift && !details.recipientName.isNullOrBlank() &&
-            ChatSubscriptionNoticeTypes.isGift(message.noticeType)
+        return message.noticeType?.lowercase() in INDIVIDUAL_GIFT_RECIPIENT_NOTICE_TYPES &&
+            !details.isCommunityGift && !details.recipientName.isNullOrBlank()
     }
 
     private companion object {
@@ -211,6 +210,7 @@ class ChatEventProcessor(
         const val COMMUNITY_GIFT_COMPRESSION_MIN_COUNT = 5
         const val COMMUNITY_GIFT_MATCH_WINDOW_MS = 30_000L
         const val MAX_PENDING_COMMUNITY_GIFTS = 128
+        val INDIVIDUAL_GIFT_RECIPIENT_NOTICE_TYPES = setOf("subgift", "sub_gift", "shared_chat_sub_gift")
     }
 
     /**
