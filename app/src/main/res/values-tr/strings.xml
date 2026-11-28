@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Turkish -->
 <resources>
+    <string name="settings_chat_compress_gifts">Hediye abonelikleri grupla</string>
+    <string name="settings_chat_compress_gifts_summary">5 veya daha fazla abonelik içeren hediyelerde özet mesajı gösterir, alıcı bildirimlerini gizler.</string>
     <string name="discover">Keşfet</string>
     <string name="discover_big_events">Şu anda öne çıkan etkinlikler</string>
     <string name="discover_live_channels">Beğenebileceğiniz canlı kanallar</string>

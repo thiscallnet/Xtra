@@ -1,4 +1,5 @@
 <androidx.preference.PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto">
+    <SwitchPreferenceCompat android:defaultValue="false" android:key="chat_compress_community_gift_recipients" android:summary="@string/settings_chat_compress_gifts_summary" android:title="@string/settings_chat_compress_gifts" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_usernotice" android:title="@string/show_usernotice" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_clearmsg" android:title="@string/show_clearmsg" app:iconSpaceReserved="false" />
     <SwitchPreferenceCompat android:defaultValue="true" android:key="chat_show_clearchat" android:title="@string/show_clearchat" app:iconSpaceReserved="false" />

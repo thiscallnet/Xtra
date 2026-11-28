@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Группировать подаренные подписки</string>
+    <string name="settings_chat_compress_gifts_summary">Для подарков от 5 подписок оставлять сводное сообщение и скрывать уведомления о получателях.</string>
     <string name="discover">Открывай</string>
     <string name="discover_big_events">Большие события прямо сейчас</string>
     <string name="discover_live_channels">Прямые каналы, которые могут вам понравиться</string>

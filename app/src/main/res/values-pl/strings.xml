@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Grupuj podarowane subskrypcje</string>
+    <string name="settings_chat_compress_gifts_summary">Przy prezentach obejmujących co najmniej 5 subskrypcji pozostawia podsumowanie i ukrywa powiadomienia o odbiorcach.</string>
     <string name="discover">Odkrywaj</string>
     <string name="discover_big_events">Najważniejsze wydarzenia teraz</string>
     <string name="discover_live_channels">Polecane kanały na żywo</string>

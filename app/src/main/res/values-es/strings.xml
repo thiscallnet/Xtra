@@ -5,6 +5,8 @@
   - Traducir "buffer" como "búfer".
 -->
 <resources>
+    <string name="settings_chat_compress_gifts">Agrupar suscripciones regaladas</string>
+    <string name="settings_chat_compress_gifts_summary">Para regalos de 5 suscripciones o más, conserva el resumen y oculta los avisos de cada destinatario.</string>
     <string name="discover">Descubrir</string>
     <string name="discover_big_events">Grandes eventos ahora mismo</string>
     <string name="discover_live_channels">Canales en directo que podrían gustarte</string>

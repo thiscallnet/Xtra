@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Regrouper les abonnements offerts</string>
+    <string name="settings_chat_compress_gifts_summary">Pour les cadeaux d’au moins 5 abonnements, conserve le récapitulatif et masque les notifications des destinataires.</string>
     <string name="discover">Découvrir</string>
     <string name="discover_big_events">Grands événements en ce moment</string>
     <string name="discover_live_channels">Chaînes en direct susceptibles de vous plaire</string>

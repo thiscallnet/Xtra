@@ -378,6 +378,7 @@ object C {
     const val CHAT_TRANSLATION_ITALIC = "chat_translation_italic"
     const val CHAT_TRANSLATION_TEXT_COLOR = "chat_translation_text_color"
     const val CHAT_SHOW_USER_NOTICE = "chat_show_usernotice"
+    const val CHAT_COMPRESS_COMMUNITY_GIFT_RECIPIENTS = "chat_compress_community_gift_recipients"
     const val CHAT_SHOW_CLEAR_MSG = "chat_show_clearmsg"
     const val CHAT_SHOW_CLEAR_CHAT = "chat_show_clearchat"
     const val CHAT_MODERATION_DISPLAY = "chat_moderation_display"

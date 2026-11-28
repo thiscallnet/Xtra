@@ -97,6 +97,7 @@ class ChatSessionFactory(
     private val automaticCatalogRefreshGate: ChatCatalogRefreshGate = ChatCatalogRefreshGate(),
     private val allowMessage: suspend (ChatMessage) -> Boolean = { true },
     private val diagnosticsLogger: DiagnosticsLogger? = null,
+    private val compressCommunityGiftRecipients: suspend () -> Boolean = { false },
 ) {
     private var generation = 0L
 
@@ -122,6 +123,7 @@ class ChatSessionFactory(
             onTransportDisconnected = { _, _ -> reconcileRecent() },
             onDecorationUpdated = catalog::applyDecorationUpdate,
             allowMessage = allowMessage,
+            compressCommunityGiftRecipients = compressCommunityGiftRecipients,
             diagnosticsLogger = diagnosticsLogger,
         )
         // Keep the public flow stable for renderers, but defer the actual provider construction
@@ -234,6 +236,7 @@ class ChatSessionManager(
     private val automaticCatalogRefreshGate: ChatCatalogRefreshGate = ChatCatalogRefreshGate(),
     private val allowMessage: suspend (ChatMessage) -> Boolean = { true },
     private val diagnosticsLogger: DiagnosticsLogger? = null,
+    private val compressCommunityGiftRecipients: suspend () -> Boolean = { false },
 ) {
     private val managerJob = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + managerJob)
@@ -254,6 +257,7 @@ class ChatSessionManager(
         maxTimelineSize = maxTimelineSize,
         automaticCatalogRefreshGate = automaticCatalogRefreshGate,
         allowMessage = allowMessage,
+        compressCommunityGiftRecipients = compressCommunityGiftRecipients,
         diagnosticsLogger = diagnosticsLogger,
     )
 
@@ -294,6 +298,7 @@ class ChatSessionManager(
             },
             onDecorationUpdated = catalog::applyDecorationUpdate,
             allowMessage = allowMessage,
+            compressCommunityGiftRecipients = compressCommunityGiftRecipients,
             diagnosticsLogger = diagnosticsLogger,
         )
         session.start(key)

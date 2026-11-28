@@ -7,6 +7,7 @@ import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsPhase
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsSeverity
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsTransport
 import com.github.andreyasadchy.xtra.diagnostics.DiagnosticsLogger
+import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatCommunityGift
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatEvent
 import com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatSessionKey
 import kotlinx.coroutines.CancellationException
@@ -24,6 +25,7 @@ class ChatEventProcessor(
     private val store: ChatTimelineStore,
     private val allowMessage: suspend (com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage) -> Boolean = { true },
     private val diagnosticsLogger: DiagnosticsLogger? = null,
+    private val compressCommunityGiftRecipients: suspend () -> Boolean = { false },
 ) {
     private data class Envelope(val key: ChatSessionKey, val event: ChatEvent)
     private sealed interface Command {
@@ -46,6 +48,7 @@ class ChatEventProcessor(
     init {
         processorJob = scope.launch {
             var activeKey: ChatSessionKey? = null
+            val pendingCommunityGifts = ArrayDeque<ChatCommunityGift>()
             for (command in events) {
                 val desired = desiredKey.get()
                 if (desired != null && desired != activeKey) {
@@ -53,6 +56,7 @@ class ChatEventProcessor(
                     resetPipelineSummary()
                     activeKey = desired
                     seen.clear()
+                    pendingCommunityGifts.clear()
                     store.apply(TimelineOperation.Replace(emptyList()))
                 }
                 when (command) {
@@ -61,6 +65,7 @@ class ChatEventProcessor(
                         reportPipelineSummary(force = true)
                         activeKey = null
                         seen.clear()
+                        pendingCommunityGifts.clear()
                         resetPipelineSummary()
                         store.apply(TimelineOperation.Replace(emptyList()))
                         command.acknowledged.complete(Unit)
@@ -83,7 +88,35 @@ class ChatEventProcessor(
                             continue
                         }
                         if (seen.size > 4096) seen.remove(seen.first())
-                        if (event !is ChatEvent.Message || allowMessage(event.message)) {
+                        if (event is ChatEvent.CommunityGift) {
+                            val compressGifts = compressCommunityGiftRecipients()
+                            if (compressGifts && event.gift.count >= COMMUNITY_GIFT_COMPRESSION_MIN_COUNT) {
+                                if (pendingCommunityGifts.size >= MAX_PENDING_COMMUNITY_GIFTS) {
+                                    pendingCommunityGifts.removeFirst()
+                                }
+                                pendingCommunityGifts.addLast(event.gift)
+                            } else if (!compressGifts) {
+                                pendingCommunityGifts.clear()
+                            }
+                            while (pendingCommunityGifts.isNotEmpty() &&
+                                event.receivedAtMs - pendingCommunityGifts.first().occurredAt > COMMUNITY_GIFT_MATCH_WINDOW_MS
+                            ) {
+                                pendingCommunityGifts.removeFirst()
+                            }
+                        }
+                        val compressedRecipient = if (event is ChatEvent.Message && isCommunityGiftRecipient(event.message)) {
+                            if (compressCommunityGiftRecipients()) {
+                                consumeCommunityGiftRecipient(event.message, pendingCommunityGifts)
+                            } else {
+                                pendingCommunityGifts.clear()
+                                false
+                            }
+                        } else {
+                            false
+                        }
+                        if (compressedRecipient) {
+                            if (trackDiagnostics) pipelineFilteredCount++
+                        } else if (event !is ChatEvent.Message || allowMessage(event.message)) {
                             store.accept(event)
                             if (trackDiagnostics && event is ChatEvent.Message) pipelineAcceptedCount++
                         } else {
@@ -142,8 +175,42 @@ class ChatEventProcessor(
         pipelineReportAtMs = nowMs
     }
 
+    /** Match EventSub's explicit bundle ID first; IRC falls back to the same gifter and gift count. */
+    private fun consumeCommunityGiftRecipient(
+        message: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage,
+        pending: ArrayDeque<ChatCommunityGift>,
+    ): Boolean {
+        val details = message.subscription ?: return false
+        if (!isCommunityGiftRecipient(message)) return false
+
+        while (pending.isNotEmpty() && message.timestampMs - pending.first().occurredAt > COMMUNITY_GIFT_MATCH_WINDOW_MS) {
+            pending.removeFirst()
+        }
+        val exactGiftId = details.communityGiftId
+        val gift = if (!exactGiftId.isNullOrBlank()) {
+            pending.firstOrNull { it.stableId == exactGiftId }
+        } else {
+            pending.firstOrNull { pendingGift -> pendingGift.matchesGifters(message.user?.id, message.user?.login, message.user?.displayName) }
+        } ?: return false
+
+        val remaining = (gift.count - 1).coerceAtLeast(0)
+        pending.remove(gift)
+        if (remaining > 0) pending.addFirst(gift.copy(count = remaining))
+        return true
+    }
+
+    private fun isCommunityGiftRecipient(message: com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage): Boolean {
+        val details = message.subscription ?: return false
+        return message.noticeType?.lowercase() in INDIVIDUAL_GIFT_RECIPIENT_NOTICE_TYPES &&
+            !details.isCommunityGift && !details.recipientName.isNullOrBlank()
+    }
+
     private companion object {
         const val CHAT_DIAGNOSTIC_INTERVAL_MS = 60_000L
+        const val COMMUNITY_GIFT_COMPRESSION_MIN_COUNT = 5
+        const val COMMUNITY_GIFT_MATCH_WINDOW_MS = 30_000L
+        const val MAX_PENDING_COMMUNITY_GIFTS = 128
+        val INDIVIDUAL_GIFT_RECIPIENT_NOTICE_TYPES = setOf("subgift", "sub_gift", "shared_chat_sub_gift")
     }
 
     /**
@@ -210,4 +277,15 @@ class ChatEventProcessor(
         val acknowledged = acknowledgement()
         sendControl(Command.Reconcile(key, recent, acknowledged), acknowledged)
     }
+}
+
+private fun ChatCommunityGift.matchesGifters(userId: String?, login: String?, displayName: String?): Boolean {
+    if (isAnonymous) {
+        return login.equals("ananonymousgifter", ignoreCase = true) ||
+            displayName.equals("AnAnonymousGifter", ignoreCase = true)
+    }
+    if (gifterUserId != null && userId != null) return gifterUserId == userId
+    if (!gifterLogin.isNullOrBlank() && !login.isNullOrBlank()) return gifterLogin.equals(login, ignoreCase = true)
+    return !gifterDisplayName.isNullOrBlank() && !displayName.isNullOrBlank() &&
+        gifterDisplayName.equals(displayName, ignoreCase = true)
 }

@@ -18,6 +18,8 @@ data class ChatSubscription(
     val recipientName: String? = null,
     val giftCount: Int? = null,
     val isCommunityGift: Boolean = false,
+    /** Community gift identity attached to individual gifted-sub notices by EventSub. */
+    val communityGiftId: String? = null,
     val isAnonymous: Boolean = false,
     val isUpgrade: Boolean = false,
 )

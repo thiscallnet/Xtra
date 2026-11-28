@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Kelompokkan hadiah langganan</string>
+    <string name="settings_chat_compress_gifts_summary">Untuk hadiah 5 langganan atau lebih, tampilkan ringkasan dan sembunyikan notifikasi tiap penerima.</string>
     <string name="discover">Temukan</string>
     <string name="discover_big_events">Acara besar saat ini</string>
     <string name="discover_live_channels">Saluran live yang mungkin Anda sukai</string>

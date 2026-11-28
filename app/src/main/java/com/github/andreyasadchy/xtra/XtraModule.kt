@@ -901,6 +901,9 @@ class XtraModule(private val application: Application) {
             parentScope = (application as XtraApp).applicationScope,
             diagnosticsLogger = diagnosticsLogger,
             allowMessage = { message -> !isBlockedChatUser(message.user?.id, message.user?.login) },
+            compressCommunityGiftRecipients = {
+                appContext.prefs().getBoolean(C.CHAT_COMPRESS_COMMUNITY_GIFT_RECIPIENTS, false)
+            },
             transportFactory = { spec: LiveChatSessionSpec ->
                 val scopes = appContext.tokenPrefs().getString(C.TOKEN_SCOPES, null)
                     .orEmpty().split(Regex("\\s+")).filter(String::isNotBlank).toSet()

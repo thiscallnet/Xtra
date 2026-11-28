@@ -51,6 +51,12 @@ adb shell am start -n com.github.andreyasadchy.xtra.debug/com.github.andreyasadc
   --es event_theme dark --ef event_scale 1.0
 ```
 
+To review gift-sub compression with a deterministic 20-sub IRC burst, set
+**Chat → Messages & interactions → Group gifted subs** and launch the same
+activity with `--ez gift_compression_fixture true`. The fixture parses the
+bundle and recipient notices, then sends them through the production
+`ChatEventProcessor`; the heading records whether the real setting is on or off.
+
 Captured review renders:
 
 - [Before redesign, Dark](chat-event-rows/before-dark-normal.png)

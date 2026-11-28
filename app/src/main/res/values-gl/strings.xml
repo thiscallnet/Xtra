@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Agrupar subscricións agasalladas</string>
+    <string name="settings_chat_compress_gifts_summary">Nos agasallos de 5 subscricións ou máis, mantén o resumo e oculta os avisos dos destinatarios.</string>
     <string name="discover">Descubrir</string>
     <string name="discover_big_events">Grandes eventos agora</string>
     <string name="discover_live_channels">Canles en directo que che poden gustar</string>
