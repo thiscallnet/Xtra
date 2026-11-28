@@ -307,6 +307,8 @@ object TwitchChatEventParser {
         val subscription = event.optJSONObject(noticeType.orEmpty())
             ?: event.optJSONObject("sub")
             ?: event.optJSONObject("resub")
+            ?: event.optJSONObject("sub_gift")
+            ?: event.optJSONObject("community_sub_gift")
             ?: event.optJSONObject("shared_chat_sub")
             ?: event.optJSONObject("shared_chat_resub")
         val subscriptionDetails = subscriptionFromEvent(noticeType, event, subscription)
@@ -567,6 +569,7 @@ object TwitchChatEventParser {
             recipientName = stringValue("recipient_user_name")
                 ?: stringValue("recipient_user_login"),
             giftCount = intValue("total", "mass_gift_count", "gift_count"),
+            communityGiftId = stringValue("community_gift_id"),
             isCommunityGift = ChatSubscriptionNoticeTypes.isCommunityGift(type) ||
                 booleanValue("community_gift") == true ||
                 intValue("total", "mass_gift_count") != null,

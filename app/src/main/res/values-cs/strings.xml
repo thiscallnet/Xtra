@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Seskupit darovaná předplatná</string>
+    <string name="settings_chat_compress_gifts_summary">U dárků alespoň 5 předplatných ponechá souhrn a skryje oznámení jednotlivým příjemcům.</string>
     <string name="discover">Objevování</string>
     <string name="discover_big_events">Velké události právě teď</string>
     <string name="discover_live_channels">Živé kanály, které by se vám mohly líbit</string>

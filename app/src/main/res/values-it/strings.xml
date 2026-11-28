@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Raggruppa gli abbonamenti regalati</string>
+    <string name="settings_chat_compress_gifts_summary">Per i regali di almeno 5 abbonamenti, mantiene il riepilogo e nasconde le notifiche dei singoli destinatari.</string>
     <string name="discover">Scopri</string>
     <string name="discover_big_events">Grandi eventi in corso</string>
     <string name="discover_live_channels">Canali live che potrebbero piacerti</string>

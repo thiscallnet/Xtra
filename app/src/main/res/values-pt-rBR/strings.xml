@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Agrupar inscrições presenteadas</string>
+    <string name="settings_chat_compress_gifts_summary">Para presentes com 5 inscrições ou mais, mantém o resumo e oculta os avisos de cada pessoa presenteada.</string>
     <string name="discover">Descobrir</string>
     <string name="discover_big_events">Grandes eventos agora</string>
     <string name="discover_live_channels">Canais ao vivo que você pode gostar</string>

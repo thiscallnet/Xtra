@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">ギフトサブスクをまとめる</string>
+    <string name="settings_chat_compress_gifts_summary">5件以上のギフトでは、まとめの通知を残し、受取人ごとの通知を非表示にします。</string>
     <string name="discover">見つける</string>
     <string name="discover_big_events">今注目の大きなイベント</string>
     <string name="discover_live_channels">おすすめのライブチャンネル</string>

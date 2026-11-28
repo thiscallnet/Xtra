@@ -1194,6 +1194,8 @@ Tap to search everywhere</string>
     <string name="last_broadcast_date">Last broadcast %s</string>
     <string name="followed_at">Followed at %s</string>
     <string name="show_usernotice">Show user notices (subs, raids)</string>
+    <string name="settings_chat_compress_gifts">Group gifted subs</string>
+    <string name="settings_chat_compress_gifts_summary">For gifts of 5 or more subs, keep the bundle summary and hide recipient notices.</string>
     <string name="show_clearmsg">Show deletions of single messages</string>
     <string name="show_clearchat">Show timeouts and bans</string>
     <string name="chat_moderation_timeout">(%1$s Timeout)</string>

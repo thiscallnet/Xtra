@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">تجميع الاشتراكات المهداة</string>
+    <string name="settings_chat_compress_gifts_summary">للهدايا التي تضم 5 اشتراكات أو أكثر، أبقِ ملخص المجموعة وأخفِ إشعارات المستلمين.</string>
     <string name="discover">استكشاف</string>
     <string name="discover_big_events">الأحداث الكبيرة الآن</string>
     <string name="discover_live_channels">قنوات مباشرة قد تعجبك</string>

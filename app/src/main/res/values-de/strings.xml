@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">Abo-Geschenke gruppieren</string>
+    <string name="settings_chat_compress_gifts_summary">Bei Geschenken mit mindestens 5 Abos bleibt die Zusammenfassung sichtbar; Meldungen zu einzelnen Empfängern werden ausgeblendet.</string>
     <string name="discover">Entdecken</string>
     <string name="discover_big_events">Große Events gerade jetzt</string>
     <string name="discover_live_channels">Live-Kanäle, die dir gefallen könnten</string>

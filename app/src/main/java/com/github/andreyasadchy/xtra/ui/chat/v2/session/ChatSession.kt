@@ -31,11 +31,18 @@ class ChatSession(
     private val onDecorationUpdated: suspend (ChatDecorationUpdate) -> Unit = {},
     private val allowMessage: suspend (com.github.andreyasadchy.xtra.ui.chat.v2.domain.ChatMessage) -> Boolean = { true },
     diagnosticsLogger: DiagnosticsLogger? = null,
+    private val compressCommunityGiftRecipients: suspend () -> Boolean = { false },
 ) {
     private val job = SupervisorJob(parentScope.coroutineContext[Job])
     private val scope = CoroutineScope(parentScope.coroutineContext + job)
     val timeline = ChatTimelineStore(scope, maxTimelineSize)
-    private val processor = ChatEventProcessor(scope, timeline, allowMessage, diagnosticsLogger)
+    private val processor = ChatEventProcessor(
+        scope = scope,
+        store = timeline,
+        allowMessage = allowMessage,
+        diagnosticsLogger = diagnosticsLogger,
+        compressCommunityGiftRecipients = compressCommunityGiftRecipients,
+    )
     private val transitionMutex = Mutex()
     private var transportJob: Job? = null
     private var desiredKey: ChatSessionKey? = null
@@ -77,6 +84,7 @@ class ChatSession(
                             } else if (event is ChatEvent.DecorationUpdated) {
                                 onDecorationUpdated(event.update)
                             } else if (event is ChatEvent.CommunityGift) {
+                                processor.submit(key, event)
                                 _communityGifts.emit(event.gift)
                             } else {
                                 processor.submit(key, event)

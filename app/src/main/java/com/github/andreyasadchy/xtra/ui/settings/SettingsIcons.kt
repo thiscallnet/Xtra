@@ -158,6 +158,7 @@ object SettingsIcons {
         "tv_chat_overlay_opacity" to R.drawable.ic_pref_opacity,
         "chat_translate_target" to R.drawable.ic_pref_language,
         "chat_show_usernotice" to R.drawable.ic_pref_star,
+        "chat_compress_community_gift_recipients" to R.drawable.ic_happening_now_gift,
         "chat_show_clearmsg" to R.drawable.ic_pref_delete,
         "chat_show_clearchat" to R.drawable.ic_pref_block,
         "chat_moderation_display" to R.drawable.ic_pref_shield,

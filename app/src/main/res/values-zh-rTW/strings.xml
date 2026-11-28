@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_chat_compress_gifts">合併訂閱贈禮通知</string>
+    <string name="settings_chat_compress_gifts_summary">贈送 5 個或更多訂閱時保留彙總訊息，並隱藏每位接收者的通知。</string>
     <string name="discover">探索</string>
     <string name="discover_big_events">目前的大型活動</string>
     <string name="discover_live_channels">你可能會喜歡的直播頻道</string>
